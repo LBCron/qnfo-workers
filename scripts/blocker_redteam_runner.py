@@ -74,6 +74,16 @@ def token_attempt(req=None):
     return False, last
 
 
+def has_owner_claim(text):
+    for match in OWNER_RE.finditer(text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        prefix = text[line_start:match.start()]
+        if re.search(r"\b(?:not|never|neither|no)\b(?:\W+\w+){0,4}\W*$", prefix, re.I):
+            continue
+        return True
+    return False
+
+
 def record(d1, target, claim, attempt, verdict, evidence, sig=None):
     d1("INSERT INTO blocker_redteam (target, claim, attempt, verdict, evidence, actor, text_sig, ts) "
        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
@@ -98,7 +108,7 @@ def main(d1=None, req=None):
                 row = d1("SELECT description FROM agent_issues WHERE id = ?1", [iid])
                 desc = (row[0].get("description") if row else "") or ""
                 bound = BOUND_RE.search(desc)
-                if OWNER_RE.search(text + " " + desc):
+                if has_owner_claim(text + " " + desc):
                     if not bound:
                         out["left"] += 1
                         continue
@@ -164,12 +174,14 @@ CREATE VIEW v_blocker_claims AS SELECT * FROM claims;
 INSERT INTO agent_issues VALUES (1, 'blocked on x', 'needs fixing'), (2, 'blocked', 'fix it\ncode-task: repo=qnfo-workers path=a/worker.js'),
   (3, 'needs a token', 'cannot write routes, no token'), (4, 'blocked', 'nothing'), (5, 'blocked', 'claimed'),
   (6, 'owner only', 'needs the owner
-IDENTITY-BOUND: a signing act'), (9, 'owner only: x', 'code-task: repo=qnfo-workers path=a/worker.js');
+IDENTITY-BOUND: a signing act'), (9, 'owner only: x', 'code-task: repo=qnfo-workers path=a/worker.js'),
+ (10, 'move token to the fleet app', 'Neither is owner-only.\ncode-task: repo=qnfo-workers path=qnfo-ops/worker.js');
 INSERT INTO remediation_contracts VALUES ('issue-1', 1, 'active', 'SELECT 1', 'd1-query'), ('issue-4', 4, 'needs-machine-probe', 'needs-machine-probe', 'd1-query');
 INSERT INTO work_claims VALUES (5, 'session_x', NULL, '2999-01-01T00:00:00Z');
 INSERT INTO human_actions VALUES (7, 'Post the license.\nIDENTITY-BOUND: a legal act in the owner''s name'), (8, 'just do it');
 INSERT INTO claims VALUES ('issue:1', 'blocked on x'), ('issue:2', 'blocked'), ('issue:3', 'needs a token'), ('issue:4', 'blocked'),
-  ('issue:5', 'blocked'), ('issue:6', 'owner only'), ('issue:9', 'owner only: x'), ('card:7', 'Post the license'), ('card:8', 'do it');
+  ('issue:5', 'blocked'), ('issue:6', 'owner only'), ('issue:9', 'owner only: x'), ('issue:10', 'move token to the fleet app'),
+  ('card:7', 'Post the license'), ('card:8', 'do it');
 """)
 
     def d1(sql, params=None):
@@ -184,6 +196,7 @@ INSERT INTO claims VALUES ('issue:1', 'blocked on x'), ('issue:2', 'blocked'), (
     assert got["issue:6"][0] == "confirmed-with-evidence" and "signing" in got["issue:6"][1], got
     assert "issue:9" not in got, "an owner claim without IDENTITY-BOUND stays counted"
     assert got["issue:2"][0] == "false-belief-removed" and "code-task" in got["issue:2"][1], got
+    assert got["issue:10"][0] == "false-belief-removed" and "code-task" in got["issue:10"][1], got
     assert got["issue:3"][0] == "false-belief-removed" and "active" in got["issue:3"][1], got
     assert "issue:4" not in got, "an untested claim must stay unrecorded"
     assert got["issue:5"][0] == "false-belief-removed" and "session_x" in got["issue:5"][1], got
