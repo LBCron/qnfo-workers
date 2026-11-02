@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-02 17:45:21",
+  "audited_at": "2026-11-02 18:18:58",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -556,7 +556,7 @@
       },
       {
         "dir": "personal-api",
-        "version": "4.30.0",
+        "version": "4.30.1",
         "worker": "personal-api"
       },
       {
@@ -616,7 +616,7 @@
       },
       {
         "dir": "qnfo-deploy-guard",
-        "version": "1.4.1-leases-killswitch",
+        "version": "1.4.2-leases-killswitch",
         "worker": "qnfo-deploy-guard"
       },
       {
@@ -691,7 +691,7 @@
       },
       {
         "dir": "qnfo-ops",
-        "version": "2.62.6-false-stops",
+        "version": "2.62.7-secret-change-scope",
         "worker": "qnfo-ops"
       },
       {
@@ -988,9 +988,9 @@
       "worker": "patches"
     },
     "personal-api": {
-      "before": "4.30.0",
+      "before": "4.30.1",
       "http": 200,
-      "live": "4.30.0",
+      "live": "4.30.1",
       "match": 1,
       "note": "SYNC",
       "worker": "personal-api"
@@ -1300,9 +1300,9 @@
       "worker": "qnfo-ddocs-indexer"
     },
     "qnfo-deploy-guard": {
-      "before": "1.4.1-leases-killswitch",
+      "before": "1.4.2-leases-killswitch",
       "http": 200,
-      "live": "1.4.1-leases-killswitch",
+      "live": "1.4.2-leases-killswitch",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-deploy-guard"
@@ -1581,9 +1581,9 @@
       "worker": "qnfo-observability"
     },
     "qnfo-ops": {
-      "before": "2.62.6-false-stops",
+      "before": "2.62.7-secret-change-scope",
       "http": 200,
-      "live": "2.62.6-false-stops",
+      "live": "2.62.7-secret-change-scope",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ops"
