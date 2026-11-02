@@ -1,24 +1,37 @@
 {
-  "audited_at": "2026-11-02 16:04:40",
+  "audited_at": "2026-11-02 17:17:12",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
-    "_drift_confirm": {
-      "first_pass": [
-        "qnfo-fleet-control",
-        "qnfo-fleet-dashboard"
-      ],
-      "refreshed": true,
-      "second_pass": []
+    "_deploy_settle": {
+      "settled": [],
+      "waited_for": [
+        "qnfo-ai"
+      ]
     },
     "_guard_rc": 0,
-    "ahead": [],
+    "ahead": [
+      {
+        "artifact": "/home/runner/work/qnfo-workers/qnfo-workers/qnfo-ai/deployed-current.worker.js",
+        "dir": "qnfo-ai",
+        "live": "5.41.8",
+        "repo": "5.42.0",
+        "worker": "qnfo-ai"
+      }
+    ],
     "cf_script_list": true,
     "content_checked": true,
     "content_drift": [],
     "cron_only": [],
     "cron_only_count": 0,
-    "drift": [],
+    "drift": [
+      {
+        "dir": "qnfo-ai",
+        "live": "5.41.8",
+        "repo": "5.42.0",
+        "worker": "qnfo-ai"
+      }
+    ],
     "live_err": [],
     "multi_version": [],
     "multi_version_count": 0,
@@ -555,7 +568,7 @@
     "retired_present": [],
     "retired_present_count": 0,
     "scope": "all",
-    "sync": 36,
+    "sync": 35,
     "sync_workers": [
       {
         "dir": "idea-hub",
@@ -591,11 +604,6 @@
         "dir": "qnfo-agents",
         "version": "0.3.1",
         "worker": "qnfo-agents"
-      },
-      {
-        "dir": "qnfo-ai",
-        "version": "5.41.8",
-        "worker": "qnfo-ai"
       },
       {
         "dir": "qnfo-ai-calibration",
@@ -1107,11 +1115,11 @@
       "worker": "qnfo-agents"
     },
     "qnfo-ai": {
-      "before": "5.41.8",
+      "before": "5.42.0",
       "http": 200,
       "live": "5.41.8",
-      "match": 1,
-      "note": "SYNC",
+      "match": 0,
+      "note": "DRIFT",
       "worker": "qnfo-ai"
     },
     "qnfo-ai-calibration": {
@@ -1865,5 +1873,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 1
 }
