@@ -38,7 +38,8 @@ const code = [
   cut("async function aiRunAttr(", "// PROMPT-CACHE-COUNT-4: one ai_cache_counters increment") + cut("function aiCacheRow(", "\n}\n", src.indexOf("function aiCacheRow(")) + "\n}\n",
   cut("var RT_PROBE_AUTHOR_MAX_PER_TICK = 3;", "var rtLivePathRetryAt = 0;"),
 ].join("\n");
-const cx = vm.createContext({ Date, Number, String, parseInt, Math, JSON, Object, Array, RegExp, isFinite, console: { error() {}, log() {} }, __name: (f) => f });
+const consoleErrors = [];
+const cx = vm.createContext({ Date, Number, String, parseInt, Math, JSON, Object, Array, RegExp, isFinite, console: { error(...args) { consoleErrors.push(args); }, log() {} }, __name: (f) => f });
 // the names the hardening adds are looked up one by one, so this suite still loads (and fails its own checks) against a worker that predates them
 vm.runInContext(code + `
 this.api = { rtAuthorLivePathProbe, setTick(k) { rtProbeAuthorTickKey = k; }, authorDailyLimit: RT_PROBE_AUTHOR_MAX_PER_DAY };
@@ -676,5 +677,6 @@ const LEAK = /jane|gmail|bob|carol|dave|erin|example|grant|timeout|@/i;
   ok(/ci-status\/remediation-consumer\.json/.test(wf) && /git add ci-status\/remediation-consumer\.json/.test(wf), "the remediation-consumer workflow commits ci-status/remediation-consumer.json");
 }
 ok(mirror === src, "the deployed-current mirror is identical to worker.js");
+ok(consoleErrors.length === 0, "probe-author rejections are recorded without error-level console logs", consoleErrors);
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
