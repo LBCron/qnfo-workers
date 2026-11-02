@@ -59,13 +59,13 @@ C_NEW = (
 )
 
 
-def patch(path, old, new, label):
+def patch(path, old, new, label, already_applied):
     if not os.path.exists(path):
         print("FAIL: %s not found at %s" % (label, path))
         sys.exit(1)
     with open(path, encoding="utf-8") as fh:
         src = fh.read()
-    if new in src:
+    if new in src or already_applied(src):
         print("%s: already applied (idempotent no-op)" % label)
         return src
     hits = src.count(old)
@@ -80,8 +80,20 @@ def patch(path, old, new, label):
 
 
 def main():
-    guard_src = patch(GUARD, G_OLD, G_NEW, "deploy-drift-guard.py")
-    cons_src = patch(CONSUMER, C_OLD, C_NEW, "fleet-autoaudit.py")
+    guard_src = patch(
+        GUARD, G_OLD, G_NEW, "deploy-drift-guard.py",
+        lambda src: MARK in src
+        and 'sync_workers.append({"worker": worker, "dir": d, "version": lv})' in src
+        and "sync_workers.append(worker)" not in src,
+    )
+    cons_src = patch(
+        CONSUMER, C_OLD, C_NEW, "fleet-autoaudit.py",
+        lambda src: MARK in src
+        and '_v = it.get("version") if isinstance(it, dict) else None' in src
+        and 'put(_w(it), 200, _v, _v, 1, "SYNC")' in src
+        and 'put(w, 200, None, None, 1, "SYNC")' not in src
+        and "def _w(it):" in src,
+    )
 
     fails = []
 
