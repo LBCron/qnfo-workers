@@ -52,6 +52,8 @@ head_sampling_rate = 1
 [observability.logs]
 enabled = true
 head_sampling_rate = 1
+# Mail invocation records include raw sender and recipient addresses.
+invocation_logs = false
 
 [observability.traces]
 enabled = true
