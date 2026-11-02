@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-02 15:05:26",
+  "audited_at": "2026-11-02 15:33:19",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -596,7 +596,7 @@
       },
       {
         "dir": "qnfo-ai-search",
-        "version": "2.12.7-codeagent",
+        "version": "2.12.8-codeagent",
         "worker": "qnfo-ai-search"
       },
       {
@@ -676,7 +676,7 @@
       },
       {
         "dir": "qnfo-memory-mcp",
-        "version": "2.5.0-fullscope",
+        "version": "2.5.1-codeagent",
         "worker": "qnfo-memory-mcp"
       },
       {
@@ -1115,9 +1115,9 @@
       "worker": "qnfo-ai-calibration"
     },
     "qnfo-ai-search": {
-      "before": "2.12.7-codeagent",
+      "before": "2.12.8-codeagent",
       "http": 200,
-      "live": "2.12.7-codeagent",
+      "live": "2.12.8-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai-search"
@@ -1548,9 +1548,9 @@
       "worker": "qnfo-lifecycle"
     },
     "qnfo-memory-mcp": {
-      "before": "2.5.0-fullscope",
+      "before": "2.5.1-codeagent",
       "http": 200,
-      "live": "2.5.0-fullscope",
+      "live": "2.5.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-memory-mcp"
