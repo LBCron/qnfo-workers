@@ -53,6 +53,8 @@ const probeIssues = (db) => db.prepare("SELECT * FROM agent_issues WHERE title L
 {
   const { db, h } = mk();
   const orphan = add(db, "ORPHAN-ONE-1: something", { source: "session-x", contract: "superseded" });
+  const ownerTask = add(db, "OWNER-TASK: act on a fleet decision");
+  const ownerNote = add(db, "OWNER-NOTE: record an observation");
   const young = add(db, "YOUNG-1: opened 30 minutes ago", { ageMin: 30 });
   const reopened = add(db, "REOPENED-1: old issue reopened a minute ago", { ageMin: 900, reopenedMinAgo: 1 });
   const live = [["active", "A"], ["holding", "H"], ["monitoring", "M"], ["escalated", "E"]].map(([st, k]) => add(db, "LIVE-" + k + "-1: has a " + st + " contract", { contract: st }));
@@ -64,7 +66,7 @@ const probeIssues = (db) => db.prepare("SELECT * FROM agent_issues WHERE title L
   const files = probeIssues(db).filter((r) => r.status === "open").map((r) => r.title);
   ok(JSON.stringify(out.probe_needed_filed.sort((x, y) => x - y)) === JSON.stringify([orphan, closedProbe].sort((x, y) => x - y)), "files for the old orphan and for the one whose earlier PROBE-NEEDED-1 issue is closed, nothing else", out);
   ok(files.includes("PROBE-NEEDED-1: issue-" + orphan) && files.includes("PROBE-NEEDED-1: issue-" + closedProbe), "titles are PROBE-NEEDED-1: issue-<id>", files);
-  ok(!files.includes("PROBE-NEEDED-1: issue-" + young) && !files.includes("PROBE-NEEDED-1: issue-" + reopened) && live.every((i) => !files.includes("PROBE-NEEDED-1: issue-" + i)), "a young orphan, one reopened a minute ago and the four live-contract issues file none", files);
+  ok(!files.includes("PROBE-NEEDED-1: issue-" + young) && !files.includes("PROBE-NEEDED-1: issue-" + reopened) && !files.includes("PROBE-NEEDED-1: issue-" + ownerTask) && !files.includes("PROBE-NEEDED-1: issue-" + ownerNote) && live.every((i) => !files.includes("PROBE-NEEDED-1: issue-" + i)), "a young orphan, one reopened a minute ago, OWNER-TASK and OWNER-NOTE targets, and the four live-contract issues file none", files);
   out = await tick(h);
   ok(out.probe_needed_filed.length === 0 && probeIssues(db).filter((r) => r.status === "open").length === 3, "a second tick files none (the issues just filed carry their own contract and are never orphans)", out);
   const iss = db.prepare("SELECT * FROM agent_issues WHERE title = ?").get("PROBE-NEEDED-1: issue-" + orphan);
