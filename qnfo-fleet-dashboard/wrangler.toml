@@ -20,7 +20,7 @@ SOCIAL_ALLOW_Q08 = "1"
 # qnfo-fleet-dashboard v1.8.0 - ONE human page (what needs the owner, money, clock). Machine state stays under /api/*.
 # Purpose: at-a-glance view of every scheduled worker (crons + next UTC runs), 24h invocation/error analytics
 # (CF GraphQL), D1 pipeline audits (qnfo-audit/outreach/living-paper), endpoint probes, and device-bound tasks.
-# Cron refresh = every 15 min (cloud); GET /api/state auto-refreshes when older than 15 min.
+# Heartbeat fallback = every 5 min; full dashboard refresh = every 15 min.
 # Secrets (set via wrangler secret put): CF_TOKEN (account analytics read; used for GraphQL 24h per-script stats)
 
 
@@ -72,7 +72,7 @@ name = "SEND_EMAIL"
 allowed_destination_addresses = ["rwnquni@outlook.com"]
 
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/5 * * * *"]
 
 [[services]]
 binding = "SVC_QNFO_AI"

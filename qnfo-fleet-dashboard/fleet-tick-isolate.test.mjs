@@ -10,12 +10,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "worker.js"), "utf8");
+const wrangler = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "wrangler.toml"), "utf8");
 let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 300) : "")); } };
 const i = src.indexOf("async function feedFallbackTick(env) {"), j = src.indexOf('\n__name(feedFallbackTick', i);
 ok(i >= 0 && j > i, "feedFallbackTick is found in worker.js");
 const logs = [];
 const lib = new Function("NAME", "console", src.slice(i, j) + "\nreturn { feedFallbackTick };")("qnfo-fleet-dashboard", { log: (x) => logs.push(String(x)) });
+const dueStart = src.indexOf("function fullDashboardRefreshDue(controller) {");
+const dueEnd = src.indexOf("\n__name(fullDashboardRefreshDue", dueStart);
+ok(dueStart >= 0 && dueEnd > dueStart, "fullDashboardRefreshDue is found in worker.js");
+const fullDashboardRefreshDue = new Function(src.slice(dueStart, dueEnd) + "\nreturn fullDashboardRefreshDue;")();
 const mk = (opts = {}) => {
   const db = new DatabaseSync(":memory:");
   db.exec(`
@@ -74,7 +79,17 @@ const marks = (db) => db.prepare("SELECT COUNT(*) n FROM fixer_marks").get().n;
   db.exec("CREATE TRIGGER fixer_reopen_twin AFTER INSERT ON fleet_tick BEGIN UPDATE agent_issues SET status = 'open' WHERE title = 'same title' AND status = 'closed'; END;");
   await lib.feedFallbackTick(env);
   ok(db.prepare(probe).get().n >= 1, "the chaos-drill probe (a dashboard-sourced row in 24 h) is satisfied, isolated rows included", ticks(db)); }
+{ const at = (minute) => Date.UTC(2026, 10, 2, 8, minute);
+  ok(fullDashboardRefreshDue({ scheduledTime: at(0) }) && fullDashboardRefreshDue({ scheduledTime: at(15) }), "full dashboard refresh remains on its original quarter-hour boundaries");
+  ok(!fullDashboardRefreshDue({ scheduledTime: at(5) }) && !fullDashboardRefreshDue({ scheduledTime: at(10) }), "five-minute heartbeat-only runs skip the full refresh");
+  const scheduled = src.slice(src.indexOf("async scheduled(controller, env, ctx) {"));
+  const tick = scheduled.indexOf("const tickOk = await feedFallbackTick(env);");
+  const guard = scheduled.indexOf("if (!fullDashboardRefreshDue(controller)) return;");
+  const heartbeat = scheduled.indexOf("INSERT OR REPLACE INTO fleet_heartbeat");
+  const longWork = scheduled.indexOf("const deadline = Date.now()");
+  ok(/crons\s*=\s*\["\*\/5 \* \* \* \*"\]/.test(wrangler), "the standby is scheduled every five minutes");
+  ok(tick >= 0 && heartbeat > tick && guard > heartbeat && guard < longWork, "each cadence records heartbeat evidence before full work is skipped on non-quarter-hours"); }
 ok(/const tickOk = await feedFallbackTick\(env\);/.test(src) && !/INSERT INTO fleet_tick \(source\) SELECT 'cron:qnfo-fleet-dashboard' WHERE/.test(src), "scheduled() uses the helper and no longer carries the bare insert");
-{ const m = /var VERSION = "(\d+)\.(\d+)\.(\d+)/.exec(src); ok(m && Number(m[1]) * 1e6 + Number(m[2]) * 1e3 + Number(m[3]) >= 1049002, "VERSION is at least 1.49.2", m && m[0]); }
+{ const m = /var VERSION = "(\d+)\.(\d+)\.(\d+)/.exec(src); ok(m && Number(m[1]) * 1e6 + Number(m[2]) * 1e3 + Number(m[3]) >= 1080000, "VERSION is at least 1.80.0", m && m[0]); }
 console.log(fail ? fail + " failed, " + pass + " passed" : pass + " passed, 0 failed");
 process.exit(fail ? 1 : 0);
