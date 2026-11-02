@@ -105,7 +105,8 @@ ok(V({ items: 12, attention: 1, visits: 0, clicks_human: 40 }).verdict === "IMPR
 ok(JSON.stringify(T.atShares({ bluesky: { share: 0 }, linkedin: { share: 0.5 }, x: null })) === JSON.stringify({ bluesky: 0, linkedin: 0.5, mastodon: 1, x: 1 }), "the share map carries every social channel; unmeasured ones read 1");
 // ATTENTION-STOP-GRADE-1 (agent_issues 2467): a STOP is graded on the other channels, pooled; no rows reads unmeasured.
 ok(T.atPooledRow([]) === null && T.atPooledRow([{ items: 4, attention: 1 }, { items: 0, attention: 0 }, { items: 4, attention: 3 }]).per_item === 0.5 && T.atPooledRow([{ items: 0, attention: 0 }]).per_item === 0, "pooled row: attention over items across channels, null without rows");
-ok(T.atEfficacy({ per_item: 0 }, { per_item: 0.5 }).outcome === "improved" && T.atEfficacy({ per_item: 1 }, { per_item: 1.1 }).outcome === "flat" && T.atEfficacy({ per_item: 1 }, { per_item: 0.5 }).outcome === "worse" && T.atEfficacy(null, { per_item: 1 }).outcome === "unmeasured", "efficacy: improved at +20%, worse at -20%, flat between, unmeasured without rows");
+ok(T.atEfficacy({ items: 5, per_item: 0 }, { items: 5, per_item: 0.5 }).outcome === "improved" && T.atEfficacy({ items: 5, per_item: 1 }, { items: 5, per_item: 1.1 }).outcome === "flat" && T.atEfficacy({ items: 5, per_item: 1 }, { items: 5, per_item: 0.5 }).outcome === "worse" && T.atEfficacy(null, { items: 5, per_item: 1 }).outcome === "unmeasured", "efficacy: improved at +20%, worse at -20%, flat between, unmeasured without rows");
+ok(T.atEfficacy({ items: 0, per_item: 0 }, { items: 0, per_item: 0 }).outcome === "unmeasured" && T.atEfficacy({ items: 5, per_item: 1 }, { items: 4, per_item: 0 }).outcome === "unmeasured", "a zero-to-zero comparison or a sparse 7-day window is not a measured flat outcome");
 
 // ---------- the per-item row builder ----------
 const rows = T.atRumExternalRows([
@@ -180,8 +181,9 @@ const NOW2 = "2026-10-15T05:00:00.000Z";
 const r3 = await T.attentionScorecard(env, { nowMs: Date.parse(NOW2) });
 ok(r3.day === "2026-10-14" && r3.channels.bluesky.verdict.verdict === "STOP" && r3.shares.bluesky === 0, "a week later Bluesky is still stopped (re-test on 2026-11-04)");
 ok(r3.efficacy.graded_now === 4 && db.prepare("SELECT COUNT(*) AS n FROM attention_decisions WHERE outcome IS NOT NULL").get().n === 4, "the four decisions are graded once their verify date passes");
-ok(db.prepare("SELECT outcome FROM attention_decisions WHERE channel = 'x'").get().outcome === "flat", "X's promotion is graded flat: no X post in the week before or after (0 -> 0), so the decision moved nothing yet");
-{ const bs = db.prepare("SELECT outcome, outcome_detail FROM attention_decisions WHERE channel = 'bluesky' AND to_verdict = 'STOP'").get(); ok(bs && /^other channels per item /.test(bs.outcome_detail || "") && ["improved", "flat", "worse"].indexOf(bs.outcome) >= 0, "the Bluesky STOP is graded on the other channels pooled, not on its own zero share (ATTENTION-STOP-GRADE-1): " + JSON.stringify(bs)); }
+ok(db.prepare("SELECT outcome FROM attention_decisions WHERE channel = 'x'").get().outcome === "unmeasured", "X's promotion is unmeasured: no X posts in the week before or after cannot establish a flat outcome");
+{ const bs = db.prepare("SELECT outcome, outcome_detail FROM attention_decisions WHERE channel = 'bluesky' AND to_verdict = 'STOP'").get(); ok(bs && /^other channels fewer than 5 items/.test(bs.outcome_detail || "") && bs.outcome === "unmeasured", "the Bluesky STOP is graded against other channels pooled, but sparse periods stay unmeasured (ATTENTION-STOP-GRADE-1): " + JSON.stringify(bs)); }
+ok(r3.efficacy.judged === 0 && /^n\/a/.test(db.prepare("SELECT last_value FROM metric_registry WHERE metric = 'attention_decision_efficacy_30d'").get().last_value), "sparse decision windows do not enter the efficacy denominator");
 ok(r3.decisions.length === 0, "no verdict changed, no new decision");
 // After the re-test date: a quarter share for a week.
 const r4 = await T.attentionScorecard(env, { nowMs: Date.parse("2026-11-05T05:00:00.000Z") });
