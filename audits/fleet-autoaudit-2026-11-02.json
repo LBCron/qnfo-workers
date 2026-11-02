@@ -1,8 +1,16 @@
 {
-  "audited_at": "2026-11-02 07:24:35",
+  "audited_at": "2026-11-02 08:04:56",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
+    "_drift_confirm": {
+      "first_pass": [
+        "qnfo-fleet-control",
+        "qnfo-infra"
+      ],
+      "refreshed": true,
+      "second_pass": []
+    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -631,7 +639,7 @@
       },
       {
         "dir": "qnfo-fleet-control",
-        "version": "0.59.26-breach-doctor-decision-ledger",
+        "version": "0.59.29-no-dead-doi",
         "worker": "qnfo-fleet-control"
       },
       {
@@ -646,12 +654,12 @@
       },
       {
         "dir": "qnfo-github-steward",
-        "version": "0.10.8",
+        "version": "0.10.9",
         "worker": "qnfo-github-steward"
       },
       {
         "dir": "qnfo-infra",
-        "version": "1.10.0-secrets-store-cf-token",
+        "version": "1.10.2-no-dead-doi",
         "worker": "qnfo-infra"
       },
       {
@@ -734,7 +742,7 @@
     "unmanaged_truncated": false,
     "unmanaged_workers": [
       {
-        "http": 404,
+        "http": 200,
         "version": null,
         "worker": "qnfo-fleet-lee"
       },
@@ -1405,9 +1413,9 @@
       "worker": "qnfo-fleet-calibrator"
     },
     "qnfo-fleet-control": {
-      "before": "0.59.26-breach-doctor-decision-ledger",
+      "before": "0.59.29-no-dead-doi",
       "http": 200,
-      "live": "0.59.26-breach-doctor-decision-ledger",
+      "live": "0.59.29-no-dead-doi",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-control"
@@ -1440,10 +1448,10 @@
     },
     "qnfo-fleet-lee": {
       "before": null,
-      "http": 404,
+      "http": 200,
       "live": null,
       "match": 0,
-      "note": "UNMANAGED_NO_HEALTH",
+      "note": "UNMANAGED_OK",
       "worker": "qnfo-fleet-lee"
     },
     "qnfo-gateway": {
@@ -1455,9 +1463,9 @@
       "worker": "qnfo-gateway"
     },
     "qnfo-github-steward": {
-      "before": "0.10.8",
+      "before": "0.10.9",
       "http": 200,
-      "live": "0.10.8",
+      "live": "0.10.9",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-github-steward"
@@ -1499,9 +1507,9 @@
       "worker": "qnfo-impact"
     },
     "qnfo-infra": {
-      "before": "1.10.0-secrets-store-cf-token",
+      "before": "1.10.2-no-dead-doi",
       "http": 200,
-      "live": "1.10.0-secrets-store-cf-token",
+      "live": "1.10.2-no-dead-doi",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-infra"
