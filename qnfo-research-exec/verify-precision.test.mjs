@@ -117,6 +117,13 @@ ok(/## Adjudication/.test(r2.get("pipeline/v-ok/verification.md")) && /\| Q1 \| 
 put("v-bad"); pilotOut = "CLAIM Q1: computed=4.3100119e-21 expected=4.2800e-21 match=no";
 res = await stageVerify(env, row("v-bad", "verify", { cycles: 1, verifyPass: 0 }));
 ok(res.ok === true && res.stage === "verify->revise" && res.mismatch === true && /independently computed 4\.3100119e-21, the paper states 4\.2800e-21/.test(r2.get("pipeline/v-bad/fixes.json")), "a wrong value goes to revise with the computed and stated numbers", res);
+const goldenClaims = [{ id: "Q1", statement: "Q1 = 1.0" }, { id: "Q2", statement: "Q2 = 2.0" }];
+ai.answer = (task) => task === "VERIFY_EXTRACT" ? JSON.stringify(goldenClaims) : task === "VERIFY_GEN" ? "```python\nprint('CLAIM Q1: computed=1.000 expected=1.000 match=yes\\nCLAIM Q2: computed=3.000 expected=2.000 match=no')\n```" : "";
+pilotOut = "CLAIM Q1: computed=1.000 expected=1.000 match=yes\nCLAIM Q2: computed=3.000 expected=2.000 match=no";
+put("v-golden-metrics");
+res = await stageVerify(env, row("v-golden-metrics", "verify", { cycles: 1, verifyPass: 0 }));
+const goldenRates = audit.prepare("SELECT catch_rate, false_positive_rate, model_version, prompt_version FROM research_golden_runs WHERE row_id = 'v-golden-metrics'").get();
+ok(res.stage === "verify->revise" && goldenRates && goldenRates.catch_rate === 0.5 && goldenRates.false_positive_rate === 0 && goldenRates.catch_rate + goldenRates.false_positive_rate !== 1 && goldenRates.model_version && goldenRates.prompt_version, "golden-run rates are independent and retain model and prompt versions", { res, goldenRates });
 put("v-bad2");
 res = await stageVerify(env, row("v-bad2", "verify", { cycles: 1, verifyPass: 1 }));
 ok(res.ok === false && res.withheld === "verify-unresolved" && res.mismatches === 1 && get("v-bad2").status === "queued" && /mismatch=true gates=$/.test(get("v-bad2").error), "a second failing pass withholds the paper and re-arms the row, as before", res);
