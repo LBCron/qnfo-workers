@@ -307,16 +307,43 @@ function scanRepoUnlisted(root, allowed) {
 }
 export { scanRepoUnlisted };
 
-// The live sweep: every worker script of the account, fetched and scanned. opts (tests inject them): token, acct, fetchImpl, sleep, members.
+// The live sweep: every worker script of the account, fetched and scanned. opts (tests inject them): token, acct, fetchImpl, sleep, members, allowed.
 // Returns { findings, unreadable: [{ name, why }], scanned }. A missing token and a failed, non-200 or empty worker list throw GuardReadError
 // (the sweep read nothing); a bundle that cannot be fetched, after one retry of a network error, 429 or 5xx, is listed in `unreadable`, never
 // skipped.
+const DYNAMIC_MODEL_ROUTES = new Set(["dynamic/value", "dynamic/standard", "dynamic/premium"]);
+
+function configurableDefaultLine(text, hits) {
+  if (!/\benv\.AI_MODEL\s*\|\|\s*DEFAULT_MODEL\b/.test(text)) return null;
+  const lines = String(text).split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const match = /^\s*(?:const|let|var)\s+DEFAULT_MODEL\s*=\s*(["'])([^"']+)\1\s*;?\s*$/.exec(lines[i]);
+    if (!match) continue;
+    const banned = BANNED.find((b) => b.re.test(match[2]));
+    if (!banned || !hits.some((h) => h.line === i + 1 && h.label === banned.label)) continue;
+    const remainder = codePart(lines[i]).replace(match[0], "");
+    if (BANNED.some((b) => b.re.test(remainder))) continue;
+    return i + 1;
+  }
+  return null;
+}
+
+function hasAllowedModelBinding(bindings, allowed) {
+  const binding = bindings.find((b) => b && b.name === "AI_MODEL" && b.type === "plain_text");
+  if (!binding || typeof binding.text !== "string" || !binding.text.trim()) return false;
+  const model = binding.text.trim().toLowerCase();
+  if (BANNED.some((b) => b.re.test(model))) return false;
+  return DYNAMIC_MODEL_ROUTES.has(model) || (allowed || []).some((r) =>
+    [r.id, r.wa].some((id) => typeof id === "string" && id.toLowerCase() === model));
+}
+
 async function scanLive(opts) {
   const o = opts || {};
   const token = "token" in o ? o.token : TOKEN;
   const acct = o.acct || ACCT;
   const doFetch = o.fetchImpl || globalThis.fetch;
   const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const allowed = o.allowed || [];
   if (!token) throw new GuardReadError("live-token", "CLOUDFLARE_API_TOKEN is not set; the live sweep needs it to list the worker scripts");
   const auth = { headers: { Authorization: "Bearer " + token } };
   let list;
@@ -344,6 +371,24 @@ async function scanLive(opts) {
     }
     return { why };
   };
+  const fetchSettings = async (name) => {
+    let why = "no answer";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await doFetch(CF_API + "/accounts/" + acct + "/workers/scripts/" + name + "/settings", auth);
+        if (!r.ok) {
+          why = "HTTP " + r.status;
+          if (r.status !== 429 && r.status < 500) break;
+        } else {
+          const body = await r.json();
+          if (body && body.success === true && body.result && Array.isArray(body.result.bindings)) return { bindings: body.result.bindings };
+          return { why: "malformed settings response" };
+        }
+      } catch (e) { why = errText(e); }
+      if (attempt === 0) await sleep(LIVE_RETRY_MS);
+    }
+    return { why };
+  };
   const findings = [], unreadable = [];
   const cap = 6;
   for (let i = 0; i < list.length; i += cap) {
@@ -351,7 +396,13 @@ async function scanLive(opts) {
     await Promise.all(chunk.map(async (name) => {
       const got = await fetchBundle(name);
       if (got.text === undefined) { unreadable.push({ name, why: got.why }); return; }
-      const hits = scan(got.text).filter((h) => h.kind === "VIOLATION");
+      let hits = scan(got.text).filter((h) => h.kind === "VIOLATION");
+      const fallbackLine = configurableDefaultLine(got.text, hits);
+      if (fallbackLine !== null) {
+        const settings = await fetchSettings(name);
+        if (settings.why) { unreadable.push({ name, why: "settings " + settings.why }); }
+        else if (hasAllowedModelBinding(settings.bindings, allowed)) hits = hits.filter((h) => h.line !== fallbackLine);
+      }
       if (hits.length) findings.push({ name, members: liveMembers[name] || [], hits });
     }));
   }
@@ -419,7 +470,7 @@ async function run() {
     process.exit(added.length + addedUnlisted.length > 0 ? 1 : 0);
   }
   const repo = scanRepo();
-  const sweep = wantLive ? await scanLive() : { findings: [], unreadable: [], scanned: 0 };
+  const sweep = wantLive ? await scanLive({ allowed: policy.allowed }) : { findings: [], unreadable: [], scanned: 0 };
   const live = sweep.findings;
   const markers = repoMarkers();
   const unlisted = wantUnlisted ? scanRepoUnlisted(undefined, policy.allowed) : [];
