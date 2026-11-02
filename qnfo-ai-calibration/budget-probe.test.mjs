@@ -10,7 +10,7 @@
 // and gpt-oss-120b, the lane that exists because those models otherwise spend the allowance reasoning. A budget probe sent through the
 // router at max_tokens 256 runs in that lane and passes. The sweep therefore probes every model that has a Workers AI id through
 // env.AI.run, the request shape the prober sends, so the two writers of one ai_model_health row run one shape and a pass of one cannot
-// mask a failure of the other; only the DeepSeek ids with no Workers AI id (flash, flash-thinking, written by the sweep alone) use the router.
+// mask a failure of the other; only deepseek-v4-flash-thinking has no Workers AI id and uses the router for its budget probe.
 // SPEND-DOWNGRADE-INCONCLUSIVE-1 (1.6.4), the second path for a router-swapped ping. qnfo-ai 5.37.0 (MODEL-HEALTH-FLAP-1) honours no_downgrade
 // for the caller qnfo-ai-calibration at max_tokens 512 or less, so the 16-token ping normally reaches the model it names (section 4c, case G, pins
 // the request shape that rule needs). Where the router still swaps the ping for glm-5.3-flash (flag not honoured, ceiling exceeded, caller not
@@ -159,9 +159,9 @@ const routerBudgets = (t) => t.router.filter((c) => c.body && c.body.max_tokens 
   const j = await r.json();
   const direct = sweepBudgetsDirect(t).map((c) => c.model);
   const viaRouter = routerBudgets(t).map((c) => c.body.model);
-  ok(r.status === 200 && direct.length === 8, "the sweep sends one direct budget probe per sweep model with a Workers AI id (seven TIER0 ids and deepseek-v4-pro)", direct);
-  ok(direct.indexOf(GLM) >= 0 && direct.indexOf("@cf/deepseek-ai/deepseek-v4-pro-0813") >= 0, "glm-5.3-flash and deepseek-v4-pro (a row the prober also writes) are probed direct", direct);
-  ok(viaRouter.slice().sort().join() === "deepseek-v4-flash,deepseek-v4-flash-thinking" && routerBudgets(t).every((c) => c.body.hedge === false && c.body.stream === false), "only the two DeepSeek ids the prober never writes use the router, unhedged", viaRouter);
+  ok(r.status === 200 && direct.length === 9, "the sweep sends one direct budget probe per model with a Workers AI id (seven TIER0 ids, deepseek-v4-pro and canonical deepseek-v4-flash)", direct);
+  ok(direct.indexOf(GLM) >= 0 && direct.indexOf("@cf/deepseek-ai/deepseek-v4-pro-0813") >= 0 && direct.indexOf("@cf/deepseek-ai/deepseek-v4-flash-0731") >= 0, "glm-5.3-flash, deepseek-v4-pro and canonical deepseek-v4-flash are probed direct", direct);
+  ok(viaRouter.join() === "deepseek-v4-flash-thinking" && routerBudgets(t).every((c) => c.body.hedge === false && c.body.stream === false), "only the DeepSeek id without a Workers AI mapping uses the router budget path, unhedged", viaRouter);
   // the lane: qnfo-ai gives a request at or below REASONING_SMALL_MAX the small-answer effort for these models
   const qai = fs.readFileSync(new URL("../qnfo-ai/worker.js", import.meta.url), "utf8");
   const smallMax = Number((qai.match(/var REASONING_SMALL_MAX = (\d+);/) || [])[1]);
@@ -184,11 +184,11 @@ const routerBudgets = (t) => t.router.filter((c) => c.body && c.body.max_tokens 
   ok(sweepBody && proberBody && JSON.stringify(sweepBody.input) === JSON.stringify(proberBody.input), "the sweep and the prober send the same request to a model whose health row both write", [sweepBody && sweepBody.input, proberBody && proberBody.input]);
 }
 {
-  // a DeepSeek id with no Workers AI id keeps the router path and its verdict
-  const t = mkEnv({ budget: { "deepseek-v4-flash": emptyLength } });
+  // the DeepSeek id without a Workers AI id keeps the router path and its verdict
+  const t = mkEnv({ budget: { "deepseek-v4-flash-thinking": emptyLength } });
   await (await api.worker_default.fetch(req("/run", "POST"), t.env, { waitUntil() {} })).json();
-  const w = sweepWrite(t, "deepseek-v4-flash");
-  ok(w.length === 1 && w[0].status === "degraded", "an empty router-lane budget reply degrades deepseek-v4-flash", w);
+  const w = sweepWrite(t, "deepseek-v4-flash-thinking");
+  ok(w.length === 1 && w[0].status === "degraded", "an empty router-lane budget reply degrades deepseek-v4-flash-thinking", w);
 }
 {
   const t = mkEnv({ prevCf: { "glm-5.3-flash": 1 }, budget: { "glm-5.3-flash": emptyLength } });
@@ -308,16 +308,28 @@ const routerBudgets = (t) => t.router.filter((c) => c.body && c.body.max_tokens 
     ok(filed(t2, "gpt-oss-120b").some((x) => x.a.some((v) => /budget direct/.test(String(v)))), "B: the issue detail is the direct probe's reason, not the swap");
   }
 
-  // Case C: a model with no Workers AI id (deepseek-v4-flash) whose ping is downgraded -> inconclusive: no health write, no issue
+  // Case C: the canonical DeepSeek flash id uses its known Workers AI mapping when the router downgrades its ping.
   {
-    const t = mkEnv({ downgrade: { "deepseek-v4-flash": SWAP }, prevCf: { "deepseek-v4-flash": 1 } });
+    const FLASH = "@cf/deepseek-ai/deepseek-v4-flash-0731";
+    const t = mkEnv({ downgrade: { "deepseek-v4-flash": SWAP }, prevCf: { "deepseek-v4-flash": 1 }, openFps: [fpOf("deepseek-v4-flash")] });
     const j = await run(t);
-    ok(sweepWrite(t, "deepseek-v4-flash").length === 0, "C: no ai_model_health write for a downgraded ping with no direct id (cf stays where it was)", sweepWrite(t, "deepseek-v4-flash"));
-    ok(filed(t, "deepseek-v4-flash").length === 0 && resolved(t, "deepseek-v4-flash").length === 0, "C: no issue filed or resolved");
-    ok(routerBudgets(t).every((c) => c.body.model !== "deepseek-v4-flash"), "C: and no budget request goes through the router for it (the swap would be judged as the asked model)");
+    const w = sweepWrite(t, "deepseek-v4-flash");
+    ok(w.length === 1 && w[0].status === "ok" && w[0].failures === 0, "C: the direct confirmation clears the previous failure for a downgraded ping", w);
+    ok(filed(t, "deepseek-v4-flash").length === 0 && resolved(t, "deepseek-v4-flash").length === 1, "C: no new issue is filed and an open failure is resolved", [filed(t, "deepseek-v4-flash"), resolved(t, "deepseek-v4-flash")]);
+    ok(directCalls(t, FLASH).length === 2 && rowsOf(j, "model-budget", "deepseek-v4-flash").some((x) => x.status === "pass" && /direct/.test(x.detail)), "C: the canonical and -wa roster entries share the direct Workers AI probe path", rowsOf(j, "model-budget", "deepseek-v4-flash"));
+    ok(routerBudgets(t).every((c) => c.body.model !== "deepseek-v4-flash"), "C: no budget request for the downgraded model goes through the router");
     const p = rowsOf(j, "model", "deepseek-v4-flash")[0];
-    ok(p && p.status === "downgraded", "C: the ping row stays downgraded so the swap is visible, not scored", p);
+    ok(p && p.status === "downgraded", "C: the ping row remains downgraded so the router swap stays visible", p);
     ok(sweepWrite(t, "deepseek-v4-flash-thinking").length === 1, "C: a sibling that was not downgraded is still written");
+  }
+  // Case C2: a downgraded model with no direct ID remains inconclusive.
+  {
+    const t = mkEnv({ downgrade: { "deepseek-v4-flash-thinking": SWAP }, prevCf: { "deepseek-v4-flash-thinking": 1 } });
+    const j = await run(t);
+    ok(sweepWrite(t, "deepseek-v4-flash-thinking").length === 0, "C2: no health write for a downgraded ping without a direct mapping", sweepWrite(t, "deepseek-v4-flash-thinking"));
+    ok(filed(t, "deepseek-v4-flash-thinking").length === 0 && resolved(t, "deepseek-v4-flash-thinking").length === 0, "C2: no issue is filed or resolved");
+    ok(routerBudgets(t).every((c) => c.body.model !== "deepseek-v4-flash-thinking"), "C2: no budget request goes through the router for the downgraded model");
+    ok(rowsOf(j, "model", "deepseek-v4-flash-thinking").some((x) => x.status === "downgraded"), "C2: the ping remains inconclusive");
   }
 
   // Case D: budget_probe = off -> no health write for a downgraded ping, no direct request
@@ -378,7 +390,12 @@ const routerBudgets = (t) => t.router.filter((c) => c.body && c.body.max_tokens 
     ok(route.length === 1 && route[0].status === "fail" && /http=504/.test(route[0].detail), "H: the explicit model-route failure is retained independently", route);
     ok(budget.length === 1 && budget[0].status === "pass" && directCalls(t, GPT).length === 1, "H: direct confirmation is recorded once as model-budget", budget);
     ok(sweepWrite(t, "gpt-oss-120b").length === 1 && sweepWrite(t, "gpt-oss-120b")[0].status === "ok", "H: direct success clears a previous model failure");
-    ok(rowsOf(j, "model", "deepseek-v4-flash").some((x) => x.status === "fail") && sweepWrite(t, "deepseek-v4-flash")[0].status === "degraded", "H: a 5xx without a direct model id remains degraded");
+    const flash = rowsOf(j, "model", "deepseek-v4-flash"), flashRoute = rowsOf(j, "model-route", "deepseek-v4-flash"), flashBudget = rowsOf(j, "model-budget", "deepseek-v4-flash");
+    ok(flash.length === 1 && flash[0].status === "pass" && /router http=504/.test(flash[0].detail) && /direct ok/.test(flash[0].detail), "H: deepseek-v4-flash stays healthy when its router probe fails and direct confirmation passes", flash);
+    ok(flashRoute.length === 1 && flashRoute[0].status === "fail" && /http=504/.test(flashRoute[0].detail), "H: the deepseek-v4-flash router failure remains visible independently", flashRoute);
+    ok(flashBudget.length === 1 && flashBudget[0].status === "pass" && directCalls(t, "@cf/deepseek-ai/deepseek-v4-flash-0731").length === 2, "H: direct confirmation is recorded for the canonical and -wa roster entries", flashBudget);
+    ok(sweepWrite(t, "deepseek-v4-flash")[0].status === "ok", "H: direct confirmation clears the canonical model health failure");
+    ok(rowsOf(j, "model", "deepseek-v4-flash-thinking").some((x) => x.status === "fail") && sweepWrite(t, "deepseek-v4-flash-thinking")[0].status === "degraded", "H: a router 5xx for a model without a direct mapping remains degraded");
   }
 }
 
@@ -386,6 +403,7 @@ const routerBudgets = (t) => t.router.filter((c) => c.body && c.body.max_tokens 
 ok(versionAtLeast(api.VERSION, "1.6.1"), "qnfo-ai-calibration is at least 1.6.1 (1.6.0 new capability: what ok means; 1.6.1 refreshes rows probed before it)", api.VERSION);
 ok(versionAtLeast(api.VERSION, "1.6.4"), "qnfo-ai-calibration is at least 1.6.4 (SPEND-DOWNGRADE-INCONCLUSIVE-1)", api.VERSION);
 ok(versionAtLeast(api.VERSION, "1.6.6"), "qnfo-ai-calibration is at least 1.6.6 (MODEL-PROBE-FALLBACK-1)", api.VERSION);
+ok(versionAtLeast(api.VERSION, "1.6.9"), "qnfo-ai-calibration is at least 1.6.9 (MODEL-PROBE-DIRECT-CONFIRM-1)", api.VERSION);
 ok(versionAtLeast(api.PROBER_VERSION, "2.3.17"), "the member PROBER_VERSION is at least 2.3.17", api.PROBER_VERSION);
 ok(src === mirror, "deployed-current.worker.js is identical to worker.js");
 ok(!/\*\//.test(src.split("\n")[5].replace(/\/\*[\s\S]*?\*\//g, "")), "the VERSION note closes every block comment it opens");
