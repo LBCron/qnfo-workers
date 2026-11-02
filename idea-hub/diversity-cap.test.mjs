@@ -3,9 +3,10 @@
 // classifier (qnfo-cloud-ops TOPIC-CLUSTERS-DERIVED-1 shared block + ideaTopicConcentration, sliced from that file) on the
 // same rows. TOPIC-CLUSTERS-DERIVED-1 (idea-hub 1.10.0, agent_issues 2281): the clusters are data, so this suite supplies
 // them as a fixture through the ops_config idea_topic_clusters cache the workers read.
-// Proves: the shared derivation block is identical in both workers and neither holds a fixed topic table; a generated ACCEPT whose cluster would exceed half of the 30-day
-// accepts waits as deferred_diversity with its score kept, is not queued for research and is not counted by the metric;
-// owner and intake:* rows are never held; other clusters still pass; below DIVERSITY_MIN_N nothing is held; held rows are
+// Proves: the shared derivation block is identical in both workers and neither holds a fixed topic table; an ACCEPT from any
+// source whose cluster would exceed half of the 30-day accepts waits as deferred_diversity with its score kept, is not queued
+// for research and is not counted by the metric; owner-corpus rows are prioritized ahead of generated scans; other clusters
+// still pass; below DIVERSITY_MIN_N nothing is held; held rows are
 // released best score first, with no model call, only when the share allows (an ai_spend cap no longer matters, 1.6.0), with the hold
 // note stripped; a held row that left the 30-day window becomes a terminal HOLD and is never released; the run publishes
 // the held count and the share, and that share equals the metric's reading of the same rows; a missing cache is re-derived
@@ -87,15 +88,15 @@ ok(/^\[diversity hold [^\]]*quantum would be 62% of 30-day accepts, cap 50%\] so
 ok(out.diversity_held === 1 && out.diversity && out.diversity.top === "quantum" && out.diversity.share === m0.share, "the run reports the hold and the same share the metric reads", out);
 ok(metricNow().accepted_30d === 12, "the held row is not counted by the metric");
 
-// 5. Exempt: an owner idea and an intake:* row in the same cluster are accepted; a non-quantum generated idea passes.
+// 5. Owner and intake rows obey the cap too; another cluster still passes.
 const own = add("owner-chat", "Owner note: quantum Zeno bounds on cryogenic logic", ago(0.04), "owner");
 const intake = add("intake:physics-feeds", "Qubit thermometry in biology labs", ago(0.03));
 const ultra = add("auto-scan", "Bruhat-Tits buildings as indexing structures", ago(0.02));
 out = await api.triageProposals(env);
-ok(row(own).status === "triaged_accepted" && queued(own) === 1, "an owner-authored quantum idea is never held", row(own).status);
-ok(row(intake).status === "triaged_accepted" && queued(intake) === 1, "an intake:<family> row is never held", row(intake).status);
+ok(row(own).status === "deferred_diversity" && row(own).decision === "DEFER-DIVERSITY" && queued(own) === 0, "an owner-authored idea cannot bypass the 50% cap", row(own));
+ok(row(intake).status === "deferred_diversity" && row(intake).decision === "DEFER-DIVERSITY" && queued(intake) === 0, "an intake:<family> idea cannot bypass the 50% cap", row(intake));
 ok(row(ultra).status === "triaged_accepted" && queued(ultra) === 1, "a generated ultrametric ACCEPT passes while quantum is capped", row(ultra).status);
-ok(row(held1).status === "deferred_diversity" && out.diversity_released === 0, "the held quantum row stays held: quantum is 9 of 15 and one more would be 10 of 16", out);
+ok(row(held1).status === "deferred_diversity" && out.diversity_released === 0, "held quantum rows stay held while quantum is above half", out);
 
 // 6. A HOLD decision is untouched by the cap.
 card = Object.assign({}, card, { novelty: 0.1, technical_merit: 0.1 });
@@ -117,7 +118,7 @@ calls.length = 0;
 out = await api.triageProposals(env);
 // BUDGET-SOFT-ROUTE-1 (idea-hub 1.6.0): a breached ai_spend cap no longer holds the release back.
 r = row(held1);
-ok(out.budget_breached === true && out.diversity_released === 1 && r.status === "triaged_accepted" && r.decision === "ACCEPT" && queued(held1) === 1, "even while an ai_spend cap is breached, the share allows one: the best-scored held row is released and queued", { out, r });
+ok(out.budget_breached === true && out.diversity_released === 3 && r.status === "triaged_accepted" && r.decision === "ACCEPT" && queued(held1) === 1, "even while an ai_spend cap is breached, the share allows three held quantum ideas to be released and queued", { out, r });
 db.prepare("UPDATE fleet_budget SET current = 10 WHERE node_class = 'ai_spend:total'").run();
 ok(r.rationale === "solid" && calls.length === 0, "the release makes no model call and strips the hold note", { rationale: r.rationale, calls: calls.length });
 ok(row(held2).status === "deferred_diversity" && queued(held2) === 0, "the lower-scored held row stays held: a second release would exceed the cap", row(held2).status);
@@ -149,6 +150,34 @@ ok(rederived.clusters.every((c) => c.terms.length >= 2 && c.terms[0] === c.label
 ok(api.proposalCluster("Concatenated quantum codes", []) === "other", "no clusters: other");
 ok(api.diversityBlocks({ n: 50, by: { other: 50 }, clusters: [] }, "other") === false, "no clusters: the cap holds nothing, even at a 100% share");
 ok(api.diversityBlocks({ n: 50, by: { quantum: 50 }, clusters: CLUSTERS }, "quantum") === true, "with clusters the cap still holds");
+
+// 12. Owner-corpus proposals win the one available slot ahead of older generated scans.
+db.prepare("DELETE FROM idea_proposals").run();
+db.prepare("DELETE FROM research_queue").run();
+db.prepare("INSERT INTO ops_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+  .run(api.TOPIC_CACHE_KEY, JSON.stringify({ version: 1, derived_at: new Date().toISOString(), docs: 0, clusters: CLUSTERS }));
+for (let i = 0; i < 5; i++) accepted("auto-scan", "Quantum decoder threshold " + i, ago(i + 1));
+for (let i = 0; i < 6; i++) accepted("auto-reentry", "Ultrametric structure " + i, ago(i + 6));
+const oldScan = add("auto-scan", "Quantum threshold for a new decoder family", ago(10));
+const ownerCorpus = add("owner-corpus", "Quantum threshold from the owner's research notebook", ago(1), "owner");
+out = await api.triageProposals(env);
+ok(row(ownerCorpus).status === "triaged_accepted" && queued(ownerCorpus) === 1, "the owner-corpus proposal uses the available share before the older scan", row(ownerCorpus));
+ok(row(oldScan).status === "deferred_diversity" && queued(oldScan) === 0, "the older generated scan waits when it would exceed the share after owner-corpus acceptance", row(oldScan));
+ok(out.diversity.share === 0.5 && metricNow().share === 0.5, "owner-corpus priority still preserves the exact 50% metric cap", { out: out.diversity, metric: metricNow() });
+
+// 13. Owner-corpus held proposals also win release over a higher-scored generated scan.
+db.prepare("DELETE FROM idea_proposals").run();
+db.prepare("DELETE FROM research_queue").run();
+for (let i = 0; i < 5; i++) accepted("auto-scan", "Quantum decoder threshold " + i, ago(i + 1));
+for (let i = 0; i < 6; i++) accepted("auto-reentry", "Ultrametric structure " + i, ago(i + 6));
+const deferredScan = add("auto-scan", "Quantum threshold for a generated decoder family", ago(2));
+const deferredCorpus = add("owner-corpus", "Quantum threshold from the owner's notebook", ago(1), "owner");
+db.prepare("UPDATE idea_proposals SET status='deferred_diversity', decision='DEFER-DIVERSITY', score=0.99, rationale='[diversity hold seeded] solid' WHERE id=?").run(deferredScan);
+db.prepare("UPDATE idea_proposals SET status='deferred_diversity', decision='DEFER-DIVERSITY', score=0.1, rationale='[diversity hold seeded] solid' WHERE id=?").run(deferredCorpus);
+out = await api.triageProposals(env);
+ok(row(deferredCorpus).status === "triaged_accepted" && queued(deferredCorpus) === 1, "a lower-scored owner-corpus row wins release over the scan", row(deferredCorpus));
+ok(row(deferredScan).status === "deferred_diversity" && queued(deferredScan) === 0, "the higher-scored scan remains held after the corpus uses the available share", row(deferredScan));
+ok(out.diversity.share === 0.5 && metricNow().share === 0.5, "releasing owner-corpus first preserves the same 50% metric cap", { out: out.diversity, metric: metricNow() });
 
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
