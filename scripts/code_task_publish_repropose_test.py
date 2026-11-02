@@ -102,7 +102,40 @@ stub = Stub(0, True)
 r = P.repropose(stub, {"id": "ct_old000000004", "repo": P.REPO_NAME, "path": "scripts/x.py", "goal": "g", "ctx": "{}"}, logs.append)
 ok(r is not None and not logs and any(s.startswith("UPDATE code_tasks SET ctx=json_set") for s in stub.sql), "a count of 0 with the row present links the successor, no alarm", (r, logs))
 
-# 6. the offline selftest leaves no ::notice::/::warning::/::error:: line for the Actions annotations
+# 6. a task whose explicit target disagrees with its path is rebuilt from the declared file, not published as the wrong change
+store = d1_like_store()
+goal = ("[issue #1000619] Add /sla-gap to backlog-exec\n"
+        "code-task: repo=qnfo-workers path=qnfo-backlog-exec/worker.js")
+old_id = "ct_pathmismatch01"
+store.changes("INSERT INTO code_tasks (id,repo,path,goal,status,step,attempts,ctx,branch,created_at,updated_at) "
+              "VALUES (?,?,?,?, 'ready_to_publish','done',0,?,?,?,?)",
+              [old_id, P.REPO_NAME, "qnfo-lifecycle/worker.js", goal,
+               json.dumps({"anchor": "if (url.pathname === \"/inventory\") {", "extras": [{"path": "qnfo-lifecycle/test.mjs"}],
+                           "patch": "diff --git a/qnfo-lifecycle/worker.js b/qnfo-lifecycle/worker.js\n"
+                                    "--- a/qnfo-lifecycle/worker.js\n+++ b/qnfo-lifecycle/worker.js\n@@ -1 +1 @@\n-old\n+new\n"}),
+               "codeagent-pathmismatch", P.now(), P.now()])
+logs = []
+out = P.publish_all(store, "/nonexistent", "main", None, logs.append)
+successor_id = store.rows("SELECT id FROM code_tasks WHERE id<>?", [old_id])[0]["id"]
+successor = store.rows("SELECT * FROM code_tasks WHERE id=?", [successor_id])[0]
+successor_ctx = json.loads(successor["ctx"])
+ok(out["reproposed"] == 1 and out["failed"] == 0, "a mismatched target is requeued instead of published or failed", (out, logs))
+ok(store.rows("SELECT status FROM code_tasks WHERE id=?", [old_id])[0]["status"] == "superseded"
+   and successor["path"] == "qnfo-backlog-exec/worker.js" and successor["status"] == "queued",
+   "the successor starts on the explicit target path with a fresh read", successor)
+ok(successor_ctx.get("path_directive") is True and "anchor" not in successor_ctx and "extras" not in successor_ctx
+   and "CODE-TASK-PATH-DIRECTIVE-1" in successor["goal"],
+   "path-specific context is not carried to the retargeted task", (successor_ctx, successor["goal"]))
+
+# 7. forbidden and ambiguous target declarations never widen the publisher's path policy
+ok(P.explicit_task_path({"goal": "code-task: repo=qnfo-workers path=qnfo-ops/wrangler.toml"}) is None,
+   "a denied wrangler target is not accepted")
+ok(P.explicit_task_path({"goal": "code-task: repo=qnfo-workers path=qnfo-a/worker.js\n"
+                               "code-task: repo=qnfo-workers path=qnfo-b/worker.js"}) is None,
+   "ambiguous target declarations are not retargeted")
+
+
+# 8. the offline selftest leaves no ::notice::/::warning::/::error:: line for the Actions annotations
 run = subprocess.run([sys.executable, os.path.join(HERE, "code-task-publish.py"), "--selftest"], capture_output=True, text=True, timeout=600)
 ann = [ln for ln in run.stdout.splitlines() if ln.startswith("::")]
 ok(run.returncode == 0 and "selftest: 0 failure(s)" in run.stdout, "the selftest passes", run.stdout[-300:])

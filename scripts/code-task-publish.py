@@ -66,6 +66,7 @@ D1_READ_ATTEMPTS = 3
 # Mirror of the worker's DENY_PATH: the loop must never publish edits to workflows, wrangler config, deploy targets, env files.
 DENY_PATH = re.compile(r"^(\.github/|\.git/)|(^|/)(wrangler\.toml|deploy-targets\.txt|\.env[^/]*)$", re.I)
 BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,100}$")
+CODE_TASK_PATH_RE = re.compile(r"^[ \t]*code-task:[ \t]*repo=([A-Za-z0-9._-]{1,100})[ \t]+path=(\S{1,300})[ \t]*$", re.M)
 
 
 def repo_slug(repo) -> str:
@@ -76,6 +77,18 @@ def repo_slug(repo) -> str:
     r = str(repo or "").strip()
     owner, sep, rest = r.partition("/")
     return rest if sep and owner.lower() == "qnfo" and rest and "/" not in rest else r
+
+
+def explicit_task_path(task):
+    """Return one safe, explicit code-task path when the task goal declares it."""
+    matches = CODE_TASK_PATH_RE.findall(str(task.get("goal") or ""))
+    if len(matches) != 1:
+        return None
+    repo, path = matches[0]
+    if (repo_slug(repo) != REPO_NAME or not path or path.startswith("/") or ".." in path
+            or "\\" in path or DENY_PATH.search(path)):
+        return None
+    return path
 
 
 def now() -> str:
@@ -687,6 +700,11 @@ def publish_one(task, repo_dir, base, pr, delegate=False):
             return "publish_failed", None, "branch refused: " + branch[:100], None
         if repo_slug(task.get("repo")) != REPO_NAME:
             return "publish_failed", None, "task repo is not " + REPO_NAME, None
+        target_path = explicit_task_path(task)
+        if target_path and target_path != path:
+            task["_repath"] = target_path
+            return "superseded", None, ("task path " + path + " differs from its explicit code-task path " + target_path
+                                        + "; re-read and rebuild at the declared path (CODE-TASK-PATH-DIRECTIVE-1)"), None
         # The patch may only touch the task's declared path.
         files = set(re.findall(r"^\+\+\+ b/(.+)$", patch, re.M)) | set(re.findall(r"^--- a/(.+)$", patch, re.M))
         # PATCH-MODE-1: a worker source may carry its deployed-current mirror in the same patch (mirror-guard), nothing else.
@@ -780,6 +798,7 @@ def publish_one(task, repo_dir, base, pr, delegate=False):
 # ct_revnoop20261024a (2026-10-24) ended publish_failed with the whole goal intact (agent_issues 2380 reopened on them).
 STALE_SEARCH_RE = re.compile(r"edit \d+: SEARCH text occurs 0 times|no SEARCH/REPLACE edits parked in ctx\.edits")
 REPROPOSE_NOTE = "[reproposed from {old}: main moved under the task before publish (STALE-PUBLISH-REPROPOSE-1); rebuild the same change on current main]"
+REPATH_NOTE = "[re-targeted from {old}: explicit code-task path {path} differed from task.path; read and rebuild at the declared path (CODE-TASK-PATH-DIRECTIVE-1)]"
 
 
 def _new_task_id():
@@ -794,27 +813,36 @@ def _row_exists(store, tid):
         return False
 
 
-def repropose(store, task, log=print):
-    """STALE-PUBLISH-REPROPOSE-1: one new queued task with the superseded task's repo, path, goal and anchor, so the orchestrator
-    rebuilds the change on current main (its ANCHOR-REPAIR-1 re-finds the anchor). The goal keeps its "[issue #N]" head, so
-    INTAKE_MAX_TASKS counts it. Returns the new id, or None when the row could not be written."""
+def repropose(store, task, log=print, path=None):
+    """Create one queued successor with a fresh read.
+
+    Same-path stale patches retain their anchor and companions. A retargeted task
+    uses only its explicit goal path because the old path-specific context is stale.
+    The goal keeps its "[issue #N]" head, so INTAKE_MAX_TASKS counts the successor.
+    """
     try:
         ctx = json.loads(task.get("ctx") or "{}")
     except ValueError:
         ctx = {}
+    old_path = str(task.get("path") or "")
+    target_path = str(path or old_path)
+    retargeted = target_path != old_path
     goal = str(task.get("goal") or "").rstrip()
-    note = REPROPOSE_NOTE.format(old=task["id"])
+    note = REPATH_NOTE.format(old=task["id"], path=target_path) if retargeted else REPROPOSE_NOTE.format(old=task["id"])
     if note not in goal:
         goal = (goal[:5600] + "\n" + note) if len(goal) > 5600 else goal + "\n" + note
     c0 = {"reproposed_from": task["id"]}
-    if isinstance(ctx.get("anchor"), str) and ctx.get("anchor"):
-        c0["anchor"] = ctx["anchor"]
-    if isinstance(ctx.get("extras"), list) and ctx.get("extras"):
-        c0["extras"] = ctx["extras"]
+    if retargeted:
+        c0["path_directive"] = True
+    else:
+        if isinstance(ctx.get("anchor"), str) and ctx.get("anchor"):
+            c0["anchor"] = ctx["anchor"]
+        if isinstance(ctx.get("extras"), list) and ctx.get("extras"):
+            c0["extras"] = ctx["extras"]
     nid = _new_task_id()
     try:
         n = store.changes("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, created_at, updated_at) VALUES (?,?,?,?, 'queued','read',0,?,?,?)",
-                          [nid, task.get("repo"), task.get("path"), goal, json.dumps(c0), now(), now()])
+                          [nid, task.get("repo"), target_path, goal, json.dumps(c0), now(), now()])
     except Exception as e:  # noqa: BLE001 - the superseded row already says why; a missing successor is logged, never silent
         log(f"::error::repropose {task['id']}: could not enqueue the successor: {e}")
         return None
@@ -899,7 +927,7 @@ def publish_all(store, repo_dir, base, pr, log=print, delegate=False):
             continue
         finish(store, t["id"], st, url, err)
         if st == "superseded":
-            nid = repropose(store, t, log)
+            nid = repropose(store, t, log, path=t.get("_repath"))
             out["reproposed"] = out.get("reproposed", 0) + (1 if nid else 0)
             if not nid:
                 out["failed"] += 1
