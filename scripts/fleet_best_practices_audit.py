@@ -12,6 +12,7 @@ Checks. Severity `fail` is a pattern the guard also refuses in a change; `adviso
     destructured-ctx (fail)             waitUntil/passThroughOnException destructured from ctx
     secret-compare (fail)               ==, ===, != or !== against env.<NAME with TOKEN|SECRET|KEY|PASSWORD|SIGNATURE|HMAC|AUTH> (a presence test passes)
     interpolated-sql (fail)             a template literal with ${} inside prepare(`...`): bind parameters instead (D1 limits: 100 bound parameters)
+    floating-promise (fail)             an unawaited Worker I/O call: await, return or pass it to ctx.waitUntil
     rest-api-for-binding (advisory)     api.cloudflare.com call for a D1/KV/R2/Queues/Workflows resource a binding reaches
     ai-response-string-assumption (adv) `.response.trim()` and friends: Workers AI returns a parsed object in JSON mode
     unbounded-body-buffer (advisory)    await request.text()/arrayBuffer()/blob() with no size guard (128 MB per isolate)
@@ -81,12 +82,14 @@ CHECKS = {
     "swallowed-catch": (re.compile(r"\.catch\s*\(\s*(?:function\s*\([^)]*\)\s*\{\s*\}|\([^)]*\)\s*=>\s*\{\s*\}|[A-Za-z_$][\w$]*\s*=>\s*\{\s*\})\s*\)|\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}"), "advisory", "a swallowed error never reaches Workers Logs: log console.error(JSON.stringify({...})) or record the failure"),
 }
 AI_RUN = re.compile(r"\bAI\.run\(\s*[^,()]+,\s*\{")  # only a call whose input is an inline object: a pass-through wrapper takes its caller's limits
+FLOATING = re.compile(r"^\s*(?:(?:globalThis\.)?fetch\s*\(|(?:env|this\.env)\.[A-Za-z_]\w*\s*\.\s*(?:prepare\s*\(.*\)\s*\.\s*(?:bind\s*\(.*\)\s*\.\s*)?(?:run|all|first|raw)|batch|exec|put|delete|send|sendBatch|fetch|writeDataPoint_async|upsert|insert|create|createBatch)\s*\(|caches\.default\.(?:put|delete)\s*\().*\)\s*;\s*(?://.*)?$")
+OPEN_PREV = re.compile(r"(?:[(\[,=?:&|+]|=>|\bawait|\breturn|\bvoid|\byield)\s*$")
 NODE_IMPORT = re.compile(r"(?:^|\n)\s*import\s[^\n]*\sfrom\s*[\"']node:|require\(\s*[\"']node:")
 STANDARDS_OK = "standards-ok:"
 
 SEVERITY = {"observability-missing": "fail", "traces-not-declared": "fail", "sampling-not-explicit": "advisory", "compat-date-missing": "fail",
             "compat-date-old": "advisory", "node-imports-without-flag": "fail", "redundant-nodejs-compat": "advisory", "queue-consumer-no-dlq": "fail",
-            "legacy-do-storage": "advisory", "send-email-unrestricted": "advisory", "limits-not-declared": "advisory", "ai-run-no-token-budget": "advisory",
+            "legacy-do-storage": "advisory", "send-email-unrestricted": "advisory", "limits-not-declared": "advisory", "floating-promise": "fail", "ai-run-no-token-budget": "advisory",
             "message-raw-double-read": "advisory"}
 for _n, (_rx, _sev, _why) in CHECKS.items(): SEVERITY[_n] = _sev
 
@@ -219,6 +222,14 @@ def code_findings(lines, path=None, allow=None, allowed=None):
             probe = PRESENCE.sub(" ", ln) if name == "secret-compare" else ln
             if rx.search(probe) and not (allowed and allowed(allow, path, name, ln)):
                 out.append((name, i, why, ln.strip()[:200]))
+    for i, ln in enumerate(lines, 1):
+        if not FLOATING.match(ln) or (allowed and allowed(allow, path, "floating-promise", ln)): continue
+        prev = ""
+        j = i - 2
+        while j >= 0 and not lines[j].strip(): j -= 1
+        if j >= 0: prev = lines[j]
+        if not OPEN_PREV.search(re.sub(r"\s//(?!/).*$", "", prev).rstrip()):
+            out.append(("floating-promise", i, "a promise is started and dropped: await it, return it or pass it to ctx.waitUntil()", ln.strip()[:200]))
     src = "\n".join(lines)
     for m in AI_RUN.finditer(src):
         seg = src[m.end(): m.end() + 600]
@@ -424,10 +435,11 @@ def selftest():
             'const out = res.response.trim();', 'const o2 = typeof res.response === "string" ? res.response.trim() : "";', 'const body = await request.text();',
             '// const id2 = Math.random().toString(36);', 'const salt2 = Math.random().toString(36).slice(2); // standards-ok: not a secret, display only',
             'const ai = await env.AI.run(M, { messages: m });', 'const ai2 = await env.AI.run(M, { messages: m, max_tokens: 400 });',
-            'async email(message, env, ctx) {', '  const a = await new Response(message.raw).arrayBuffer();', '  const b = await new Response(message.raw).text();']
+            'async email(message, env, ctx) {', '  const a = await new Response(message.raw).arrayBuffer();', '  const b = await new Response(message.raw).text();',
+            'fetch("/unhandled");', 'await fetch("/awaited");', 'ctx.waitUntil(fetch("/queued"));']
     found = code_findings(code)
     names = sorted((n, ln) for n, ln, *_ in found)
-    exp = [("ai-run-no-token-budget", 14), ("interpolated-sql", 4), ("math-random-token", 1), ("message-raw-double-read", 18), ("secret-compare", 2),
+    exp = [("ai-run-no-token-budget", 14), ("floating-promise", 19), ("interpolated-sql", 4), ("math-random-token", 1), ("message-raw-double-read", 18), ("secret-compare", 2),
            ("swallowed-catch", 6), ("swallowed-catch", 7), ("unbounded-body-buffer", 11), ("ai-response-string-assumption", 9)]
     ok(names == sorted(exp), "code checks hit exactly the planted lines: " + repr(names))
     ok(all(len(x) == 4 and x[3] for x in found if x[0] != "message-raw-double-read"), "each code finding carries its line text (the code-anchor)")
@@ -450,26 +462,27 @@ INSERT INTO metric_registry VALUES ('workers_bp_findings_open', NULL, NULL, 'NEW
     with tempfile.TemporaryDirectory() as t:
         root = pathlib.Path(t)
         (root / "w").mkdir(); (root / "w/wrangler.toml").write_text('name = "w"\ncompatibility_date = "2026-08-01"\n[observability]\nenabled = true\n')
-        (root / "w/worker.js").write_text('export default {};\nconst id = Math.random().toString(36).slice(2);\nif (t === env.LOOP_TOKEN) go();\n')
+        (root / "w/worker.js").write_text('export default {};\nconst id = Math.random().toString(36).slice(2);\nif (t === env.LOOP_TOKEN) go();\nfetch("/unhandled");\n')
         (root / "clean").mkdir(); (root / "clean/wrangler.toml").write_text('name = "clean"\ncompatibility_date = "2026-08-01"\n[observability]\nenabled = true\nhead_sampling_rate = 1\n[observability.traces]\nenabled = true\nhead_sampling_rate = 0.05\n[triggers]\ncrons = ["0 * * * *", "30 3 * * *"]\n[limits]\ncpu_ms = 1000\n')
         (root / "clean/worker.js").write_text("export default {};\n")
         (root / "dead").mkdir(); (root / "dead/wrangler.toml").write_text("name='dead'\n"); (root / "dead/RETIRED").write_text("x")
         res, fleet, total = scan_all(root)
         ok([r["worker"] for r in res] == ["clean", "w"] and total == 2, "live dirs only, crons counted: " + repr([r["worker"] for r in res]))
         out = publish(d1, res, total, root, "abc1234")
-        ok(out["fail"] == 3 and out["filed"] and out["filed"][0]["worker"] == "w", "three fail-class findings on w, one issue filed: " + json.dumps(out))
+        ok(out["fail"] == 4 and out["filed"] and out["filed"][0]["worker"] == "w", "four fail-class findings on w, one issue filed: " + json.dumps(out))
         desc = d1("SELECT description FROM agent_issues WHERE title = 'WORKERS-BP-DEBT-1: w'")[0]["description"]
         ok("code-task: repo=qnfo-workers path=w/worker.js" in desc and "code-anchor: const id = Math.random().toString(36).slice(2);" in desc, "the issue carries code-task and a unique code-anchor: " + desc[-300:])
         ok("[traces-not-declared] w/wrangler.toml:1" in desc and "[secret-compare] w/worker.js:3" in desc, "the issue lists each fail finding with file:line")
+        ok("[floating-promise] w/worker.js:4" in desc and "await it, return it or pass it to ctx.waitUntil()" in desc, "the issue reports guard-enforced floating promises with a code fix")
         probe = d1("SELECT verify_probe, status FROM remediation_contracts WHERE class = 'issue-1'")[0]
         ok("workers_bp_findings WHERE worker = 'w' AND severity = 'fail'" in probe["verify_probe"] and probe["status"] == "active", "the probe watches this worker's fail rows: " + repr(probe))
-        ok(d1("SELECT last_value FROM metric_registry WHERE metric = 'workers_bp_findings_open'")[0]["last_value"] == "3", "metric written")
+        ok(d1("SELECT last_value FROM metric_registry WHERE metric = 'workers_bp_findings_open'")[0]["last_value"] == "4", "metric written")
         ok(d1("SELECT last_value FROM metric_registry WHERE metric = 'fleet_cron_triggers'")[0]["last_value"] == "2", "cron metric written")
         ok(len(d1("SELECT * FROM workers_bp_findings")) == out["findings"] and len(d1("SELECT * FROM workers_bp_runs")) == 1, "findings replaced and one run row")
         out2 = publish(d1, res, total, root, "abc1234")
         ok(out2["filed"] == [] and len(d1("SELECT * FROM agent_issues")) == 1, "a second run with the same debt files nothing new (dedupe on the open title)")
         obs = d1(probe["verify_probe"])[0]
-        ok(obs["expected"] == "0" and obs["observed"] == "3", "the probe reads 3 while the debt stands: " + repr(obs))
+        ok(obs["expected"] == "0" and obs["observed"] == "4", "the probe reads 4 while the debt stands: " + repr(obs))
         (root / "w/worker.js").write_text("export default {};\n"); (root / "w/wrangler.toml").write_text((root / "clean/wrangler.toml").read_text())
         res, fleet, total = scan_all(root); publish(d1, res, total, root, "abc1235")
         obs = d1(probe["verify_probe"])[0]
