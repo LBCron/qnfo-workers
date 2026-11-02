@@ -11,26 +11,27 @@ not quantum-simulation outputs:
 
 | Demo | Golden values in the code | Quantum content | Independent check that fits |
 |---|---|---|---|
-| qwav-demo-error-confinement | `verifyMath`: total nodes (p^(d+1)-1)/(p-1), leaves p^d, subtree sizes, compared with the demo's own tree | none: a rooted p-ary tree and the strong triangle inequality | a second implementation that builds the tree by counting: `scripts/qwav_golden_crosscheck.py` (done, all agree) |
-| qwav-demo-bt-qec | none found by search (one hit for a quantum term) | QEC wording, tree arithmetic | not yet: first extract the numbers the page shows |
-| qwav-demo-hardware-visualizer | none (no "golden" string) | 40-atom lattice, Rydberg blockade and qubit text, drawn not computed | a blockade graph (atoms closer than the blockade radius) recomputed independently; a quantum simulator only if the page claims a dynamics value |
+| qwav-demo-error-confinement | `verifyMath`: total nodes (p^(d+1)-1)/(p-1), leaves p^d, subtree sizes | none: a rooted p-ary tree and the strong triangle inequality | explicit tree construction, independent counts and ultrametric triple checks in `scripts/qwav_golden_crosscheck.py` |
+| qwav-demo-bt-qec | default p=2, d=3: 15 nodes, 8 deepest-level nodes, 14 non-root nodes | QEC wording and tree arithmetic; no quantum state or dynamics | explicit tree construction checks displayed node/depth/redundancy values |
+| qwav-demo-hardware-visualizer | p=3, d=3: 40 atoms, levels 1+3+9+27, 39 parent-child gate edges | illustrative lattice and gate edges; no physical blockade distances or quantum dynamics | independent layer and edge counts; no quantum simulator is warranted for these displayed values |
 | qwav-demo-tree-distance, qwav-demo-ultrametric-convergence, qwav-demo-qpna-classifier, qwav-demo-monna-map-perspective | not read yet | tree and clustering geometry | second implementation (scipy cophenetic distance, networkx) |
 
 So the table the item asks for ("demo, simulator, agreement") is built with the independent method that fits each demo; a quantum simulator is named only
 where a demo computes a quantum quantity. Forcing a simulator onto a tree identity would produce an agreement that proves nothing.
 
-## Done in this change
+## Implemented
 
-`python3 scripts/qwav_golden_crosscheck.py` builds the tree of `qwav-demo-error-confinement` by explicit expansion, recounts nodes, leaves and every level's subtree
-size, and checks the strong triangle inequality on all leaf triples (up to 27 leaves). Result on 2026-10-28, five (p, depth) cases including the demo default
-p=2, d=3: every row agrees.
+`python3 scripts/qwav_golden_crosscheck.py` independently builds the trees by explicit expansion, recounts all node layers and subtree sizes, checks the QEC
+redundancy values and the hardware visualizer's parent-child edge count, and checks the strong triangle inequality on up to 27 leaves. It prints a demo-specific
+agreement table; `python3 scripts/qwav_golden_crosscheck.py --selftest` checks the known displayed values and is run by
+`scripts/qwav_golden_crosscheck.test.mjs` in the existing offline suite runner.
 
 ## Still to do (owner: the code loop, one demo per task)
 
-1. `qwav-demo-bt-qec`, `qwav-demo-hardware-visualizer`, and the four unread demos: list the numbers each page computes and displays, as a row in the table above.
-2. For each, add the independent check that fits (a function in `scripts/qwav_golden_crosscheck.py` with a selftest case) and record the agreement.
-3. Run the script in CI so a demo whose rule changes is noticed: the demos live in other repositories, so the check compares against the formulas in this file, not
-   against their code. A change in a demo's formulas is not seen until step 1 is repeated for it.
+1. `qwav-demo-tree-distance`, `qwav-demo-ultrametric-convergence`, `qwav-demo-qpna-classifier`, and `qwav-demo-monna-map-perspective`: list the numbers each page computes and displays.
+2. Add the independent check that fits for each published demo, with a selftest case and its agreement recorded here.
+3. The demos live in other repositories, so this check validates documented formulas and known displayed values, not the live pages' JavaScript. Re-read each page
+   when its formulas change; a quantum simulator belongs only where a demo actually computes quantum-state or dynamics values.
 
 ## Failure mode
 
