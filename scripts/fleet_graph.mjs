@@ -107,6 +107,20 @@ export function sqlTables(sqlIn) {
   return { reads: [...reads], writes: [...writes], creates: [...creates], drops: [...drops], dynamic };
 }
 
+export function optionalTableProbe(sqlIn) {
+  const sql = String(sqlIn || "");
+  if (!/\bFROM\s+(?:main\.)?sqlite_master\b/i.test(sql)) return null;
+  const where = /\bWHERE\b([\s\S]*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|;|$)/i.exec(sql);
+  if (!where) return null;
+  const predicates = where[1].split(/\bAND\b/i).map((part) => part.trim().replace(/^\(+|\)+$/g, ""));
+  if (!predicates.some((part) => /^(?:sqlite_master\.)?type\s*=\s*(['"])table\1$/i.test(part))) return null;
+  for (const part of predicates) {
+    const match = /^(?:sqlite_master\.)?name\s*=\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1$/i.exec(part);
+    if (match) return match[2];
+  }
+  return null;
+}
+
 // A CREATE TRIGGER statement: its table, event and the tables its body reads and writes.
 export function parseTrigger(sql) {
   const m = /CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?["\x60]?(\w+)["\x60]?\s+(BEFORE|AFTER|INSTEAD\s+OF)?\s*(INSERT|DELETE|UPDATE(?:\s+OF\s+[\w\s,"\x60]+?)?)\s+ON\s+["\x60]?(\w+)["\x60]?/i.exec(String(sql || ""));
