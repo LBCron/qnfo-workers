@@ -356,9 +356,15 @@ def suite_check(repo_dir, files, base, log=print):
     dirs = sorted({f.split("/")[0] for f in files if "/" in f} - {"scripts", ".github", "migrations"})
     if not dirs:
         return None
-    if node_major() < 22:
-        log("::warning::PUBLISH-SUITE-CHECK-1 skipped: node 22+ is not installed")
+    has_suites = any(
+        os.path.isdir(os.path.join(repo_dir, d)) and
+        any(name.endswith(".test.mjs") for name in os.listdir(os.path.join(repo_dir, d)))
+        for d in dirs
+    )
+    if not has_suites:
         return None
+    if node_major() < 22:
+        return "SUITES: node 22+ is required to run the changed worker's test suites before publishing"
     after = run_suites(repo_dir, dirs)
     bad = {k: v for k, v in after.items() if not v[0]}
     if not bad:
@@ -420,11 +426,9 @@ def gate_check(repo_dir, files, base, log=print):
         return None
     gate = os.path.join(root, "scripts", "deploy_gate.py")
     if not os.path.isfile(gate):
-        log("::warning::PUBLISH-DEPLOY-GATE-1 skipped: scripts/deploy_gate.py is not present")
-        return None
+        return "GATE: scripts/deploy_gate.py is missing; cannot verify changed workers before publishing"
     if not shutil.which("npx"):
-        log("::warning::PUBLISH-DEPLOY-GATE-1 skipped: npx is not installed")
-        return None
+        return "GATE: npx is required to run scripts/deploy_gate.py before publishing changed workers"
 
     gate_env = os.environ.copy()
     for key in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CF_ACCOUNT_ID", "GH_TOKEN", "GITHUB_TOKEN"):
@@ -1349,6 +1353,10 @@ def selftest():
         check("suite check: only a suite already red on the base fails -> not blamed (None)", suite_check(sroot, ["w/worker.js"], "main", log=notes.append) is None)
         check("suite check: the red-on-base notice goes to the log sink the caller passed",
               len(notes) == 1 and notes[0].startswith("::notice::PUBLISH-SUITE-CHECK-1") and "w/red.test.mjs" in notes[0], notes)
+        with mock.patch(__name__ + ".node_major", return_value=0):
+            missing_node = suite_check(sroot, ["w/worker.js"], "main", log=quiet)
+        check("suite check: missing Node returns feedback instead of skipping changed worker suites",
+              missing_node is not None and missing_node.startswith("SUITES:") and "node 22+" in missing_node, missing_node)
         check("suite check: shared paths are left to CI", suite_check(sroot, ["scripts/x.py"], "main") is None)
     else:
         print("SKIP suite check selftest: node 22+ not installed")
@@ -1418,11 +1426,17 @@ def selftest():
     calls = open(calls_path).read().splitlines()
     check("deploy gate: clean changed workers pass and non-worker paths are ignored",
           passed is None and calls == ["bad", "w"] and gate_check(gate_root, ["scripts/x.py"], "main") is None, (passed, calls))
-    warnings = []
     with mock.patch("shutil.which", return_value=None):
-        skipped = gate_check(gate_root, ["w/worker.js"], "main", log=warnings.append)
-    check("deploy gate: missing npx is explicitly warned and left to CI",
-          skipped is None and len(warnings) == 1 and "npx is not installed" in warnings[0], warnings)
+        missing_npx = gate_check(gate_root, ["w/worker.js"], "main", log=quiet)
+    check("deploy gate: missing npx returns feedback instead of skipping the check",
+          missing_npx is not None and missing_npx.startswith("GATE:") and "npx is required" in missing_npx, missing_npx)
+    os.rename(fake_gate, fake_gate + ".missing")
+    try:
+        missing_gate = gate_check(gate_root, ["w/worker.js"], "main", log=quiet)
+    finally:
+        os.rename(fake_gate + ".missing", fake_gate)
+    check("deploy gate: missing deploy_gate.py returns feedback instead of skipping the check",
+          missing_gate is not None and missing_gate.startswith("GATE:") and "deploy_gate.py is missing" in missing_gate, missing_gate)
     with mock.patch("shutil.which", return_value="/usr/bin/npx"), \
          mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("deploy gate", GATE_TIMEOUT_S)):
         timed_out = gate_check(gate_root, ["w/worker.js"], "main", log=quiet)

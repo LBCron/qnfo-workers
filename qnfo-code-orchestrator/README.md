@@ -53,6 +53,9 @@ queued --read--> propose --> verify --(fail, attempts<3)--> propose  (NEXT model
 - **Verifiers** (deterministic; a task with no verifier ends `needs_human`, never an unverified PR):
   `.py` compile in the Cloudflare Container; `.json` parse; `.md`/`.txt` size-sanity (0.5x-2x, stops truncated rewrites);
   `.js`/`.mjs` syntax via **Dynamic Workers** (`env.LOADER`, `globalOutbound:null`) **only when `JS_VERIFY=dynamic`** (default `off`).
+- **Pre-push code-task checks** (pull publishing): the publisher applies the patch to a fresh checkout, then runs `node --check`,
+  the changed worker's suites, and `scripts/deploy_gate.py --check` before pushing the branch. Failures return to the proposal
+  loop; the checks run on the GitHub Actions runner, not in the Python-only PyContainer.
 - **Policy**: refuses `.github/`, `wrangler.toml`, `deploy-targets.txt`, `.env*`, path traversal; never commits to `main`/`master`;
   repo file content is passed as delimited UNTRUSTED DATA.
 
@@ -95,8 +98,8 @@ Every deployed `worker.js` is larger than the 60,000-char whole-file cap, so unt
   `ops_config.code_orchestrator_dynamic_cpu`. The JS syntax verifier is on only while that row says `enforced: true` and is younger
   than 8 days; otherwise `.js` tasks end `needs_human` as before. `/health` reports `js_verify: auto-on | auto-off`.
   It proves SYNTAX only; CI on the pull request is the behaviour gate, and nothing here merges.
-- **Limits that remain.** One file (plus its mirror) per task; no verifier that runs tests; the window must contain everything the
-  model needs; no self-merge.
+- **Limits that remain.** One file (plus its mirror) per task; the orchestrator's verifier does not run tests in PyContainer
+  (the publisher runs worker suites and the deploy gate before pushing); the window must contain everything the model needs; no self-merge.
 
 ### v0.3.7: a model that fails is the fleet's problem, not the owner's (SELF-REPAIR-1, agent_issues #1768)
 The owner's note on the dashboard card for `ct_qldqse7ngltdth` was "this is not a user problem audit and fix yourself". Measured:
