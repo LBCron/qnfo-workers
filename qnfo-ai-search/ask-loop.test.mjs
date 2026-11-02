@@ -61,7 +61,8 @@ async function gatewayFetch(u) {
 }
 const ideasFetch = async () => new Response(JSON.stringify({ sessions: [{ id: "t-1", title: "Energy per correct answer: what does JPCUB measure in LLM benchmarks?", message_count: 2, updated_at: "2026-10-01T00:00:00Z" }] }), { headers: { "content-type": "application/json" } });
 const uploads = [];
-const AI_SEARCH = { get() { return { items: { async upload(key, text, opts) { uploads.push({ key, bytes: text.length, meta: opts && opts.metadata }); return { key }; } }, async search() { return { chunks: [{ score: 0.7, text: "# JPCUB for LLM Energy\n\nJPCUB is joules per correct answer.", item: { key: "jpcub-llm-energy.md" } }, { score: 0.65, text: "audit row", item: { key: "audit-test-002.md" } }] }; } }; }, async list() { return ["qnfo-corpus"]; } };
+const searchRequests = [];
+const AI_SEARCH = { get() { return { items: { async upload(key, text, opts) { uploads.push({ key, bytes: text.length, meta: opts && opts.metadata }); return { key }; } }, async search(request) { searchRequests.push(request); return { chunks: [{ score: 0.7, text: "# JPCUB for LLM Energy\n\nJPCUB is joules per correct answer.", item: { key: "jpcub-llm-energy.md" } }, { score: 0.65, text: "audit row", item: { key: "audit-test-002.md" } }] }; } }; }, async list() { return ["qnfo-corpus"]; } };
 const models = [];
 const AI = {
   async run(model, input) {
@@ -102,8 +103,12 @@ const label = (page.split("\n").find((l) => l.includes("d.name.length > 26")) ||
 ok(label.includes('d.name.slice(0, 24) + "..."') && !label.includes("…"), "graph labels are truncated with ASCII dots, not U+2026 (no glyph in the label font)");
 ok((await call("/?q=%3Cscript%3E")).text.includes("&lt;script&gt; | Ask QWAV"), "deep-link title is escaped");
 // 2. one answer end to end
+await D1.prepare("INSERT INTO pipeline_flags (key, value, updated_at) VALUES ('ask_config', ?1, ?2)").bind(JSON.stringify({ champion: { id: "c0", rerank: false } }), "2026-10-01T00:00:00Z").run();
 const a1 = await call("/api/ask", { query: "What does JPCUB measure?" });
 const meta = sse(a1.text, "meta")[0], done = sse(a1.text, "done")[0];
+const searchOptions = searchRequests[0] && searchRequests[0].ai_search_options;
+ok(searchOptions && searchOptions.retrieval.retrieval_type === "hybrid" && searchOptions.retrieval.fusion_method === "rrf", "Ask forces hybrid reciprocal-rank fusion");
+ok(searchOptions && searchOptions.reranking.enabled === true && searchOptions.reranking.model === "@cf/baai/bge-reranker-base", "Ask forces cross-encoder reranking even with a persisted rerank=false config");
 ok(meta && meta.sources.length >= 1 && meta.sources.every((s) => !/audit-test/.test(s.slug)), "sources exclude corpus test files");
 ok(meta.sources[0].url === "https://papers.qnfo.org/papers/jpcub-llm-energy" && !("excerpt" in meta.sources[0]), "sources link papers and do not ship raw excerpts");
 ok(meta.graph.nodes.every((n) => n.label !== "CloudflareAsset") && meta.graph.nodes.some((n) => n.cite === 1), "graph drops ops labels and tags cited papers");
@@ -144,6 +149,7 @@ ok(uploads.length === 2 && uploads.every((u) => /\.md$/.test(u.key) && u.meta &&
 ok(sq.prepare("SELECT status FROM experiments WHERE id LIKE 'ASK-TUNE-G-%'").get().status === "running", "a generation A/B is registered in experiments");
 const cfg = JSON.parse(sq.prepare("SELECT value FROM pipeline_flags WHERE key='ask_config'").get().value);
 ok(cfg.challenger && cfg.challenger.change && cfg.champion.model, "challenger armed beside the champion (" + (cfg.challenger && cfg.challenger.change) + ")");
+ok(cfg.champion.rerank === true && cfg.challenger.rerank === true, "legacy disabled-rerank configs are normalized for the fixed baseline");
 // 6. ASK-FIX-1: kill band on two consecutive days -> one code-task issue; recovery closes it with evidence
 sq.exec("UPDATE ask_events SET cites=10, cites_invalid=6");
 sq.prepare("INSERT INTO ask_loop_runs (ts, version, kind, ok, note) VALUES (?, 't', 'measure', 1, ?)").run(new Date(Date.UTC(2026, 9, 4, 3, 41) - 24 * 36e5 + 6e4).toISOString(), JSON.stringify({ written: ["ask_citation_validity_7d=0.4"] }));
