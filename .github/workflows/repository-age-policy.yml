@@ -1,0 +1,61 @@
+name: repository-age-policy
+
+# REPOSITORY-AGE-POLICY-1, charter pillar autonomy.
+# The Cloudflare-backed remediation-consumer chain is the primary recurring path;
+# schedule is only a fallback. Readiness is not merge/deploy authorization:
+# required checks, holds and canonical deployment remain unchanged.
+on:
+  workflow_run:
+    workflows: ["remediation-consumer"]
+    types: [completed]
+  issues:
+    types: [opened, reopened]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/repository-age-policy.yml
+      - scripts/repository-age-policy.mjs
+  schedule:
+    - cron: '43 3 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "live applies the policy; dry reports without writes"
+        required: false
+        type: choice
+        default: live
+        options: [live, dry]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-age-policy
+  cancel-in-progress: false
+
+jobs:
+  enforce:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch)
+    # RUNNER-PIN-2: pin Ubuntu 24 until the Ubuntu 26 trial is green after 2026-11-19.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # Never checkout a PR or workflow_run head with the fleet credential.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Enforce draft and issue age
+        env:
+          # A user-token readiness mutation emits ready_for_review, waking the
+          # existing review and merge lanes; GITHUB_TOKEN suppresses that event.
+          GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          AGE_POLICY_MODE: ${{ inputs.mode || 'live' }}
+        run: node scripts/repository-age-policy.mjs

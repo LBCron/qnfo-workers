@@ -82,6 +82,7 @@ globalThis.fetch = async (url, init) => {
   if (mm) {
     const i = gIssues.find((x) => x.number === Number(mm[1]));
     if (mm[2]) { comments.push({ n: Number(mm[1]), body: body.body }); return reply(201, {}); }
+    if (m === "GET") return reply(i ? 200 : 404, i || {});
     if (m === "PATCH") { if (body.state) { i.state = body.state; i.reason = body.state_reason; } return reply(200, i); }
   }
   return reply(404, { message: "unhandled " + m + " " + u.pathname });
