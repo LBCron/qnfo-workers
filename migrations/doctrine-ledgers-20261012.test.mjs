@@ -285,6 +285,11 @@ ok(one("SELECT COUNT(*) n FROM queue_pulls").n === 4 && one("SELECT COUNT(*) n F
 db.exec("INSERT INTO fleet_tick (source) VALUES ('migration:test')");
 const dd = one("SELECT (SELECT COUNT(DISTINCT issue_id) FROM queue_pulls) p, (SELECT COUNT(*) FROM agent_issues WHERE status = 'open' OR id IN (SELECT issue_id FROM queue_pulls)) e");
 ok(dd.p === 4 && Number(metric("driver_drain_24h")) === Math.round(1000 * dd.p / dd.e) / 1000, "driver_drain_24h = distinct issues pulled / issues eligible", [metric("driver_drain_24h"), dd]);
+// METRIC-TRIGGER-4989 / issue 2459: a successful empty intake poll is pull evidence even when no issue was actually claimed.
+db.exec("CREATE TEMP TABLE saved_tick_queue_pulls AS SELECT * FROM queue_pulls; DELETE FROM queue_pulls; UPDATE cloud_ops_events SET kind = 'code-task.intake-idle' WHERE id = 'e1'; INSERT INTO fleet_tick (source) VALUES ('migration:test')");
+const idlePull = one("SELECT ok, evidence FROM tick_runs WHERE step = 'pull'");
+ok(idlePull.ok === 1 && idlePull.evidence === "1 code-task.intake events, 0 queue_pulls rows in 65 min", "the real tick trigger accepts idle-intake evidence with no queue pulls (issue 2459)", idlePull);
+db.exec("INSERT INTO queue_pulls SELECT * FROM saved_tick_queue_pulls; DROP TABLE saved_tick_queue_pulls; UPDATE cloud_ops_events SET kind = 'code-task.intake' WHERE id = 'e1'");
 const roster = all("SELECT capability, executor, kind, healthy FROM v_executor_roster");
 ok(roster.some((r) => r.capability === "chat" && r.executor === "personal-api" && r.healthy === 0) && roster.some((r) => r.capability === "chat" && r.executor === "qnfo-ai" && r.healthy === 1), "the roster has one row per (capability, executor) with health from the live probe");
 ok(roster.some((r) => r.capability === "worker:qnfo-subscribers") && roster.some((r) => r.capability === "worker:qnfo-social") && !roster.some((r) => r.executor === "old"), "a live worker without a JSON capability list still has a roster row; a retired worker has none");
