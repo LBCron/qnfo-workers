@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.79.0"; // 1.78.0 RM-CODE-SESSION-1 (pillar autonomy; minor): owner command turns enter resumable CodeSession streams, with the existing ops agent as fallback. // 1.77.0 CMD-AGENT-1 (pillar autonomy; minor): for the signed-in owner a plain-English line in the command line is a task for the durable qnfo-ops agent, which runs its tool loop server-side (code, SQL, GitHub, workspace, fleet probes) in the background; the page shows each tool step as it runs and the answer carries the tool trace. Needs qnfo-ops 2.60.0 (ops-exec start/result); when that is absent the grounded answer still runs. prior 1.76.0 VALUE-DASH-1 (pillar autonomy; minor): the home page leads with yield per $100 (outputs, quality, impact per unit of cost) with push and trim levers, and every item carries what it means, why it is shown and a Fix it / Tell the system action (POST /api/owner/act). // 1.75.0 CMD-VOICE-1 (pillar autonomy; minor): POST /api/cmd/transcribe turns recorded speech into text with Workers AI Whisper (model list in CMD_STT_MODELS, fallback per request) and the command line gets a Speak button; scripts/qcli.mjs is the terminal client of the same route. // 1.74.1 ATTENTION-UNMEASURED-1 (agent_issues 1000458, pillar reach; patch): the attention scorecard counts only measured items; an unmeasured post is reported, never scored as zero.
+var VERSION = "1.79.1"; // 1.79.1 LOOP-HEARTBEAT-FRESHNESS-1 (issue #1000839, pillar core; patch): a stale /api/loop read queues the claimed issue-loop sync; prior 1.79.0 // 1.78.0 RM-CODE-SESSION-1 (pillar autonomy; minor): owner command turns enter resumable CodeSession streams, with the existing ops agent as fallback. // 1.77.0 CMD-AGENT-1 (pillar autonomy; minor): for the signed-in owner a plain-English line in the command line is a task for the durable qnfo-ops agent, which runs its tool loop server-side (code, SQL, GitHub, workspace, fleet probes) in the background; the page shows each tool step as it runs and the answer carries the tool trace. Needs qnfo-ops 2.60.0 (ops-exec start/result); when that is absent the grounded answer still runs. prior 1.76.0 VALUE-DASH-1 (pillar autonomy; minor): the home page leads with yield per $100 (outputs, quality, impact per unit of cost) with push and trim levers, and every item carries what it means, why it is shown and a Fix it / Tell the system action (POST /api/owner/act). // 1.75.0 CMD-VOICE-1 (pillar autonomy; minor): POST /api/cmd/transcribe turns recorded speech into text with Workers AI Whisper (model list in CMD_STT_MODELS, fallback per request) and the command line gets a Speak button; scripts/qcli.mjs is the terminal client of the same route. // 1.74.1 ATTENTION-UNMEASURED-1 (agent_issues 1000458, pillar reach; patch): the attention scorecard counts only measured items; an unmeasured post is reported, never scored as zero.
 // 1.79.0 HA-DEGRADED-READ-1 (issue 2607, pillar reach; minor): a bot-filtered RUM result that sharply conflicts with accepted history is held for one refresh; the next read is accepted and its guard verdict is recorded.
 // 1.77.4 ERRATA-CHAIN-DISPATCH-1 + WORKER-OBSERVABILITY-1 (conflict integration): preserve both the folded errata consumer dispatch and affected-service observability changes.
 /* 1.74.0 FLEET-TRIAGE-1 (2026-10-28, pillar autonomy; minor, new route and page): GET /api/triage answers in one open read which root cause each breaching metric belongs to, which breaching metrics no cause maps (named, never counted as zero), and which failure modes are recurring; GET /triage is the plain-language guide to querying the fleet. Read-only, no new worker, cron or model call. */
@@ -1517,6 +1517,15 @@ __name2(loopMaybeSync, "loopMaybeSync");
 __name22(loopMaybeSync, "loopMaybeSync");
 __name222(loopMaybeSync, "loopMaybeSync");
 __name2222(loopMaybeSync, "loopMaybeSync");
+function queueLoopSyncIfStale(env, ctx, st, meta, nowMs) {
+  const lastSyncMs = Date.parse(meta && meta.last_sync || "");
+  if (!st || !Array.isArray(st.issues)) return false;
+  if (Number.isFinite(lastSyncMs) && nowMs - lastSyncMs <= LOOP_MIN_INTERVAL_MS) return false;
+  if (!ctx || typeof ctx.waitUntil !== "function") return false;
+  ctx.waitUntil(loopMaybeSync(env, st).catch(function() {
+  }));
+  return true;
+}
 // ==== AREA-MAP reliability: fleet state: buildState, the integration view and report-card data ====
 // OUTREACH-WEEKDAY-1 (#1940): whole hours between raw and nowMs that fall on a weekday (UTC); Saturdays and Sundays do
 // not count. Outreach sends Monday to Friday only, so its queue's freshness is judged in these hours.
@@ -3421,6 +3430,7 @@ if (path === "/health") {
     const st = rec ? rec.state : null;
     const rows = await d1all(env.AUDIT, "SELECT fingerprint, category, sev, owner, title, first_seen, last_seen, occurrences, gh_number, gh_state, attempts, dispatch_state, last_action, last_verified, closed_at FROM fleet_issue_loop ORDER BY last_seen DESC LIMIT 200") || [];
     const meta = await loopMetaGet(env);
+    queueLoopSyncIfStale(env, ctx, st, meta, Date.now());
     const dispatch = await d1all(env.AUDIT, "SELECT fingerprint, category, owner, action, state, exec_state, exec_ts, exec_result, gh_number, created_at FROM fleet_issue_dispatch ORDER BY created_at DESC LIMIT 100") || [];
     let summary = null;
     try {
