@@ -91,7 +91,8 @@ ok(cx.due({ cron: "0 * * * *" }) === true && cx.due({ cron: "0 * * * *", schedul
 ok(cx.due({ cron: "0 * * * *", tickEntry: true }) === false && cx.due({ cron: "5 5 * * *" }) === false && cx.due(null) === false && cx.due(undefined) === false, "not due on a table entry, another cron or no event");
 // wiring
 const sched = src.slice(src.indexOf("  async scheduled(event, env, ctx) {\n    if (modelHealthDue"));
-ok(sched.indexOf("sweepModelHealthIssues(env)") > 0 && sched.indexOf("sweepModelHealthIssues(env)") < sched.indexOf("if (backlogDue(event))"), "the host's scheduled handler runs the sweep ahead of the daily member");
+const backlogAt = sched.indexOf("if (await backlogDue(event, env))");
+ok(sched.indexOf("sweepModelHealthIssues(env)") > 0 && sched.indexOf("sweepModelHealthIssues(env)") < backlogAt, "the host's scheduled handler runs the sweep ahead of the daily member");
 ok(/\.catch\(function \(e\) \{ console\.error\("model-health sweep: "/.test(sched.slice(0, 400)), "a sweep failure is logged and never stops the tick");
 const v = /var VERSION = "(\d+)\.(\d+)\.(\d+)/.exec(src);
 ok(v && (Number(v[1]) > 1 || Number(v[2]) > 13 || (Number(v[2]) === 13 && Number(v[3]) >= 0)), "VERSION is at least 1.13.0", v && v[0]);
