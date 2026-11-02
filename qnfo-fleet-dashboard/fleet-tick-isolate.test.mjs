@@ -84,7 +84,7 @@ const marks = (db) => db.prepare("SELECT COUNT(*) n FROM fixer_marks").get().n;
   ok(!fullDashboardRefreshDue({ scheduledTime: at(5) }) && !fullDashboardRefreshDue({ scheduledTime: at(10) }), "five-minute heartbeat-only runs skip the full refresh");
   const scheduled = src.slice(src.indexOf("async scheduled(controller, env, ctx) {"));
   const tick = scheduled.indexOf("const tickOk = await feedFallbackTick(env);");
-  const guard = scheduled.indexOf("if (!fullDashboardRefreshDue(controller)) return;");
+  const guard = scheduled.indexOf("if (!fullDashboardRefreshDue(controller)) {");
   const heartbeat = scheduled.indexOf("INSERT OR REPLACE INTO fleet_heartbeat");
   const longWork = scheduled.indexOf("const deadline = Date.now()");
   ok(/crons\s*=\s*\["\*\/5 \* \* \* \*"\]/.test(wrangler), "the standby is scheduled every five minutes");

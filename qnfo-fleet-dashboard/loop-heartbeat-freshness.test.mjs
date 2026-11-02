@@ -27,6 +27,12 @@ ok(!queueLoopSyncIfStale({}, ctx, null, {}, now), "missing state is not treated 
 ok(!queueLoopSyncIfStale({}, {}, state, {}, now), "a context without waitUntil is left untouched");
 ok(src === mirror, "deployed-current.worker.js matches worker.js");
 ok(/queueLoopSyncIfStale\(env, ctx, st, meta, Date\.now\(\)\)/.test(src), "GET /api/loop invokes the stale-sync recovery path");
+const scheduledStart = src.indexOf("async scheduled(controller, env, ctx) {");
+const heartbeatGuard = src.indexOf("if (!fullDashboardRefreshDue(controller)) {", scheduledStart);
+const savedStateRead = src.indexOf("await loadState(env).catch(function()", heartbeatGuard);
+const staleQueue = src.indexOf("queueLoopSyncIfStale(env, ctx, saved.state, loopMeta, Date.now())", heartbeatGuard);
+const heartbeatReturn = src.indexOf("\n      return;\n    }", staleQueue);
+ok(heartbeatGuard > scheduledStart && savedStateRead > heartbeatGuard && staleQueue > savedStateRead && heartbeatReturn > staleQueue, "non-quarter-hour cron ticks queue stale loop sync from saved state before returning");
 
 await Promise.all(queued);
 console.log(`${pass} passed, ${fail} failed`);

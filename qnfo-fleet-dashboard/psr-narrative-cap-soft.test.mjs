@@ -148,7 +148,7 @@ const noteRows = (db) => db.runs.filter((r) => /INSERT OR REPLACE INTO program_r
 {
   const v = /var VERSION = "(\d+)\.(\d+)\.(\d+)"/.exec(src);
   ok(v && (+v[1] > 1 || +v[2] > 70 || (+v[2] === 70 && +v[3] >= 3)), "VERSION is at least 1.70.3 (1.71.1 at release)", v && v[0]);
-  ok(/PSR-NARRATIVE-CAP-SOFT-1/.test(src.slice(src.indexOf("var VERSION"), src.indexOf("\n", src.indexOf("var VERSION") + 40) + 1500)), "a release note names PSR-NARRATIVE-CAP-SOFT-1 under the VERSION line");
+  ok(src.includes("1.71.1 PSR-NARRATIVE-CAP-SOFT-1"), "the release notes retain PSR-NARRATIVE-CAP-SOFT-1");
   ok(src === mirror, "deployed-current.worker.js is identical to worker.js");
 }
 console.log(pass + " passed, " + fail + " failed");

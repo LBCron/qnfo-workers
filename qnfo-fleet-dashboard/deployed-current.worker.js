@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.80.1";
+var VERSION = "1.80.2";
+// 1.80.2 LOOP-HEARTBEAT-CRON-FALLBACK-1 (issue #1001283, pillar core; patch): non-quarter-hour dashboard heartbeats also queue a stale issue-loop sync from saved state, recovering when full refreshes time out.
 // 1.80.1 ATTENTION-EFFICACY-SAMPLE-1 (issue #2467, pillar reach; patch): sparse 7-day windows are unmeasured, not flat efficacy results.
 // 1.80.0 DASHBOARD-HEARTBEAT-CADENCE-1 (pillar core; minor): run the standby heartbeat every five minutes while limiting the full dashboard refresh to quarter-hour runs.
 // 1.79.1 LOOP-HEARTBEAT-FRESHNESS-1 (issue #1000839, pillar core; patch): a stale /api/loop read queues the claimed issue-loop sync; prior 1.79.0 // 1.78.0 RM-CODE-SESSION-1 (pillar autonomy; minor): owner command turns enter resumable CodeSession streams, with the existing ops agent as fallback. // 1.77.0 CMD-AGENT-1 (pillar autonomy; minor): for the signed-in owner a plain-English line in the command line is a task for the durable qnfo-ops agent, which runs its tool loop server-side (code, SQL, GitHub, workspace, fleet probes) in the background; the page shows each tool step as it runs and the answer carries the tool trace. Needs qnfo-ops 2.60.0 (ops-exec start/result); when that is absent the grounded answer still runs. prior 1.76.0 VALUE-DASH-1 (pillar autonomy; minor): the home page leads with yield per $100 (outputs, quality, impact per unit of cost) with push and trim levers, and every item carries what it means, why it is shown and a Fix it / Tell the system action (POST /api/owner/act). // 1.75.0 CMD-VOICE-1 (pillar autonomy; minor): POST /api/cmd/transcribe turns recorded speech into text with Workers AI Whisper (model list in CMD_STT_MODELS, fallback per request) and the command line gets a Speak button; scripts/qcli.mjs is the terminal client of the same route. // 1.74.1 ATTENTION-UNMEASURED-1 (agent_issues 1000458, pillar reach; patch): the attention scorecard counts only measured items; an unmeasured post is reported, never scored as zero.
@@ -4153,7 +4154,18 @@ var worker_default = {
     } catch (e) {
       console.log(JSON.stringify({ worker: NAME, where: "scheduled:fleet_heartbeat", note: String(e && e.message || e) }));
     }
-    if (!fullDashboardRefreshDue(controller)) return;
+    if (!fullDashboardRefreshDue(controller)) {
+      const saved = await loadState(env).catch(function() {
+        return null;
+      });
+      if (saved && saved.state) {
+        const loopMeta = await loopMetaGet(env).catch(function() {
+          return null;
+        });
+        queueLoopSyncIfStale(env, ctx, saved.state, loopMeta, Date.now());
+      }
+      return;
+    }
     // FLEET-TICK-HEAVY-SECOND-PRODUCER-1 (issue #1000271, RED-DRAIN-1 dispatch): qnfo-fleet-dashboard is the second producer of fleet_tick_heavy,
     // alongside qnfo-code-orchestrator, so heavy D1 steps (BREACH-SELFHEAL-1) keep running when the primary producer is down. Guarded to one row per 9 minutes.
     // STANDBY-PROOF-2 (1.71.2, same issue): like feedFallbackTick above (STANDBY-PROOF-1), this standby wrote nothing while the primary was healthy, because the primary
