@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-02 09:04:00",
+  "audited_at": "2026-11-02 09:42:02",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -551,7 +551,7 @@
     "sync_workers": [
       {
         "dir": "idea-hub",
-        "version": "1.16.1-research-intake-bar",
+        "version": "1.16.2-owner-diversity",
         "worker": "idea-hub"
       },
       {
@@ -576,7 +576,7 @@
       },
       {
         "dir": "q08-signal-engine",
-        "version": "0.41.4-codeagent",
+        "version": "0.41.5-codeagent",
         "worker": "q08-signal-engine"
       },
       {
@@ -606,7 +606,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.33.3-codeagent",
+        "version": "0.33.4-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -851,9 +851,9 @@
       "worker": "funding"
     },
     "idea-hub": {
-      "before": "1.16.1-research-intake-bar",
+      "before": "1.16.2-owner-diversity",
       "http": 200,
-      "live": "1.16.1-research-intake-bar",
+      "live": "1.16.2-owner-diversity",
       "match": 1,
       "note": "SYNC",
       "worker": "idea-hub"
@@ -1056,9 +1056,9 @@
       "worker": "q08-mind"
     },
     "q08-signal-engine": {
-      "before": "0.41.4-codeagent",
+      "before": "0.41.5-codeagent",
       "http": 200,
-      "live": "0.41.4-codeagent",
+      "live": "0.41.5-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "q08-signal-engine"
@@ -1275,9 +1275,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.33.3-codeagent",
+      "before": "0.33.4-codeagent",
       "http": 200,
-      "live": "0.33.3-codeagent",
+      "live": "0.33.4-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1857,5 +1857,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
