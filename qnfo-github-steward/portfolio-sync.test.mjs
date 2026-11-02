@@ -35,6 +35,8 @@ for (const stmt of mig.split(/;\s*\n/).map((s) => s.replace(/^\s*--.*$/gm, "").t
 const scopeMig = readFileSync(join(here, "..", "migrations", "2026-10-26-roadmap-mirror-scope.sql"), "utf8");
 for (const stmt of scopeMig.split(/;\s*\n/).map((s) => s.replace(/^\s*--.*$/gm, "").trim()).filter((s) => /^(CREATE TABLE IF NOT EXISTS roadmap_mirror_scope|INSERT OR IGNORE INTO roadmap_mirror_scope|DROP VIEW IF EXISTS v_portfolio_drift_roadmap|CREATE VIEW v_portfolio_drift_roadmap)/i.test(s))) db.exec(stmt);
 assert.equal(db.prepare("SELECT COUNT(*) c FROM roadmap_mirror_scope WHERE mirrored = 0").get().c, 3, "the scope seed takes three sources out of the mirror");
+for (let i = 0; i < 135; i++) db.prepare("INSERT INTO roadmap_mirror_scope (source, mirrored, reason) VALUES (?, 0, 'portfolio sync fixture')").run("catalogue-source-" + i);
+assert.equal(db.prepare("SELECT COUNT(*) c FROM roadmap_mirror_scope WHERE mirrored = 0").get().c, 138, "the scope fixture matches the 138 excluded sources that exposed the D1 bind limit");
 assert.equal(db.prepare("SELECT github_repo FROM projects WHERE project_code='QNFO.RSCH.PAPER'").get().github_repo, "QNFO/qnfo-workers", "404 repo repointed");
 assert.equal(db.prepare("SELECT status FROM projects WHERE project_code='QNFO.RSCH.APH'").get().status, "archived", "archived-repo project archived");
 assert.equal(db.prepare("SELECT count(*) c FROM programs").get().c, 5);
@@ -65,7 +67,7 @@ db.prepare("INSERT INTO roadmap_implementation (item, source, title, artifact_ty
 db.prepare("INSERT INTO roadmap_implementation (item, source, title, artifact_type, artifact_ref, status, evidence) VALUES ('RM-DONE','charter','done','worker','qnfo-ops','verified','ok')").run();
 for (let i = 0; i < 45; i++) db.prepare("INSERT INTO roadmap_implementation (item, source, title, artifact_type, artifact_ref, status) VALUES (?, 'charter', ?, 'worker', 'qnfo-research-exec', 'not-built')").run("RM-BACKFILL-" + i, "backfill " + i);
 
-const prep = (sql) => { let a = []; const st = { bind: (...x) => { a = x.map((v) => (v === undefined ? null : v)); return st; }, run: async () => { const r = db.prepare(sql).run(...a); return { meta: { changes: Number(r.changes) } }; }, first: async () => db.prepare(sql).get(...a) || null, all: async () => ({ results: db.prepare(sql).all(...a) }) }; return st; };
+const prep = (sql) => { let a = []; const st = { bind: (...x) => { a = x.map((v) => (v === undefined ? null : v)); if (a.length > 100) throw new Error("D1_ERROR: too many SQL variables"); return st; }, run: async () => { const r = db.prepare(sql).run(...a); return { meta: { changes: Number(r.changes) } }; }, first: async () => db.prepare(sql).get(...a) || null, all: async () => ({ results: db.prepare(sql).all(...a) }) }; return st; };
 const AUDIT = { prepare: prep, batch: async (l) => { for (const s of l) await s.run(); return []; } };
 const env = { AUDIT, GITHUB_TOKEN: "t", STEWARD_KEY: "k" };
 const reply = (status, body) => new Response(body === undefined ? "" : JSON.stringify(body), { status });
