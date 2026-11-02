@@ -3,7 +3,7 @@
 
 source_liveness: cited source URLs that resolve (or have an archived R2 copy) / all cited URLs, rolling 7 days; target >= 0.99.
 Source: living-paper.paper_citations.cited_url (written by qnfo-research-exec), rows with created_at in the last 7 days, distinct https URLs.
-Each sampled URL gets one HEAD (a GET when HEAD answers 403/405/501), redirects followed by hand, through ctx.http(external=True).
+Each sampled URL gets one HEAD (a GET when HEAD answers 403/405/501 or times out), redirects followed by hand, through ctx.http(external=True).
   - resolved: final status below 400.   - failed: status 400+ (not 401/403/429) or a transport error (timeout, TLS, DNS).
   - inconclusive: 401, 403, 429 (the site answered but gates robots): left out of numerator and denominator and counted in the note.
 PROXY and limits: (1) SAMPLE, not census: at most SAMPLE distinct URLs per run (newest first) inside the run's time budget; the note says how many of
@@ -31,7 +31,7 @@ SQL = ("SELECT cited_url, MIN(citing_slug) AS slug FROM paper_citations WHERE ci
 
 def _check(ctx, url):
     r = ctx.http(url, method="HEAD", external=True, timeout=12, max_bytes=2048)
-    if r.status in (403, 405, 501) or (r.status == 0 and r.error and r.error.startswith("error:")):
+    if r.status in (403, 405, 501) or (r.status == 0 and r.error and (r.error == "timeout" or r.error.startswith("error:"))):
         r2 = ctx.http(url, external=True, timeout=12, max_bytes=2048)
         if r2.status or not r.status:
             r = r2
@@ -81,7 +81,7 @@ def selftest():
     c.executemany("INSERT INTO paper_citations VALUES (?,?,?,?)", [
         ("p1", "https://good.example/a", 1, "2026-10-27 00:00:00"), ("p1", "https://dead.example/b", 2, "2026-10-27 00:00:00"),
         ("p2", "https://gated.example/c", 1, "2026-10-26 00:00:00"), ("p3", "https://old.example/d", 1, "2026-01-01 00:00:00"),
-        ("p4", "http://plain.example/e", 1, "2026-10-27 00:00:00")])
+        ("p4", "http://plain.example/e", 1, "2026-10-27 00:00:00"), ("p5", "https://head-timeout.example/f", 1, "2026-10-27 00:00:00")])
 
     def d1_db(name, sql, params=None):
         cur = c.execute(sql, params or [])
@@ -90,8 +90,11 @@ def selftest():
     seen = []
 
     def http(url, **kw):
-        seen.append((url, kw.get("method", "GET")))
-        st = 200 if "good" in url else (403 if "gated" in url else 404)
+        method = kw.get("method", "GET")
+        seen.append((url, method))
+        if "head-timeout" in url and method == "HEAD":
+            return Resp(0, {}, [], "", url, 1, [], "timeout")
+        st = 200 if "good" in url or "head-timeout" in url else (403 if "gated" in url else 404)
         return Resp(st, {}, [], "", url, 1, [], None)
 
     class Ctx:
@@ -106,8 +109,9 @@ def selftest():
             fails.append(m)
             print("FAIL " + m)
     out = collect_liveness(ctx)[0]
-    ok(out.value == 0.5 and "1 inconclusive" in out.note, "good resolves, dead fails, gated left out, old and http rows excluded: %r" % (out,))
+    ok(out.value == 0.6667 and "1 inconclusive" in out.note, "good resolves, a timed-out HEAD retries with GET, dead fails, gated left out, old and http rows excluded: %r" % (out,))
     ok(out.rows and out.rows[0][0] == "cite:p1", "the failure is evidenced by slug: %r" % (out.rows,))
+    ok([method for url, method in seen if "head-timeout" in url] == ["HEAD", "GET"], "a HEAD timeout gets one GET fallback: %r" % (seen,))
     ok(not any("old.example" in u or "plain.example" in u for u, _ in seen), "only https rows of the window were fetched: %r" % (seen,))
     c.execute("DELETE FROM paper_citations")
     ok(collect_liveness(ctx)[0].value is None, "no citation in the window is unknown")
