@@ -214,6 +214,11 @@ ok(atLeast((await (await worker.fetch(new Request("https://x/health"), env)).jso
     const r = row(id);
     ok(r.status !== "queued" && r.status !== "ready_to_publish" && /^FOLD-PAIR-TASK-1: /.test(r.last_error) && aiCalls === n0, "E1 " + dir + ": the first parity-suite failure ends the task with no model call", { st: r.status, err: r.last_error, calls: aiCalls - n0 });
     ok(events("code-task.pair-refused", id).length === 1, "E2 " + dir + ": the stop is audited (code-task.pair-refused)");
+    ok(r.goal.includes("qnfo-workers") && /same commit/.test(r.goal) &&
+      (dir === "fx-e2"
+        ? r.goal.includes("personal-api/companion.js") && r.goal.includes("node personal-api/inline-companion.mjs") && r.goal.includes("deployed-current.worker.js")
+        : /two-file/i.test(r.goal)),
+      "E3 " + dir + ": the stored handoff goal requires the paired files or regeneration", r.goal);
   }
 }
 

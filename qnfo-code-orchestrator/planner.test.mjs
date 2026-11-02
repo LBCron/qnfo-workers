@@ -341,5 +341,50 @@ const WIP = Number((/^const PLAN_WIP = (\d+);/m.exec(fs.readFileSync(new URL("./
     ok(prompts.length === 1 && !prompts[0].input.messages[1].content.includes("TOPOLOGY"), "13f a failing graph read changes nothing", prompts.length);
   }
 }
+// Companion-inline anchors belong to the editable source, not its generated copy.
+{
+  const source = 'export function companionPage() {\n  return "<h2>Recently captured</h2>";\n}';
+  const anchor = '  return "<h2>Recently captured</h2>";';
+  const outside = "function outsideCompanion() { return 1; }";
+  FILES["personal-api/worker.js"] = [
+    outside,
+    "// COMPANION-INLINE-BEGIN (generated)",
+    "var CMP = (() => {",
+    source.replace("export ", ""),
+    "})();",
+    "// COMPANION-INLINE-END",
+  ].join("\n");
+  for (const [name, pick, companion, redirected] of [
+    ["inline markup", anchor, source, true],
+    ["inline export", "function companionPage() {", source, true],
+    ["outside block", outside, source, false],
+    ["missing source", anchor, null, null],
+    ["stale source", anchor, "export function other() {}", null],
+    ["ambiguous source", anchor, source + "\n" + source, null],
+  ]) {
+    if (companion == null) delete FILES["personal-api/companion.js"];
+    else FILES["personal-api/companion.js"] = companion;
+    const { env } = envWith([FIX(pick)]);
+    env.AUDIT_DB._db.prepare("INSERT INTO service_registry VALUES ('personal-api', 'live', 'worker', '')").run();
+    const id = issue(env, { title: "personal-api: repair companion Recently captured markup", source: "claude-session-x" });
+    const r = await plan(env), t = tasks(env);
+    if (redirected == null) {
+      ok(r.outcome === "invalid" && t.length === 0, name + ": an unverifiable source never queues a generated-file task", r);
+    } else {
+      const expected = "personal-api/" + (redirected ? "companion.js" : "worker.js");
+      const description = env.AUDIT_DB._db.prepare("SELECT description FROM agent_issues WHERE id = ?").get(id).description;
+      const goal = redirected ? description : t[0] && t[0].goal;
+      ok(r.path === expected && plans(env)[0].path === expected &&
+        (redirected ? r.outcome === "session" && t.length === 0 && description.includes("session-task: repo=qnfo-workers path=" + expected)
+          : t.length === 1 && t[0].path === expected),
+        name + ": plan and task target the correct file without widening merge scope", r);
+      ok(redirected ? description.includes("code-anchor: " + pick) : t[0] && JSON.parse(t[0].ctx).anchor === pick,
+        name + ": the unique source anchor is retained");
+      ok(goal && goal.includes("node personal-api/inline-companion.mjs") === redirected &&
+        (!redirected || /regenerate worker\.js \+ deployed-current\.worker\.js.*same commit/.test(goal)),
+        name + ": only redirected tasks require same-commit regeneration", goal);
+    }
+  }
+}
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
