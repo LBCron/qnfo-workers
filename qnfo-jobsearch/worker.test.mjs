@@ -66,6 +66,13 @@ globalThis.fetch = async (u) => {
     { id: "a1", title: "Research Program Manager, Frontier Assurance", location: "Amsterdam", isRemote: false, jobUrl: "https://jobs/a1", descriptionPlain: JOB.desc },
     { id: "a2", title: "Staff Software Engineer", location: "Amsterdam", jobUrl: "https://jobs/a2", descriptionPlain: "code" }] });
   if (u.includes("boards-api.greenhouse.io/v1/boards/anthropic")) return j({ jobs: [] });
+  const publicListings = {
+    "werkenvoornederland.nl/vacatures": '<a href="/vacatures/intern-policy-research">Intern, Policy Research</a>',
+    "academictransfer.com/en/jobs/": '<a href="/en/jobs/intern-policy-research">Intern, Policy Research</a>',
+    "euraxess.ec.europa.eu/jobs/search": '<a href="/jobs/intern-policy-research">Intern, Policy Research</a>',
+  };
+  const publicListing = Object.entries(publicListings).find(([path]) => u.includes(path));
+  if (publicListing) return new Response(publicListing[1], { status: 200, headers: { "content-type": "text/html" } });
   return j(u.includes("lever") ? [] : { jobs: [], data: [] });
 };
 const call = async (path, init, e = env) => { const r = await w.fetch(new Request("https://x" + path, init), e, { waitUntil: (p) => p }); return [r.status, await r.json().catch(() => null), r]; };
@@ -73,6 +80,8 @@ await w.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
 const runs = (await call("/api/runs"))[1].runs;
 ok(runs.length === 1 && runs[0].stored === 1 && runs[0].blocked === 0, "run stored 1 verified match", runs[0]);
+const publicFeeds = db.prepare("SELECT feed, last_count, last_error FROM jobsearch_feeds WHERE feed LIKE 'publicsector:%' ORDER BY feed").all();
+ok(publicFeeds.length === 3 && publicFeeds.every((f) => f.last_count === 1 && !f.last_error), "public-sector listing pages yield one posting each", publicFeeds);
 const list = (await call("/api/matches"))[1];
 ok(list.count === 1 && list.matches[0].title.startsWith("Research Program Manager") && list.matches[0].status === "pending_owner_approval", "list", list);
 const id = list.matches[0].id;
