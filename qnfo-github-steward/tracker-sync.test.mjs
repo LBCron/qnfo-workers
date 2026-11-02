@@ -16,6 +16,7 @@ db.exec("CREATE TABLE issue_triage (issue_id INTEGER PRIMARY KEY, rc TEXT, owner
 db.exec("CREATE TABLE code_tasks (id TEXT PRIMARY KEY, repo TEXT, path TEXT, goal TEXT, status TEXT, branch TEXT, pr_url TEXT, merged_by TEXT, merged_sha TEXT, merged_at TEXT, merge_note TEXT, created_at TEXT, updated_at TEXT)");
 db.exec("CREATE TABLE fleet_issue_dispatch (fingerprint TEXT PRIMARY KEY, category TEXT, sev TEXT, owner TEXT, payload TEXT, gh_number TEXT, state TEXT, exec_state TEXT, exec_ts TEXT, exec_result TEXT, exec_attempts INTEGER)");
 db.exec("CREATE TABLE metric_registry (metric TEXT PRIMARY KEY, last_value TEXT, last_refreshed TEXT, state TEXT)");
+db.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT)");
 const mig = readFileSync(join(here, "..", "migrations", "2026-10-18-tracker-sync.sql"), "utf8");
 for (const stmt of mig.split(/;\s*\n/).map((s) => s.replace(/^\s*--.*$/gm, "").trim()).filter(Boolean)) {
   if (/^INSERT OR IGNORE INTO analytics_metric_triggers/.test(stmt)) continue;
@@ -191,6 +192,10 @@ const jsOpen = Array.from(/var TS_STATUS_OPEN = \{([^}]*)\}/.exec(wsrc)[1].match
 const sqlOpen = Array.from(/a\.status IN \(([^)]*)\)\) <> /.exec(mig2)[1].matchAll(/'(\w+)'/g), (x) => x[1]).sort();
 assert.deepEqual(sqlOpen, jsOpen, "v_tracker_drift and the steward agree which statuses are open on GitHub");
 assert.deepEqual(jsOpen, ["open"], "only open is open on GitHub; monitoring is not");
+
+const rollupMig = readFileSync(join(here, "..", "migrations", "2026-11-02-tracker-rollup-drift.sql"), "utf8");
+for (const stmt of rollupMig.split(/;\s*\n/).map((s) => s.replace(/^\s*--.*$/gm, "").trim()).filter(Boolean)) db.exec(stmt);
+assert.equal(db.prepare("SELECT count(*) c FROM bak_20261102_v_tracker_drift_rollup").get().c, 1, "the replacement view is backed up");
 
 const ghIssue = (n, title, state = "open", labels = ["fleet-issue"]) => { const i = { number: n, title, labels, state }; gIssues.push(i); return i; };
 const mkIssue = (id, status, agoMs, title, evidence) => {
@@ -460,11 +465,30 @@ const rbLine = /^-- Rollback:\s*(.+)$/m.exec(mig2)[1];
 const rbStmts = rbLine.split(";").map((x) => x.trim()).filter(Boolean);
 assert.ok(rbStmts.length >= 5 && rbStmts.every((x) => /^(DROP|CREATE|UPDATE|DELETE|ALTER)\b/i.test(x)), "every Rollback statement starts with an SQL verb, no prose: " + rbStmts.filter((x) => !/^(DROP|CREATE|UPDATE|DELETE|ALTER)\b/i.test(x)).join(" | "));
 const rb = new DatabaseSync(":memory:");
-for (const r of db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name IN ('agent_issues','gh_issue_links','code_task_pr_links')").all()) rb.exec(r.sql);
+for (const r of db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name IN ('agent_issues','gh_issue_links','code_task_pr_links','ops_config')").all()) rb.exec(r.sql);
 for (const t of ["analytics_metric_triggers (metric_key TEXT)", "failure_modes (fm_key TEXT)", "remediation_contracts (class TEXT)", "control_registry (control TEXT)", "metric_registry (metric TEXT)"]) rb.exec("CREATE TABLE " + t);
 rb.exec(mig2.split(/;\s*\n/).map((x) => x.replace(/^\s*--.*$/gm, "").trim()).filter((x) => /^(CREATE VIEW|DROP VIEW)/.test(x)).join(";\n"));
 for (const x of rbStmts) rb.exec(x);
 assert.deepEqual(rb.prepare("SELECT name FROM pragma_table_info('v_tracker_drift')").all().map((c) => c.name), ["kind", "ref", "detail"], "the rollback restores the 3-column view");
+
+// ISSUE-ROLLUP-1 intentionally closes the individual GitHub issue for priorities outside the configured set.
+db.prepare("INSERT INTO ops_config (key, value) VALUES ('gh_individual_priorities', 'critical')").run();
+const insertPolicyIssue = db.prepare("INSERT INTO agent_issues (id, title, priority, status, created_at, updated_at) VALUES (?, ?, ?, 'open', ?, ?)");
+const policyNow = Date.now(), oldCreated = policyNow - 3600e3;
+insertPolicyIssue.run(93001, "ROLLED-UNMIRRORED", "low", oldCreated, oldCreated);
+insertPolicyIssue.run(93002, "ROLLED-STATE", "low", oldCreated, oldCreated);
+insertPolicyIssue.run(93003, "INDIVIDUAL-UNMIRRORED", "critical", oldCreated, oldCreated);
+insertPolicyIssue.run(93004, "FM-ACTOR-1: protected row", "low", oldCreated, oldCreated);
+insertPolicyIssue.run(93005, "INDIVIDUAL-STATE", "critical", oldCreated, oldCreated);
+mkLink(93002, "closed", "not_planned");
+mkLink(93005, "closed");
+const policyDrift = (id) => db.prepare("SELECT kind FROM v_tracker_drift WHERE ref = ?").get(String(id))?.kind;
+assert.equal(policyDrift(93001), undefined, "a rolled-up unlinked issue is not tracker drift");
+assert.equal(policyDrift(93002), undefined, "a rolled-up issue closed as not_planned is not state drift");
+assert.equal(policyDrift(93003), "issue-unmirrored", "an individual issue without a GitHub mirror remains visible");
+assert.equal(policyDrift(93004), "issue-unmirrored", "FM-ACTOR-1 remains individually mirrored at every priority");
+assert.equal(policyDrift(93005), "issue-state", "an individual issue with a closed GitHub mirror remains visible");
+db.prepare("DELETE FROM ops_config WHERE key = 'gh_individual_priorities'").run();
 
 // The scheduled handler routes the 10-minute cron to the tracker only; CRON-GRID-1 (0.6.0) adds the settings reconcile on
 // the :15 fire alone (its old 6-hourly trigger is a grid job).
