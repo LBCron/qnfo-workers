@@ -49,6 +49,7 @@ rendered = []
 def fake_render(job, outdir):
     Path(outdir).mkdir(parents=True, exist_ok=True)
     (Path(outdir) / "o.mp4").write_bytes(b"x")
+    (Path(outdir) / "provenance.json").write_text(json.dumps({"ai_generated": True, "video_sha256": "abc"}))
     rendered.append(str(outdir))
     return {"path": str(Path(outdir) / "o.mp4"), "duration_s": 1}
 server.render.render = fake_render
@@ -70,6 +71,9 @@ def wait_done(jid):
             return True
         time.sleep(0.05)
     return False
+def get(path):
+    with opener.open("http://127.0.0.1:%d%s" % (port, path), timeout=10) as r:
+        return r.status, json.loads(r.read())
 
 for bad in ["../victim", str(victim), "../../" + victim.name, "/"]:
     st, js = post({"id": bad, "job": {}})
@@ -85,6 +89,13 @@ ok(st == 202 and js.get("id") == "7", "a plain id is accepted", [st, js])
 ok(wait_done("7"), "the job ran to done", server.JOBS.get("7"))
 ok(rendered == [str(old)], "the renderer is handed exactly the validated directory", rendered)
 ok(not (old / "stale.txt").exists() and (old / "o.mp4").exists(), "a re-submitted job's old directory is cleared, then rendered into")
+st, js = get("/provenance?id=7")
+ok(st == 200 and js.get("ai_generated") is True and js.get("video_sha256") == "abc", "completed render provenance is available by validated job id", [st, js])
+try:
+    get("/provenance?id=../victim")
+    ok(False, "provenance endpoint refuses traversal ids")
+except urllib.error.HTTPError as e:
+    ok(e.code == 400, "provenance endpoint refuses traversal ids", e.code)
 st, js = post({"job": {}})
 ok(st == 202 and js.get("id") == "job", "no id still means the default job id", [st, js])
 ok(wait_done("job"), "the default job ran to done")

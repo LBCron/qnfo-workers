@@ -58,6 +58,17 @@ class H(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         if u.path == "/health":
             return self._send(200, {"ok": True, "jobs": {k: v["state"] for k, v in JOBS.items()}})
+        if u.path == "/provenance":
+            jid = (q.get("id") or [""])[0]
+            jdir = job_dir(jid)
+            if jdir is None:
+                return self._send(400, {"error": "bad id"})
+            if JOBS.get(jid, {}).get("state") != "done":
+                return self._send(404, {"error": "provenance not found"})
+            path = jdir / "provenance.json"
+            if not path.is_file():
+                return self._send(404, {"error": "provenance not found"})
+            return self._send(200, json.loads(path.read_text(encoding="utf8")))
         if u.path == "/result":
             j = JOBS.get((q.get("id") or [""])[0])
             if not j:
