@@ -3,13 +3,13 @@
 // new workflow steps the way fleet-exec does. Proves: each metric trigger gets its verdict against its value 7 days ago; the trend row, the three
 // metrics and the per-program view read the audit; unmeasured non-BP26 metrics get one issue per owner with a closing probe, closed with evidence
 // once measured; worse and flat breaches get one Cloudflare agent lever review each, a real answer is appended to the metric's issue and an
-// empty one is not (and is asked again); earlier report steps skip empty answers; persona_actions = off stops the reviews; a re-apply is a no-op.
+// only actionable lever proposals are reported (malformed answers are asked again); persona_actions = off stops the reviews; re-applies are no-ops.
 // Run: node migrations/management-personas-5.test.mjs
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 const rd = (f) => readFileSync(new URL(f, import.meta.url), "utf8");
 const sqls = ["./2026-10-26-management-personas.sql", "./2026-10-26-management-personas-2.sql", "./2026-10-26-management-personas-3.sql"].map(rd);
-const sql4 = rd("./2026-10-26-management-personas-4.sql"), sql5 = rd("./2026-10-26-management-personas-5.sql");
+const sql4 = rd("./2026-10-26-management-personas-4.sql"), sql5 = rd("./2026-10-26-management-personas-5.sql"), sql6 = rd("./2026-11-02-metric-lever-response-validation.sql");
 const suite1 = rd("./management-personas.test.mjs");
 const schema = suite1.slice(suite1.indexOf("db.exec(`") + 9, suite1.indexOf("`);", suite1.indexOf("db.exec(`")));
 let pass = 0, fail = 0;
@@ -42,6 +42,7 @@ const before = JSON.parse(one("SELECT definition FROM fleet_tasks WHERE id = 'ma
 // a root-cause turn that returned no text, appended by the earlier step
 run("INSERT INTO agent_issues (id, title, description, priority, status, source, created_at) VALUES (900, 'ROOT-CAUSE-1: X keeps recurring', 'text' || char(10) || char(10) || 'Root-cause diagnosis by the Cloudflare agent (cf_agent_requests #1, t): (the model returned no text)', 'critical', 'open', 'management-personas', 1)");
 db.exec(sql5);
+db.exec(sql6);
 ok(true, "the five migrations apply");
 const def = () => JSON.parse(one("SELECT definition FROM fleet_tasks WHERE id = 'management-personas'").definition).steps;
 const names = def().map((s) => s.name);
@@ -93,19 +94,21 @@ tick();
 const pr = one("SELECT verify_probe FROM remediation_contracts WHERE class = ?", "issue-" + umId).verify_probe;
 ok(/owner = 'svc-unmeasured'\) AS TEXT\) AS observed$/.test(pr) && one(pr.replace(/^SELECT '0' AS expected, /, "SELECT ")).observed === "1", "the issue gets a closing probe that reads the owner's unmeasured count", pr);
 const reqs = q("SELECT instance, prompt FROM cf_agent_requests WHERE instance LIKE 'lever-%' ORDER BY id");
-ok(reqs.length === 2 && reqs[0].instance.startsWith("lever-" + tWorse + "-") && reqs[1].instance.startsWith("lever-" + tFlat + "-") && /replaced, not repeated/.test(reqs[0].prompt) && /reads 10\.0 now and 30\.0 seven days ago/.test(reqs[0].prompt), "worse and flat breaches get one lever review each, highest priority first", reqs.map((r) => r.instance));
+ok(reqs.length === 2 && reqs[0].instance.startsWith("lever-" + tWorse + "-") && reqs[1].instance.startsWith("lever-" + tFlat + "-") && /replaced, not repeated/.test(reqs[0].prompt) && /reads 10\.0 now and 30\.0 seven days ago/.test(reqs[0].prompt) && /ROOT CAUSE:/.test(reqs[0].prompt) && /CORRECTED TARGET:/.test(reqs[0].prompt), "worse and flat breaches get one structured lever review each, highest priority first", reqs.map((r) => r.instance));
 ok(q("SELECT * FROM persona_actions WHERE kind = 'lever-review' AND to_value = 'requested'").length === 2, "each lever review is a persona_actions row");
 tick();
 ok(q("SELECT * FROM cf_agent_requests WHERE instance LIKE 'lever-%'").length === 2, "a second tick asks nothing twice");
 const issueOf = (tid) => one("SELECT open_issue_id AS i FROM metric_improvement_now WHERE trigger_id = ?", tid).i;
-run("UPDATE cf_agent_requests SET status = 'done', result = '(the model returned no text)' WHERE instance LIKE ?", "lever-" + tFlat + "-%");
-run("UPDATE cf_agent_requests SET status = 'done', result = 'The producer stalls; code-task: repo=qnfo-workers path=b/worker.js' WHERE instance LIKE ?", "lever-" + tWorse + "-%");
+run("UPDATE cf_agent_requests SET status = 'done', result = 'Now the lever steps and the lever-review history in persona_actions:' WHERE instance LIKE ?", "lever-" + tFlat + "-%");
+run("UPDATE cf_agent_requests SET status = 'done', result = 'ROOT CAUSE: the producer stalls; code-task: repo=qnfo-workers path=b/worker.js; code-anchor: unique producer call; EDIT: repair the stalled producer.' WHERE instance LIKE ?", "lever-" + tWorse + "-%");
 tick();
-ok(/Lever review by the Cloudflare agent \(lever-\d+-\d+, the metric did not improve in 7 days\): The producer stalls/.test(one("SELECT description FROM agent_issues WHERE id = ?", issueOf(tWorse)).description || ""), "a real answer is appended to the metric's issue");
-ok(!/model returned no text/.test(one("SELECT description FROM agent_issues WHERE id = ?", issueOf(tFlat)).description || ""), "an empty answer is not appended");
+ok(/Lever review by the Cloudflare agent \(lever-\d+-\d+, the metric did not improve in 7 days\): ROOT CAUSE: the producer stalls/.test(one("SELECT description FROM agent_issues WHERE id = ?", issueOf(tWorse)).description || ""), "an actionable answer is appended to the metric's issue");
+ok(!/Now the lever steps/.test(one("SELECT description FROM agent_issues WHERE id = ?", issueOf(tFlat)).description || ""), "non-actionable output is not appended");
 ok(q("SELECT to_value FROM persona_actions WHERE kind = 'lever-review' ORDER BY id").map((r) => r.to_value).join() === "reported,empty", "the reviews are marked reported and empty");
 tick();
-ok(q("SELECT * FROM cf_agent_requests WHERE instance LIKE ?", "lever-" + tFlat + "-%").length === 2 && q("SELECT * FROM cf_agent_requests WHERE instance LIKE ?", "lever-" + tWorse + "-%").length === 1, "an empty answer is asked again; an answered one waits 3 days");
+ok(q("SELECT * FROM cf_agent_requests WHERE instance LIKE ?", "lever-" + tFlat + "-%").length === 2 && q("SELECT * FROM cf_agent_requests WHERE instance LIKE ?", "lever-" + tWorse + "-%").length === 1, "a malformed answer is asked again; an actionable one waits 3 days");
+const leverProbe = one("SELECT verify_probe FROM remediation_contracts WHERE class = 'fm-metric-lever-nonactionable'").verify_probe;
+ok(one(leverProbe.replace(/^SELECT '0' AS expected, /, "SELECT "),).observed === "0", "the detector probe finds no newly reported non-actionable lever");
 ok(/Metric audit \(\d+ triggers\): \d+ on target, 1 breaches improving, 1 flat, 1 worse than 7 days ago, 1 new, \d+ unmeasured; quality 0\.0 points over 7 days\. Worst: m_worse\./.test(one("SELECT summary FROM persona_briefs WHERE persona_key = 'portfolio-manager'").summary), "the portfolio brief states the audit once", one("SELECT summary FROM persona_briefs WHERE persona_key = 'portfolio-manager'").summary);
 run("UPDATE metric_registry SET last_value = '0' WHERE metric = 'm_none'");
 tick();
@@ -117,5 +120,9 @@ run("UPDATE cf_agent_requests SET created_at = '2026-01-01T00:00:00Z' WHERE inst
 tick();
 ok(q("SELECT * FROM cf_agent_requests WHERE instance LIKE 'lever-%'").length === 3 && one("SELECT COUNT(*) AS n FROM metric_improvement_now").n > 0, "persona_actions = off stops the reviews, not the audit");
 ok(/^-- APPLY-BY: ci$/m.test(sql5) && /^-- DB: qnfo-audit$/m.test(sql5) && /^-- BACKUP: bak_20261026_mp5_workflow$/m.test(sql5) && /^-- Rollback: /m.test(sql5), "the header opts in to the runner");
+const afterLeverMigration = JSON.stringify(def());
+db.exec(sql6);
+ok(JSON.stringify(def()) === afterLeverMigration, "the response-validation migration is idempotent");
+ok(/^-- APPLY-BY: ci$/m.test(sql6) && /^-- DB: qnfo-audit$/m.test(sql6) && /^-- BACKUP: bak_20261102_metric_lever_validation$/m.test(sql6) && /^-- Rollback: /m.test(sql6), "the response-validation migration opts in to the runner");
 console.log("management-personas-5: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
