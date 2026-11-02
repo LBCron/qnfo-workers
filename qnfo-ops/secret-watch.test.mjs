@@ -84,6 +84,7 @@ const tick = async (t) => {
   const iss = t.db.prepare("SELECT title, description, category, priority, status FROM agent_issues").all();
   ok(iss.length === 1 && iss[0].title === "SECRET-CHANGE-OBSERVED: qnfo-ops " + recent.slice(0, 10), "A one issue keyed to the change day: " + JSON.stringify(iss.map((r) => r.title)));
   ok(iss[0] && /OPS_ROUTER_AUTH_KEY, OPS_ROUTER_AUTH_KEY_2/.test(iss[0].description) && /versions 434, 435/.test(iss[0].description), "A issue names the current secrets and the versions");
+  ok(iss[0] && /Current secret bindings \(not necessarily the changed binding; the version metadata does not identify which binding changed\):/.test(iss[0].description), "A distinguishes current binding inventory from the changed binding");
   ok(iss[0] && iss[0].status === "open" && iss[0].category === "security", "A issue is open, category security");
   const all = JSON.stringify(t.db.prepare("SELECT * FROM cloud_ops_events").all()) + JSON.stringify(iss);
   ok(all.indexOf(SECRET_VALUE) < 0, "A no secret value stored anywhere");
