@@ -1,7 +1,5 @@
-// BREACH-LEVER-5916 offline suite (agent_issues 100214, qnfo-research-exec 0.28.3). 13 of 22 thin-prior-work writer calls came back with 0 characters because a deepseek model
-// spent the whole token budget on reasoning. The reviser's aiText (the folded copy in this host and its twin in qnfo-paper-reviser) now sends chat_template_kwargs { thinking: false }
-// to a deepseek model. runModel in this host already did; the earlier fix there never reached aiText, which is what the reviser calls.
-// Proves: a deepseek model gets the switch; a non-deepseek model gets an unchanged body; the text is still extracted from the response; the host and the guest carry the same aiText.
+// The reviser's aiText is shared by this host and qnfo-paper-reviser. Keep model-specific reasoning controls in both copies.
+// Proves: DeepSeek gets thinking:false, Zai GLM gets low reasoning effort, other models are unchanged, and response extraction is preserved.
 // Run: node qnfo-research-exec/reviser-ai-thinking.test.mjs   (exit 0 = all passed)
 import { readFileSync } from "node:fs";
 let pass = 0, fail = 0;
@@ -18,10 +16,12 @@ for (const [name, src] of [["host", host], ["guest", guest]]) {
   const env = { AI: { run: async (m, body, opts) => { seen.push({ m, body, opts }); return { response: "hello" }; } } };
   const t1 = await fn(env, "p", "@cf/deepseek-ai/deepseek-v4-pro", 100);
   const t2 = await fn(env, "p", "@cf/zai-org/glm-5.3", 100);
+  const t3 = await fn(env, "p", "@cf/openai/gpt-oss-120b", 100);
   ok(seen[0].body.chat_template_kwargs && seen[0].body.chat_template_kwargs.thinking === false, name + ": a deepseek model gets thinking:false", seen[0].body);
-  ok(!("chat_template_kwargs" in seen[1].body) && seen[1].body.max_tokens === 100 && seen[1].body.messages[0].content === "p", name + ": another model's body is unchanged", seen[1].body);
+  ok(seen[1].body.reasoning_effort === "low" && !("chat_template_kwargs" in seen[1].body), name + ": a Zai GLM model gets low reasoning effort", seen[1].body);
+  ok(!("chat_template_kwargs" in seen[2].body) && !("reasoning_effort" in seen[2].body) && seen[2].body.max_tokens === 100 && seen[2].body.messages[0].content === "p", name + ": another model's body is unchanged", seen[2].body);
   ok(seen[0].opts && seen[0].opts.gateway && seen[0].opts.gateway.id === "default", name + ": the gateway option is still passed", seen[0].opts);
-  ok(t1 === "hello" && t2 === "hello", name + ": the text is still extracted", [t1, t2]);
+  ok(t1 === "hello" && t2 === "hello" && t3 === "hello", name + ": the text is still extracted", [t1, t2, t3]);
 }
 ok(/var VERSION = "0\.(28\.[3-9]|29|[3-9]\d)|var VERSION = "[1-9]/.test(host), "the host VERSION is at least 0.28.3 (a minimum)");
 console.log("reviser-ai-thinking: " + pass + " passed, " + fail + " failed");
