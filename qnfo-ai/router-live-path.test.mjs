@@ -113,6 +113,34 @@ try {
 }
 ok(r.status === 200 && r.j.choices[0].message.content === "recovered from the value route", "exhausted transient 504s recover through the cheaper gateway route", r);
 ok(calls.ai.filter((x) => x.model === "dynamic/standard").length === 4 && calls.ai.filter((x) => x.model === "dynamic/value").length === 1, "same-route retries finish before one bounded value-route attempt", calls.ai.map((x) => x.model));
+reset();
+aiPlan = {
+  "dynamic/standard": { throws: "HttpServerError · HTTP 502" },
+  "dynamic/value": { throws: "HttpServerError · HTTP 502" },
+  "@cf/zai-org/glm-5.3-flash": { text: "recovered directly from Workers AI" }
+};
+globalThis.setTimeout = (fn, ms, ...args) => realSetTimeout(fn, ms <= 5000 ? 0 : ms, ...args);
+try {
+  r = await chat({ model: "dynamic/standard", messages: msgs, max_tokens: 64 });
+} finally {
+  globalThis.setTimeout = realSetTimeout;
+}
+ok(r.status === 200 && r.j.choices[0].message.content === "recovered directly from Workers AI", "exhausted transient gateway routes recover through direct Workers AI", r);
+ok(calls.ai.filter((x) => x.model === "dynamic/standard").length === 4 && calls.ai.filter((x) => x.model === "dynamic/value").length === 4 && calls.ai.filter((x) => x.model === "@cf/zai-org/glm-5.3-flash").length === 1, "direct Workers AI runs only after both bounded gateway routes fail", calls.ai.map((x) => x.model));
+ok(r.j._router.provider === "workers-ai" && r.j._router.served_by === "@cf/zai-org/glm-5.3-flash", "router metadata identifies the independent provider and model that answered", r.j._router);
+reset();
+aiPlan = {
+  "dynamic/standard": { throws: "HttpServerError · HTTP 502" },
+  "dynamic/value": { throws: "HttpServerError · HTTP 502" },
+  "@cf/zai-org/glm-5.3-flash": { throws: "direct Workers AI unavailable" }
+};
+globalThis.setTimeout = (fn, ms, ...args) => realSetTimeout(fn, ms <= 5000 ? 0 : ms, ...args);
+try {
+  r = await chat({ model: "dynamic/standard", messages: msgs, max_tokens: 64 });
+} finally {
+  globalThis.setTimeout = realSetTimeout;
+}
+ok(r.status === 504 && r.j.error.type === "router_timeout" && r.j.error.legs.some((leg) => /direct Workers AI unavailable/.test(leg.err)), "a failed independent fallback remains visible as an error", r);
 
 // 7 the router-down drill: 503 after auth, no model call, one evidence row.
 reset();
@@ -143,7 +171,7 @@ ok(r.status === 422 && r.j.error.type === "channel_diversity_refused" && r.j.err
 // 9 read routes.
 const get = async (path, init) => { const x = await worker.fetch(new Request("https://ai.test" + path, init), env(), ctx); return { status: x.status, j: await x.json() }; };
 r = await get("/health");
-ok(r.status === 200 && r.j.second_path && r.j.second_path.contract === "AI-ROUTER-SECOND-PATH-1" && r.j.second_path.gateway === "default" && r.j.second_path.models.join() === "dynamic/value" && /consumer does not add a local model hedge/.test(r.j.second_path.request_budget) && r.j.routes.indexOf("/v1/ensemble/policy") >= 0, "/health serves the dynamic-route second-path contract");
+ok(r.status === 200 && r.j.second_path && r.j.second_path.contract === "AI-ROUTER-SECOND-PATH-1" && r.j.second_path.gateway === "default" && r.j.second_path.models.join() === "dynamic/value" && /consumer does not add a separate model hedge/.test(r.j.second_path.request_budget) && r.j.routes.indexOf("/v1/ensemble/policy") >= 0, "/health serves the dynamic-route second-path contract");
 r = await get("/v1/ensemble/policy");
 ok(r.status === 200 && r.j.threshold === 0.25 && r.j.pools.science.every((p) => p.diversity_ok && p.reviewer_overlap === 0), "GET /v1/ensemble/policy: every pool row is diverse", r.j && r.j.pools);
 r = await get("/v1/ensemble/policy", { method: "POST", body: JSON.stringify({ models: ["deepseek-v4-flash-wa", "deepseek-v4-pro-wa", "gpt-oss-120b"] }) });
