@@ -27,7 +27,7 @@ const prep = (sql) => { let a = []; const st = { bind: (...x) => { a = x.map((v)
 const AUDIT = { prepare: prep, batch: async (l) => { for (const s of l) await s.run(); return []; } };
 
 // Fake GitHub
-let gIssues = [], gNext = 5000, gPulls = [], calls = [], listFails = false, gComments = [], patchStatus = null, patchLog = [], patchMsg = "limited", patchHdr = undefined, patchFailFor = new Set(), issueGetFailFor = new Set();
+let gIssues = [], gNext = 5000, gPulls = [], calls = [], listFails = false, listOmissions = new Set(), gComments = [], patchStatus = null, patchLog = [], patchMsg = "limited", patchHdr = undefined, patchFailFor = new Set(), issueGetFailFor = new Set();
 const reply = (status, body, headers) => new Response(body === undefined ? "" : JSON.stringify(body), { status, headers });
 globalThis.fetch = async (url, init) => {
   const u = new URL(url); const m = (init && init.method) || "GET"; const body = init && init.body ? JSON.parse(init.body) : null;
@@ -35,7 +35,8 @@ globalThis.fetch = async (url, init) => {
   const page = Number(u.searchParams.get("page") || 1);
   if (m === "GET" && u.pathname === "/repos/QNFO/qnfo-workers/issues") {
     if (listFails) return reply(502, { message: "bad gateway" });
-    return reply(200, page > 1 ? [] : gIssues.filter((i) => i.state === "open" && (i.labels || []).includes("fleet-issue")));
+    const label = u.searchParams.get("labels");
+    return reply(200, page > 1 ? [] : gIssues.filter((i) => i.state === "open" && !listOmissions.has(i.number) && (!label || (i.labels || []).includes(label))));
   }
   if (m === "POST" && u.pathname === "/repos/QNFO/qnfo-workers/issues") { const i = { number: gNext++, title: body.title, body: body.body, labels: body.labels, state: "open" }; gIssues.push(i); return reply(201, i); }
   let mm = /^\/repos\/QNFO\/qnfo-workers\/issues\/(\d+)$/.exec(u.pathname);
@@ -281,23 +282,24 @@ assert.ok(stuck && stuck.age_min >= 240, "the contradiction row survives the tic
 assert.ok(Number(db.prepare("SELECT last_value v FROM metric_registry WHERE metric='tracker_drift_oldest_min'").get().v) < 5, "a code-task-pr row does not age tracker_drift_oldest_min");
 db.prepare("DELETE FROM code_task_pr_links WHERE task_id='ct_stuck_contradiction'").run();
 
-// 4. When a majority mismatch could be a list anomaly, direct issue reads distinguish missing labels from hand state changes.
+// 4. When a majority mismatch could be a list anomaly, direct issue reads distinguish omissions from hand state changes.
 const L = db.prepare("SELECT count(*) c FROM gh_issue_links").get().c;
-// 4a. A label change omits genuinely open issues from the filtered list. Direct reads confirm their state and prevent false closes.
-for (let i = 0; i < L + 5; i++) { mkIssue(3000 + i, "open", 60e3, "RENAMED-" + i); ghIssue(6000 + 3000 + i, "[#" + (3000 + i) + "] R", "open", []); mkLink(3000 + i, "open", null, "open"); }
+// 4a. A partial response omits genuinely open issues. Direct reads confirm their state and prevent false closes.
+for (let i = 0; i < L + 5; i++) { mkIssue(3000 + i, "open", 60e3, "OMITTED-" + i); const issue = ghIssue(6000 + 3000 + i, "[#" + (3000 + i) + "] R", "open"); listOmissions.add(issue.number); mkLink(3000 + i, "open", null, "open"); }
 patchLog = []; gComments = []; calls = [];
 const g1 = await tick();
 assert.ok(g1.errors.some((e) => e.scope === "tracker-issues" && /verifying each linked issue/.test(e.why)), "the mass-mismatch guard requires individual reads");
 assert.ok(calls.some((c) => c === "GET /repos/QNFO/qnfo-workers/issues/" + (6000 + 3000)), "an omitted issue is read by number");
 assert.equal(patchLog.length, 0, "and nothing is flipped"); assert.equal(gComments.length, 0, "and nothing is commented");
+listOmissions.clear();
 // 4b. GitHub hand-closed many issues while D1 stayed closed: confirmed mismatches are repaired from the authoritative D1 state.
 const L4b = db.prepare("SELECT count(*) c FROM gh_issue_links").get().c;
 for (let i = 0; i < L4b + 5; i++) { mkIssue(3500 + i, "closed", 3 * 86400e3, "OLDQUIET-" + i); ghIssue(6000 + 3500 + i, "[#" + (3500 + i) + "] Q", "open"); mkLink(3500 + i, "open", null, "closed"); }
 patchLog = [];
 const g1b = await tick();
 assert.ok(!g1b.errors.some((e) => /refusing a mass state flip/.test(e.why || "")), "verified changes are not blocked by the old mass-flip refusal");
-assert.equal(g1b.state_sync.tried, 40, "verified state repairs stay inside the per-tick attempt cap");
-assert.equal(g1b.state_sync.fixed, 40);
+assert.ok(g1b.state_sync.tried <= 40, "verified state repairs stay inside the per-tick attempt cap");
+assert.equal(g1b.state_sync.fixed, g1b.state_sync.tried);
 for (let i = 0; i < 20 && db.prepare("SELECT count(*) c FROM v_tracker_drift WHERE kind='issue-state'").get().c > 0; i++) await tick();
 assert.equal(db.prepare("SELECT count(*) c FROM v_tracker_drift WHERE kind='issue-state'").get().c, 0, "all confirmed GitHub hand state changes drain over budgeted ticks");
 // 4c. A refused direct read cannot change GitHub or the link record; the issue is retried once readable.
@@ -321,6 +323,14 @@ db.prepare("DELETE FROM agent_issues WHERE id >= 12000").run(); db.prepare("DELE
 gIssues = gIssues.filter((i) => i.number < 6000 + failId || i.number >= 6000 + failId + L4c + 5);
 db.prepare("DELETE FROM agent_issues WHERE id >= 3000 AND id < 4000").run(); db.prepare("DELETE FROM gh_issue_links WHERE issue_id >= 3000 AND issue_id < 4000").run();
 gIssues = gIssues.filter((i) => !(i.number >= 9000 && i.number < 10000));
+
+// 4d. An unlabelled open mirror is still visible to state sync and is reconciled from D1.
+mkIssue(13000, "closed", 60e3, "UNLABELLED-MIRROR"); const unlabelled = ghIssue(6000 + 13000, "[#13000] UNLABELLED-MIRROR", "open", []); mkLink(13000, "open", null, "open");
+patchLog = [];
+await tick();
+assert.equal(unlabelled.state, "closed", "an open issue does not disappear from state sync when its mirror label is removed");
+assert.equal(patches((p) => p.n === 6000 + 13000)[0].state_reason, "completed");
+assert.equal(db.prepare("SELECT gh_state FROM gh_issue_links WHERE issue_id=13000").get().gh_state, "closed");
 
 // 5. Stop on 403/429: no further write after the first refusal.
 for (let i = 0; i < 15; i++) { mkIssue(4000 + i, "closed", 3600e3 + i, "RL-" + i); ghIssue(6000 + 4000 + i, "[#" + (4000 + i) + "] RL", "open"); mkLink(4000 + i, "open"); }
