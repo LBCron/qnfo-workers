@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-02 09:42:02",
+  "audited_at": "2026-11-02 10:12:12",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -631,7 +631,7 @@
       },
       {
         "dir": "qnfo-fleet-control",
-        "version": "0.59.29-no-dead-doi",
+        "version": "0.59.30-codeagent",
         "worker": "qnfo-fleet-control"
       },
       {
@@ -646,7 +646,7 @@
       },
       {
         "dir": "qnfo-github-steward",
-        "version": "0.10.9",
+        "version": "0.10.10",
         "worker": "qnfo-github-steward"
       },
       {
@@ -1405,9 +1405,9 @@
       "worker": "qnfo-fleet-calibrator"
     },
     "qnfo-fleet-control": {
-      "before": "0.59.29-no-dead-doi",
+      "before": "0.59.30-codeagent",
       "http": 200,
-      "live": "0.59.29-no-dead-doi",
+      "live": "0.59.30-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-control"
@@ -1455,9 +1455,9 @@
       "worker": "qnfo-gateway"
     },
     "qnfo-github-steward": {
-      "before": "0.10.9",
+      "before": "0.10.10",
       "http": 200,
-      "live": "0.10.9",
+      "live": "0.10.10",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-github-steward"
