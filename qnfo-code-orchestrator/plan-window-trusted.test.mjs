@@ -184,5 +184,33 @@ ok(Array.isArray(h.capabilities) && h.capabilities.includes("plan-trusted-first"
     "7 the schema-compatibility fallback still excludes a stale marker without a 24h action table", r);
 }
 
+// 8. a trusted age-repair notice inherits 24h priority from the issue it names
+{
+  const { env, prompts } = envWith([FIX("q08-signal-engine")]);
+  const db = env.AUDIT_DB._db;
+  db.exec("CREATE TABLE IF NOT EXISTS ops_config (key TEXT PRIMARY KEY, value TEXT)");
+  db.prepare("INSERT INTO ops_config (key, value) VALUES ('code_merge_trusted_sources', ?)").run(
+    "qnfo-fleet-control|METRIC-TRIGGER-,qnfo-fleet-control|ISSUE-AGE-24H-REPAIR-1:"
+  );
+  const target = issue(env, { title: "METRIC-REGRESSION-1: spofs_on_critical_path" });
+  db.prepare("UPDATE agent_issues SET status = 'closed' WHERE id = ?").run(target);
+  db.prepare("INSERT INTO issue_age_actions (issue_id, rung) VALUES (?, '24h')").run(target);
+  for (let i = 0; i < 42; i++) issue(env, {
+    title: "METRIC-TRIGGER-" + (300 + i) + "-UNKNOWN: unresolved",
+    description: "q08-signal-engine /api/f has a defect",
+    priority: "critical",
+  });
+  const repair = issue(env, {
+    title: "ISSUE-AGE-24H-REPAIR-1: issue #" + target + " has no live doer",
+    description: "q08-signal-engine has no live doer",
+    priority: "critical",
+  });
+  const r = await plan(env);
+  ok(r.planned && r.issue === repair && r.outcome === "queued" && prompts.length === 1,
+    "8 a repair notice linked to an aged issue outranks 42 older critical candidates", r);
+  ok(tasks(env).length === 1 && tasks(env)[0].goal.includes("[issue #" + repair + "]"),
+    "8b the planner creates a task for the trusted repair notice, not the closed target", tasks(env).map((t) => t.goal));
+}
+
 console.log("plan-window-trusted.test: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
