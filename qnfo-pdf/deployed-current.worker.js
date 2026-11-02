@@ -14234,8 +14234,142 @@ var katex = {
 //
 // The renderer never invents metadata: a field that is absent in the frontmatter, the in-body
 // byline block or the D1 row is left out rather than guessed.
+// PAPER-FORMAT-2:BEGIN
+// PAPER-FORMAT-2: presentation-only normalization shared by publication, HTML and PDF.
+function formatPaper(source, record) {
+  const row = record || {};
+  const original = String(source || "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  let text = original;
+  const fields = {};
+  let frontmatter = "";
+  const fm = /^\s*---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/.exec(text);
+  if (fm) {
+    frontmatter = fm[0].trim();
+    const lines = fm[1].split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^([\w.-]+):[ \t]*(.*)$/.exec(lines[i]);
+      if (!m) continue;
+      let value = m[2];
+      if (/^[>|][-+]?$/.test(value)) {
+        const parts = [];
+        while (i + 1 < lines.length && /^[ \t]/.test(lines[i + 1])) parts.push(lines[++i].trim());
+        value = parts.join(" ");
+      }
+      fields[m[1].toLowerCase()] = value.replace(/^["']|["']$/g, "");
+    }
+    text = text.slice(fm[0].length);
+  }
+  const norm = (s) => String(s || "").toLowerCase().replace(/[*_`#]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/^the /, "");
+  const heading = (s) => /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(s);
+  const abstractLabel = (s) => /^(?:#{1,6}[ \t]+)?(?:\d+\.?[ \t]+)?[*_]{0,2}abstract[ \t]*:?[ \t]*[*_]{0,2}[ \t]*:?[ \t]*$/i.test(s.trim());
+  const metaLabel = /(?:^|\s)(?:[*_]{1,2})?(authors?|affiliations?|contact|e-?mail|orcid|isni|url|website|publication date|date|version|doi|license|keywords|status|modified|last updated|robots|dc\.rights)(?:[*_]{1,2})?[ \t]*:(?:[*_]{1,2})?[ \t]*/gi;
+  const blocks = text.trim().split(/\n[ \t]*\n/);
+  const explicitAbstract = !!fields.abstract || blocks.some((b) => abstractLabel(b.split("\n")[0]) || /^(?:#{1,6}[ \t]+)?[*_]{0,2}abstract[*_]{0,2}[ \t]*:/i.test(b));
+  const kept = [];
+  let inHeader = true, titleSeen = false, subtitle = "", abstract = "";
+  let fence = "";
+  const title = String(row.title || fields.title || "").replace(/\s+/g, " ").trim();
+  let resolvedTitle = title;
+  let pendingAbstract = false;
+  for (let i = 0; i < blocks.length; i++) {
+    let block = blocks[i];
+    const lines = block.split("\n");
+    // Never interpret headings, labels or blank paragraphs inside a fenced example.
+    const protectedBlock = !!fence || lines.some((l) => /^\s{0,3}(`{3,}|~{3,})/.test(l));
+    for (const line of lines) {
+      const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+      if (m) {
+        if (!fence) fence = m[1];
+        else if (m[1][0] === fence[0] && m[1].length >= fence.length) fence = "";
+      }
+    }
+    if (protectedBlock) { inHeader = false; kept.push(block); continue; }
+    if (inHeader && /^[-*_]{3,}$/.test(block.trim())) continue;
+    if (abstractLabel(lines[0]) && lines.length > 1) {
+      blocks.splice(i + 1, 0, lines.slice(1).join("\n"));
+      block = lines[0];
+    }
+    const h = heading(block.split("\n")[0]);
+    if (h && !abstractLabel(h[0]) && block.includes("\n") && lines.slice(1).every((l) => l.trim() && !/^\s*(?:[#>|`~]|\$\$|\\\[|[-*+]\s|\d+[.)]\s)/.test(l) && !/^\s*[*_]*(?:author|contact|orcid|date|version)\b/i.test(l))) {
+      block = h[1] + " " + [h[2], ...lines.slice(1)].join(" ").replace(/\s+/g, " ");
+    }
+    metaLabel.lastIndex = 0;
+    const label = abstractLabel(block);
+    if (inHeader && label) {
+      // Old repairs inserted an Abstract before a title continuation. Only the
+      // last label before actual prose survives; no fragment becomes an abstract.
+      pendingAbstract = !abstract;
+      continue;
+    }
+    if (inHeader) {
+      const matches = Array.from(block.matchAll(metaLabel));
+      if (matches.length && matches[0].index === 0) {
+        matches.forEach((m, j) => {
+          let key = m[1].toLowerCase();
+          if (key === "contact" || key === "e-mail") key = "email";
+          const value = block.slice(m.index + m[0].length, j + 1 < matches.length ? matches[j + 1].index : block.length).replace(/\s+/g, " ").trim();
+          if (value) fields[key] = value;
+        });
+        continue;
+      }
+      const bh = heading(block);
+      const bare = block.replace(/^#+[ \t]+/, "").replace(/^(\*{1,3})([\s\S]+)\1$/, "$2").trim();
+      const n = norm(bare), tn = norm(resolvedTitle);
+      if ((!abstract && !titleSeen && bh && bh[1] === "#" && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|references\b)/i.test(bare)) || (!abstract && !resolvedTitle && bh && !/^(?:\d|chapter\b|introduction\b|objective\b)/i.test(bare)) || (!abstract && n && tn && (n === tn || tn.startsWith(n + " ") || tn.endsWith(" " + n)))) {
+        if (!resolvedTitle) resolvedTitle = bare;
+        titleSeen = true;
+        continue;
+      }
+      // Before a real abstract, a non-section heading is a subtitle, not a TOC item.
+      if (!abstract && (bh || /^\*[^*\n][\s\S]*\*$/.test(block)) && blocks.slice(i + 1).some(abstractLabel) && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|objective\b)/i.test(bare)) {
+        subtitle = subtitle ? subtitle + " " + bare.replace(/\s+/g, " ") : bare.replace(/\s+/g, " ");
+        continue;
+      }
+      const inlineAbs = /^(?:#{1,6}[ \t]+)?[*_]{0,2}abstract[*_]{0,2}[ \t]*:[*_ \t]*([\s\S]+)$/i.exec(block);
+      if (inlineAbs) { pendingAbstract = true; block = inlineAbs[1]; }
+      else if (bh) { inHeader = false; pendingAbstract = false; }
+      else if (/^https?:\/\/\S+$/.test(block)) { fields.url = block; continue; }
+      if (inHeader) {
+        if (!pendingAbstract && !abstract && !explicitAbstract && !kept.length && !/^(?:[*_>\[|`~]|[-+]\s|\d+[.)]\s)/.test(block)) pendingAbstract = true;
+        if (pendingAbstract) {
+          kept.push("## Abstract");
+          pendingAbstract = false;
+          abstract = block;
+        } else if (abstract) {
+          abstract += "\n\n" + block;
+        }
+        kept.push(block);
+        continue;
+      }
+    }
+    kept.push(block);
+  }
+  let content = kept.join("\n\n").trim();
+  // Capture an already canonical abstract (the parser remains in the header
+  // until the first scientific section), retaining paragraphs and math verbatim.
+  if (!abstract) {
+    const a = /^## Abstract[ \t]*\n+([\s\S]*?)(?=\n#{1,6}[ \t]+|$)/m.exec(content);
+    if (a) abstract = a[1].trim();
+  }
+  if (!abstract && fields.abstract) {
+    abstract = fields.abstract;
+    content = "## Abstract\n\n" + abstract + (content ? "\n\n" + content : "");
+  }
+  const sub = String(row.subtitle || subtitle || fields.subtitle || "").trim();
+  const displayBody = (resolvedTitle ? "# " + resolvedTitle + "\n\n" : "") + (sub ? "*" + sub + "*\n\n" : "") + content + "\n";
+  // Retain every original YAML field and lift removed byline fields into YAML,
+  // rather than discarding bibliographic information during corpus repair.
+  const originalKeys = new Set(fm ? fm[1].split("\n").filter((line) => /^[\w.-]+:/.test(line)).map((line) => line.slice(0, line.indexOf(":")).toLowerCase()) : []);
+  const added = Object.keys(fields).filter((key) => key !== "title" && key !== "abstract" && !originalKeys.has(key));
+  if (added.length) {
+    const yaml = added.map((key) => key + ": " + JSON.stringify(fields[key])).join("\n");
+    frontmatter = frontmatter ? frontmatter.replace(/\n---$/, "\n" + yaml + "\n---") : "---\n" + yaml + "\n---";
+  }
+  return { title: resolvedTitle, subtitle: sub, abstract, explicitAbstract, fields, content, displayBody, body: (frontmatter ? frontmatter + "\n\n" : "") + displayBody };
+}
+// PAPER-FORMAT-2:END
 
-const RENDERER_VERSION = "2.5.0";
+const RENDERER_VERSION = "2.5.1-paper-format";
 const PAPER_QUALITY_LABEL = "High-quality scholarly research";
 const PAPER_QUALITY_BASIS = "QNFO publisher classification for open-access, versioned research with a public revision history and reader correction channel; this is not a claim of independent peer review.";
 const PAPER_PEER_REVIEW_STATUS = "Not independently peer-reviewed";
@@ -15033,12 +15167,12 @@ function buildMeta(fm, byline, opts) {
     pages: pick(D.pages, fm.pages),
     keywords: keywords,
     subjects: subjects,
+    abstract: pick(D.abstract, fm.abstract),
     qualityLabel: pick(D.quality_label, fm.quality_label) || PAPER_QUALITY_LABEL,
     qualityBasis: pick(D.quality_basis, fm.quality_basis) || PAPER_QUALITY_BASIS,
     peerReviewStatus: pick(D.peer_review_status, fm.peer_review_status) || PAPER_PEER_REVIEW_STATUS,
     qualityEvidenceUrl: pick(D.quality_evidence_url, fm.quality_evidence_url) || "https://qnfo.org/about",
     qualityTags: toList(D.quality_tags).length ? toList(D.quality_tags) : toList(fm.quality_tags).length ? toList(fm.quality_tags) : PAPER_QUALITY_TAGS,
-    abstract: pick(D.abstract, fm.abstract),
     url: pick(D.url, fm.url, byline.url),
     bibSource: pick(D.bib, D.bibtex, opts && opts.bibtex)
   };
@@ -15288,12 +15422,28 @@ function renderPaperHTML(md, opts) {
   const pm = parseFrontmatter(md);
   const lifted = extractBylineBlock(pm.body);
   const meta = buildMeta(pm.meta, lifted.fields, opts);
+  const formatted = formatPaper(md, { title: meta.title === "Untitled" ? "" : meta.title, subtitle: meta.subtitle });
+  meta.title = formatted.title || meta.title;
+  meta.subtitle = formatted.subtitle;
+  meta.abstract = (formatted.explicitAbstract && formatted.abstract) || meta.abstract;
+  const fields = formatted.fields;
+  if (!meta.authors.length) meta.authors = toList(fields.authors || fields.author);
+  if (!meta.affiliations.length) meta.affiliations = toList(fields.affiliations || fields.affiliation);
+  meta.orcid = meta.orcid || fields.orcid || "";
+  meta.isni = meta.isni || fields.isni || "";
+  meta.email = (meta.email || fields.email || "").replace(/\[[^\]]+\]\(mailto:([^)]+)\)/g, "$1");
+  meta.orcid = meta.orcid.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/^https?:\/\/orcid\.org\//, "");
+  meta.version = meta.version || fields.version || "";
+  meta.date = meta.date || fields.date || fields["publication date"] || "";
+  meta.dateDisplay = monthYear(meta.date);
+  meta.license = meta.license || fields.license || "";
 
   const bib = parseBibTeX(meta.bibSource || "");
   const ctx = { ordered: [], numbering: new Map(), missing: new Set(), hasBib: false };
 
-  let body = lifted.body;
-  body = dropDuplicateTitle(body, meta.title);
+  let body = formatted.explicitAbstract
+    ? formatted.content.replace(/^## Abstract[ \t]*\n+[\s\S]*?(?=\n#{1,6}[ \t]+|$)/m, "").trim()
+    : formatted.content.replace(/^## Abstract[ \t]*\n+/, "");
 
   // Bibliography source, in order of authority: the paper's BibTeX (references.bib in R2), then the
   // numbered list the paper carries in its own text, then nothing.
@@ -15344,12 +15494,12 @@ function renderPaperHTML(md, opts) {
     doi: cleanDoi(meta.doi),
     license: meta.license,
     abstract: meta.abstract,
-    keywords: meta.keywords,
     qualityLabel: meta.qualityLabel,
     qualityBasis: meta.qualityBasis,
     peerReviewStatus: meta.peerReviewStatus,
     qualityEvidenceUrl: meta.qualityEvidenceUrl,
     qualityTags: meta.qualityTags,
+    keywords: meta.keywords,
     bodyHtml: bodyHtml,
     refsHtml: refs.html,
     front: front.html,
@@ -15527,7 +15677,7 @@ function buildPrintTemplates(meta) {
 }
 
 // worker.js
-var VERSION = "1.7.4-codeagent"; /* 1.7.3 PDF-STALE-AFTER-BODY-EDIT-1 (2026-10-26, pillar reach): the tick re-renders a stored PDF whose paper changed after the upload, whatever the renderer stamp says; a corrected body is refreshed before a typesetting refresh. The check compares one R2 list with one D1 read over the whole corpus, so an old stale PDF behind many fresh ones is still found. */ /* 1.7.2 KATEX-0.19.1-1: refresh the bundled KaTeX runtime. */ /* 1.7.1 PDF-QUALITY-CACHE-INVALIDATION-1: bump renderer stamp so the backlog regenerates cached PDFs with publisher quality and review-status metadata. */ /* 1.7.0 PAPER-QUALITY-METADATA-1: generated paper artifacts expose the publisher quality classification and review status. */ /* 1.6.0-no-registrar NO-REGISTRAR-1 (2026-10-21): PDF metadata reads doi and identifier only; the registrar column and venue name are gone */ /* 1.5.2 TYPESET-PRO-3 (2026-10-18, red-team round 2): 511 of 624 public records carry their bibliography as a numbered list in their own body WITHOUT citation keys, so 1.5.1 left it in body prose; parseBodyReferences() now typesets an unkeyed list too, guarded by "closing section + three entries + a majority carrying a year or DOI". Ships scripts/pdf_corpus_audit.mjs, the executable guard named in failure_modes.pdf-typeset-bibliography-dropped. 1.5.1 TYPESET-PRO-2: a citation wrapped across a source line break printed as raw text; most papers bibliographies are the numbered list in their own body; an unmatched key was flagged even where no bibliography exists. 1.5.0 TYPESET-PRO-1 (owner directive professional typesetting with full bibliographic information and author/affiliation): title block with authors/affiliations/identifiers, BibTeX resolution from R2, numbered citations, hanging-indent reference list, live running head and page numbers. */
+var VERSION = "1.7.5"; /* 1.7.3 PDF-STALE-AFTER-BODY-EDIT-1 (2026-10-26, pillar reach): the tick re-renders a stored PDF whose paper changed after the upload, whatever the renderer stamp says; a corrected body is refreshed before a typesetting refresh. The check compares one R2 list with one D1 read over the whole corpus, so an old stale PDF behind many fresh ones is still found. */ /* 1.7.2 KATEX-0.19.1-1: refresh the bundled KaTeX runtime. */ /* 1.7.1 PDF-QUALITY-CACHE-INVALIDATION-1: bump renderer stamp so the backlog regenerates cached PDFs with publisher quality and review-status metadata. */ /* 1.7.0 PAPER-QUALITY-METADATA-1: generated paper artifacts expose the publisher quality classification and review status. */ /* 1.6.0-no-registrar NO-REGISTRAR-1 (2026-10-21): PDF metadata reads doi and identifier only; the registrar column and venue name are gone */ /* 1.5.2 TYPESET-PRO-3 (2026-10-18, red-team round 2): 511 of 624 public records carry their bibliography as a numbered list in their own body WITHOUT citation keys, so 1.5.1 left it in body prose; parseBodyReferences() now typesets an unkeyed list too, guarded by "closing section + three entries + a majority carrying a year or DOI". Ships scripts/pdf_corpus_audit.mjs, the executable guard named in failure_modes.pdf-typeset-bibliography-dropped. 1.5.1 TYPESET-PRO-2: a citation wrapped across a source line break printed as raw text; most papers bibliographies are the numbered list in their own body; an unmatched key was flagged even where no bibliography exists. 1.5.0 TYPESET-PRO-1 (owner directive professional typesetting with full bibliographic information and author/affiliation): title block with authors/affiliations/identifiers, BibTeX resolution from R2, numbered citations, hanging-indent reference list, live running head and page numbers. */
 function pdfHeaders(slug) {
   return {
     "Content-Type": "application/pdf",

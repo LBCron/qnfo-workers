@@ -359,3 +359,16 @@ test("the renderer declares its version and the worker names it", () => {
   assert.match(RENDERER_VERSION, /^\d+\.\d+\.\d+/);
   assert.ok(workerSrc.indexOf("renderer: RENDERER_VERSION") > 0);
 });
+
+test("revised split title, subtitle, separated byline and real abstract render only once", () => {
+  const md = "# THE ALGORITHMIC NECESSITY\n\n## Abstract\n\nOF AGENCY\n\n## A\nUnified Framework\n\n**Author:** Writer\n\n**Contact:** [writer@example.org](mailto:writer@example.org)\n\n**ORCID:** 0000-0000-0000-0000\n\n### ABSTRACT\n\nThis is the actual abstract with $x^2$.\n\n### Chapter 1: The\nScientific Framework\n\nScientific content.\n";
+  const r = renderPaperHTML(md, { title: "Algorithmic Necessity of Agency" });
+  assert.equal(r.title, "Algorithmic Necessity of Agency");
+  assert.match(r.front, /A Unified Framework/);
+  assert.match(r.front, /mailto:writer@example\.org/);
+  assert.match(r.front, /This is the actual abstract/);
+  assert.doesNotMatch(r.bodyHtml, /OF AGENCY|Author|Contact|ORCID|Abstract|actual abstract/);
+  assert.match(r.bodyHtml, /Chapter 1: The Scientific Framework/);
+  assert.match(r.bodyHtml, /Scientific content\./);
+  assert.equal((r.front.match(/class="abstract"/g) || []).length, 1);
+});

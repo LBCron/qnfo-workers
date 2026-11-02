@@ -57,6 +57,14 @@ Suite: `typeset.test.mjs` (13 tests).
 
 ## Build
 
+PAPER-FORMAT-2 uses the same `_shared/paper-format.js` as the publication pipeline
+and public paper pages. The real body abstract appears once in the title block;
+wrapped headings and blank-separated metadata use the same normalization as HTML.
+Bibliographic metadata lifted from a body is retained in YAML by corpus repairs.
+Run `node _shared/inline-paper-format.mjs` before `node qnfo-pdf/build.mjs` after
+editing the shared formatter. The renderer stamp changes with typesetting fixes
+so the existing backlog loop refreshes older PDFs.
+
 `worker.js` is an esbuild artifact: KaTeX bundle, then the renderer inlined between the `// renderer.js` and `// worker.js`
 markers, then the worker logic. `renderer.js` is the source of truth for that region — never edit the inlined copy by hand:
 

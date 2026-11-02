@@ -1,5 +1,12 @@
 # qnfo-gateway — QNFO site router (papers.qnfo.org, ideas, archive, ipatent, graph-api, legal)
 
+Paper pages and Markdown downloads use `_shared/paper-format.js` (PAPER-FORMAT-2)
+before rendering or export.
+New, revised and imported papers share title, subtitle, abstract and metadata
+handling; wrapped headings are joined without altering scientific text.
+Downloads retain custom YAML and bibliographic metadata without duplicating titles
+or abstracts. Regenerate the inlined copy with `node _shared/inline-paper-format.mjs`.
+
 **Recovery state:** canonical source was never committed as a full source tree; this dir carries the
 deployed bundle recovered from qnfo-web-unified/qnfo-gateway.deployed.worker.js (2026-09-10 re-home).
 Treat deployed-current.worker.js as the ONLY source of truth until the bundle is de-compiled into

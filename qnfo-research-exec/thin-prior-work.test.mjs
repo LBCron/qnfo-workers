@@ -3,6 +3,7 @@
 // queued as a drafted revision only when the revision passes the gate. Runs the functions from the source against scripted D1s.
 // Run: node qnfo-research-exec/thin-prior-work.test.mjs
 import { readFileSync } from "node:fs";
+import { formatPaper } from "../_shared/paper-format.js";
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? "  -- " + JSON.stringify(x) : "")); } };
@@ -15,12 +16,11 @@ const grab = (name) => {
 const vars = ["THIN_BATCH", "THIN_RELATED_MAX", "THIN_RELATED_MIN", "THIN_RELATED_BODY_MAX", "THIN_TARGET_FULL_MAX", "THIN_TARGET_HEAD", "THIN_RETRY_DAYS", "THIN_HEADING", "THIN_STOP"].map((c) => {
   const m = new RegExp("\\nvar " + c + " = ([^\\n]*;)").exec(src); if (!m) throw new Error("missing " + c); return "var " + c + " = " + m[1];
 }).join("\n");
-const fns = ["thinPaperUrl", "thinMatchQuery", "thinBump", "thinTargetText", "thinWorksBlock", "thinPrompt", "thinSectionCheck", "thinRereadPrompt", "normTitle", "standardizeBody", "insertPriorWork", "thinLog", "thinCandidates", "thinRelated", "thinPriorWork", "thinRun", "thinOff", "parseRereadVerdict", "parseJsonObject", "addChangelog", "applyVersionMarkers", "releaseGateVerdict"];
+const fns = ["thinPaperUrl", "thinMatchQuery", "thinBump", "thinTargetText", "thinWorksBlock", "thinPrompt", "thinSectionCheck", "thinRereadPrompt", "standardizeBody", "insertPriorWork", "thinLog", "thinCandidates", "thinRelated", "thinPriorWork", "thinRun", "thinOff", "parseRereadVerdict", "parseJsonObject", "addChangelog", "applyVersionMarkers", "releaseGateVerdict"];
 // DEGENERATE-TEXT-PRODUCER-1 (0.39.0): releaseGateVerdict reads the DEGENERATE-TEXT block, so the block is part of the function under test.
-// REVISED-STANDARD-1: standardizeBody reads the META_LINE_RX line of the host.
-const metaRx = (src.match(/^var META_LINE_RX = .*$/m) || [""])[0];
 const degenBlock = src.slice(src.indexOf("// DEGENERATE-TEXT-BEGIN"), src.indexOf("// DEGENERATE-TEXT-END"));
-const mod = new Function("aiText", vars + "\nvar __name = function(){};\nvar MODEL = 'writer-model'; var REREAD_MODEL = 'reader-model';\n" + degenBlock + "\n" + metaRx + "\n" + fns.map(grab).join("\n") + "\nreturn { " + fns.join(", ") + " };");
+const factory = new Function("aiText", "formatPaper", vars + "\nvar __name = function(){};\nvar MODEL = 'writer-model'; var REREAD_MODEL = 'reader-model';\n" + degenBlock + "\n" + fns.map(grab).join("\n") + "\nreturn { " + fns.join(", ") + " };");
+const mod = (aiText) => factory(aiText, formatPaper);
 console.error = () => {};
 
 // The filler is varied text: a sentence repeated back to back is a model loop the release gate now fails as quality:repetition.

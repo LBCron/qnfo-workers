@@ -10,6 +10,24 @@ regenerate via: wrangler deploy --dry-run --outdir dist && cp dist/worker.js dep
 
 ## Publishing (NOZ-DOI-1, 0.12.3)
 
+**Revised-paper layout (PAPER-FORMAT-2).** `_shared/paper-format.js` is the canonical
+formatter for new and revised publications, the folded reviser and errata publisher,
+and the web/PDF readers. Wrapped titles use the record title, header metadata is
+retained in YAML instead of printed as prose, and the actual abstract and wrapped
+section headings are normalized without rewriting scientific text.
+`paperFormatTick` scans 100 public papers per 10-minute tick using a durable keyset
+cursor in `ops_config.paper_format_state`. It covers imported papers too; it never
+changes status or version, and compare-and-swap updates cannot overwrite a concurrent
+revision. `PAPER-LEDGER-1` archives prior bodies and metadata. Failures are logged
+and retried on subsequent sweeps; `fm-revised-paper-formatting` requires a fresh,
+complete zero-repair/zero-error sweep. Existing R2 drift, research-repository sync
+and PDF freshness loops propagate repairs; a successful D1 write is not proof that
+all derived artifacts have refreshed.
+
+After editing the formatter, run `node _shared/inline-paper-format.mjs` then
+`node qnfo-pdf/build.mjs`. The shared, gateway, research executor and PDF
+`paper-format`/typesetting suites exercise the committed copies.
+
 Operational `cloud_ops_events` writes supply a unique UUID `id` and UTC ISO timestamp, including deferred errata confirmation,
 backup pruning and publication gate events (0.42.1). A logging failure is reported explicitly; it does not settle the queue row.
 The errata-hub confirmation source and folded copy stay identical. Regression coverage: `errata-confirm-cost.test.mjs`.

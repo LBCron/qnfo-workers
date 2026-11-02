@@ -1,6 +1,6 @@
 // REVISER-FOLD-1 (qnfo-research-exec 0.9.64, agent_issues 1756) offline suite. No network, synthetic data.
-// Proves: the qnfo-paper-reviser code runs unchanged as the member reviserMod (only its VERSION line and its export
-// differ); the host's */15 tick runs it at :30 of every fourth UTC hour (six runs a day, as its old "37 */4") with
+// Proves: the qnfo-paper-reviser code runs as the member reviserMod (VERSION/export differ, and PAPER-FORMAT-2
+// replaces the retired layout normalizer); the host's */15 tick runs it at :30 of every fourth UTC hour with
 // PAPERS_DB = LIVING_PAPER, WATCH_DB = QNFO_AUDIT and its AI calls attributed to qnfo-paper-reviser, and the handler awaits
 // it; GET /reviser/health is public; its /run/* and /debug/* routes answer only a service binding whose props name the
 // member with a qnfo-* caller (the props stand in for X-Reviser-Token, #1703) and are not reachable otherwise; the
@@ -16,7 +16,9 @@ let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 300) : "")); } };
 
 {
-  const missing = guest.split("\n").filter((l) => l.trim() && !src.includes(l.trim()));
+  const legacy = /\/\/ REVISED-STANDARD-1[\s\S]*?__name\(standardizeBody, "standardizeBody"\);/;
+  ok(legacy.test(guest) && /function standardizeBody\(md, title\) \{\s*return formatPaper\(md, \{ title \}\)\.body;/.test(src), "only the retired standardizer is replaced by the shared canonical formatter");
+  const missing = guest.replace(legacy, "").split("\n").filter((l) => l.trim() && !src.includes(l.trim()));
   ok(missing.every((l) => /^var VERSION = |^export \{|^  worker_default as default,|^  recordFlaggedErrata|^\};|^\/\/# sourceMappingURL/.test(l)) && missing.some((l) => l.startsWith("var VERSION = ")), "every reviser line is in the host except its VERSION line and its export block", missing.map((l) => l.slice(0, 60)));
   ok(versionAtLeast(mod.__hv, "0.9.64") && versionAtLeast(mod.__mv, "1.3.0") && (src.match(/var VERSION = "/g) || []).length === 1, "host 0.9.64+, member 1.2.8-folded, one quoted VERSION constant", [mod.__hv, mod.__mv]);
 }
