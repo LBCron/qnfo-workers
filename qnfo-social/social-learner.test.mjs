@@ -363,6 +363,27 @@ se("at://did:plc:me/app.bsky.feed.post/old1", "2026-09-26", { likes: 50, reposts
 rt = await mod.learnerEngagementRate(env, T("2026-10-08T07:10:00Z"));
 ok(rt.posts === 0 && rt.rate === null && rt.window[0] === "2026-10-02 00:00:00", "posts before the 2026-10-02 epoch (the q08 flood) never enter the rate");
 
+// A roll-up's tracker time is its earlier Substack announcement, not its Bluesky post time.
+reset();
+const NOWR = T("2026-11-02T07:10:00Z");
+const rollUri = "at://did:plc:me/app.bsky.feed.post/3myoouytiis2r"; // 2026-10-25T07:32:07.585Z
+const openUri = "at://did:plc:me/app.bsky.feed.post/3mzc35cjqqv25"; // 2026-11-02T00:32:06.118Z
+addDissem("delayed-roll", "delayed", null, "Delayed", { action: "posted", post_id: rollUri, posted_at: "2026-09-20 08:00:00" });
+addDissem("duplicate-roll", "duplicate", null, "Duplicate", { action: "posted", post_id: rollUri, posted_at: "2026-09-21 08:00:00" });
+addDissem("open-roll", "open", null, "Open", { action: "posted", post_id: openUri, posted_at: "2026-10-20 08:00:00" });
+addDissem("legacy-roll", "legacy", null, "Legacy", { action: "posted", post_id: "at://did:plc:me/app.bsky.feed.post/legacy", posted_at: "2026-10-20 08:00:00" });
+se(rollUri, "2026-10-27", { likes: 3, reposts: 0, replies: 0, quotes: 0 });
+se(rollUri, "2026-10-29", { likes: 99, reposts: 0, replies: 0, quotes: 0 }); // outside 72h
+se(openUri, "2026-10-21", { likes: 100, reposts: 0, replies: 0, quotes: 0 });
+se("at://did:plc:me/app.bsky.feed.post/legacy", "2026-10-22", { likes: 1, reposts: 0, replies: 0, quotes: 0 });
+rt = await mod.learnerEngagementRate(env, NOWR);
+ok(rt.posts === 2 && rt.with_data === 2 && rt.engagements === 4 && rt.rate === 2, "delayed roll-up uses its Bluesky window even when announced before the epoch; deduplicated, open window excluded, legacy time retained (" + JSON.stringify(rt) + ")");
+for (let i = 0; i < 301; i++) addDissem("open-copy-" + i, "open-copy-" + i, null, "Open copy", { action: "posted", post_id: openUri, posted_at: "2026-10-21 08:00:00" });
+rt = await mod.learnerEngagementRate(env, NOWR);
+ok(rt.posts === 2 && rt.with_data === 2 && rt.rate === 2, "newer announcements cannot hide an eligible older roll-up behind the old 300-row source limit");
+rt = await mod.learnerEngagementRate(env, T("2026-12-10T07:10:00Z"));
+ok(rt.posts === 0 && rt.rate === null, "corrected post times still age out of the rolling 30-day window");
+
 // METRIC-CLOSED-LOOP-1: the migration registers the same definition and a trigger the real v_metric_trigger_state judges.
 const mig = readFileSync(new URL("../migrations/2026-10-02-social-distribution-learner.sql", import.meta.url), "utf8");
 const loop = readFileSync(new URL("../migrations/2026-10-02-metric-closed-loop.sql", import.meta.url), "utf8");
