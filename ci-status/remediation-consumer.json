@@ -1,71 +1,39 @@
 {
  "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
- "verifier": "remediation-consumer@8d249fd59718",
- "due": 560,
- "pass": 376,
+ "verifier": "remediation-consumer@ecb5461201a7",
+ "due": 225,
+ "pass": 41,
  "fail": 171,
  "skipped": 13,
  "deferred": 13,
  "contracts": [
   {
-   "class": "fm-autoclose-flap",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "2",
-   "observed": "2",
-   "written": true
-  },
-  {
-   "class": "fm-code-review-dead-end-at-open",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-companion-draft-cache-replay",
-   "issue_id": null,
-   "verdict": "pass",
+   "class": "issue-1001278",
+   "issue_id": 1001278,
+   "verdict": "fail",
    "expected": "1",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "fm-mail-draft-fabrication",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
    "observed": "0",
    "written": true
   },
   {
-   "class": "fm-jobsearch-intake-collapse",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-secret-in-config",
-   "issue_id": null,
-   "verdict": "pass",
+   "class": "issue-1001279",
+   "issue_id": 1001279,
+   "verdict": "fail",
    "expected": "1",
-   "observed": "1",
+   "observed": "0",
    "written": true
   },
   {
-   "class": "fm-issue-deletion",
-   "issue_id": null,
-   "verdict": "pass",
+   "class": "issue-1001280",
+   "issue_id": 1001280,
+   "verdict": "fail",
    "expected": "1",
-   "observed": "1",
+   "observed": "0",
    "written": true
   },
   {
-   "class": "fm-migration-literal-outside-check-enum",
+   "class": "fm-gh-poke-silent",
    "issue_id": null,
    "verdict": "pass",
    "expected": "0",
@@ -73,7 +41,7 @@
    "written": true
   },
   {
-   "class": "fm-tick-reopen-dup-title",
+   "class": "fm-workflow-state-retired",
    "issue_id": null,
    "verdict": "pass",
    "expected": "0",
@@ -81,7 +49,15 @@
    "written": true
   },
   {
-   "class": "fm-owner-decision-on-hard-card",
+   "class": "fm-relapse-window-sql-twin-anchor",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "3",
+   "observed": "3",
+   "written": true
+  },
+  {
+   "class": "fm-breach-doctor-stalled",
    "issue_id": null,
    "verdict": "pass",
    "expected": "0",
@@ -89,23 +65,15 @@
    "written": true
   },
   {
-   "class": "fm-collector-without-credential",
+   "class": "fm-prd-funnel-evidence",
    "issue_id": null,
    "verdict": "pass",
-   "expected": "1",
-   "observed": "1",
+   "expected": 0,
+   "observed": 0,
    "written": true
   },
   {
-   "class": "fm-iso-text-compare",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-drill-probe-conditional-heartbeat",
+   "class": "fm-silent-drop-unaccounted",
    "issue_id": null,
    "verdict": "pass",
    "expected": "0",
@@ -113,115 +81,171 @@
    "written": true
   },
   {
-   "class": "fm-owner-task-100576-acted-without-approve",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-standing-liveness-parked",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-exact-version-probe",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-companion-gate-discards-repairable",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "fm-cron-string-dispatch-drift",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "fm-code-task-claim-held-unstarted",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-hourly-fanout-double",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-cf-issues-unconsumed",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "issue-1000038",
-   "issue_id": 1000038,
-   "verdict": "pass",
-   "expected": "defect fixed: breach_code_task_pct denominator narrowed to code-shaped breaches OR target <= honest routed code-task share",
-   "observed": "defect fixed: breach_code_task_pct denominator narrowed to code-shaped breaches OR target <= honest routed code-task share",
-   "written": true
-  },
-  {
-   "class": "issue-1000255",
-   "issue_id": 1000255,
-   "verdict": "pass",
-   "expected": "clear",
-   "observed": "clear",
-   "written": true
-  },
-  {
-   "class": "issue-1000772",
-   "issue_id": 1000772,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "issue-1000954",
-   "issue_id": 1000954,
-   "verdict": "pass",
-   "expected": "1",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "issue-1000956",
-   "issue_id": 1000956,
-   "verdict": "pass",
-   "expected": "1",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "fm-reasoning-starves-small-answer",
+   "class": "fm-prompt-sync-ignores-live-edit",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
    "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "fm-jobsearch-verifier-blocked",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-code-task-dies-at-ci",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-code-read-checkout-false-stale",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-stuck-view-sla-drift",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "1",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "fm-fleet-tick-fanout-abort",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-sla-shorter-than-consumer-cycle",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "1",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "fm-probe-author-unreachable",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "fm-research-watchdog-held-stall",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-registry-version-sweep-regex",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-producer-lateness-in-hours",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "belief-paper-learn-errata-are-defects",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-code-loop-empty-reply",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-jobsearch-stale-pending",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-unbounded-ready-queue",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-goal-review-empty-reply",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-portfolio-gap-owner-not-deployable",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "belief-owner-items-have-a-loop",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "holds",
+   "observed": "holds",
+   "written": true
+  },
+  {
+   "class": "fm-trigger-depth-compile",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "stale-or-failing",
+   "written": true
+  },
+  {
+   "class": "fm-monitoring-closed-completed",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "goal-GH-APP-FLEET-2-CONVERSIONS-0",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "unmet: workers served by the App broker in 24 hours: 0 of 13",
    "written": true
   },
   {
@@ -230,22 +254,6 @@
    "verdict": "fail",
    "expected": "0",
    "observed": "11",
-   "written": true
-  },
-  {
-   "class": "metric-relapse-2237",
-   "issue_id": 2237,
-   "verdict": "fail",
-   "expected": "0",
-   "observed": "14",
-   "written": true
-  },
-  {
-   "class": "metric-relapse-2288",
-   "issue_id": 2288,
-   "verdict": "fail",
-   "expected": "0",
-   "observed": "14",
    "written": true
   },
   {
@@ -265,27 +273,35 @@
    "written": true
   },
   {
+   "class": "metric-relapse-2288",
+   "issue_id": 2288,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "14",
+   "written": true
+  },
+  {
+   "class": "fm-reasoning-starves-small-answer",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "fm-sla-metric-overlap",
    "issue_id": null,
    "verdict": "fail",
    "expected": "0",
-   "observed": "-281",
+   "observed": "-279",
    "written": true
   },
   {
-   "class": "issue-1000492",
-   "issue_id": 1000492,
+   "class": "metric-relapse-2237",
+   "issue_id": 2237,
    "verdict": "fail",
    "expected": "0",
-   "observed": "4",
-   "written": true
-  },
-  {
-   "class": "issue-1001165",
-   "issue_id": 1001165,
-   "verdict": "fail",
-   "expected": "0",
-   "observed": "1",
+   "observed": "14",
    "written": true
   },
   {
@@ -294,6 +310,14 @@
    "verdict": "fail",
    "expected": "0",
    "observed": "14",
+   "written": true
+  },
+  {
+   "class": "issue-1001165",
+   "issue_id": 1001165,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
    "written": true
   },
   {
@@ -313,6 +337,14 @@
    "written": true
   },
   {
+   "class": "issue-1000492",
+   "issue_id": 1000492,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "4",
+   "written": true
+  },
+  {
    "class": "issue-1001000",
    "issue_id": 1001000,
    "verdict": "fail",
@@ -329,6 +361,14 @@
    "written": true
   },
   {
+   "class": "issue-1001023",
+   "issue_id": 1001023,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
    "class": "issue-1001024",
    "issue_id": 1001024,
    "verdict": "fail",
@@ -339,30 +379,6 @@
   {
    "class": "issue-1001164",
    "issue_id": 1001164,
-   "verdict": "fail",
-   "expected": "0",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "metric-relapse-1796",
-   "issue_id": 1796,
-   "verdict": "fail",
-   "expected": "0",
-   "observed": "14",
-   "written": true
-  },
-  {
-   "class": "issue-1001253",
-   "issue_id": 1001253,
-   "verdict": "pass",
-   "expected": "1",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "issue-1001023",
-   "issue_id": 1001023,
    "verdict": "fail",
    "expected": "0",
    "observed": "1",
@@ -393,16 +409,6 @@
    "written": true
   },
   {
-   "class": "goal-PAPER-LEARN-4768",
-   "issue_id": null,
-   "verdict": "fail",
-   "expected": "0",
-   "observed": "1",
-   "written": true
-  },
-  {
-   "class": "goal-PAPER-LEARN-4769",
-   "issue_id": null,
-   "verdict": "fail",
-   "expected": "0",
-   "obs
+   "class": "metric-relapse-1796",
+   "issue_id": 1796,
+   "ver
