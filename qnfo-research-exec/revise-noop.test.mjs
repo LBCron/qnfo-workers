@@ -124,6 +124,21 @@ const row = { id: "r1", context: "{}", recover_count: 0, source: "idea-hub", sta
   ok(res && res.ok === true && res.stage === "revise->review" && res.patch === 1 && t.calls.length === 2, "an edit from the strict retry is applied and advances the row", res);
 }
 
+// 4b. A six-finding pass with a non-applicable proposed anchor gets the strict retry and applies only a real paper excerpt.
+{
+  const ids = ["H1", "H3", "H4", "H5", "H6", "H7"];
+  const t = mkEnv((n) => n === 1
+    ? JSON.stringify([{ find: "This proposed target does not occur in the paper.", replace: "A corrected statement." }])
+    : JSON.stringify([{ find: UNIQUE, replace: "The coupling constant takes the value $0.5000$ in the baseline configuration, as derived above." }]));
+  t.store["pipeline/r1/fixes.json"] = JSON.stringify({ hard: ids.map((id) => ({ id, severity: "HARD", claim: "claim " + id, reason: "unsupported statement", fix: "correct or qualify" })), soft: [] });
+  const res = await stageRevise(t.env, Object.assign({}, row));
+  const retry = t.calls[1] && t.calls[1].prompt.slice(t.calls[0].prompt.length);
+  ok(t.calls.length === 2 && /STRICT RETRY/.test(retry), "a proposed but inapplicable patch gets one strict retry", t.calls.map((c) => c.model));
+  ok(ids.every((id) => retry.includes(id)) && /none applied to the PAPER/.test(retry) && /copied verbatim from PAPER/.test(retry) && /unique, contiguous excerpt/.test(retry), "the strict retry names all six findings and requires an exact applicable excerpt", retry);
+  ok(res && res.ok === true && res.stage === "revise->review" && res.patch === 1, "only an applicable strict-retry patch advances to review", res);
+  ok(t.store["pipeline/r1/reconciled.md"].includes("$0.5000$") && !t.store["pipeline/r1/reconciled.md"].includes(UNIQUE), "the strict retry's exact paper edit is stored");
+}
+
 // 5. A second no-op is parked durably without the recovery route overwriting it.
 {
   const t = mkEnv("[]", 1);
