@@ -1,0 +1,884 @@
+{
+ "counts": {
+  "already-applied": 74,
+  "undetermined": 7
+ },
+ "errored": [],
+ "marker": "APPLIER-DOCTOR-2",
+ "never_landed": [],
+ "results": [
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/adr009-audit-trail-unwritten-1-patch.py",
+   "tail": [
+    "== ADR-009-AUDIT-TRAIL-UNWRITTEN-1 ==",
+    "already applied qnfo-ops/worker.js",
+    "OK: ADR-009-AUDIT-TRAIL-UNWRITTEN-1 complete, 0 target(s) changed"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/affirm-guard-veto-patch.py",
+   "tail": [
+    "OK (already patched): qnfo-ops/worker.js",
+    "OK (already patched): qnfo-ops/deployed-current.worker.js",
+    "nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/affirm-veto-clause-targets-patch.py",
+   "tail": [
+    "OK (already patched): qnfo-ops/worker.js",
+    "OK (already patched): qnfo-ops/deployed-current.worker.js",
+    "nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/ai-attr-env-patch.py",
+   "tail": [
+    "skip qnfo-ai (already patched)",
+    "skip qnfo-ops (already patched)",
+    "skip q08-signal-engine (already patched)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/analyzer-exclusion-table-patch.py",
+   "tail": [
+    "ALREADY APPLIED (SELFHEAL-EXCLUSION-TABLE-1 present)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/applier-artifact-collision-patch.py",
+   "tail": [
+    "OK (already patched): scripts/apply-pending-patches.py"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/applier-doctor-outcome-all-patch.py",
+   "tail": [
+    "PY_COMPILE_OK /home/runner/work/qnfo-workers/qnfo-workers/scripts/applier-doctor.py",
+    "edits: A1:already, A2:already",
+    "POST_CONDITIONS_OK /home/runner/work/qnfo-workers/qnfo-workers/scripts/applier-doctor.py"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/cf-urllib-ua-1010-patch.py",
+   "tail": [
+    "ALREADY APPLIED - no change"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/cf-worker-read-404-hint-patch.py",
+   "tail": [
+    "MIRROR_IDENTICAL=yes",
+    "MARKER_COUNT=1",
+    "OK applied=0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/checkin-scale-anchored-1-patch.py",
+   "tail": [
+    "already applied /home/runner/work/qnfo-workers/qnfo-workers/personal-companion/wellbeing-wire.js",
+    "already applied /home/runner/work/qnfo-workers/qnfo-workers/personal-companion/worker.js (VERSION is past var VERSION = \"1.30.0-checkin-anchored\"; and the worker carries SCALE-ANCHORED-1)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/ci-watchdog-logfetch-patch.py",
+   "tail": [
+    "already patched: scripts/ci_watchdog.py contains '_raw_log'; no change"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/classify-failclosed-default-patch.py",
+   "tail": [
+    "already applied: scripts/apply-pending-patches.py carries 'CLASSIFY-FAILCLOSED-DEFAULT-1'",
+    "CLASSIFY-FAILCLOSED-DEFAULT-1: nothing to do (all edits already applied)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/cloud-ops-cron-alias-dispatch-patch.py",
+   "tail": [
+    "STATE worker.js alias=4 noop=1 syncerr=2 version=1.43.0-paper-provenance-archive",
+    "STATE deployed-current.worker.js alias=4 noop=1 syncerr=2 version=1.43.0-paper-provenance-archive",
+    "TOTAL_EDITS 0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/cloud-ops-cron-dow-patch.py",
+   "tail": [
+    "STATE worker.js isoDowToCf=4 cron_fingerprint=2 version=1.43.0-paper-provenance-archive",
+    "STATE deployed-current.worker.js isoDowToCf=4 cron_fingerprint=2 version=1.43.0-paper-provenance-archive",
+    "TOTAL_EDITS 0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/cloud-ops-health-auth-patch.py",
+   "tail": [
+    "ALREADY PATCHED (CLOUD-OPS-HEALTH-AUTH-1 present); no change"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/code_task_publish_patch_size_test.py",
+   "tail": [
+    "10 passed, 0 failed"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/console-agent-1-patch.py",
+   "tail": [
+    "SKIP qnfo-fleet-dashboard/worker.js: already applied",
+    "SKIP qnfo-fleet-dashboard/deployed-current.worker.js: already applied",
+    "changed=0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/container-config-drop-guard-patch.py",
+   "tail": [
+    "[skip] qnfo-ops/worker.js already carries the container-deploy guard",
+    "[skip] scripts/fleet-autoaudit.py already skips container workers",
+    "[done] changes: none (already applied)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/container-ctx-guard-patch.py",
+   "tail": [
+    "OK (already patched): /home/runner/work/qnfo-workers/qnfo-workers/qnfo-containers-pilot/worker.js",
+    "OK (already patched): /home/runner/work/qnfo-workers/qnfo-workers/qnfo-containers-pilot/deployed-current.worker.js",
+    "nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/continuation-inherit-guard-patch.py",
+   "tail": [
+    "OK (already patched): qnfo-ops/worker.js",
+    "OK (already patched): qnfo-ops/deployed-current.worker.js",
+    "nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/credit-halt-only-1-patch.py",
+   "tail": [
+    "already applied qnfo-fleet-dashboard/owner-morning.test.mjs",
+    "mirror ok: worker.js == deployed-current.worker.js",
+    "RESULT ok: 0 file(s) changed"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/cron-tick-5m-patch.py",
+   "tail": [
+    "ALREADY-APPLIED"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "declared_signals": [
+    "DASHBOARD-AGENT-ISSUES-UNDERCOUNT-1"
+   ],
+   "rc": 3,
+   "script": "scripts/dashboard-agissue-undercount-patch.py",
+   "tail": [
+    "FAIL-CLOSED: anchor A1 occurs 0 times (expected exactly 1) - nothing written"
+   ],
+   "verdict": "undetermined"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/deploy-guard-ms-failclosed-patch.py",
+   "tail": [
+    "ALREADY APPLIED - nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/deploy-guard-wrap-patch-v2.py",
+   "tail": [
+    "ALREADY APPLIED (DEPLOY-GUARD-WRAP-2) - nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/drift-guard-notdeployed-worker-patch.py",
+   "tail": [
+    "I1 OK: deploy-drift-guard.py emits the resolved worker for NOT_DEPLOYED",
+    "I2 OK: fleet-autoaudit.py de-duplicates a repeated class note",
+    "invariants asserted: 2/2"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/driftguard-multi-version-ahead-exclusion-patch.py",
+   "tail": [
+    "already applied: /home/runner/work/qnfo-workers/qnfo-workers/scripts/deploy-drift-guard.py"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/email-approval-gate-patch.py",
+   "tail": [
+    "STATE worker.js gate=5 reputation=1 held=2 version=?",
+    "STATE deployed-current.worker.js gate=5 reputation=1 held=2 version=?",
+    "TOTAL_EDITS 0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/fix-fold-pair-and-model-floor-patch.py",
+   "tail": [
+    "already applied qnfo-lifecycle/worker.js (fold already stamps the channel)",
+    "mirror pair identical",
+    "changed=[] rc=0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/fleet-writeback-close-patch.py",
+   "tail": [
+    "ALREADY-PATCHED /home/runner/work/qnfo-workers/qnfo-workers/qnfo-fleet-control/worker.js",
+    "ALREADY-PATCHED /home/runner/work/qnfo-workers/qnfo-workers/qnfo-fleet-control/deployed-current.worker.js",
+    "TOTAL_EDITS 0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/gitclone-warm-retry-patch.py",
+   "tail": [
+    "already-patched: worker.js",
+    "already-patched: deployed-current.worker.js",
+    "changed_files=0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/github-write-409-retry-patch.py",
+   "tail": [
+    "ALREADY REPAIRED (marker(s) GITHUB-409-RETRY-1); no change",
+    "bytes: 773325 (unchanged)",
+    "parity: source==mirror"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/github409-retry-patch.py",
+   "tail": [
+    "already applied (idempotent no-op): qnfo-ops/worker.js",
+    "already applied (idempotent no-op): qnfo-ops/deployed-current.worker.js",
+    "changed=false"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/github409-variant-reread-patch.py",
+   "tail": [
+    "already applied (idempotent no-op): qnfo-ops/deployed-current.worker.js",
+    "mirror pair byte-identical (773333 bytes)",
+    "changed=false"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/idea-hub-rss-stamp-gate-patch.py",
+   "tail": [
+    "already applied: /home/runner/work/qnfo-workers/qnfo-workers/idea-hub/worker.js",
+    "already applied: /home/runner/work/qnfo-workers/qnfo-workers/idea-hub/deployed-current.worker.js"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "declared_signals": [
+    "MATH-SYM-UTF8-ESCAPE-1",
+    "UTF-8",
+    "String.raw"
+   ],
+   "rc": 1,
+   "script": "scripts/math-sym-escape-patch.py",
+   "tail": [
+    "CLEAN qnfo-gateway/worker.js (already pure ASCII at 3.7.16-utf8-escape)",
+    "VERSION-NOT-BUMPED qnfo-gateway/worker.js: neither 3.7.15-latex-feed nor 3.7.16-utf8-escape found"
+   ],
+   "verdict": "undetermined"
+  },
+  {
+   "changed_files": [],
+   "declared_signals": [
+    "MIND-Q08-4",
+    "SLA-AND-PATHS-1",
+    "NEXT_OF",
+    "The outside view"
+   ],
+   "rc": 1,
+   "script": "scripts/mind_q08_patch.py",
+   "tail": [
+    "    src = open(WORKER, encoding=\"utf-8\").read()",
+    "          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+    "FileNotFoundError: [Errno 2] No such file or directory: 'mind/worker.js'"
+   ],
+   "verdict": "undetermined"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/notdeployed-existence-probe-patch.py",
+   "tail": [
+    "  class UNPROBED_NO_CF_LIST was unhandled by fleet-autoaudit.py classify()",
+    "  anchor collision with scripts/drift-guard-notdeployed-worker-patch.py removed",
+    "  invariant coverage lives in scripts/drift-guard-notdeployed-worker-patch.py (#1383)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/ops-deploy-ledger-patch.py",
+   "tail": [
+    "already patched (marker present) - no-op",
+    "  worker.js bytes=773333 marker=1",
+    "  deployed-current.worker.js bytes=773333 marker=1"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "declared_signals": [
+    "OUTREACH-CAP-STATUS-1"
+   ],
+   "rc": 1,
+   "script": "scripts/outreach-cap-status-1-patch.py",
+   "tail": [
+    "FAIL-CLOSED qnfo-cloud-ops/worker.js: tail anchor matched 0 times (expected 1) - nothing written",
+    "FAIL-CLOSED qnfo-cloud-ops/deployed-current.worker.js: tail anchor matched 0 times (expected 1) - nothing written",
+    "RESULT rc=1 changed=False"
+   ],
+   "verdict": "undetermined"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/outreach-selector-terminal-status-patch.py",
+   "tail": [
+    "OUTREACH-TERMINAL-STATUS-1: qnfo-cloud-ops/worker.js=already-applied, qnfo-cloud-ops/deployed-current.worker.js=already-applied",
+    "already applied (marker present) - nothing written"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/owner-sender-no-reply-1-patch.py",
+   "tail": [
+    "STATE worker.js isOwnerSender=3 handoff_reply_guard=4 version=2.12.4-codeagent",
+    "STATE deployed-current.worker.js isOwnerSender=3 handoff_reply_guard=4 version=2.12.4-codeagent",
+    "TOTAL_EDITS 0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-404hint-list-1.py",
+   "tail": [
+    "MIRROR_IDENTICAL=yes",
+    "MARKER_COUNT=1",
+    "OK"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-apply-trigger-1490.py",
+   "tail": [
+    "APPLY-TRIGGER-1490-1: benign no-op. The applier will land scripts/*patch*.py (notably patch-ops-metadata-preserve-and-schema-hint.py -> #1490/#1487/#1485) in this same run."
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-backlog-health-cheap.py",
+   "tail": [
+    "OK   qnfo-backlog-exec/worker.js: already patched (idempotent no-op)",
+    "OK   qnfo-backlog-exec/deployed-current.worker.js: already patched (idempotent no-op)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-binding-install-gate-1.py",
+   "tail": [
+    "  ALREADY  qnfo-ops/worker.js",
+    "  ALREADY  qnfo-ops/deployed-current.worker.js",
+    "no-op: every target already carries the fix"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-enospc-cache-1.py",
+   "tail": [
+    "ALREADY APPLIED: qnfo-containers-pilot/worker.js",
+    "ALREADY APPLIED: qnfo-containers-pilot/deployed-current.worker.js",
+    "RESULT: applied=0 already=2 (nothing to do)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-ensemble-budget-2.py",
+   "tail": [
+    "B already-applied qnfo-research-exec/worker.js",
+    "B already-applied qnfo-research-exec/deployed-current.worker.js",
+    "changed=0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-fleet-exec-tick-unauth-1.py",
+   "tail": [
+    "fleet-exec/worker.js                          already-applied ",
+    "fleet-exec/deployed-current.worker.js         already-applied ",
+    "OK FLEET-EXEC-TICK-UNAUTH-1"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-github-read-404-hint-1.py",
+   "tail": [
+    "ALREADY APPLIED: qnfo-ops/worker.js",
+    "ALREADY APPLIED: qnfo-ops/deployed-current.worker.js",
+    "DONE: 0 file(s) patched, marker=GITHUB-READ-404-HINT-1"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-node-b64-encoding-1.py",
+   "tail": [
+    "ALREADY-APPLIED: qnfo-containers-pilot/worker.js",
+    "ALREADY-APPLIED: qnfo-containers-pilot/deployed-current.worker.js"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-ops-metadata-preserve-and-schema-hint.py",
+   "tail": [
+    "ALREADY APPLIED: OPS-D1-SCHEMA-HINT-FULL-1 present; nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-ops-tool-meta-error-first.py",
+   "tail": [
+    "ALREADY-APPLIED qnfo-ops/worker.js",
+    "ALREADY-APPLIED qnfo-ops/deployed-current.worker.js",
+    "OK changed=0"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-q08-title-promote-1.py",
+   "tail": [
+    "TITLE-PROMOTE-1 q08-signal-engine/worker.js: already",
+    "TITLE-PROMOTE-1 q08-signal-engine/deployed-current.worker.js: already",
+    "TITLE-PROMOTE-1: already applied"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-sync-version-capture-1.py",
+   "tail": [
+    "deploy-drift-guard.py: already applied (idempotent no-op)",
+    "fleet-autoaudit.py: already applied (idempotent no-op)",
+    "SYNC-VERSION-CAPTURE-1: APPLIED AND VERIFIED (guard emits version; consumer captures it)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-version-precedence-1.py",
+   "tail": [
+    "VERIFIED: scripts/deploy-drift-guard.py carries v = _repo_version(text)",
+    "VERIFIED: scripts/fleet-autoaudit.py carries NOTE-APPEND-IDEMPOTENT-1",
+    "OK: VERSION-PRECEDENCE-1 + NOTE-APPEND-IDEMPOTENT-1 applied"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/patch-version-quote-1.py",
+   "tail": [
+    "VERSION-QUOTE-1 already applied - no-op"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/queue-drain-dispatch-false-timeout-1-patch.py",
+   "tail": [
+    "== QUEUE-DRAIN-DISPATCH-FALSE-TIMEOUT-1 ==",
+    "already applied qnfo-fleet-dashboard/worker.js",
+    "OK: QUEUE-DRAIN-DISPATCH-FALSE-TIMEOUT-1 complete, 0 target(s) changed"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/rawput-container-declared-sot-patch.py",
+   "tail": [
+    "OK (already patched): scripts/raw_put.py"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/rawput-container-preserve-patch.py",
+   "tail": [
+    "[skip] scripts/raw_put.py already carries CONTAINER-CONFIG-PRESERVE-1",
+    "[done] changes: none (already applied)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/rawput-schedules-ua-marker-clean-patch.py",
+   "tail": [
+    "already applied: /home/runner/work/qnfo-workers/qnfo-workers/scripts/raw_put.py"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/rawput-version-extract-patch.py",
+   "tail": [],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/rawput-version-regex-quote-patch.py",
+   "tail": [
+    "  ok const QNFO_VERSION = \"1.6.4-mixed\";        -> 1.6.4-mixed",
+    "  ok let VERSION = '2.0.0-let';                 -> 2.0.0-let",
+    "POST-CONDITIONS OK (4/4 literals extracted, incl. single-quoted)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/router-transport-failover-patch.py",
+   "tail": [
+    "already-patched: qnfo-research-exec/worker.js",
+    "already-patched: qnfo-research-exec/deployed-current.worker.js"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/routerfetch-host-order-body-patch.py",
+   "tail": [
+    "already patched (marker '_lastRouterHost' present); no write. sha256=0ec2cd3c212cfb5f"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/routerfetch-host-order-correction-patch.py",
+   "tail": [
+    "already corrected (marker 'ROUTER-HOST-ORDER-CORRECTION-1' present); no write. sha256=0ec2cd3c212cfb5f"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/samezone-fetch-fallback-patch.py",
+   "tail": [
+    "OK (already patched): qnfo-ops/worker.js",
+    "OK (already patched): qnfo-ops/deployed-current.worker.js",
+    "nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/schedules-diag-legible-patch.py",
+   "tail": [
+    "NOOP - already applied"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/self-fetch-guard-patch.py",
+   "tail": [
+    "OK (already patched): qnfo-ops/worker.js",
+    "OK (already patched): qnfo-ops/deployed-current.worker.js",
+    "nothing to do"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/selfheal-analyzer-patch.py",
+   "tail": [
+    "already patched (SELFHEAL-EXTRACTOR-BARE-NAME-1 present); no change"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/selfheal-metric-patch.py",
+   "tail": [
+    "already patched (SELFHEAL-METRIC-TABLE-MISMATCH-1 present); no change"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/slot-crash-trace-1-patch.py",
+   "tail": [
+    "skip qnfo-research-exec/worker.js (already patched)",
+    "skip qnfo-research-exec/deployed-current.worker.js (already patched)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/stale-gate-failclosed-patch.py",
+   "tail": [
+    "{\"ok\": true, \"already_patched\": true, \"marker\": \"STALE-GATE-FAILCLOSED-1\", \"bytes\": 1400816}"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/tool-budget-pending-toolcalls-patch.py",
+   "tail": [
+    "TOOL-BUDGET-PENDING-1: already applied to qnfo-ops/worker.js (no change)"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [
+    " M qnfo-ops/deployed-current.worker.js",
+    " M qnfo-ops/worker.js"
+   ],
+   "declared_signals": [
+    "TOOLBUDGET-BAIL-1",
+    "async function logToolBudgetBail(",
+    "logToolBudgetBail(env, strategy, pendingToolCalls.length"
+   ],
+   "rc": 1,
+   "script": "scripts/toolbudget-bail-instrument-1-patch.py",
+   "tail": [
+    "TOOLBUDGET-BAIL-1: FAIL-CLOSED",
+    "  FAIL: qnfo-ops/worker.js: logToolBudgetBail definition count != 1",
+    "  FAIL: qnfo-ops/deployed-current.worker.js: logToolBudgetBail definition count != 1"
+   ],
+   "verdict": "undetermined"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/toolbudget-bail-record-1-patch.py",
+   "tail": [
+    "TOOLBUDGET-BAIL-RECORD-1: already applied to worker.js (no change)",
+    "TOOLBUDGET-BAIL-RECORD-1: already applied to deployed-current.worker.js (no change)",
+    "TOOLBUDGET-BAIL-RECORD-1: complete, 0 target(s) changed"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "declared_signals": [
+    "TOOLBUDGET-DO-LOOP-PARITY-1",
+    "TOOL-BUDGET-PENDING-1"
+   ],
+   "rc": 3,
+   "script": "scripts/toolbudget-do-loop-parity-1-patch.py",
+   "tail": [
+    "ABORT (fail-closed): var VERSION line not found"
+   ],
+   "verdict": "undetermined"
+  },
+  {
+   "changed_files": [],
+   "declared_signals": [
+    ".",
+    "TOOLBUDGET-PERMANENT-1",
+    "MIRROR-GUARD-IMPORT-BLINDSPOT-1",
+    "GUARD-TIMEBUDGET-COVERAGE-GAP-1"
+   ],
+   "rc": 1,
+   "script": "scripts/toolbudget-permanent-durability-patch.py",
+   "tail": [
+    "NOTE    A3 guard coverage already extended",
+    "FAIL    A2 anchor not unique (n=0) - fail-closed",
+    "FAIL-CLOSED: no file written"
+   ],
+   "verdict": "undetermined"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/toolbudget-relock-1-patch.py",
+   "tail": [
+    "already applied qnfo-ops/worker.js",
+    "already applied qnfo-ops/deployed-current.worker.js",
+    "OK: TOOLBUDGET-RELOCK-1 complete, 0 target(s) changed"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/toolbudget-source-lock-1-patch.py",
+   "tail": [
+    "TOOLBUDGET-SOURCE-LOCK-1: no change - worker.js already satisfies all canonical invariants"
+   ],
+   "verdict": "already-applied"
+  },
+  {
+   "changed_files": [],
+   "rc": 0,
+   "script": "scripts/unauth-trigger-1-patch.py",
+   "tail": [
+    "SUPERSEDED: UNAUTH-TRIGGER-1 already closed by patch-fleet-exec-tick-unauth-1.py (commit 81581bf); no-op"
+   ],
+   "verdict": "already-applied"
+  }
+ ],
+ "stale_anchor": [],
+ "superseded": [],
+ "total": 81,
+ "ts": "2026-11-02T09:39:09.419Z",
+ "undetermined": [
+  "scripts/dashboard-agissue-undercount-patch.py",
+  "scripts/math-sym-escape-patch.py",
+  "scripts/mind_q08_patch.py",
+  "scripts/outreach-cap-status-1-patch.py",
+  "scripts/toolbudget-bail-instrument-1-patch.py",
+  "scripts/toolbudget-do-loop-parity-1-patch.py",
+  "scripts/toolbudget-permanent-durability-patch.py"
+ ]
+}
