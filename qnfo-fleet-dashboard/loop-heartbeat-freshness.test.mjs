@@ -10,7 +10,12 @@ const end = src.indexOf("\n// ==== AREA-MAP reliability:", start);
 let pass = 0, fail = 0;
 const ok = (condition, message) => { if (condition) pass++; else { fail++; console.log("FAIL " + message); } };
 const queued = [];
-const maybeSync = async (env, state) => ({ ok: true, env, state });
+const syncCalls = [];
+const maybeSync = async (env, state) => {
+  const result = { ok: true, env, state };
+  syncCalls.push(result);
+  return result;
+};
 const queueLoopSyncIfStale = new Function("LOOP_MIN_INTERVAL_MS", "loopMaybeSync", src.slice(start, end) + "\nreturn queueLoopSyncIfStale;")(10 * 60 * 1000, maybeSync);
 const ctx = { waitUntil(promise) { queued.push(promise); } };
 const now = Date.now();
@@ -35,5 +40,7 @@ const heartbeatReturn = src.indexOf("\n      return;\n    }", staleQueue);
 ok(heartbeatGuard > scheduledStart && savedStateRead > heartbeatGuard && staleQueue > savedStateRead && heartbeatReturn > staleQueue, "non-quarter-hour cron ticks queue stale loop sync from saved state before returning");
 
 await Promise.all(queued);
+ok(syncCalls.length === 2, "stale and missing sync metadata both execute one recovery task");
+ok(syncCalls.every((result) => result.ok && result.state === state), "queued recovery tasks receive the current state and complete");
 console.log(`${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
