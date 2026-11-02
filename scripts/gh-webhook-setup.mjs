@@ -7,6 +7,8 @@ export const WEBHOOK_EVENTS = ["pull_request", "check_suite", "push"];
 const GUARD = "https://qnfo-deploy-guard.q08.workers.dev";
 const WORKER = "qnfo-fleet-control";
 const HOOKS = "/repos/QNFO/qnfo-workers/hooks";
+const TEST_DELIVERY_POLL_ATTEMPTS = 13;
+const TEST_DELIVERY_POLL_MS = 5000;
 
 function matches(hook) {
   return hook?.name === "web" && hook.active === true &&
@@ -70,7 +72,7 @@ export async function setupWebhook(api, mode, fetchImpl, env, options = {}) {
     throw new Error("receiver verification timed out; keep issue 2582 open");
   };
   const waitForTestDelivery = async (id, started, previousIds) => {
-    for (let attempt = 0; attempt < 6; attempt++) {
+    for (let attempt = 0; attempt < TEST_DELIVERY_POLL_ATTEMPTS; attempt++) {
       const deliveries = await github("GET", `${HOOKS}/${id}/deliveries?per_page=100`);
       if (!Array.isArray(deliveries)) throw new Error("malformed GitHub webhook delivery list");
       const delivery = deliveries.find((item) => {
@@ -84,7 +86,7 @@ export async function setupWebhook(api, mode, fetchImpl, env, options = {}) {
         }
         return delivery;
       }
-      if (attempt < 5) await sleep(5000);
+      if (attempt < TEST_DELIVERY_POLL_ATTEMPTS - 1) await sleep(TEST_DELIVERY_POLL_MS);
     }
     throw new Error("GitHub test delivery verification timed out; keep issue 2582 open");
   };

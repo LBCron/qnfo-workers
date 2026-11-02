@@ -12,21 +12,16 @@ const hook = (extra = {}) => ({
   config: { url: WEBHOOK_URL, content_type: "json", insecure_ssl: "0" }, ...extra
 });
 function fixture(options = {}) {
-  const state = { hooks: options.hooks || [], configured: !!options.configured, log: [], secret: null, delivered: false, deliveries: [], releases: 0, clock: NOW };
+  const state = { hooks: options.hooks || [], configured: !!options.configured, log: [], secret: null, delivered: false, testRequested: false, deliveryPolls: 0, deliveries: [], releases: 0, clock: NOW };
   const response = (status, body) => ({ status, text: async () => JSON.stringify(body) });
   const api = {
     async call(method, path, body) {
       state.log.push({ method, path, body });
       if (options.refuse === method) return { ok: false, status: 403, message: "Resource not accessible by integration" };
-      if (method === "GET" && path.includes("/deliveries?")) return { ok: true, body: state.deliveries };
-      if (method === "GET" && path.includes("?")) {
-        const page = Number(new URL("https://api.github.com" + path).searchParams.get("page"));
-        return { ok: true, body: options.pageOne && page === 1 ? options.pageOne : state.hooks };
-      }
-      if (method === "GET") return { ok: true, body: state.hooks[0] };
-      if (method === "POST" && path.endsWith("/tests")) {
-        state.delivered = !options.noDelivery;
-        if (state.delivered) {
+      if (method === "GET" && path.includes("/deliveries?")) {
+        if (state.testRequested) state.deliveryPolls++;
+        if (state.testRequested && !state.delivered && !options.noDelivery && state.deliveryPolls >= (options.deliveryAfterPolls || 1)) {
+          state.delivered = true;
           state.deliveries.push({
             id: 700,
             event: options.deliveryEvent || "ping",
@@ -34,6 +29,15 @@ function fixture(options = {}) {
             status_code: options.deliveryStatus ?? 200
           });
         }
+        return { ok: true, body: state.deliveries };
+      }
+      if (method === "GET" && path.includes("?")) {
+        const page = Number(new URL("https://api.github.com" + path).searchParams.get("page"));
+        return { ok: true, body: options.pageOne && page === 1 ? options.pageOne : state.hooks };
+      }
+      if (method === "GET") return { ok: true, body: state.hooks[0] };
+      if (method === "POST" && path.endsWith("/tests")) {
+        state.testRequested = true;
         return { ok: true, body: null };
       }
       state.hooks = [hook({ ...body, config: { ...body.config, secret: undefined } })];
@@ -68,7 +72,10 @@ function fixture(options = {}) {
     state.configured = true;
     return response(200, { success: true });
   };
-  const execute = (mode = "live", env = ENV) => setupWebhook(api, mode, fetchImpl, env, { sleep: async () => {}, now: () => state.clock });
+  const execute = (mode = "live", env = ENV) => setupWebhook(api, mode, fetchImpl, env, {
+    sleep: async (ms) => { state.clock += ms; },
+    now: () => state.clock
+  });
   return { state, api, fetchImpl, execute };
 }
 const writes = (state) => state.log.filter((call) => call.method !== "GET");
@@ -92,6 +99,12 @@ const writes = (state) => state.log.filter((call) => call.method !== "GET");
   assert.equal(f.state.releases, 1);
   const output = JSON.stringify(result);
   for (const secret of [f.state.secret, "test-lease", ENV.CLOUDFLARE_API_TOKEN, ENV.GH_ADMIN_TOKEN]) assert.ok(!output.includes(secret));
+}
+{
+  const f = fixture({ deliveryAfterPolls: 8 });
+  const result = await f.execute();
+  assert.equal(result.ok, true, "a delayed test delivery is still verified");
+  assert.equal(f.state.deliveryPolls, 8);
 }
 {
   const f = fixture({ configured: true, hooks: [hook()] });
