@@ -178,6 +178,7 @@ jobs:
           set -uo pipefail
           : > /tmp/compat_pending.jsonl
           python3 scripts/direct_content_deploy.py --selftest
+          python3 scripts/gradual_deploy.py --selftest
           # DEPLOY-SECOND-PATH-1 drill: exercise the second path on purpose for one worker, at its current main code.
           if [ -n "${IN_DRILL:-}" ] && [ "${IN_DRY:-false}" != "true" ]; then
             python3 scripts/direct_content_deploy.py --worker "$IN_DRILL" --path "$IN_DRILL/worker.js" --drill || exit 1

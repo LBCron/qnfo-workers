@@ -81,6 +81,10 @@ def file_version(text):
     return m.group(1) if m else None
 
 
+PREVIEW_SMOKE_ATTEMPTS = 6
+PREVIEW_SMOKE_RETRY_SEC = 2
+
+
 def regression(new, old):
     """(bad, why). new/old are {'requests','errors','p99'}; a stage with too little traffic on the new version is not a verdict."""
     if new["requests"] < MIN_REQUESTS:
@@ -173,9 +177,16 @@ def run(worker, acct, token, path=None, stages=(10, 50, 100), soak=120, dry=Fals
     def rollback(why):
         st2, _ = deploy(api, acct, worker, [(prev, 100)], "auto-rollback: " + why)
         return out(outcome="rolled-back", why=why, rolled_back=200 <= (st2 or 0) < 300)
-    sst, body = fetch("https://%s.q08.workers.dev/health" % worker, {"Cloudflare-Workers-Version-Overrides": '%s="%s"' % (worker, new)})
-    seen = bool(want and want in body)
-    res["smoke"] = {"status": sst, "version_seen": seen}
+    preview_url = "https://%s.q08.workers.dev/health" % worker
+    preview_headers = {"Cloudflare-Workers-Version-Overrides": '%s="%s"' % (worker, new)}
+    for attempt in range(1, PREVIEW_SMOKE_ATTEMPTS + 1):
+        if attempt > 1:
+            sleep(PREVIEW_SMOKE_RETRY_SEC)
+        sst, body = fetch(preview_url, preview_headers)
+        seen = bool(want and want in body)
+        res["smoke"] = {"status": sst, "version_seen": seen, "attempts": attempt}
+        if sst == 200 and (not want or seen):
+            break
     if not (sst == 200 and (not want or seen)):
         return out(outcome="rolled-back", rolled_back=False,
                    why="preview smoke test failed (HTTP %s, version %s %s): the version never took traffic" % (sst, want, "seen" if seen else "not seen"))
@@ -219,8 +230,9 @@ def selftest():
     ok(regression({"requests": 100, "errors": 0, "p99": 400}, {"requests": 1000, "errors": 0, "p99": 100})[0], "p99 4x is a regression")
     ok(file_version('var VERSION = "1.2.3-x";') == "1.2.3-x", "version parse")
 
-    def mk(bad_stats=False, health_bad=False, upload_ok=True, live=1):
+    def mk(bad_stats=False, health_bad=False, upload_ok=True, live=1, preview_misses=0):
         calls = []
+        preview_calls = 0
 
         def api(m, p, b=None, files=None):
             calls.append((m, p, b))
@@ -242,7 +254,11 @@ def selftest():
         pre = []
 
         def fetch(url, headers=None):
+            nonlocal preview_calls
             if headers:
+                preview_calls += 1
+                if preview_calls <= preview_misses:
+                    return 200, '{"version":"9.9.8"}'
                 return 200, '{"version":"9.9.9"}'
             if not pre:  # GRADUAL-ALREADY-LIVE-1: the live script still serves the previous version before the upload
                 pre.append(1)
@@ -253,7 +269,8 @@ def selftest():
     f = os.path.join(d, "worker.js")
     with open(f, "w") as fh:
         fh.write('var VERSION = "9.9.9";\nexport default {};\n')
-    cases = [("good", {}, 0, "rolled-out"), ("bad stats", {"bad_stats": True}, 1, "rolled-back"), ("health", {"health_bad": True}, 1, "rolled-back"),
+    cases = [("good", {}, 0, "rolled-out"), ("preview propagation", {"preview_misses": 2}, 0, "rolled-out"),
+             ("bad stats", {"bad_stats": True}, 1, "rolled-back"), ("health", {"health_bad": True}, 1, "rolled-back"),
              ("upload refused", {"upload_ok": False}, 1, "refused"), ("rollout in progress", {"live": 2}, 1, "refused")]
     for name, kw, want_rc, want_out in cases:
         calls, api, fetch = mk(**kw)
@@ -267,12 +284,20 @@ def selftest():
             ok(posts[-1][2]["versions"] == [{"version_id": "old", "percentage": 100}], "rollback deploys the old version at 100")
         if name == "health":
             ok(len(posts) >= 1 and posts[-1][2]["versions"][0]["version_id"] == "old", "a failed health check rolls back")
+        if name == "preview propagation":
+            ok(res.get("smoke", {}).get("attempts") == 3, "a stale preview version retries until the uploaded version is served")
         if name in ("upload refused", "rollout in progress"):
             ok(not posts, "%s: nothing deployed" % name)
     calls, api, _ = mk()
     res = {}
-    rc = run("w", "a", "t", path=f, api=api, sleep=lambda s: None, fetch=lambda u, h=None: (500, ""), emit=lambda s: res.update(json.loads(s.split("=", 1)[1])))
+    preview_calls = []
+    def unavailable_preview(url, headers=None):
+        if headers:
+            preview_calls.append(1)
+        return 500, ""
+    rc = run("w", "a", "t", path=f, api=api, sleep=lambda s: None, fetch=unavailable_preview, emit=lambda s: res.update(json.loads(s.split("=", 1)[1])))
     ok(rc == 1 and not [c for c in calls if c[0] == "POST" and c[1].endswith("/deployments")] and res.get("rolled_back") is False, "smoke failure: no deployment at all")
+    ok(len(preview_calls) == PREVIEW_SMOKE_ATTEMPTS, "a persistently unavailable preview stops after the bounded retry window")
     print("gradual_deploy selftest: %s" % ("FAILED: " + "; ".join(fails) if fails else "ok"))
     return 1 if fails else 0
 
