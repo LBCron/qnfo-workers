@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-02 04:49:27",
+  "audited_at": "2026-11-02 05:34:06",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -606,7 +606,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.33.1-codeagent",
+        "version": "0.33.2-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -636,7 +636,7 @@
       },
       {
         "dir": "qnfo-fleet-dashboard",
-        "version": "1.79.0",
+        "version": "1.79.1",
         "worker": "qnfo-fleet-dashboard"
       },
       {
@@ -1275,9 +1275,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.33.1-codeagent",
+      "before": "0.33.2-codeagent",
       "http": 200,
-      "live": "0.33.1-codeagent",
+      "live": "0.33.2-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1413,9 +1413,9 @@
       "worker": "qnfo-fleet-control"
     },
     "qnfo-fleet-dashboard": {
-      "before": "1.79.0",
+      "before": "1.79.1",
       "http": 200,
-      "live": "1.79.0",
+      "live": "1.79.1",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-dashboard"
