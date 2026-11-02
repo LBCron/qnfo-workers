@@ -13,7 +13,8 @@ claim about AI-assisted research.
   harness for testing it.
 
 ```
-pip install ignorance-audit           # or: pip install .  from a checkout
+pip install git+https://github.com/QNFO/ignorance-audit.git
+pip install .                         # from a local checkout
 ignorance-audit questions             # the instrument and the protocol
 ignorance-audit new "the JPCUB metric" > audit.json
 ignorance-audit check audit.json      # exit 1 and a list of protocol violations until complete

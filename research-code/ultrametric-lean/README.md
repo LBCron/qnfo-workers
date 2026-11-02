@@ -3,7 +3,8 @@
 Machine-checked proofs, in Lean 4 with no dependencies beyond the toolchain, of the ultrametric facts the QNFO
 ultrametric programme relies on (for example *The Ultrametric Program: One Structural Object Across Seven Research
 Domains, and Its Falsifiable Tests*, papers.qnfo.org, and the
-QEC-Darwinism work in `QNFO/qec-darwinism-ultrametric`).
+QEC-Darwinism work in `QNFO/qec-darwinism-ultrametric`). Public source:
+[QNFO/ultrametric-lean](https://github.com/QNFO/ultrametric-lean).
 
 | Theorem | Statement |
 |---|---|
@@ -22,6 +23,8 @@ QEC-Darwinism work in `QNFO/qec-darwinism-ultrametric`).
   in the first place, which is the empirical claim the programme has to test.
 
 ```
+git clone https://github.com/QNFO/ultrametric-lean.git
+cd ultrametric-lean
 lake build                         # toolchain pinned in lean-toolchain
 lake env lean AxiomCheck.lean      # lists the axioms each theorem uses
 ```

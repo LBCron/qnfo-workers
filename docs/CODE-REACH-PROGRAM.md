@@ -137,7 +137,8 @@ SIGNAL-INTAKE-SOURCES-1 and the idea-hub diversity hold). Outreach criteria are 
 
 ## 5. Definition of done for a library
 
-1. Lives in `research-code/<name>/` until its repository exists; the copy in its repository is identical.
+1. The tested source lives in `research-code/<name>/`; each library also has a public repository mirror listed in
+   `research-code/README.md`. Python libraries install directly from GitHub, and the Lean library builds from a checkout.
 2. Tests run in CI on every change (`.github/workflows/research-code.yml`), offline, with a pinned toolchain.
 3. The README carries the three STRATEGY-1 lines: **claim**, **test**, **status**, and a table of what the paper states
    versus what the library assumes. Any disagreement with the paper is a pinned test and an `agent_issues` row.
@@ -152,7 +153,7 @@ SIGNAL-INTAKE-SOURCES-1 and the idea-hub diversity hold). Outreach criteria are 
 
 | Metric | Definition | Target | Trigger |
 |---|---|---|---|
-| `research_code_public` | staged libraries whose repository is public in `portfolio_repos` | >= 3 | < 3 -> agent_issues (owner card `code-repos-create`) |
+| `research_code_public` | staged libraries whose repository is public in `portfolio_repos` | >= 3 | < 3 -> agent_issues |
 | `research_code_stars_total` | stars on those repositories | report | exempt until 30 days after the first is public (no baseline) |
 | `idea_topic_concentration_30d` (existing) | share of accepted ideas in the largest cluster | <= 0.50 | existing trigger |
 
@@ -161,18 +162,18 @@ Predictions, stated so they can fail:
   accepted auto-scan proposals by lane. If AI and formal lanes are rejected at triage, the triage rubric is the
   bottleneck, not the intake.
 - Within 90 days of the three repositories going public, at least one external use appears: a star or fork from outside
-  the owner's account, a dependent, or a software-DOI citation. If none does, the licence is the first suspect (section
+  the owner's account, a dependent, or a citation of a library. If none does, the licence is the first suspect (section
   2) and the owner is shown this number on the dashboard.
 
 Guards: no library may be counted as public while its CI is red, and the program adds no worker, cron or model call.
 
-## 7. What the owner does (fleet.qnfo.org cards)
+## 7. Public distribution
 
-- `code-repos-create`: create the three public repositories. The build session's GitHub integration was refused
-  organisation repository creation (HTTP 403), and routing creation through another credential was deliberately not
-  done.
-- `code-release-pypi`: add PyPI trusted publishers (installable packages). This is account-level.
-- Decided 2026-10-06: code stays under the QNFO-ULA, updated for software. Post v2.1 by copying
+The three public repositories already exist and are visible in the portfolio; `research_code_public` read 3 on
+2026-11-02. The staging index links each public source and gives direct installation or build instructions. A package
+registry or external identifier is not required for public source access.
+
+The code stays under the QNFO-ULA, updated for software. Post v2.1 by copying
   `docs/license/for-QNFO-license/` to `QNFO/license` (the session was refused write access there). Four choices in it are
   the Licensor's and are listed in `docs/license/README.md`. Post v2.1 before the library repositories go public, so
   they never ship under CC terms.
@@ -184,7 +185,8 @@ Guards: no library may be counted as public while its CI is red, and the program
   that sees it (Semantic Scholar or Google Scholar alerts), or the citing work is not in OpenAlex or DataCite.
 - Selected works: Agentic Collapse is not among STRATEGY-1's selected works, and it should not be promoted until its v2
   exists. ignorance-audit and the accepted conference paper are the stronger lead for the AI-for-science audience now.
-- Failure mode: the libraries sit staged for weeks because the owner card waits. `research_code_public` stays in
-  breach and its issue says so; nothing else depends on it.
+- Failure mode: a staged library may be public but its index or installation example can still direct readers to an
+  unavailable package. `research-code/README.md` and the per-library installation instructions link directly to the
+  public source and are covered by `research-code/public-mirrors.test.mjs`.
 - Failure mode: the new arXiv lanes return off-topic hits (for example "agentic" chemistry papers). Each lane is
   category-bounded, and the lane name on every proposal makes the reject rate per lane measurable.

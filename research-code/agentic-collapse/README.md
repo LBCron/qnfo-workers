@@ -16,7 +16,8 @@ fastest generative drive a given verification lag can afford.
   default assumptions (see Findings). Four parameters the paper needs but does not state are assumed (below).
 
 ```
-pip install agentic-collapse          # or: pip install .  from a checkout
+pip install git+https://github.com/QNFO/agentic-collapse.git
+pip install .                         # from a local checkout
 agentic-collapse run --seed 0         # one trajectory, a row every 10 time units
 agentic-collapse stats --runs 500     # collapse probability with a 95% Wilson interval
 agentic-collapse speed-limit --runs 200
