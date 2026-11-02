@@ -2,7 +2,7 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "1.5.2-codeagent"; /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
+var VERSION = "1.5.3-codeagent"; /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
 // 1.2.0 (2026-10-12, pillar reach, issue 1753) SUBSCRIBE-FUNNEL-1: every step of the sign-up
 // funnel is counted in qnfo-audit.subscribe_funnel (day, stage, source, n; a counter, never an address): box and page views,
 // submits by outcome (accepted, honeypot, invalid, rate-limited, suppressed, repeat), confirmation mails sent or failed,
@@ -383,9 +383,17 @@ async function handleSubscribe(request, env) {
     let token = existing && existing.unsub_token ? existing.unsub_token : "";
     if (!token) token = crypto.randomUUID().replace(/-/g, "");
     await ensureSubscriberUtm(env);
-    await env.AUDIT.prepare(
-      "INSERT INTO subscribers (email, status, source, utm_source, utm_campaign, unsub_token, ip_hash, user_agent, created_at) VALUES (?1, 'pending', ?2, ?3, ?4, ?5, ?6, ?7, datetime('now')) ON CONFLICT(email) DO UPDATE SET status = CASE WHEN subscribers.status = 'subscribed' THEN 'subscribed' ELSE 'pending' END, updated_at = datetime('now'), source = excluded.source, utm_source = excluded.utm_source, utm_campaign = excluded.utm_campaign"
-    ).bind(email, source, utmSource, utmCampaign, token, ipHash, ua).run();
+        // Insert or upsert the subscriber. If the utm columns are present (SUB_UTM_READY guard), store them;
+    // otherwise fall back to a schema without those columns to avoid D1 ALTER timeouts on the request path.
+    if (SUB_UTM_READY.has(env.AUDIT)) {
+      await env.AUDIT.prepare(
+        "INSERT INTO subscribers (email, status, source, utm_source, utm_campaign, unsub_token, ip_hash, user_agent, created_at) VALUES (?1, 'pending', ?2, ?3, ?4, ?5, ?6, ?7, datetime('now')) ON CONFLICT(email) DO UPDATE SET status = CASE WHEN subscribers.status = 'subscribed' THEN 'subscribed' ELSE 'pending' END, updated_at = datetime('now'), source = excluded.source, utm_source = excluded.utm_source, utm_campaign = excluded.utm_campaign"
+      ).bind(email, source, utmSource, utmCampaign, token, ipHash, ua).run();
+    } else {
+      await env.AUDIT.prepare(
+        "INSERT INTO subscribers (email, status, source, unsub_token, ip_hash, user_agent, created_at) VALUES (?1, 'pending', ?2, ?3, ?4, ?5, datetime('now')) ON CONFLICT(email) DO UPDATE SET status = CASE WHEN subscribers.status = 'subscribed' THEN 'subscribed' ELSE 'pending' END, updated_at = datetime('now'), source = excluded.source"
+      ).bind(email, source, token, ipHash, ua).run();
+    }
     const alreadyConfirmed = !!(existing && existing.status === "subscribed");
     if (alreadyConfirmed) {
       await funnel(env, "submit_already_confirmed", src);
