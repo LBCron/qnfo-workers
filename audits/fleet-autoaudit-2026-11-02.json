@@ -1,8 +1,15 @@
 {
-  "audited_at": "2026-11-02 11:49:06",
+  "audited_at": "2026-11-02 12:21:16",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
+    "_drift_confirm": {
+      "first_pass": [
+        "qnfo-social"
+      ],
+      "refreshed": true,
+      "second_pass": []
+    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -631,7 +638,7 @@
       },
       {
         "dir": "qnfo-fleet-control",
-        "version": "0.60.0",
+        "version": "0.60.1-codeagent",
         "worker": "qnfo-fleet-control"
       },
       {
@@ -706,7 +713,7 @@
       },
       {
         "dir": "qnfo-social",
-        "version": "0.21.3-engagement-window",
+        "version": "0.21.4-codeagent",
         "worker": "qnfo-social"
       },
       {
@@ -1405,9 +1412,9 @@
       "worker": "qnfo-fleet-calibrator"
     },
     "qnfo-fleet-control": {
-      "before": "0.60.0",
+      "before": "0.60.1-codeagent",
       "http": 200,
-      "live": "0.60.0",
+      "live": "0.60.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-control"
@@ -1731,9 +1738,9 @@
       "worker": "qnfo-skills-discovery"
     },
     "qnfo-social": {
-      "before": "0.21.3-engagement-window",
+      "before": "0.21.4-codeagent",
       "http": 200,
-      "live": "0.21.3-engagement-window",
+      "live": "0.21.4-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-social"
