@@ -53,11 +53,11 @@ const { env, calls } = (() => {
       AUDIT_DB: makeD1(),
       PR_PUBLISH_MODE: "pull",
       MODEL_LADDER: "@cf/openai/gpt-oss-120b,@cf/zai-org/glm-5.3,@cf/moonshotai/kimi-k2.7-code",
-      AI: { run: async (model, input) => { calls.push({ model, prompt: input.messages[1].content }); return { response: replies.shift() }; } },
+      AI: { run: async (model, input) => { calls.push({ model, system: input.messages[0].content, prompt: input.messages[1].content }); return { response: replies.shift() }; } },
     },
   };
 })();
-const headers = { authorization: "******", "content-type": "application/json" };
+const headers = { authorization: "Bearer test-token", "content-type": "application/json" };
 const call = async (method, endpoint, body) => (await worker.fetch(new Request("https://x" + endpoint, {
   method, headers, body: body === undefined ? undefined : JSON.stringify(body),
 }), env)).json();
@@ -70,6 +70,8 @@ ok(task.ok && task.id, "task enqueued", task);
 await tick();
 await tick();
 await tick();
+ok(/final unified patch including every changed file and mirror must be at most 80000 characters/i.test(calls[0].system),
+  "the proposal prompt states the same combined patch limit used before publication", calls[0].system);
 ok(taskRow(task.id).step === "commit", "the oversized proposal passed the deterministic verifier before publication", taskRow(task.id));
 await tick();
 let row = taskRow(task.id);
