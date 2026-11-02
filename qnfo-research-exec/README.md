@@ -24,6 +24,13 @@ complete zero-repair/zero-error sweep. Existing R2 drift, research-repository sy
 and PDF freshness loops propagate repairs; a successful D1 write is not proof that
 all derived artifacts have refreshed.
 
+Artifact synchronization covers published, distributed and external-preprint
+papers, including imports without queue rows or existing repository directories.
+R2 freshness compares actual content even when byte lengths agree. Clean mirror
+batches record their corpus size/offset and repository ticks record their cursor
+in the existing durable events, so artifact coverage is auditable independently
+of canonical-body convergence.
+
 After editing the formatter, run `node _shared/inline-paper-format.mjs` then
 `node qnfo-pdf/build.mjs`. The shared, gateway, research executor and PDF
 `paper-format`/typesetting suites exercise the committed copies.

@@ -52,10 +52,10 @@ class FakeD1 {
 }
 class FakeLiving {
   constructor(papers) { this.papers = papers; }
-  prepare(sql) { const self = this; return { bind: (...a) => ({
+  prepare(sql) { const self = this; const mk = (a) => ({
     first: async () => { const p = self.papers.find((x) => x.slug === a[0]); return p || null; },
-    all: async () => ({ results: self.papers.filter((p) => a.includes(p.slug) && p.status === "published") }),
-  }) }; }
+    all: async () => ({ results: self.papers.filter((p) => (!a.length || a.includes(p.slug)) && (sql.includes("'external_preprint'") ? ["published", "distributed", "external_preprint"].includes(p.status) : p.status === "published")) }),
+  }); return { ...mk([]), bind: (...a) => mk(a) }; }
 }
 const r2 = (files) => ({ get: async (k) => (k in files ? { text: async () => files[k] } : null) });
 
@@ -190,6 +190,21 @@ test("repoSyncTick: research_repo_sync = off and a legacy target do nothing to p
   assert.equal(r.skipped, "consolidation pending"); assert.equal(w.cons.commitCount, 0);
 });
 
+test("repoSyncTick discovers imported and distributed public papers without queue rows or existing directories", async () => {
+  const papers = ["distributed", "external_preprint", "draft", "retracted"].map((status) => ({ slug: status, title: status, body_md: "# " + status + "\n\nCorrected content.\n", version: "2.0", status }));
+  const w = world({ papers });
+  const result = await W.repoSyncTick(w.env);
+  assert.equal(result.sync.ok, true);
+  assert.deepEqual(result.sync.changed.sort(), ["distributed", "external_preprint"]);
+  for (const status of ["distributed", "external_preprint"]) assert.equal(w.cons.files()["papers/" + status + "/paper.md"], papers.find((p) => p.status === status).body_md);
+  for (const status of ["draft", "retracted"]) assert.equal(w.cons.files()["papers/" + status + "/paper.md"], undefined);
+  assert.equal(result.syncCursor, "", "the durable tick event reports a completed sweep");
+  const commits = w.cons.commitCount;
+  const again = await W.repoSyncTick(w.env);
+  assert.equal(w.cons.commitCount, commits);
+  assert.equal(again.syncChecked, 3, "the existing directory plus the two public papers are checked");
+});
+
 test("repoSyncTick restores a gap from R2 only when the hash matches, and lists the rest as unrecoverable", async () => {
   const w = world(), good = "# A draft\n";
   const ledger = { schema: "qnfo-known-gaps/1", as_of: "2026-10-26", gaps: [{ id: "G1", kind: "manifest-file-missing", path: "runs/cycle-3/gamma", files: ["writer-a-draft.md", "writer-b-draft.md"], expected_sha256: { "writer-a-draft.md": sha256(good), "writer-b-draft.md": "b".repeat(64) }, cause: "c", recovery: "restore-from-r2-by-hash", status: "open" }] };
@@ -285,6 +300,8 @@ test("the old failure shapes are gone from worker.js", async () => {
   assert.ok(!/INSERT INTO publication_artifacts/.test(src), "the wrong-shaped ledger");
   assert.ok(!src.includes('"/contents/" + cycle + "/" + slug'), "the per-file contents PUT");
   assert.ok(src.includes("REPO-DEPOSIT-BEGIN") && src.includes("research_run_ledger"));
+  const discovery = src.slice(src.indexOf("async function repoPaperSyncTick("), src.indexOf("var res = await REPO_DEPOSIT.syncPapers"));
+  assert.doesNotMatch(discovery, /body_md\s*<>\s*''/, "discovery must not scan full paper bodies before selecting a bounded batch");
 });
 
 for (const [name, fn] of tests) {

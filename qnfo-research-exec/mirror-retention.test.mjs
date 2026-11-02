@@ -1,5 +1,5 @@
 // MIRROR-DRIFT-1 + PAPER-BODY-RETENTION-1 (qnfo-research-exec 0.38.0; agent_issues 1000037, 1000012 defect B, 1000039). Offline: node:sqlite as D1, a fake R2 bucket, no network.
-// Proves: the mirror drift tick compares the R2 object size with the UTF-8 byte length of body_md (not the character count), rewrites a stale or missing copy with a read-back, leaves
+// Proves: the mirror drift tick checks every public status and compares actual R2 contents even when UTF-8 byte lengths agree, rewrites a stale or missing copy with a read-back, leaves
 // a correct copy and a retracted paper's notice alone, walks the whole corpus in total / batch ticks with no cursor, repairs at most MD_REPAIR_MAX copies a tick, reports an R2 failure
 // without throwing, and obeys ops_config mirror_drift = off and mirror_drift_batch; the body retention tick keeps the newest N snapshots and the oldest of a slug, deletes only
 // snapshots older than the age floor, can be forced past the floor for a verification run, reports the row and character totals every run, never throws, and obeys paper_body_prune
@@ -71,6 +71,16 @@ function paperWorld() {
   const puts = m.calls.put;
   const out2 = await mirrorDriftTick(env(m), { batch: 60, now: 0 });
   ok(out2.drifted === 0 && out2.repaired === 0 && m.calls.put === puts, "a second run changes nothing", out2);
+}
+{
+  const { lp, env } = paperWorld();
+  const m = bucket();
+  lp.prepare("INSERT INTO papers VALUES ('imported','external_preprint','correct body')").run();
+  m.store.set("papers/imported.md", "outdate body");
+  ok(Buffer.byteLength("correct body") === Buffer.byteLength("outdate body"), "fixture: stale and current content have equal byte lengths");
+  const result = await mirrorDriftTick(env(m), { batch: 2, now: 0 });
+  ok(result.checked === 1 && result.repaired === 1 && result.errors.length === 0, "external preprints with equal-size stale mirrors are repaired", result);
+  ok(m.store.get("papers/imported.md") === "correct body", "the read-back verified mirror contains the actual corrected text");
 }
 {
   // rotation: batch 2 over 7 papers covers every paper in ceil(7 / 2) ticks
