@@ -350,16 +350,16 @@ const scenario = (prs, extra) => Object.assign({ branches: [{ name: "main", prot
   const i = src.indexOf("// ---- PR-MERGE-SLA-10M-1:BEGIN"), j = src.indexOf("// ---- PR-MERGE-SLA-10M-1:END");
   eq(i > 0 && j > i, true, "the poke block markers are present");
   const block = src.slice(i, j);
-  const mk = (cfgRows, brokenSlot) => {
+  const mk = (cfgRows, brokenSlot, opts = {}) => {
     const d1 = makeD1();
     (cfgRows || []).forEach(([k, v]) => d1.db.prepare("INSERT INTO ops_config (key, value) VALUES (?1, ?2)").run(k, v));
     const calls = { lane: 0, cm: 0, rec: [] };
     const sandbox = {
-      VERSION: "t", console, Date, JSON, String, Number, Promise,
+      VERSION: "t", console, Date, JSON, String, Number, Promise, setTimeout: (fn) => fn(),
       json: (body, status) => ({ body, status: status || 200 }),
       ghAppEnv: async (e) => e,
-      branchHygieneTick: async (e, o) => { calls.lane++; calls.laneOpts = o; return { merged_prs: [7] }; },
-      codeMergeTick: async () => { calls.cm++; return { merges: 1 }; },
+      branchHygieneTick: async (e, o) => { calls.lane++; calls.laneOpts = o; if (opts.laneFailures > 0) { opts.laneFailures--; throw new Error(opts.laneError || "D1_ERROR: Network connection lost."); } return { merged_prs: [7] }; },
+      codeMergeTick: async () => { calls.cm++; if (opts.cmFailures > 0) { opts.cmFailures--; throw new Error(opts.cmError || "D1_ERROR: Network connection lost."); } return { merges: 1 }; },
       ghWebhookRecord: async (e, id, ts, kind, text, meta, status) => { calls.rec.push({ id, kind, text, status }); return true; },
       __export: null,
     };
@@ -378,6 +378,18 @@ const scenario = (prs, extra) => Object.assign({ branches: [{ name: "main", prot
     eq([r1.status, r1.body.poked, r1.body.ran], [202, true, true], "an unsigned poke is accepted: it needs no secret");
     eq([t.calls.lane, t.calls.cm, t.calls.laneOpts], [1, 1, { laneOnly: true }], "it runs the lane (lane only) and the code-loop runner once");
     eq(t.calls.rec.length === 1 && t.calls.rec[0].kind === "gh-poke" && t.calls.rec[0].status === "lane-run" && /lane merged 1, runner merges 1/.test(t.calls.rec[0].text) && /pull_request opened/.test(t.calls.rec[0].text), true, "and records one gh-poke event with what it did and the hint it was sent");
+    const retry = mk(null, false, { laneFailures: 1 });
+    const rr = await retry.W.ghPokeHandle(retry.req(), retry.env, retry.ctx);
+    await Promise.all(retry.pending);
+    eq([rr.body.ran, retry.calls.lane, retry.calls.cm, retry.calls.rec.length], [true, 2, 1, 1], "retries one transient D1 disconnect in the background runner and records the recovered run once");
+    const retryCodeMerge = mk(null, false, { cmFailures: 1 });
+    await retryCodeMerge.W.ghPokeHandle(retryCodeMerge.req(), retryCodeMerge.env, retryCodeMerge.ctx);
+    await Promise.all(retryCodeMerge.pending);
+    eq([retryCodeMerge.calls.lane, retryCodeMerge.calls.cm, retryCodeMerge.calls.rec.length], [1, 2, 1], "retries only the code-merge stage that hit a transient D1 disconnect");
+    const noRetry = mk(null, false, { laneFailures: 1, laneError: "D1_ERROR: no such table" });
+    await noRetry.W.ghPokeHandle(noRetry.req(), noRetry.env, noRetry.ctx);
+    await Promise.all(noRetry.pending);
+    eq([noRetry.calls.lane, noRetry.calls.cm, noRetry.calls.rec.length], [1, 0, 0], "does not retry or continue after a non-network D1 error");
     const r2 = await t.W.ghPokeHandle(t.req(), t.env, t.ctx);
     await Promise.all(t.pending);
     eq([r2.status, r2.body.debounced, r2.body.ran, t.calls.lane, t.calls.cm], [202, true, false, 1, 1], "a second poke inside a minute is debounced and runs nothing");
