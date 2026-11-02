@@ -175,3 +175,21 @@ test("YT-6: no credentials means skipped, not an error", async () => {
   delete env.YT_REFRESH_TOKEN;
   assert.deepEqual(await W.readRetention(env), { skipped: "no-credentials" });
 });
+
+test("YT-3: the hourly worker wires eligible articles through server-side render, upload, and ledger", async () => {
+  const fs = await import("node:fs");
+  const source = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+  const config = fs.readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
+
+  assert.deepEqual(CRON_TABLE, ["0 * * * *"]);
+  assert.match(config, /crons = \["0 \* \* \* \*"\]/);
+  assert.match(source, /SELECT slug, rev FROM plain_article WHERE status = 'ok' AND body IS NOT NULL AND words >= 200 ORDER BY generated_at DESC LIMIT 40/);
+  assert.match(source, /nextCandidate\(cands, taken\)/);
+  assert.match(source, /INSERT INTO youtube_videos \(slug, rev, state, privacy, synthetic, created_at, updated_at\) VALUES \(\?1, \?2, 'queued'/);
+  assert.match(source, /stageDirect\(env, row\)/);
+  assert.match(source, /ttsSentence\(env, sents\[j\]\)/);
+  assert.match(source, /renderStub\(env\)\.fetch\("https:\/\/render\.internal\/submit"/);
+  assert.match(source, /env\.MEDIA\.put\("youtube\/" \+ row\.id \+ "\/short\.mp4", bytes/);
+  assert.match(source, /upload\/youtube\/v3\/videos\?uploadType=resumable/);
+  assert.match(source, /setState\(env, row\.id, "uploaded", \{ video_id: uj\.id/);
+});
