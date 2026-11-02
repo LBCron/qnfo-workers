@@ -46,6 +46,8 @@ const www = await get("https://www.qwav.org/x?y=1");
 ok(www.status === 301 && www.loc === "https://qwav.org/x?y=1", "www.qwav.org redirects to the apex with path and query", www.loc);
 const rb = await get("https://qwav.org/robots.txt");
 ok(rb.status === 200 && /text\/plain/.test(rb.ct) && /Sitemap: https:\/\/qwav\.org\/sitemap\.xml/.test(rb.text), "QWAV robots.txt is real");
+const sm = await get("https://qwav.org/sitemap.xml");
+ok(sm.status === 200 && /application\/xml/.test(sm.ct) && sm.text.includes("<urlset"), "QWAV sitemap.xml returns the XML urlset");
 const lg = await get("https://qwav.tech/legal/license");
 ok(lg.status === 301 && /^https:\/\/legal\.qnfo\.org\//.test(lg.loc), "QWAV /legal paths go to legal.qnfo.org");
 const ldOf = (h) => { const m = h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || []; for (const x of m) { try { const j = JSON.parse(x.replace(/<[^>]+>/g, "")); if (j.license || (j["@graph"] || []).some((g) => g.license)) return j.license || j["@graph"].find((g) => g.license).license; } catch (e) {} } return null; };
