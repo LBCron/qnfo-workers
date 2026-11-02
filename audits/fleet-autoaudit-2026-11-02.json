@@ -1,37 +1,16 @@
 {
-  "audited_at": "2026-11-02 17:17:12",
+  "audited_at": "2026-11-02 17:45:21",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
-    "_deploy_settle": {
-      "settled": [],
-      "waited_for": [
-        "qnfo-ai"
-      ]
-    },
     "_guard_rc": 0,
-    "ahead": [
-      {
-        "artifact": "/home/runner/work/qnfo-workers/qnfo-workers/qnfo-ai/deployed-current.worker.js",
-        "dir": "qnfo-ai",
-        "live": "5.41.8",
-        "repo": "5.42.0",
-        "worker": "qnfo-ai"
-      }
-    ],
+    "ahead": [],
     "cf_script_list": true,
     "content_checked": true,
     "content_drift": [],
     "cron_only": [],
     "cron_only_count": 0,
-    "drift": [
-      {
-        "dir": "qnfo-ai",
-        "live": "5.41.8",
-        "repo": "5.42.0",
-        "worker": "qnfo-ai"
-      }
-    ],
+    "drift": [],
     "live_err": [],
     "multi_version": [],
     "multi_version_count": 0,
@@ -568,7 +547,7 @@
     "retired_present": [],
     "retired_present_count": 0,
     "scope": "all",
-    "sync": 35,
+    "sync": 36,
     "sync_workers": [
       {
         "dir": "idea-hub",
@@ -606,6 +585,11 @@
         "worker": "qnfo-agents"
       },
       {
+        "dir": "qnfo-ai",
+        "version": "5.42.0",
+        "worker": "qnfo-ai"
+      },
+      {
         "dir": "qnfo-ai-calibration",
         "version": "1.6.8-codeagent",
         "worker": "qnfo-ai-calibration"
@@ -622,7 +606,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.34.1-codeagent",
+        "version": "0.34.2-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -722,7 +706,7 @@
       },
       {
         "dir": "qnfo-social",
-        "version": "0.21.7-codeagent",
+        "version": "0.21.8-codeagent",
         "worker": "qnfo-social"
       },
       {
@@ -1117,9 +1101,9 @@
     "qnfo-ai": {
       "before": "5.42.0",
       "http": 200,
-      "live": "5.41.8",
-      "match": 0,
-      "note": "DRIFT",
+      "live": "5.42.0",
+      "match": 1,
+      "note": "SYNC",
       "worker": "qnfo-ai"
     },
     "qnfo-ai-calibration": {
@@ -1291,9 +1275,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.34.1-codeagent",
+      "before": "0.34.2-codeagent",
       "http": 200,
-      "live": "0.34.1-codeagent",
+      "live": "0.34.2-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1747,9 +1731,9 @@
       "worker": "qnfo-skills-discovery"
     },
     "qnfo-social": {
-      "before": "0.21.7-codeagent",
+      "before": "0.21.8-codeagent",
       "http": 200,
-      "live": "0.21.7-codeagent",
+      "live": "0.21.8-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-social"
@@ -1873,5 +1857,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
