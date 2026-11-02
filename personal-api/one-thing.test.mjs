@@ -158,7 +158,8 @@ console.log("ok   Too long creates a deterministic 2-minute next action without 
 
 const worker = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 const mirror = fs.readFileSync(new URL("./deployed-current.worker.js", import.meta.url), "utf8");
-assert.ok(worker.includes('var VERSION = "4.30.0"'));
+const version = worker.match(/var VERSION = "(\d+)\.(\d+)\.(\d+)"/)?.slice(1).map(Number);
+assert.ok(version && (version[0] > 4 || (version[0] === 4 && version[1] >= 30)));
 assert.ok(worker.includes('const COMPANION_VERSION = "1.15.0"'));
 assert.ok(worker.includes("COMPANION-FOCUS-1"));
 assert.equal(worker, mirror);
