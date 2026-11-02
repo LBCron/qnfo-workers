@@ -1,5 +1,5 @@
 // RESEARCH-COST-FIRST-1 (qnfo-research-exec 0.36.0, pillar cost). glm-5.3-flash runs first while ops_config research_primary_model is
-// auto; an empty or rate-limited glm reply is asked once of gpt-oss-120b; 10 such fallbacks in 60 minutes put gpt-oss-120b back first.
+// auto; empty or rate-limited glm replies fall back per request without switching later stages to gpt-oss-120b.
 // Runs aiText and applyModelOrder from the source. Run: node qnfo-research-exec/cost-first.test.mjs
 import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
@@ -7,7 +7,7 @@ let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? "  -- " + JSON.stringify(x) : "")); } };
 const line = (name) => { const m = new RegExp("\\nvar " + name + " = [^\\n]*").exec(src); if (!m) throw new Error("missing " + name); return m[0]; };
 const fn = (head) => { const a = src.indexOf("\n" + head); if (a < 0) throw new Error("missing " + head); return src.slice(a, src.indexOf("\n}\n", a) + 2); };
-const body = line("WORKER") + line("MODELS") + line("MODELS_VALUE_ORDER") + line("MODELS_COST_ORDER") + line("COST_FIRST_REVERT_N") + line("_costFirst")
+const body = line("WORKER") + line("MODELS") + line("MODELS_VALUE_ORDER") + line("MODELS_COST_ORDER") + line("_costFirst")
   + line("__AI_ATTR_RATES") + line("AI_RATE_FALLBACK") + line("AI_TIMEOUT_SKIP") + line("AI_TRANSIENT_RE") + line("AI_MODEL_SKIP_MS") + line("_aiRateSkip") + line("_aiSkipLogged")
   + fn("function aiInputRate(") + fn("function aiFallbackFor(") + fn("async function aiSkipLog(") + fn("async function applyModelOrder(")
   + "\nvar AI_TEXT_MAX_OUT = {};\nasync function aiRunOpts() { return undefined; }\nvar _evs = [];\nasync function logEvent(env, kind, text) { _evs.push(kind); }\n"
@@ -28,10 +28,10 @@ ok((await W.aiText({ AI: a }, GLM, "p", 100, "low")) === "glm answer" && a.calls
 a = ai((m) => m === GLM ? new Error("3021: rate limit") : { response: "oss" });
 ok((await W.aiText({ AI: a }, GLM, "p", 100, "low")) === "oss" && a.calls[a.calls.length - 1] === OSS, "a rate-limited glm call falls back to gpt-oss-120b", a.calls);
 ok(W.evs.filter((k) => k === "cost-first-empty").length === 2, "each fallback is an event the revert counts", W.evs);
-r = await W.applyModelOrder({ QNFO_AUDIT: d1("auto", 10) });
-ok(!r.costFirst && W.MODELS[0] === OSS, "10 fallbacks in 60 minutes revert to gpt-oss-120b first", r);
-a = ai((m) => ({ response: "" }));
-ok((await W.aiText({ AI: a }, GLM, "p", 100, "low")) === "" && a.calls.length === 1, "after the revert an empty glm reply is not re-asked", a.calls);
+r = await W.applyModelOrder({ QNFO_AUDIT: d1("auto", 50) });
+ok(r.costFirst && W.MODELS[0] === GLM, "a fallback burst keeps glm first for later requests", r);
+a = ai((m) => m === GLM ? { response: "" } : { response: "fallback answer" });
+ok((await W.aiText({ AI: a }, GLM, "p", 100, "low")) === "fallback answer" && a.calls.join() === [GLM, OSS].join(), "empty replies still fall back per request after a burst", a.calls);
 r = await W.applyModelOrder({ QNFO_AUDIT: d1("gpt-oss-120b", 0) });
 ok(!r.costFirst && W.MODELS[0] === OSS, "research_primary_model = gpt-oss-120b keeps the old order", r);
 r = await W.applyModelOrder({ QNFO_AUDIT: d1("glm-5.3-flash", 50) });
