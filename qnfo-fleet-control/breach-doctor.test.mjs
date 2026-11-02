@@ -680,6 +680,12 @@ const cm1Cases = (raw, st) => q1(raw, "SELECT COUNT(*) n FROM breach_diagnoses W
   ok(card.default_in_effect === "", "the card carries an empty default_in_effect: human_actions_default_adopt_ai (live) resolves an open card with a non-empty default at birth unless it is decision-shaped", card.default_in_effect);
   ok(q1(raw, "SELECT gate FROM v_human_action_gate WHERE id = ?", card.id).gate === "owner" && q1(raw, "SELECT approve + held n FROM v_human_action_decision WHERE id = ?", card.id).n === 0 && q1(raw, "SELECT COUNT(*) n FROM autonomy_reroute_queue").n === 0, "the live gate grades it owner (the IDENTITY-BOUND: line), it is not a decision card and no reroute was queued");
   ok(diag(raw, 913).state === "handed-owner" && diag(raw, 913).action_kind === "owner-card" && diag(raw, 913).action_ref === "breach-doctor-t-card-913", "the case is handed-owner with the card slug");
+  const actionDecisions = qa(raw, "SELECT action, evidence, outcome, blast_radius, rollback_path, capability_gain, predicted_outcome, reach_gain, surfaces_tested FROM decision_log WHERE actor = 'qnfo-fleet-control:breach-doctor' ORDER BY id");
+  const ownerDecision = actionDecisions.find((x) => x.action.includes("owner-card issue 913"));
+  const fileDecision = actionDecisions.find((x) => x.action.includes("file-issue subject dash-405"));
+  ok(actionDecisions.length === 2 && ownerDecision && ownerDecision.evidence.startsWith("facts_hash ") && ownerDecision.outcome.includes("no owner act executed") && ownerDecision.rollback_path.includes("keep the card open") && ownerDecision.capability_gain && ownerDecision.predicted_outcome && ownerDecision.reach_gain === "none" && ownerDecision.surfaces_tested.includes("human_actions") && fileDecision && fileDecision.outcome.includes("remediation contract issue-") && fileDecision.rollback_path.includes("issue_triage with evidence") && fileDecision.capability_gain && fileDecision.predicted_outcome && fileDecision.surfaces_tested.includes("remediation_contracts"), "owner-card and file-issue each append a structured decision with evidence, predicted outcome, scope, and safe disposition", actionDecisions);
+  const actionEvents = qa(raw, "SELECT event, detail FROM breach_diagnosis_events WHERE event IN ('handoff', 'action')");
+  ok(actionEvents.length === 2 && actionEvents.every((x) => /decision=dl\d+/.test(x.detail)), "each non-SQL action event links its decision_log row", actionEvents);
   ok(q1(raw, "SELECT owner_kind k FROM v_breach_owner WHERE issue_id = 913").k === "owner card (identity-bound)", "v_breach_owner reports the owner card apart");
   ok(!q1(raw, "SELECT 1 FROM human_actions WHERE slug = 'breach-doctor-t-card-912'") && r.taint_dropped >= 1, "a reason outside the enum makes no card (taint-drop)");
   const fi = q1(raw, "SELECT * FROM agent_issues WHERE title = 'BREACH-DOCTOR-1: T-FILE dash-405'");
@@ -697,6 +703,43 @@ const cm1Cases = (raw, st) => q1(raw, "SELECT COUNT(*) n FROM breach_diagnoses W
   raw.prepare("UPDATE human_actions SET status = 'resolved', resolution = 'owner: done from the dashboard' WHERE slug = 'breach-doctor-t-card-913'").run();
   const r3 = await tick(raw);
   ok(diag(raw, 913).state === "verified" && r3.verified >= 1, "a card the owner resolved verifies the handed-owner case");
+}
+{
+  const raw = world(); old(raw); raw.prepare("UPDATE breach_playbooks SET enabled = 0").run();
+  const existingId = 100700, existingTitle = "BREACH-DOCTOR-1: T-EXISTING existing-subject";
+  raw.prepare("INSERT INTO agent_issues (id, title, description, source, priority, status, created_at, updated_at) VALUES (?, ?, '', 'qnfo-fleet-control', 'medium', 'open', ?, ?)")
+    .run(existingId, existingTitle, Date.now() - 2 * H, Date.now() - 2 * H);
+  raw.prepare("INSERT INTO breach_playbooks (rule_id, family, cause_class, action_kind, trigger_sql, action_sql, revert_sql, verify_sql, max_per_tick, max_per_day, enabled, mode) VALUES ('T-EXISTING', 'TEST', 'test-cause', 'file-issue', ?, '[]', '[]', 'SELECT ''ok'' AS expected, ''ok'' AS observed', 3, 12, 1, 'on')")
+    .run("SELECT 1000179 AS issue_id, 'existing-subject' AS subject, json_object('count', 1) AS facts_json");
+  old(raw);
+  await tick(raw);
+  const contract = q1(raw, "SELECT status, verify_probe FROM remediation_contracts WHERE class = ?", "issue-" + existingId);
+  const decision = q1(raw, "SELECT outcome FROM decision_log WHERE action LIKE '%file-issue subject existing-subject%'");
+  ok(contract && contract.status === "active" && contract.verify_probe.includes("rule_id = 'T-EXISTING'"), "a deduplicated existing issue receives an active breach-doctor contract", contract);
+  ok(decision && decision.outcome === "found issue " + existingId + " with remediation contract issue-" + existingId, "the deduplicated issue outcome is logged only with its contract", decision);
+}
+for (const kind of ["file-issue", "owner-card"]) {
+  const raw = world(); old(raw); raw.prepare("UPDATE breach_playbooks SET enabled = 0").run();
+  const issueId = kind === "file-issue" ? 1000179 : 913;
+  const ruleId = kind === "file-issue" ? "T-FILE-RETRY" : "T-CARD-RETRY";
+  if (kind === "owner-card") liveOwnerQueue(raw);
+  raw.prepare("INSERT INTO breach_playbooks (rule_id, family, cause_class, action_kind, trigger_sql, action_sql, revert_sql, verify_sql, max_per_tick, max_per_day, enabled, mode) VALUES (?, 'TEST', 'test-cause', ?, ?, '[]', '[]', 'SELECT ''ok'' AS expected, ''ok'' AS observed', 3, 12, 1, 'on')")
+    .run(ruleId, kind, kind === "file-issue"
+      ? "SELECT 1000179 AS issue_id, 'dash-405' AS subject, json_object('count', 1) AS facts_json"
+      : "SELECT 913 AS issue_id, 'credential' AS subject, json_object('reason', 'credential') AS facts_json");
+  raw.exec("CREATE TRIGGER fail_breach_decision BEFORE INSERT ON decision_log WHEN NEW.actor = 'qnfo-fleet-control:breach-doctor' BEGIN SELECT RAISE(FAIL, 'transient decision failure'); END");
+  old(raw);
+  await tick(raw);
+  const failed = diag(raw, issueId);
+  ok(failed.state === "failed" && failed.error_code === "decision-log", kind + ": decision append failure leaves the diagnosis retryable", failed);
+  ok(q1(raw, "SELECT COUNT(*) n FROM breach_diagnosis_events WHERE diagnosis_id = ? AND event IN ('action', 'handoff')", failed.id).n === 0, kind + ": no final action event is recorded without its decision", failed.id);
+  raw.exec("DROP TRIGGER fail_breach_decision");
+  raw.prepare("UPDATE breach_diagnoses SET last_progress_at = ? WHERE id = ?")
+    .run(new Date(Date.now() - 61 * 60000).toISOString().slice(0, 19) + "Z", failed.id);
+  await tick(raw);
+  const retried = diag(raw, issueId);
+  ok(retried.state === (kind === "file-issue" ? "queued" : "handed-owner"), kind + ": retry completes only after appending the decision", retried);
+  ok(q1(raw, "SELECT COUNT(*) n FROM breach_diagnosis_events WHERE diagnosis_id = ? AND event IN ('action', 'handoff') AND detail LIKE '%decision=dl%'", retried.id).n === 1, kind + ": the completed action event references its appended decision", retried.id);
 }
 // the card survives the live default-adopt trigger for every owner reason (hard markers such as credential, payment or legal make a decision-shaped title useless: only the empty default is robust)
 {
