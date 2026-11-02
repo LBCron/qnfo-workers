@@ -99,7 +99,8 @@ FROM remediation_contracts
 WHERE (status = 'active' OR (status = 'holding' AND verify_transport = 'runner-https'))
   AND verify_transport NOT IN ('external-https', 'd1-query@portfolio-state')
   AND (next_due_at IS NULL OR datetime(next_due_at) <= datetime('now'))
-ORDER BY COALESCE(next_due_at, ts)
+ORDER BY CASE WHEN verify_transport = 'runner-https' THEN 0 ELSE 1 END,
+         COALESCE(next_due_at, ts)
 LIMIT ?
 """
 
@@ -651,6 +652,39 @@ def cf_token_watch(out, req=None):
 
 
 def _selftest():
+    # RUNTIME-PROBE-BUDGET-1 (issue 2081): a SQL backlog must not spend the runner's budget before runtime probes run.
+    import sqlite3
+    with sqlite3.connect(":memory:") as db:
+        db.executescript("""
+            CREATE TABLE remediation_contracts (
+                class TEXT, issue_id INTEGER, precondition TEXT, action TEXT, verify_probe TEXT, verify_transport TEXT,
+                max_attempts INTEGER, escalate_to TEXT, expected_cadence_h INTEGER, module TEXT, budget_ms INTEGER,
+                next_due_at TEXT, max_items INTEGER, attempts INTEGER, last_verdict TEXT, ts TEXT, status TEXT);
+        """)
+        db.executemany(
+            "INSERT INTO remediation_contracts (class, verify_transport, status, next_due_at, ts) VALUES (?, ?, ?, ?, ?)",
+            [
+                ("sql-old", "d1-query", "active", "2000-01-01", "2000-01-01"),
+                ("code-old", "code-read", "active", None, "2000-01-02"),
+                ("runtime-new", "runner-https", "active", "2000-01-04", "2000-01-01"),
+                ("runtime-held", "runner-https", "holding", None, "2000-01-03"),
+                ("runtime-future", "runner-https", "active", "2999-01-01", "2000-01-01"),
+                ("runtime-closed", "runner-https", "closed", "2000-01-01", "2000-01-01"),
+                ("runtime-superseded", "runner-https", "superseded", "2000-01-01", "2000-01-01"),
+                ("sql-held", "d1-query", "holding", "2000-01-01", "2000-01-01"),
+                ("external", "external-https", "active", "2000-01-01", "2000-01-01"),
+                ("portfolio", "d1-query@portfolio-state", "active", "2000-01-01", "2000-01-01"),
+            ],
+        )
+        for limit, want in (
+            (1, ["runtime-held"]),
+            (2, ["runtime-held", "runtime-new"]),
+            (10, ["runtime-held", "runtime-new", "sql-old", "code-old"]),
+        ):
+            got = [row[0] for row in db.execute(CONTRACT_SQL, [limit])]
+            if got != want:
+                print(json.dumps({"ok": False, "case": "runtime-budget-priority", "limit": limit, "got": got, "want": want}))
+                return 1
     cases = [
         ("SELECT 'a' AS expected, 'a' AS observed", 1, "pass"),
         ("SELECT 'a' AS expected, 'b' AS observed", 0, "fail"),
