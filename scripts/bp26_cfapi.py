@@ -40,6 +40,7 @@ Usage:
 import calendar
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -378,20 +379,30 @@ def collect_log_ingest(ctx):
     acc = _acc()
     if not acc:
         return [Result("log_ingest_gb_month", None, "no Cloudflare account id in this environment", [])]
-    answers = []
+    now = time.gmtime(ctx.now)
+    start = calendar.timegm((now.tm_year, now.tm_mon, 1, 0, 0, 0)) * 1000
+    end = int(ctx.now * 1000)
+    query = urllib.parse.urlencode({"from": start, "to": end})
     try:
-        ctx.cf("/accounts/%s/billing/usage/paygo?from=%s&to=%s" % (acc, time.strftime("%Y-%m-01", time.gmtime(ctx.now)), time.strftime("%Y-%m-%d", time.gmtime(ctx.now))))
-        answers.append("billing/usage/paygo answered (shape unknown to this collector)")
+        response = ctx.cf("/accounts/%s/workers/observability/usage?%s" % (acc, query))
     except Exception as e:  # noqa: BLE001
-        answers.append("billing/usage/paygo: %s" % ("HTTP 404" if "404" in str(e) else str(e)[:60]))
-    try:
-        now_ms = int(ctx.now * 1000)
-        r = _post(ctx, "/accounts/%s/workers/observability/telemetry/keys" % acc, {"timeframe": {"from": now_ms - 3600000, "to": now_ms}, "limit": 200, "datasets": ["cloudflare-workers"]})
-        keys = [k.get("key") for k in (r.get("result") or [])] if isinstance(r, dict) else []
-        answers.append("telemetry keys: %d event fields, none of them an ingest size" % len(keys))
-    except Exception as e:  # noqa: BLE001
-        answers.append("telemetry keys: %s" % str(e)[:80])
-    return [Result("log_ingest_gb_month", None, "no Cloudflare API reports Workers Logs ingest bytes (%s); kept unknown, the dashboard billing page is the only source today" % "; ".join(answers), [])]
+        return [Result("log_ingest_gb_month", None, "Workers Observability usage unreadable: %s" % str(e)[:120], [])]
+    breakdown = (response.get("result") or {}).get("breakdown") if isinstance(response, dict) else None
+    if not isinstance(breakdown, list):
+        return [Result("log_ingest_gb_month", None, "Workers Observability usage response has no breakdown", [])]
+    worker_rows = [entry for entry in breakdown if isinstance(entry, dict) and entry.get("dataset") == "cloudflare-workers"]
+    total_bytes = 0
+    rows = []
+    for entry in worker_rows:
+        size = entry.get("eventSize")
+        if isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size) or size < 0:
+            return [Result("log_ingest_gb_month", None, "Workers Observability usage returned an invalid eventSize", [])]
+        total_bytes += size
+        rows.append((str(entry.get("service") or "unknown"), 1, "%s eventSize: %s bytes" % (entry.get("bin") or "unknown day", size)))
+    gb = total_bytes / 1000000000.0
+    note = ("%.4f GB month-to-date from Workers Observability usage eventSize for the cloudflare-workers dataset "
+            "(ABR-adjusted bytes; UTC month start through the current run)" % gb)
+    return [Result("log_ingest_gb_month", gb, note, rows)]
 
 
 # ---------------------------------------------------------------- CI gate
@@ -624,6 +635,39 @@ CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, created_at INTEGE
 """)
         now = _epoch("2026-10-26T20:00:00Z")
         db.execute("INSERT INTO agent_issues VALUES (1, 'CONTROL-PLANE-REVERTED-1: push 7a9d293 reverted, qnfo-gateway deploy canary failed', ?)", [(now - 3600) * 1000])
+
+        class LC(object):
+            def __init__(self, response, stamp=_epoch("2026-11-02T12:34:56Z")):
+                self.now = stamp
+                self.response = response
+                self.path = None
+
+            def cf(self, path):
+                self.path = path
+                if isinstance(self.response, Exception):
+                    raise self.response
+                return self.response
+
+        log_ctx = LC({"result": {"breakdown": [
+            {"dataset": "cloudflare-workers", "service": "worker-a", "bin": "2026-11-01", "eventSize": 1000000000},
+            {"dataset": "cloudflare-workers", "service": "worker-b", "bin": "2026-11-02", "eventSize": 250000000},
+            {"dataset": "otel", "service": "worker-a", "bin": "2026-11-02", "eventSize": 9000000000},
+            {"dataset": "ai-gateway", "service": "default", "bin": "2026-11-02", "eventSize": 8000000000},
+        ]}})
+        log = collect_log_ingest(log_ctx)[0]
+        expected_start = _epoch("2026-11-01T00:00:00Z") * 1000
+        expected_end = _epoch("2026-11-02T12:34:56Z") * 1000
+        ok(log.value == 1.25, "log ingest sums only cloudflare-workers eventSize in decimal GB: %r" % log)
+        ok(log_ctx.path == "/accounts/acc/workers/observability/usage?from=%d&to=%d" % (expected_start, expected_end),
+           "log ingest queries from UTC month start to the current run: %s" % log_ctx.path)
+        ok(collect_log_ingest(LC({"result": {"breakdown": []}}))[0].value == 0,
+           "a valid empty Workers dataset is a measured zero")
+        ok(collect_log_ingest(LC({"result": {}}))[0].value is None,
+           "a response without breakdown stays unknown")
+        ok(collect_log_ingest(LC({"result": {"breakdown": [{"dataset": "cloudflare-workers", "eventSize": True}]}}))[0].value is None,
+           "a malformed eventSize stays unknown")
+        ok(collect_log_ingest(LC(RuntimeError("HTTP 403")))[0].value is None,
+           "an unreadable usage endpoint stays unknown")
 
         def mk(i, minute, vid, by="upload", pct=100):
             return {"id": "d%d" % i, "strategy": "percentage", "created_on": _iso(now - 7200 + minute * 60), "annotations": {"workers/triggered_by": by}, "versions": [{"version_id": vid, "percentage": pct}]}
