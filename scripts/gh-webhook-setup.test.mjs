@@ -12,12 +12,13 @@ const hook = (extra = {}) => ({
   config: { url: WEBHOOK_URL, content_type: "json", insecure_ssl: "0" }, ...extra
 });
 function fixture(options = {}) {
-  const state = { hooks: options.hooks || [], configured: !!options.configured, log: [], secret: null, delivered: false, releases: 0, clock: NOW };
+  const state = { hooks: options.hooks || [], configured: !!options.configured, log: [], secret: null, delivered: false, deliveries: [], releases: 0, clock: NOW };
   const response = (status, body) => ({ status, text: async () => JSON.stringify(body) });
   const api = {
     async call(method, path, body) {
       state.log.push({ method, path, body });
       if (options.refuse === method) return { ok: false, status: 403, message: "Resource not accessible by integration" };
+      if (method === "GET" && path.includes("/deliveries?")) return { ok: true, body: state.deliveries };
       if (method === "GET" && path.includes("?")) {
         const page = Number(new URL("https://api.github.com" + path).searchParams.get("page"));
         return { ok: true, body: options.pageOne && page === 1 ? options.pageOne : state.hooks };
@@ -25,6 +26,14 @@ function fixture(options = {}) {
       if (method === "GET") return { ok: true, body: state.hooks[0] };
       if (method === "POST" && path.endsWith("/tests")) {
         state.delivered = !options.noDelivery;
+        if (state.delivered) {
+          state.deliveries.push({
+            id: 700,
+            event: options.deliveryEvent || "ping",
+            delivered_at: new Date(options.oldDelivery ? NOW - 2000 : state.clock).toISOString(),
+            status_code: options.deliveryStatus ?? 200
+          });
+        }
         return { ok: true, body: null };
       }
       state.hooks = [hook({ ...body, config: { ...body.config, secret: undefined } })];
@@ -76,6 +85,7 @@ const writes = (state) => state.log.filter((call) => call.method !== "GET");
   const result = await f.execute();
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.verified_delivery_at, new Date(NOW).toISOString());
+  assert.equal(result.verified_delivery_status, 200);
   const install = f.state.log.find((call) => call.method === "PUT");
   const registration = f.state.log.find((call) => call.path.endsWith("/hooks") && call.method === "POST");
   assert.equal(registration.body.config.secret, install.body.text, "both sides receive the same dedicated secret");
@@ -131,7 +141,7 @@ for (const options of [{ race: true }, { expire: true }, { cfRefusal: true }]) {
   assert.equal(f.state.releases, 1);
   assert.equal(f.state.log.filter((call) => call.method === "POST" && call.path.endsWith("/hooks")).length, 1, "a refused GitHub write is not retried");
 }
-for (const options of [{ noDelivery: true }, { oldDelivery: true }, { releaseFailure: true }]) {
+for (const options of [{ noDelivery: true }, { oldDelivery: true }, { deliveryStatus: 503 }, { releaseFailure: true }]) {
   const f = fixture(options);
   assert.equal((await f.execute()).ok, false, "registration alone, an old row or a failed release is not success");
   assert.equal(f.state.releases, 1);

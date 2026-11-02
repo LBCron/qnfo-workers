@@ -69,6 +69,25 @@ export async function setupWebhook(api, mode, fetchImpl, env, options = {}) {
     }
     throw new Error("receiver verification timed out; keep issue 2582 open");
   };
+  const waitForTestDelivery = async (id, started, previousIds) => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const deliveries = await github("GET", `${HOOKS}/${id}/deliveries?per_page=100`);
+      if (!Array.isArray(deliveries)) throw new Error("malformed GitHub webhook delivery list");
+      const delivery = deliveries.find((item) => {
+        const deliveredAt = Date.parse(item?.delivered_at);
+        return item?.event === "ping" && !previousIds.has(String(item.id)) &&
+          Number.isFinite(deliveredAt) && deliveredAt >= started - 1000 && deliveredAt <= now();
+      });
+      if (delivery) {
+        if (Number(delivery.status_code) !== 200) {
+          throw new Error(`GitHub test delivery returned HTTP ${delivery.status_code}`);
+        }
+        return delivery;
+      }
+      if (attempt < 5) await sleep(5000);
+    }
+    throw new Error("GitHub test delivery verification timed out; keep issue 2582 open");
+  };
   let result;
   try {
     if (!["dry", "live"].includes(mode)) throw new Error("mode must be dry or live");
@@ -131,11 +150,13 @@ export async function setupWebhook(api, mode, fetchImpl, env, options = {}) {
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error("GitHub returned an invalid hook id");
     const after = await github("GET", `${HOOKS}/${id}`);
     if (!matches(after)) throw new Error("GitHub hook read-back does not match the requested configuration");
+    const priorDeliveries = await github("GET", `${HOOKS}/${id}/deliveries?per_page=100`);
+    if (!Array.isArray(priorDeliveries)) throw new Error("malformed GitHub webhook delivery list");
+    const priorDeliveryIds = new Set(priorDeliveries.map((delivery) => String(delivery?.id)));
     const started = now();
     await github("POST", `${HOOKS}/${id}/tests`);
-    const delivered = await waitFor((status) => status.configured === true &&
-      Date.parse(status.last?.ts) >= started && Date.parse(status.last?.ts) <= now());
-    result = { ok: true, action: "gh-webhook", mode, hook_id: id, verified_delivery_at: delivered.last.ts, poll_kept_as_second_path: true };
+    const delivered = await waitForTestDelivery(id, started, priorDeliveryIds);
+    result = { ok: true, action: "gh-webhook", mode, hook_id: id, verified_delivery_at: delivered.delivered_at, verified_delivery_status: Number(delivered.status_code), poll_kept_as_second_path: true };
   } catch (error) {
     result = { ok: false, action: "gh-webhook", mode, error: String(error.message || error) };
   } finally {
