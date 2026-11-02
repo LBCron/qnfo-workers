@@ -30,8 +30,7 @@
 // 0.32.0 ISSUE-AGE-24H-PLAN-PRIORITY-1 (#1001165, pillar autonomy; a 24h no-doer action now outranks the planner's bounded candidate window, without bypassing trusted intake or claim checks).
 // 0.33.0 PATH-BACKLOG-SERIAL-QUEUE-1 (#100460, pillar autonomy): trusted single-file issue tasks queue behind existing work and claim a path FIFO.
 // 0.33.1 BACKLOG-DRIVER-PLAN-ORDER-1 (#2654, pillar autonomy; patch: planner candidates follow v_issue_queue_v2 age and score while retaining fallback ordering).
-// 0.33.3 CODE-PATCH-RETRY-1 (#1834, pillar autonomy; patch: oversized verified diffs retry through the model ladder without changing the verification limit).
-var VERSION = "0.33.4-codeagent"; // prior 0.31.2-codeagent (FAIL-SIGNATURE-STOP-1 #5844); 0.31.1-codeagent (ANCHOR-FROM-ISSUE-1 #99916); 0.31.0 ISSUE-AGE-24H-REINTAKE-1 (#1001064, pillar autonomy; minor: requeue an open issue only when its 24h age probe confirms no live doer; bounded by trusted intake checks). prior 0.30.4-codeagent; 0.30.0 PUBLISH-SUITE-REBASE-1 (#100293, pillar autonomy; minor: after one publisher suite failure, rebuild the task from current main before retrying publication). prior 0.29.4-plan-large-file-anchors // 0.29.3 PLAN-FIRST-TIME-FIRST-1 (2026-10-26, pillar autonomy, agent_issues 1000428, BREACH-DOCTOR-1 rule R2-PLAN-FIRST; patch: an ordering fix, no new capability): planIssues now ranks a first-time plan (no issue_plans row) ahead of a re-plan (a verdict older than PLAN_RECHECK_DAYS) inside each priority class, so the daily cap of model calls is no longer spent on re-plans while first-time issues of the same class wait (2026-10-26: 48 of 48 calls used by 01:47Z, 32 of them re-plans, 6 high OWNER-TASK issues older than 120 minutes never planned); plan-first-time-first.test.mjs. // 0.29.2 INTAKE-IDLE-BEAT-1 (2026-10-26, pillar autonomy; patch: a step that ran and found nothing now leaves evidence): intakeIssues records one code-task.intake-idle event (at most once in 50 minutes, only after a successful candidate read) when it created no task, so the tick "pull" step reads ok in an hour with an empty queue; intake-idle.test.mjs. // 0.29.1 FOLDED-TARGET-AT-READ-1 (2026-10-26, pillar autonomy; patch: a gate applied to a path it missed): the read step now runs the two target rules enqueue() runs, so a row inserted straight into code_tasks (the RED-DRAIN-1 dispatch) on a FOLDED member is redirected to its host (FOLDED-TARGET-REDIRECT-1, judged before the scope as in enqueue) and one on a RETIRED or unregistered worker ends needs_human with no model call (RETIRED-TARGET-1): ct_im1000417 edited the FOLDED qnfo-backlog-exec, the merge runner merged PR 4620, the canonical deploy skips the directory and qnfo-lifecycle/backlog-fold.test.mjs turned the full suite red on main. // 0.29.0 SQL-VERIFY-1 (2026-10-26, pillar autonomy; minor: a file type the loop can now verify): a task on a migrations/*.sql file is scanned and checked (quotes, comments, parentheses, terminated, header lines kept, size 0.5x to 4x of a base of 400 characters or more) instead of parking as needs_human "no deterministic verifier for .sql" (LOOP-BREAKER-1 issue 1000330). prior 0.28.2-codeagent // 0.28.1 EMPTY-REPLY-NOTHINK-1: an empty kimi-k2.7-code reply (its reasoning used the whole output budget, about a third of its calls on 2026-10-25/26) is asked once more in the same call with thinking off, instead of spending a failed attempt. 0.28.0 FLEET-TICK-SPLIT-1: a second heartbeat statement (fleet_tick_heavy) for heavy D1 steps. 0.27.1 CODE-LOOP-BUDGET-CLAIM-SCAN-1: bounded scans past held claims do not consume the capped tick's one executable step.
+var VERSION = "0.34.0-codeagent"; // 0.34.0 ENQUEUE-CLAIM-RESERVATION-1 (#2168, pillar autonomy): reserve a task file at enqueue for 15 minutes; the first step renews it. prior 0.31.2-codeagent (FAIL-SIGNATURE-STOP-1 #5844); 0.31.1-codeagent (ANCHOR-FROM-ISSUE-1 #99916); 0.31.0 ISSUE-AGE-24H-REINTAKE-1 (#1001064, pillar autonomy; minor: requeue an open issue only when its 24h age probe confirms no live doer; bounded by trusted intake checks). prior 0.30.4-codeagent; 0.30.0 PUBLISH-SUITE-REBASE-1 (#100293, pillar autonomy; minor: after one publisher suite failure, rebuild the task from current main before retrying publication). prior 0.29.4-plan-large-file-anchors // 0.29.3 PLAN-FIRST-TIME-FIRST-1 (2026-10-26, pillar autonomy, agent_issues 1000428, BREACH-DOCTOR-1 rule R2-PLAN-FIRST; patch: an ordering fix, no new capability): planIssues now ranks a first-time plan (no issue_plans row) ahead of a re-plan (a verdict older than PLAN_RECHECK_DAYS) inside each priority class, so the daily cap of model calls is no longer spent on re-plans while first-time issues of the same class wait (2026-10-26: 48 of 48 calls used by 01:47Z, 32 of them re-plans, 6 high OWNER-TASK issues older than 120 minutes never planned); plan-first-time-first.test.mjs. // 0.29.2 INTAKE-IDLE-BEAT-1 (2026-10-26, pillar autonomy; patch: a step that ran and found nothing now leaves evidence): intakeIssues records one code-task.intake-idle event (at most once in 50 minutes, only after a successful candidate read) when it created no task, so the tick "pull" step reads ok in an hour with an empty queue; intake-idle.test.mjs. // 0.29.1 FOLDED-TARGET-AT-READ-1 (2026-10-26, pillar autonomy; patch: a gate applied to a path it missed): the read step now runs the two target rules enqueue() runs, so a row inserted straight into code_tasks (the RED-DRAIN-1 dispatch) on a FOLDED member is redirected to its host (FOLDED-TARGET-REDIRECT-1, judged before the scope as in enqueue) and one on a RETIRED or unregistered worker ends needs_human with no model call (RETIRED-TARGET-1): ct_im1000417 edited the FOLDED qnfo-backlog-exec, the merge runner merged PR 4620, the canonical deploy skips the directory and qnfo-lifecycle/backlog-fold.test.mjs turned the full suite red on main. // 0.29.0 SQL-VERIFY-1 (2026-10-26, pillar autonomy; minor: a file type the loop can now verify): a task on a migrations/*.sql file is scanned and checked (quotes, comments, parentheses, terminated, header lines kept, size 0.5x to 4x of a base of 400 characters or more) instead of parking as needs_human "no deterministic verifier for .sql" (LOOP-BREAKER-1 issue 1000330). prior 0.28.2-codeagent // 0.28.1 EMPTY-REPLY-NOTHINK-1: an empty kimi-k2.7-code reply (its reasoning used the whole output budget, about a third of its calls on 2026-10-25/26) is asked once more in the same call with thinking off, instead of spending a failed attempt. 0.28.0 FLEET-TICK-SPLIT-1: a second heartbeat statement (fleet_tick_heavy) for heavy D1 steps. 0.27.1 CODE-LOOP-BUDGET-CLAIM-SCAN-1: bounded scans past held claims do not consume the capped tick's one executable step.
 /* 0.26.0 VERIFIER-FAILURE-REPLAY-1 (2026-10-25, issue 1000111; pillar autonomy; minor: the loop now recovers terminal tasks after a verifier fix): once, a failed verify-step task with the generic container compile failure is reset to read and retried after deployment, only when it has no branch/PR or active task on the same path. The fresh read and all existing verifiers still gate publication. */
 /* 0.25.4 ARRAYBUFFER-EXEC-OUTPUT-1 (2026-10-25, issue 1000111): Container.exec exposes stdout/stderr as ArrayBuffer; treating them as non-Uint8Array discarded COMPILE_OK and made valid Python fail verification. Normalize both before the existing byte cap; container-output.test.mjs covers the fix. */
 /* 0.25.0 PLAN-TRUST-PARITY-1 + PLAN-RELAPSE-BRIEF-1 (2026-10-20, agent_issues 100303, owner task op-mvg9vjkbaedc; pillar autonomy; minor: the planner now decides on a list it did not decide on before): plan accepts every source the merge runner trusts (ops_config code_merge_trusted_sources, one list), and a metric-relapse issue is planned from the structured fields of metric_registry and analytics_metric_triggers instead of its prose. */
@@ -438,6 +437,7 @@ function leaseLostError(id, lease) {
 // guard unreachable is counted, never fatal: the ledger read in pathBusy is still the dedupe at intake.
 const CLAIM_OWNER = "qnfo-code-orchestrator";
 const CLAIM_TTL_S = 7200;                        // the guard's maximum
+const CLAIM_UNSTARTED_TTL_S = 900;                  // one 10-minute tick plus delay before the first step
 const CLAIM_RENEW_BEFORE_MS = 45 * 60 * 1000;    // renewed when under 45 minutes remain (the tick is every 10 minutes)
 const CLAIM_SWEEP_MAX = 12;
 async function guardPost(env, path, body) {
@@ -458,8 +458,8 @@ function claimFresh(claim, nowMs) { return !!(claim && claim.token && !claim.rel
 async function claimSave(env, id, claim) {
   await env.AUDIT_DB.prepare("UPDATE code_tasks SET ctx=json_set(COALESCE(ctx,'{}'), '$.claim', json(?)) WHERE id=?").bind(JSON.stringify(claim), id).run();
 }
-async function claimTake(env, task, claim) {
-  const body = { key: claimKeyOf(task), owner: CLAIM_OWNER + ":" + task.id, intent: ("code task " + task.id + " (" + String(task.status || "queued") + "): " + String(task.goal || "").replace(/\s+/g, " ")).slice(0, 300), ttl_sec: CLAIM_TTL_S };
+async function claimTake(env, task, claim, ttlSec) {
+  const body = { key: claimKeyOf(task), owner: CLAIM_OWNER + ":" + task.id, intent: ("code task " + task.id + " (" + String(task.status || "queued") + "): " + String(task.goal || "").replace(/\s+/g, " ")).slice(0, 300), ttl_sec: ttlSec || CLAIM_TTL_S };
   // CLAIM-HELD-IN-BACKOFF-1: a claim released for a backoff is not renewed; the task takes a new one (new since, no renewals).
   const live = claim && claim.token && !claim.released_at ? claim : null;
   if (live) body.token = live.token;
@@ -843,15 +843,28 @@ async function enqueue(env, b, opts) {
   // MULTI-FILE-CODE-TASKS-1: the companions are judged against the path the task ends up with (after a fold redirect).
   let extras0 = null;
   if (b.extras != null) { const ve = validExtras(path0, b.extras); if (ve.error) return { ok: false, status: 400, error: ve.error }; extras0 = ve.list; }
+  const task0 = { id: id, repo: repo0, path: path0, goal: String(b.goal).trim(), status: "queued" };
+  let claim0 = null;
+  // ENQUEUE-CLAIM-RESERVATION-1 (#2168): close the gap between creating an in-flight task and its first step. A successor
+  // relies on its predecessor's claim, so it does not reserve the same file itself.
+  if (!(opts && opts.queueBehind)) {
+    const reservation = await claimTake(env, task0, null, CLAIM_UNSTARTED_TTL_S);
+    if (reservation.ok) claim0 = reservation.claim;
+    else if (reservation.status === 409) return { ok: false, status: 409, error: "path busy: work claim held by " + (reservation.holder || "another holder"), busy: true };
+  }
   const c0 = {};
   if (b.anchor) c0.anchor = String(b.anchor);
   if (extras0) c0.extras = extras0;
+  if (claim0) c0.claim = claim0;
   const ctx0 = Object.keys(c0).length ? JSON.stringify(c0) : null;
-  await env.AUDIT_DB.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, created_at, updated_at) VALUES (?,?,?,?, 'queued','read',0,?,?,?)")
-    .bind(id, repo0, path0, String(b.goal).trim(), ctx0, now, now).run();
+  try {
+    await env.AUDIT_DB.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, created_at, updated_at) VALUES (?,?,?,?, 'queued','read',0,?,?,?)")
+      .bind(id, repo0, path0, task0.goal, ctx0, now, now).run();
+  } catch (e) {
+    if (claim0) await claimRelease(env, task0, claim0, "abandoned");
+    throw e;
+  }
   await audit(env, "code-task.enqueue", id + " " + repo0 + "/" + path0 + (red ? " (redirected from " + red.from + ")" : ""), { id: id, redirected_from: red ? red.from : undefined }, "ok");
-  // CLAIM-AT-RUN-1 (0.14.5): no claim at enqueue. The task takes the file claim at its first step (claimEnsure in tick); the
-  // dedupe at intake is pathBusy, which reads the unfinished code_tasks row, so a second task on the file is still refused.
   return { ok: true, status: 202, id: id };
 }
 // CLAIM-FAIRNESS-1: fewest failed attempts first, then oldest, so a task that keeps failing verification cannot starve fresh ones.

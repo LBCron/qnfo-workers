@@ -1,5 +1,5 @@
-// CLAIMS-FIRST-1 (0.3.21, transformation lever T1.14): every code task holds the WORK-CLAIM-1 claim on its file through
-// qnfo-deploy-guard /work-lock from its first step to its end (CLAIM-AT-RUN-1, 0.14.5; enqueue takes none); a file a session holds makes the task wait; a finished task releases
+// CLAIMS-FIRST-1 (0.3.21, transformation lever T1.14): every code task reserves its WORK-CLAIM-1 file claim at enqueue and holds it through
+// qnfo-deploy-guard /work-lock to its end; queue-behind tasks use their predecessor's claim; a file a session holds makes the task wait; a finished task releases
 // its claim with the pull request and the outcome; the guard unreachable never breaks the loop.
 // Run: node qnfo-code-orchestrator/claims-first.test.mjs
 import { DatabaseSync } from "node:sqlite";
@@ -59,21 +59,29 @@ const env = { ORCH_TOKEN: "t0ken", AUDIT_DB: makeD1(), PR_PUBLISH_MODE: "pull", 
   LOADER: { load: () => ({ getEntrypoint: () => ({ fetch: async () => new Response("ok") }) }) }, DEPLOY_GUARD: { fetch: guardFetch } };
 const hdr = { authorization: "Bearer t0ken", "content-type": "application/json" };
 const tick = async (o) => (await worker.fetch(new Request("https://x/v1/tick", { method: "POST", headers: hdr, body: JSON.stringify(Object.assign({ maxSteps: 1, budgetMs: 25000, plan: false, intake: false }, o || {})) }), env)).json();
-const addTask = async (goal) => (await worker.fetch(new Request("https://x/v1/tasks", { method: "POST", headers: hdr, body: JSON.stringify({ repo: "qnfo-workers", path: "fx-worker/worker.js", goal }) }), env)).json();
+const addTask = async (goal, path = "fx-worker/worker.js") => {
+  const r = await worker.fetch(new Request("https://x/v1/tasks", { method: "POST", headers: hdr, body: JSON.stringify({ repo: "qnfo-workers", path, goal }) }), env);
+  return Object.assign(await r.json(), { http: r.status });
+};
 const db = env.AUDIT_DB._db;
 const row = (id) => db.prepare("SELECT * FROM code_tasks WHERE id = ?").get(id);
 const ctxOf = (id) => JSON.parse(row(id).ctx || "{}");
 const acquires = () => guard.calls.filter((x) => x.path === "/work-lock/acquire");
 const releases = () => guard.calls.filter((x) => x.path === "/work-lock/release");
 
-// 1. CLAIM-AT-RUN-1 (0.14.5): enqueue takes no claim; the task takes it at its first step
+// 1. ENQUEUE-CLAIM-RESERVATION-1: enqueue reserves the path briefly; the first step renews the claim
 const a = await addTask("claims-first fixture: a task holds its file");
 ok(a.ok && /^ct_/.test(a.id), "task enqueued", a);
-ok(acquires().length === 0 && !ctxOf(a.id).claim, "enqueue sends no acquire and records no claim", { calls: guard.calls, ctx: ctxOf(a.id) });
+ok(acquires().length === 1 && acquires()[0].body.key === "file:fx-worker/worker.js" && acquires()[0].body.ttl_sec === 900 && ctxOf(a.id).claim && ctxOf(a.id).claim.token === "tok1", "enqueue reserves the file for 15 minutes and records the claim", { calls: guard.calls, ctx: ctxOf(a.id) });
+guard.held = "session_other";
+const blockedAtEnqueue = await addTask("claims-first fixture: session already holds file", "fx-session-worker/worker.js");
+ok(!blockedAtEnqueue.ok && blockedAtEnqueue.http === 409 && /session_other/.test(blockedAtEnqueue.error) && db.prepare("SELECT COUNT(*) AS n FROM code_tasks").get().n === 1, "a session that wins the race is respected and no duplicate task is inserted", blockedAtEnqueue);
+guard.held = null;
+guard.calls.length = 0;
 let t = await tick();
 let c = ctxOf(a.id).claim;
-ok(t.steps === 1 && !t.done[0].deferred && acquires().length === 1 && acquires()[0].body.key === "file:fx-worker/worker.js" && acquires()[0].body.owner === "qnfo-code-orchestrator:" + a.id && acquires()[0].body.ttl_sec === 7200 && /claims-first fixture/.test(acquires()[0].body.intent) && !acquires()[0].body.token, "the first step acquires file:<path> as qnfo-code-orchestrator:<task> with the goal as intent, ttl 7200", acquires());
-ok(c && c.token === "tok1" && c.key === "file:fx-worker/worker.js" && c.expires_at && !c.released_at, "the claim (token, expiry) is recorded on the task", c);
+ok(t.steps === 1 && !t.done[0].deferred && acquires().length === 1 && acquires()[0].body.key === "file:fx-worker/worker.js" && acquires()[0].body.owner === "qnfo-code-orchestrator:" + a.id && acquires()[0].body.ttl_sec === 7200 && acquires()[0].body.token === "tok1", "the first step renews the reservation as the task's normal claim", acquires());
+ok(c && c.token === "tok1" && c.key === "file:fx-worker/worker.js" && c.expires_at && !c.released_at && Date.parse(c.expires_at) - Date.now() > 60 * 60e3, "the task stores the renewed claim and expiry", c);
 
 // 2. a fresh claim costs no guard call at the step; the step itself runs
 guard.calls.length = 0;
@@ -144,7 +152,7 @@ ok(releases().length === 1 && releases()[0].body.outcome === "abandoned" && rele
 const h = await (await worker.fetch(new Request("https://x/health"), env)).json();
 ok(atLeast(h.version, "0.3.21") && (h.limitations || []).some((l) => /CLAIMS-FIRST-1/.test(l)), "health names CLAIMS-FIRST-1 and the version is 0.3.21+", { v: h.version });
 
-// 11. CLAIMS-CTX-1 (0.4.1): the claim survives the read step (ctx rebuilt from the file) and the propose step (ctx written back
+// 11. CLAIMS-CTX-1 (0.4.1): the enqueue reservation survives the read step (ctx rebuilt from the file) and the propose step (ctx written back
 //     whole), so the next acquire carries the token and renews. Before the fix the token was gone after the first step and every
 //     later acquire was refused by the task's own lease, which the stub now models like the real guard.
 {
@@ -154,11 +162,11 @@ ok(atLeast(h.version, "0.3.21") && (h.limitations || []).some((l) => /CLAIMS-FIR
   db.prepare("UPDATE code_tasks SET status = 'closed' WHERE status = 'queued'").run();
   guard.held = null; guard.lease = {}; guard.calls.length = 0;
   const k = await (await worker.fetch(new Request("https://x/v1/tasks", { method: "POST", headers: hdr, body: JSON.stringify({ repo: "qnfo-workers", path: "fx-worker/README.md", goal: "claims-ctx fixture: change the line" }) }), env)).json();
-  ok(k.ok && !ctxOf(k.id).claim, "11a the task holds no claim at enqueue (CLAIM-AT-RUN-1)", ctxOf(k.id));
+  const tok = ctxOf(k.id).claim && ctxOf(k.id).claim.token;
+  ok(k.ok && tok && acquires().length === 1 && acquires()[0].body.ttl_sec === 900, "11a enqueue reserves the task file with a 15-minute claim", ctxOf(k.id));
   guard.calls.length = 0;
   let tk = await tick();
-  const tok = ctxOf(k.id).claim && ctxOf(k.id).claim.token;
-  ok(tk.steps === 1 && !tk.done[0].deferred && tk.done[0].step === "read" && row(k.id).step === "propose" && acquires().length === 1 && !acquires()[0].body.token && tok, "11c the read step ran after taking the claim at its start", { tk, calls: guard.calls });
+  ok(tk.steps === 1 && !tk.done[0].deferred && tk.done[0].step === "read" && row(k.id).step === "propose" && acquires().length === 1 && acquires()[0].body.token === tok, "11c the read step renews its enqueue reservation", { tk, calls: guard.calls });
   const selfRefused = await (await guardFetch(GUARD + "/work-lock/acquire", { body: JSON.stringify({ key: "file:fx-worker/README.md", owner: "qnfo-code-orchestrator:" + k.id, ttl_sec: 7200 }) })).json();
   ok(selfRefused.acquired === false && selfRefused.holder === "qnfo-code-orchestrator:" + k.id, "11b the stub refuses a token-less acquire with the task's own lease, as the guard does", selfRefused);
   let ck = ctxOf(k.id);
