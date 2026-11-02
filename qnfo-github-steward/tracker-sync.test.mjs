@@ -102,6 +102,20 @@ assert.ok(calls.includes("GET /repos/QNFO/qnfo-workers/pulls/381"), "an old sett
 assert.equal(db.prepare("SELECT merged_at FROM code_tasks WHERE id='ct_d'").get().merged_at, "2026-10-01T21:37:29Z", "a task outside the recent PR list is repaired from its confirmed PR");
 gPulls.find((p) => p.number === 381).hidden = false;
 
+// A stale link to a closed duplicate PR must not mask the task's canonical merged PR after it leaves the recent list window.
+db.prepare("INSERT INTO code_tasks (id, status, branch, pr_url, merged_at) VALUES ('ct_linkfix', 'merged', 'codeagent-linkfix', 'https://github.com/QNFO/qnfo-workers/pull/814', '2026-10-01T21:37:29Z')").run();
+db.prepare("INSERT INTO code_task_pr_links (task_id, pr_number, pr_state, merged_at, task_status, drift, synced_at) VALUES ('ct_linkfix', 815, 'closed', NULL, 'merged', 'task-merged-pr-closed', '2026-10-01T21:37:29Z')").run();
+gPulls.push(
+  { number: 814, state: "closed", merged_at: "2026-10-01T21:37:29Z", merge_commit_sha: "canonical-sha", head: { ref: "codeagent-linkfix", sha: "canonical-head" }, hidden: true },
+  { number: 815, state: "closed", merged_at: null, head: { ref: "codeagent-linkfix", sha: "duplicate-head" } }
+);
+calls = [];
+await tick();
+assert.ok(calls.includes("GET /repos/QNFO/qnfo-workers/pulls/814"), "a stale duplicate link does not suppress reading the canonical PR");
+assert.equal(db.prepare("SELECT pr_number FROM code_task_pr_links WHERE task_id='ct_linkfix'").get().pr_number, 814, "the task link follows its canonical PR URL");
+assert.equal(db.prepare("SELECT drift FROM code_task_pr_links WHERE task_id='ct_linkfix'").get().drift, null, "the stale duplicate-PR drift clears after canonical verification");
+gPulls = gPulls.filter((p) => p.number !== 814 && p.number !== 815);
+
 // Tick 2: idempotent.
 calls = [];
 const r2 = await tick();
