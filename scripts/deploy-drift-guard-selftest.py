@@ -89,6 +89,31 @@ check("unmanaged = deployed minus repo-declared names, sorted, probed",
 check("a 410 tombstone is counted, never reported", (tomb, trunc), (1, False))
 check("an unreadable CF script list (None) reports nothing: unknown is not 'nothing deployed'", g.unmanaged_scripts(None, {"a"}, probe), ([], 0, False))
 check("every deployed script has a repo directory: nothing to probe", g.unmanaged_scripts({"a"}, {"a", "b"}, probe), ([], 0, False))
+
+class FakeResponse:
+    def __init__(self, status, body):
+        self.status, self.body = status, body
+    def __enter__(self): return self
+    def __exit__(self, *args): return False
+    def getcode(self): return self.status
+    def read(self, size): return self.body
+
+probe_urls = []
+real_urlopen = g.urllib.request.urlopen
+def fake_urlopen(req, timeout=30):
+    probe_urls.append(req.full_url)
+    return FakeResponse(200, b'{"ok":true}')
+g.urllib.request.urlopen = fake_urlopen
+try:
+    check("fleet-lee uses its live custom-domain API health endpoint and accepts a healthy response without a version",
+          g.health_probe("qnfo-fleet-lee"), (200, None))
+    check("other unmanaged workers retain their workers.dev health URL",
+          g.health_probe("other-worker"), (200, None))
+    check("only fleet-lee uses the configured custom health URL", probe_urls,
+          ["https://lee.qnfo.org/api/health", "https://other-worker.q08.workers.dev/health"])
+finally:
+    g.urllib.request.urlopen = real_urlopen
+
 many = {"w%02d" % i for i in range(g.UNMANAGED_MAX + 5)}
 rep, tomb, trunc = g.unmanaged_scripts(many, set(), lambda w: (200, None))
 check("the probe set is capped and says so", (len(rep), trunc), (g.UNMANAGED_MAX, True))

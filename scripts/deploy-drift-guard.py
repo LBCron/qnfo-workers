@@ -493,11 +493,15 @@ def live_result(worker):
 # deliberate tombstone (qnfo-workers, the Workers Builds project, answers 410 "retired") and is counted, not reported.
 UNMANAGED_MAX = 40
 UNMANAGED_THREADS = 8
+UNMANAGED_HEALTH_URLS = {
+    # This Worker is intentionally exposed on lee.qnfo.org; its workers.dev health URL is unavailable.
+    "qnfo-fleet-lee": "https://lee.qnfo.org/api/health",
+}
 
 
 def health_probe(worker):
-    """(http, version) of https://<worker>.q08.workers.dev/health; http 0 when nothing answered."""
-    url = "https://" + worker + ".q08.workers.dev/health"
+    """(http, version) from the worker's health URL; http 0 when nothing answered."""
+    url = UNMANAGED_HEALTH_URLS.get(worker, "https://" + worker + ".q08.workers.dev/health")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "qnfo-deploy-drift-guard"})
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
