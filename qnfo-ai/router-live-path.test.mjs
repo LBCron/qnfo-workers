@@ -99,6 +99,20 @@ reset();
 aiPlan = { "dynamic/standard": { ms: 1, throws: "gateway exhausted" } };
 r = await chat({ model: "dynamic/standard", messages: msgs, max_tokens: 16000 });
 ok(r.status === 502 && calls.ai.filter((x) => !/bge-/.test(x.model)).length === 1, "gateway exhaustion propagates without a local ladder", r);
+reset();
+aiPlan = {
+  "dynamic/standard": { throws: "HttpServerError · HTTP 504" },
+  "dynamic/value": { text: "recovered from the value route" }
+};
+const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms, ...args) => realSetTimeout(fn, ms <= 5000 ? 0 : ms, ...args);
+try {
+  r = await chat({ model: "dynamic/standard", messages: msgs, max_tokens: 64 });
+} finally {
+  globalThis.setTimeout = realSetTimeout;
+}
+ok(r.status === 200 && r.j.choices[0].message.content === "recovered from the value route", "exhausted transient 504s recover through the cheaper gateway route", r);
+ok(calls.ai.filter((x) => x.model === "dynamic/standard").length === 4 && calls.ai.filter((x) => x.model === "dynamic/value").length === 1, "same-route retries finish before one bounded value-route attempt", calls.ai.map((x) => x.model));
 
 // 7 the router-down drill: 503 after auth, no model call, one evidence row.
 reset();
