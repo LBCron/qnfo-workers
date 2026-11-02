@@ -47,7 +47,9 @@ ok(run.indexOf("advisorReuse(") < run.indexOf("advisorProposal("), "W4 the reuse
 ok(/if \(ins && ins\.meta && ins\.meta\.changes === 0\) refile_ignored\+\+;\s*else filed\+\+;/.test(run), "W5 filed counts only an insert that wrote a row");
 ok(/filed, refile_ignored, finding_sig, advice_ts, suggestion/.test(run), "W6 the audit event records the signature, the advice time and ignored refiles");
 ok(/fb\.prior_sig = st\.finding_sig \|\| null;/.test(src) && /fb\.prior_advice_ts = st\.advice_ts \|\| null;/.test(src), "W7 collectFeedback reads the prior signature and advice time");
-ok(/^var VERSION = "(0\.4\.(109|1[1-9][0-9])|0\.([5-9]|[1-9][0-9]+)\.\d+|[1-9]\d*\.\d+\.\d+)-/m.test(src), "W8 VERSION is 0.4.109 or later (a minimum, never a pin: 0.5.0 and above pass)");
+const versionMatch = src.match(/^var VERSION = "(\d+)\.(\d+)\.(\d+)(?:-[^"]*)?";/m);
+const version = versionMatch && versionMatch.slice(1).map(Number);
+ok(!!version && (version[0] > 0 || version[1] > 4 || (version[1] === 4 && version[2] >= 109)), "W8 VERSION is 0.4.109 or later (a minimum, never a pin: 0.5.0 and above pass)");
 
 console.log(pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);
