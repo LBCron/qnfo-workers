@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """YT-POC-2: director spec -> vertical 1080x1920 short with animated diagrams (Manim) + word-timed karaoke captions.
 
+  python -I make_short.py --article <slug> [--out DIR] [--voice en-US-AndrewNeural]
   python -I make_short.py directors/<name>.json [--out DIR] [--voice en-US-AndrewNeural]
 Stages: edge-tts per beat with WordBoundary -> beat durations -> Manim render (short_scene.py) -> ASS karaoke ->
 ffmpeg mux -> metadata.json (Shorts). Deps: pip install manim edge-tts imageio-ffmpeg
@@ -126,13 +127,38 @@ def build_ass(words, path, accent="#FFB703", edge="#0F1530"):
     Path(path).write_text(hdr + "\n".join(ev) + "\n", encoding="utf8")
 
 
+def prepare_director(director, article_slug, output_root):
+    if director and article_slug:
+        raise ValueError("provide either a director JSON or --article, not both")
+    if article_slug:
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", article_slug):
+            raise ValueError("article slug must contain lowercase letters, digits, and single hyphens")
+        out = Path(output_root) / f"short-{article_slug}"
+        out.mkdir(parents=True, exist_ok=True)
+        path = out / "director.json"
+        subprocess.run(
+            [sys.executable, "-I", str(HERE / "make_director.py"), article_slug, "--out", str(path)],
+            check=True,
+        )
+        return path, article_slug
+    if not director:
+        raise ValueError("provide a director JSON or --article <slug>")
+    path = Path(director)
+    return path, path.stem
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("director"); ap.add_argument("--out", default=str(Path.home() / "yt-out"))
+    ap.add_argument("director", nargs="?"); ap.add_argument("--article", metavar="SLUG")
+    ap.add_argument("--out", default=str(Path.home() / "yt-out"))
     ap.add_argument("--voice", default=None); ap.add_argument("--quality", default="h")
     a = ap.parse_args()
-    spec = json.loads(Path(a.director).read_text("utf8"))
-    out = Path(a.out) / ("short-" + Path(a.director).stem); out.mkdir(parents=True, exist_ok=True)
+    try:
+        director, name = prepare_director(a.director, a.article, a.out)
+    except ValueError as e:
+        ap.error(str(e))
+    spec = json.loads(director.read_text("utf8"))
+    out = Path(a.out) / ("short-" + name); out.mkdir(parents=True, exist_ok=True)
     ff = ffbin()
     art = fetch_article(spec["slug"])
     voice = a.voice or spec.get("voice") or "en-US-AndrewMultilingualNeural"
