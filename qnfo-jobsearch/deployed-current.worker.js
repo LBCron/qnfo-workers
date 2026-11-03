@@ -8,7 +8,7 @@
 // JOBSEARCH-PROFILE-1 (1.3.0): yes/no search survey, role families drawn from the whole record (policy, transport and planning, data, product, program, research, consulting, nonprofit, GIS, contracts, social policy), location gates from the owner answers (Netherlands and remote by default, US and other on-site only when selected), likes and dislikes teach the search, rejected matches stay hidden, "check a job" analysis of a pasted link or text.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.3.6-codeagent";
+var VERSION = "1.4.0-codeagent";
 const WORKER = "qnfo-jobsearch";
 const LEDGER = {
  "ledger_verified_on": "2026-10-01",
@@ -559,14 +559,14 @@ const STOP_TOKENS = new Set(["senior", "lead", "head", "manager", "director", "p
 const tokens = (title) => [...new Set(String(title || "").toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !STOP_TOKENS.has(t)))];
 
 // ctx = what the owner told us. answers: {id: true|false|null}; learned: {boost:Set, block:Set} from likes and dislikes of real postings
-function makeCtx(answers, feedback) {
+function makeCtx(answers, feedback, outcomeWeights = {}) {
   const a = {};
   for (const [id, , , def] of SURVEY) a[id] = answers && Object.prototype.hasOwnProperty.call(answers, id) && answers[id] !== undefined ? answers[id] : def;
   const fam = new Set(Object.keys(FAMILIES).filter((k) => a[k] !== false));
   const like = {}, dis = {};
   for (const f of feedback || []) for (const t of tokens(f.title)) { const m = f.verdict === "like" ? like : dis; m[t] = (m[t] || 0) + 1; }
   const boost = new Set(Object.keys(like).filter((t) => !dis[t])), block = new Set(Object.keys(dis).filter((t) => dis[t] >= 2 && !like[t]));
-  return { a, fam, learned: { boost, block } };
+  return { a, fam, learned: { boost, block }, outcomeWeights };
 }
 const DEFAULT_CTX = makeCtx({}, []);
 
@@ -575,6 +575,65 @@ function clustersIn(desc, title) {
   const out = new Set();
   for (const [c, kws] of Object.entries(CLUSTER_KW)) if (has(t, kws).length >= 2 || has(ti, kws).length) out.add(c);
   return out;
+}
+const OUTCOME_FEATURES = new Set([
+  ...Object.keys(FAMILIES).map((family) => `family:${family.replace(/^fam_/, "")}`),
+  ...Object.keys(CLUSTER_KW).map((cluster) => `cluster:${cluster}`),
+]);
+function scoreFeatures(families, clusters) {
+  return [...new Set([
+    ...[...families].map((family) => `family:${family.replace(/^fam_/, "")}`),
+    ...[...clusters].map((cluster) => `cluster:${cluster}`),
+  ])].filter((feature) => OUTCOME_FEATURES.has(feature));
+}
+function featuresFromWhy(why) {
+  const features = new Set();
+  for (const line of Array.isArray(why) ? why : []) {
+    let m = /^title in your lane: (.+)$/.exec(line);
+    if (m) for (const family of m[1].split(",")) features.add(`family:${family.trim()}`);
+    m = /^evidence in the posting: (.+)$/.exec(line);
+    if (m) for (const cluster of m[1].split(",")) features.add(`cluster:${cluster.trim()}`);
+  }
+  return [...features].filter((feature) => OUTCOME_FEATURES.has(feature));
+}
+function applicationSnapshot(match) {
+  let why = [];
+  try { why = JSON.parse(match.why_json || "[]"); } catch (e) { logErr("application-snapshot", e); }
+  return JSON.stringify({ version: 1, tier: match.tier, score: Number(match.score), features: featuresFromWhy(why) });
+}
+function parseApplicationSnapshot(note) {
+  try {
+    const snapshot = JSON.parse(note || "");
+    if (snapshot.version !== 1 || !["A", "B", "C"].includes(snapshot.tier) || !Number.isFinite(snapshot.score) || !Array.isArray(snapshot.features)) return null;
+    return { tier: snapshot.tier, score: snapshot.score, features: snapshot.features.filter((feature) => OUTCOME_FEATURES.has(feature)) };
+  } catch (e) { return null; }
+}
+function outcomeScoreWeights(rows, now = Date.now()) {
+  const lower = now - 90 * 86400000, upper = now - NO_REPLY_DAYS * 86400000;
+  const mature = rows.filter((row) => row.applied_ms >= lower && row.applied_ms <= upper && Array.isArray(row.features));
+  if (mature.length < MIN_N) return {};
+  const featureStats = new Map();
+  let replies = 0;
+  for (const row of mature) {
+    if (row.replied) replies++;
+    for (const feature of new Set(row.features.filter((key) => OUTCOME_FEATURES.has(key)))) {
+      const stat = featureStats.get(feature) || { count: 0, replies: 0 };
+      stat.count++;
+      if (row.replied) stat.replies++;
+      featureStats.set(feature, stat);
+    }
+  }
+  const weights = {};
+  for (const [feature, stat] of featureStats) {
+    const without = mature.length - stat.count, withoutReplies = replies - stat.replies;
+    if (stat.count < 2 || without < 2) continue;
+    const withRate = (stat.replies + 1) / (stat.count + 2);
+    const withoutRate = (withoutReplies + 1) / (without + 2);
+    const support = Math.min(stat.count / (stat.count + 4), without / (without + 4));
+    const weight = Math.max(-8, Math.min(8, Math.round((withRate - withoutRate) * 24 * support)));
+    if (weight) weights[feature] = weight;
+  }
+  return weights;
 }
 function locationGate(loc, descHead, ctx = DEFAULT_CTX) {
   const l = (loc || "").toLowerCase() + " ";
@@ -629,6 +688,13 @@ function scoreJob(job, ctx = DEFAULT_CTX, mode = "rank") {
   if (uniqA) why.push("uncommon intersection: research-program or policy-research management + AI or research-integrity systems");
   else if (uniqB) why.push("uncommon intersection: public-policy or planning expertise + data and analytics");
   let score = tScore + eScore + (uniqA || uniqB ? 15 : 0);
+  const outcomeDelta = Math.max(-12, Math.min(12, scoreFeatures(famOn, cl).reduce((sum, feature) => {
+    const weight = Number(ctx.outcomeWeights && ctx.outcomeWeights[feature]);
+    return sum + (Number.isFinite(weight) ? weight : 0);
+  }, 0)));
+  score += outcomeDelta;
+  if (outcomeDelta > 0) why.push("past application outcomes favor these posting signals");
+  else if (outcomeDelta < 0) why.push("past application outcomes weigh these posting signals less");
   const senior = SENIOR_RE.test(job.title || "");
   if (!senior) { if (ctx.a.lvl_mid === false) drop("below senior level (preference)"); else if (ctx.a.lvl_mid !== true) { pen += 6; why.push("no seniority marker in the title"); } }
   if (ctx.a.lvl_manage === false && MANAGE_RE.test(job.title || "")) pen += 15;
@@ -850,7 +916,19 @@ async function loadCtx(env) {
   const row = await env.JOBS_DB.prepare("SELECT v FROM jobsearch_prefs WHERE k='survey'").first();
   if (row) { try { answers = JSON.parse(row.v) || {}; } catch (e) { logErr("prefs-parse", e); } }
   const fb = (await env.JOBS_DB.prepare("SELECT title, verdict FROM jobsearch_feedback ORDER BY id DESC LIMIT 500").all()).results;
-  return makeCtx(answers, fb);
+  const applied = (await env.JOBS_DB.prepare(
+    `SELECT m.tier, m.score, e.ts AS applied_at, e.note,
+       EXISTS (SELECT 1 FROM jobsearch_events r WHERE r.match_id=e.match_id AND r.event IN ('replied','interview','offer') AND r.ts >= e.ts) AS replied
+     FROM jobsearch_events e
+     JOIN jobsearch_matches m ON m.id=e.match_id
+     WHERE e.event='applied'
+       AND e.id=(SELECT a.id FROM jobsearch_events a WHERE a.match_id=e.match_id AND a.event='applied' ORDER BY a.ts, a.id LIMIT 1)`
+  ).all()).results;
+  const outcomeRows = applied.flatMap((application) => {
+    const snapshot = parseApplicationSnapshot(application.note);
+    return snapshot ? [{ features: snapshot.features, applied_ms: Date.parse(application.applied_at), replied: !!application.replied }] : [];
+  });
+  return makeCtx(answers, fb, outcomeScoreWeights(outcomeRows));
 }
 async function getMeta(env, k) { const r = await env.JOBS_DB.prepare("SELECT v FROM jobsearch_meta WHERE k=?").bind(k).first(); return r ? r.v : null; }
 async function addFeedback(env, title, company, verdict, source) {
@@ -1023,13 +1101,13 @@ async function outcomes(env) {
   await ensure(env);
   const now = Date.now();
   const matches = (await env.JOBS_DB.prepare("SELECT id, tier, score, status FROM jobsearch_matches").all()).results;
-  const events = (await env.JOBS_DB.prepare("SELECT match_id, event, ts FROM jobsearch_events ORDER BY ts").all()).results;
+  const events = (await env.JOBS_DB.prepare("SELECT match_id, event, ts, note FROM jobsearch_events ORDER BY ts").all()).results;
   const by = {};
   for (const e of events) { (by[e.match_id] = by[e.match_id] || []).push(e); }
   const rows = matches.map((m) => {
     const ev = by[m.id] || [], has = (k) => ev.some((e) => e.event === k);
-    const applied = ev.find((e) => e.event === "applied");
-    return { tier: m.tier, score: m.score, approved: has("approved") || has("applied"), applied: !!applied, applied_ms: applied ? Date.parse(applied.ts) : null,
+    const applied = ev.find((e) => e.event === "applied"), snapshot = parseApplicationSnapshot(applied && applied.note);
+    return { tier: snapshot ? snapshot.tier : m.tier, score: snapshot ? snapshot.score : m.score, approved: has("approved") || has("applied"), applied: !!applied, applied_ms: applied ? Date.parse(applied.ts) : null,
       replied: REPLY_EVENTS.some(has), interview: has("interview") || has("offer"), offer: has("offer") };
   });
   const funnel = (list) => ({ matches: list.length, approved: list.filter((r) => r.approved).length, applied: list.filter((r) => r.applied).length, replied: list.filter((r) => r.replied).length, interview: list.filter((r) => r.interview).length, offer: list.filter((r) => r.offer).length });
@@ -1233,13 +1311,15 @@ const handler = {
       if (!cur) return J({ error: "not found" }, 404);
       if (!cur.verified && body.status !== "rejected" && body.status !== "pending_owner_approval") return J({ error: "artifacts failed verification; only rejected is allowed" }, 409);
       const tsNow = new Date().toISOString();
+      let applicationNote = "owner";
       if (body.status === "rejected" || body.status === "applied" || body.status === "approved") {
-        const mt = await env.JOBS_DB.prepare("SELECT title, company FROM jobsearch_matches WHERE id=?").bind(id).first();
+        const mt = await env.JOBS_DB.prepare("SELECT title, company, tier, score, why_json FROM jobsearch_matches WHERE id=?").bind(id).first();
         if (mt) await addFeedback(env, mt.title, mt.company, body.status === "rejected" ? "dislike" : "like", "status");
+        if (body.status === "applied" && mt) applicationNote = applicationSnapshot(mt);
       }
       await env.JOBS_DB.batch([
         env.JOBS_DB.prepare("UPDATE jobsearch_matches SET status=?, decided_at=? WHERE id=?").bind(body.status, tsNow, id),
-        env.JOBS_DB.prepare("INSERT INTO jobsearch_events (match_id, event, ts, note) VALUES (?1, ?2, ?3, 'owner')").bind(id, body.status, tsNow),
+        env.JOBS_DB.prepare("INSERT INTO jobsearch_events (match_id, event, ts, note) VALUES (?1, ?2, ?3, ?4)").bind(id, body.status, tsNow, applicationNote),
       ]);
       return J({ ok: true, id, status: body.status });
     }
@@ -1252,7 +1332,7 @@ const handler = {
     return J({ error: "not found", see: "/api" }, 404);
   },
 };
-handler.__test = { evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, SURVEY };
+handler.__test = { evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY };
 export default handler;
 
 // ------------------------------------------------------------------ web UI (light theme, plain JS, talks only to the API above)

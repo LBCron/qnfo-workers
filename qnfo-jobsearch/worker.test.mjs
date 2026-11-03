@@ -48,6 +48,21 @@ const an = T.scoreJob(jobAt("Tokyo, Japan"), T.makeCtx({}), "analyze");
 ok(an.drops.length > 0 && an.fit > 0, "analysis keeps the fit when the gates would drop the job", an);
 ok(T.evaluate(jobAt("Amsterdam", "Product Marketing Manager")).status === "excluded" && T.evaluate(jobAt("Amsterdam", "Senior AI Governance Counsel")).status === "excluded", "marketing and legal titles stay out");
 ok(T.evaluate({ ...JOB, desc: JOB.desc + " A PhD is required." }).flags.some((f) => f.startsWith("DEGREE")), "PhD flag");
+{
+  const now = Date.now(), applied = now - 40 * 86400000;
+  const history = [
+    ...Array.from({ length: 5 }, (_, i) => ({ applied_ms: applied, replied: i < 4, features: ["cluster:urban_planning"] })),
+    ...Array.from({ length: 5 }, (_, i) => ({ applied_ms: applied, replied: i === 0, features: ["cluster:policy_research"] }))
+  ];
+  const weights = T.outcomeScoreWeights(history, now);
+  const calibratedJob = { ...JOB, title: "Senior Research Program Manager", desc: "Research program management, research operations, and urban planning." };
+  const base = T.scoreJob(calibratedJob);
+  const calibrated = T.scoreJob(calibratedJob, T.makeCtx({}, [], weights));
+  ok(weights["cluster:urban_planning"] > 0 && weights["cluster:policy_research"] < 0, "outcome weights favor reply-associated features and reduce non-reply-associated features", weights);
+  ok(base.tier === "B" && calibrated.tier === "A" && calibrated.score > base.score, "reply-associated evidence can move a posting from tier B to tier A", { base, calibrated });
+  ok(Object.keys(T.outcomeScoreWeights(history.slice(1), now)).length === 0, "fewer than ten mature applications do not tune weights");
+  ok(Object.keys(T.outcomeScoreWeights(history.map((row) => ({ ...row, applied_ms: now - 10 * 86400000 })), now)).length === 0, "applications younger than 21 days do not tune weights");
+}
 ok(T.stripHtml("&lt;p&gt;Hello &amp;amp; <b>world</b>&lt;/p&gt;").includes("Hello & world"), "html decode");
 
 // ---- D1 shim over node:sqlite
@@ -234,6 +249,15 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
   ok(st[0] === 200 && db.prepare("SELECT event FROM jobsearch_events WHERE match_id='young' ORDER BY id DESC LIMIT 1").get().event === "replied", "outcome status is an event", st);
   ok((await call("/api/matches/young/status", { method: "POST", headers: tokHdr, body: JSON.stringify({ status: "hired" }) }, envO))[0] === 400, "unknown status refused");
   ok((await call("/api/outcomes", {}, envO))[1].by_tier.A.replied >= 1, "tier funnel sees replies");
+  const snapshotWhy = JSON.stringify(["title in your lane: research", "evidence in the posting: ai_systems"]);
+  ins.run("snapshot", ago(40), "B", "pending_owner_approval");
+  db.prepare("UPDATE jobsearch_matches SET why_json=? WHERE id='snapshot'").run(snapshotWhy);
+  const appliedStatus = await call("/api/matches/snapshot/status", { method: "POST", headers: tokHdr, body: JSON.stringify({ status: "applied" }) }, envO);
+  const snapshotNote = db.prepare("SELECT note FROM jobsearch_events WHERE match_id='snapshot' AND event='applied'").get()?.note;
+  ok(appliedStatus[0] === 200 && T.parseApplicationSnapshot(snapshotNote)?.features.includes("cluster:ai_systems"), "application event captures its score features");
+  db.prepare("UPDATE jobsearch_matches SET tier='A', score=99, why_json='[]' WHERE id='snapshot'").run();
+  const snapOutcomes = (await call("/api/outcomes", {}, envO))[1];
+  ok(snapOutcomes.by_tier.B.applied === 3 && snapOutcomes.by_tier.A.applied === 8, "outcome tiers use the application-time score after later rescoring", snapOutcomes.by_tier);
   globalThis.fetch = realFetch;
 }
 
