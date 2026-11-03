@@ -16,8 +16,8 @@ const start = src.indexOf("function modelFamily(");
 const end = src.indexOf("\n// end ensemble-run-log", start);
 ok(start > 0 && end > start, "ensemble-run-log block found in worker.js");
 const VERSION = (src.match(/^var VERSION = "([^"]+)"/m) || [])[1] || "";
-const make = new Function("VERSION", src.slice(start, end) + "\nreturn { modelFamily, textHash32, ensembleRunMeta, logEnsembleRun, ensembleValidatorFor, poolFamiliesDistinct };");
-const api = make(VERSION);
+const make = new Function("VERSION", "d1AttrWriteSkip", "d1OverloadTrip", src.slice(start, end) + "\nreturn { modelFamily, textHash32, ensembleRunMeta, logEnsembleRun, ensembleValidatorFor, poolFamiliesDistinct };");
+const api = make(VERSION, () => false, () => false);
 // ENSEMBLE_POOL and ENSEMBLE as the worker declares them (static reads; both are plain literals).
 const poolSrc = src.slice(src.indexOf("var ENSEMBLE_POOL = {"), src.indexOf("};", src.indexOf("var ENSEMBLE_POOL = {")) + 2);
 const POOL = new Function(poolSrc.replace("var ENSEMBLE_POOL", "const ENSEMBLE_POOL") + "\nreturn ENSEMBLE_POOL;")();

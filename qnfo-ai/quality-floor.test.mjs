@@ -16,7 +16,7 @@ const a2 = src.indexOf("// ---- FLEET-CAP-STEER-BEGIN"), b2 = src.indexOf("// --
 if (a1 < 0 || b1 < a1 || a2 < 0 || b2 < a2) throw new Error("spend governor or FLEET-CAP-STEER block not found");
 const logs = [];
 const rates = JSON.parse("{" + /var __AI_ATTR_RATES = \{([^\n]*)\};/.exec(src)[1] + "}");
-const sb = { console: { warn: (s) => logs.push(["warn", s]), error: (s) => logs.push(["error", s]), log() {} }, Math, Number, String, Object, JSON, Array, Date, Promise, isFinite, VERSION: "test", __AI_ATTR_RATES: rates, estimateInputTokens: () => 0, internalCaller: () => "" };
+const sb = { console: { warn: (s) => logs.push(["warn", s]), error: (s) => logs.push(["error", s]), log() {} }, Math, Number, String, Object, JSON, Array, Date, Promise, isFinite, VERSION: "test", __AI_ATTR_RATES: rates, estimateInputTokens: () => 0, internalCaller: () => "", d1AttrWriteSkip: () => false, d1OverloadTrip: () => false };
 vm.createContext(sb);
 vm.runInContext(src.slice(a1, b1) + "\n" + src.slice(a2, b2) + "\n;__x = { spendGovern, spendGovernWA, spendQualityBlock, fleetSteerRun, SPEND_CHEAP_MODEL, SPEND_CHEAP_WA, QUALITY_FLOOR_TTL_MS, QUALITY_FLOOR_RETRY_MS };", sb);
 const X = sb.__x;
