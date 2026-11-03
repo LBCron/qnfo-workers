@@ -55,6 +55,18 @@ def is_noise(it):
     return any(n in t for n in NOISE)
 
 
+def is_router_drill_503(it):
+    title = str(it.get("title") or "").lower()
+    return str(it.get("service") or "") == "qnfo-ai" and "httpservererror" in title and "http 503" in title
+
+
+def router_drill_count(d1, last_observed):
+    rows = d1("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'router-drill' "
+              "AND julianday(ts) BETWEEN julianday(datetime(?1 / 1000.0, 'unixepoch'), '-5 minutes') "
+              "AND julianday(datetime(?1 / 1000.0, 'unixepoch'), '+5 minutes')", [last_observed])
+    return int(rows[0]["n"]) if rows else 0
+
+
 def title_for(it):
     svc = str(it.get("service") or "?")[:40]
     t = " ".join(str(it.get("title") or "issue").split())[:110]
@@ -92,7 +104,7 @@ def list_active(cf):
 def sweep(d1, cf, now=None):
     now = now or now_ms()
     res = {"active": 0, "live": 0, "noise": 0, "filed": [], "relapsed": [], "held_closed": 0, "already": 0, "resolved_cf": [], "errors": 0,
-           "reopened_24h": 0}
+           "reopened_24h": 0, "drill_skipped": []}
     try:
         _file_and_resolve(d1, cf, now, res)
     except Exception:
@@ -117,6 +129,19 @@ def _file_and_resolve(d1, cf, now, res):
         if now - int(it.get("lastObserved") or 0) >= FILE_H * 3600 * 1000:
             continue   # quiet: never filed; a closed issue for it is resolved below
         res["live"] += 1
+        if is_router_drill_503(it):
+            try:
+                occurrences = int(it.get("count") or 0)
+                drills = router_drill_count(d1, int(it.get("lastObserved") or 0))
+            except Exception as e:  # noqa: BLE001   correlation failure must not hide a real observability issue
+                res["errors"] += 1
+                print(json.dumps({"evt": "cf-obs-bridge:router-drill-check", "id": cid, "error": str(e)[:200]}))
+                occurrences = drills = 0
+            if occurrences > 0 and drills == occurrences:
+                res["drill_skipped"].append(cid)
+                print(json.dumps({"evt": "cf-obs-bridge:router-drill-skip", "id": cid,
+                                  "occurrences": occurrences, "drill_events": drills}))
+                continue
         if d1("SELECT id FROM agent_issues WHERE status = 'open' AND title LIKE 'CF-OBS-ISSUE-1:%' AND instr(description, ?1) > 0 LIMIT 1", ["cf-obs-id: " + cid]):
             res["already"] += 1
             continue

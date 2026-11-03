@@ -97,6 +97,11 @@ def grp(gid, svc, quiet_ms, now, title="HttpServerError · HTTP 502", count=9):
     return {"id": gid, "service": svc, "title": title, "type": "exception", "count": count, "firstObserved": now - 9e8, "lastObserved": now - quiet_ms}
 
 
+def seed_router_drill(env, ts):
+    env.c.execute("INSERT INTO cloud_ops_events (id, ts, kind, text, job, status) VALUES (?, datetime(? / 1000.0, 'unixepoch'), 'router-drill', '', 'qnfo-ai', 'ok')",
+                  ["drill-%d" % ts, ts])
+
+
 def seed_closed(env, g, closed_ago_ms):
     """A CF-OBS issue for group g that the probe already closed closed_ago_ms ago."""
     env.c.execute("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) VALUES (?, ?, 'cf-obs-bridge', 'reliability', 'high', 'open', ?, ?)",
@@ -146,6 +151,33 @@ def test_live_group_filed_once_and_probe_lifecycle():
     env.c.execute("UPDATE fleet_issue_dispatch SET payload = ?", [json.dumps({"lastObserved": now - 7 * H})])
     assert env.d1(pr)[0]["observed"] == "1"
     assert env.reopens() == 0
+
+
+def test_router_drill_503_is_skipped_when_drills_explain_occurrences():
+    now = B.now_ms()
+    group = grp("g-drill", "qnfo-ai", 60e3, now, title="HttpServerError · HTTP 503", count=1)
+    env = Env([group])
+    seed_router_drill(env, group["lastObserved"])
+
+    r = env.sweep(now)
+
+    assert r["filed"] == [] and r["relapsed"] == [] and env.issues() == [], (r, env.issues())
+    assert r["drill_skipped"] == ["g-drill"], r
+    log = run_rows(env)
+    assert len(log) == 1 and json.loads(log[0]["text"])["drill_skipped"] == 1, log
+
+
+def test_real_and_partially_explained_503_groups_are_filed():
+    now = B.now_ms()
+    real = grp("g-real-503", "qnfo-ai", 7 * 60e3, now, title="HttpServerError · HTTP 503", count=1)
+    partial = grp("g-partial-503", "qnfo-ai", 60e3, now, title="HttpServerError · HTTP 503", count=2)
+    env = Env([real, partial])
+    seed_router_drill(env, partial["lastObserved"])
+
+    r = env.sweep(now)
+
+    assert len(r["filed"]) == 2 and r["drill_skipped"] == [], (r, env.issues())
+    assert len(env.issues()) == 2 and all("[cf-obs:" in issue["title"] for issue in env.issues()), env.issues()
 
 
 def test_distinct_group_with_same_title_does_not_reopen_closed_issue():
@@ -395,6 +427,8 @@ TESTS = [
     test_quiet_group_with_closed_issue_is_resolved_not_refiled,
     test_quiet_group_without_issue_is_not_filed,
     test_live_group_filed_once_and_probe_lifecycle,
+    test_router_drill_503_is_skipped_when_drills_explain_occurrences,
+    test_real_and_partially_explained_503_groups_are_filed,
     test_distinct_group_with_same_title_does_not_reopen_closed_issue,
     test_full_cycle_file_close_resolve_has_no_reopen,
     test_recurrence_after_close_is_a_relapse_not_a_filing,
