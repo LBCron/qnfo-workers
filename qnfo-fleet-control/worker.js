@@ -4607,6 +4607,22 @@ async function cmRequeueStale(env, cx, t, pr, num, why) {
   var n = await env.AUDIT.prepare("SELECT COUNT(*) AS n FROM code_tasks WHERE goal = ?1").bind(t.goal).first();
   if (n && Number(n.n) > CM_REQUEUE_MAX) return null;
   var anchor = null;
+// Ensure all logs are JSON‑encoded for observability
+if (!globalThis.__logWrapped) {
+  const _origLog = console.log;
+  console.log = (...args) => {
+    try {
+      _origLog(JSON.stringify({ evt: "log", message: args.map(a => String(a)).join(" ") }));
+    } catch (e) {
+      _origLog(JSON.stringify({ evt: "log_error", error: String(e) }));
+    }
+  };
+  const _origInfo = console.info;
+  console.info = console.log;
+  const _origWarn = console.warn;
+  console.warn = console.log;
+  globalThis.__logWrapped = true;
+}
   try { anchor = JSON.parse(t.ctx || "{}").anchor || null; } catch (e) { console.error(JSON.stringify({ evt: "fleet-control:cmRequeueStale:caught", error: String(e && e.message) })); }
   var id = cmTaskId();
   await env.AUDIT.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'queued', 'read', 0, ?5, ?6, ?6)")
