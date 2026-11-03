@@ -52,6 +52,8 @@ CREATE TABLE internal_errata (id TEXT PRIMARY KEY, target_kind TEXT NOT NULL, ta
 CREATE TABLE metric_registry (metric TEXT PRIMARY KEY, last_value TEXT, last_refreshed TEXT, state TEXT);
 CREATE TABLE cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);
 INSERT INTO metric_registry (metric) VALUES ('papers_unlearned_over_120m');
+INSERT INTO metric_registry (metric) VALUES ('paper_model_projection_remediation_share_7d');
+INSERT INTO metric_registry (metric) VALUES ('paper_unlabeled_model_projection_issues_7d');
 -- ORPHAN-GUARD-BIRTH-1 stand-in: every new issue gets its issue-<id> contract row at birth.
 CREATE TRIGGER birth AFTER INSERT ON agent_issues BEGIN INSERT INTO remediation_contracts (class, issue_id, precondition, action, verify_probe, verify_transport, escalate_to) VALUES ('issue-' || NEW.id, NEW.id, 'birth', 'birth', 'pending', 'pending', 'x'); END;`);
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString().replace("T", " ").slice(0, 19);
@@ -89,7 +91,7 @@ const strong = { learnings: [
 ] };
 plan = { "p-new": [strong], "p-old": ["throw", { learnings: [{ claim: "Cascade size is 1/(1-m) for a branching process", kind: "derived", support: "4.2", applicability: "direct", confidence: 0.6 }], errors: [] }], "p-older": ["garbage", "garbage"] };
 
-audit.exec("INSERT INTO ops_config (key, value) VALUES ('paper_learn_per_tick', '3')");
+audit.exec("INSERT INTO ops_config (key, value) VALUES ('paper_learn_per_tick', '3'), ('paper_projection_enforcement_since', '0')");
 let r = await P.tick(env);
 ok(r.read.length === 3 && r.read[0].slug === "p-new" && r.read[1].slug === "p-old", "the tick reads the newest unread published papers first, skipping drafts and short bodies", r.read);
 const L = audit.prepare("SELECT * FROM paper_learnings WHERE slug = 'p-new' ORDER BY id").all();
@@ -107,6 +109,8 @@ const S3 = audit.prepare("SELECT * FROM paper_learn_state WHERE slug = 'p-older'
 ok(S3.status === "failed" && S3.attempts === 1 && audit.prepare("SELECT COUNT(*) AS n FROM paper_learnings WHERE slug = 'p-older'").get().n === 0, "an unreadable answer is a failed state row with no learnings", S3);
 const I = audit.prepare("SELECT * FROM agent_issues").all();
 ok(I.length === 1 && I[0].title === "PAPER-LEARN-1: apply p-new to the fleet" && /Charter pillar: autonomy/.test(I[0].description), "one follow-up issue for the strong direct learning (p-old's 0.6 learning files none)", I.map((x) => x.title));
+ok(/\[MODEL PROJECTION — UNCONFIRMED; NOT A MEASURED FACT\]/.test(I[0].description) && /Formal-model outputs are projections, not measured facts/.test(I[0].description), "derived model output is explicitly labeled as a projection in its issue");
+ok(r.projection_metrics.remediation_share_7d === "50" && r.projection_metrics.omissions_7d === "0", "the tick measures issue-linked projection outputs and reports no missing label", r.projection_metrics);
 const C = audit.prepare("SELECT * FROM remediation_contracts WHERE class = ?").get("issue-" + I[0].id);
 ok(C.verify_transport === "d1-query" && /fleet_status = 'proposed'/.test(C.verify_probe), "the birth contract carries the closing probe", C);
 ok(audit.prepare(C.verify_probe).get().observed === "1", "the probe reads 1 while the learning is proposed");
@@ -122,6 +126,10 @@ ok(r.read.length === 1 && r.read[0].slug === "p-older" && audit.prepare("SELECT 
 await P.tick(env);
 r = await P.tick(env);
 ok(r.read.length === 0 && audit.prepare("SELECT attempts FROM paper_learn_state WHERE slug = 'p-older'").get().attempts === 3, "a paper is tried at most three times");
+audit.prepare("UPDATE agent_issues SET description = replace(description, 'MODEL PROJECTION — UNCONFIRMED', 'MISSING LABEL') WHERE id = ?").run(I[0].id);
+r = await P.tick(env);
+ok(r.projection_metrics.omissions_7d === "1" && audit.prepare("SELECT last_value FROM metric_registry WHERE metric = 'paper_unlabeled_model_projection_issues_7d'").get().last_value === "1", "the omission measure detects an unlabelled model-projection issue", r.projection_metrics);
+audit.prepare("UPDATE agent_issues SET description = replace(description, 'MISSING LABEL', 'MODEL PROJECTION — UNCONFIRMED') WHERE id = ?").run(I[0].id);
 
 // A new version is read again; the open-issue dedupe holds.
 living.prepare("UPDATE papers SET version = '1.1.0', updated_at = ? WHERE slug = 'p-new'").run(ago(1));
@@ -152,7 +160,7 @@ addPaper("p-off", "1.0.0", 1);
 r = await P.tick(env);
 ok(r.skipped === true && r.read.length === 0, "paper_learn_mode = off stops the step");
 const st = await (await W.fetch(new Request("https://x/paper-learn/status"), env, {})).json();
-ok(st.marker === "PAPER-LEARN-1" && st.state.versions >= 4, "GET /paper-learn/status reports the ledger", st);
+ok(st.marker === "PAPER-LEARN-1" && st.state.versions >= 4 && st.projection_metrics.paper_model_projection_remediation_share_7d.value === "50", "GET /paper-learn/status reports the ledger and projection metrics", st);
 const one = await (await W.fetch(new Request("https://x/paper-learn/learnings?slug=p-new"), env, {})).json();
 ok(one.learnings.length >= 4 && one.learnings.every((x) => x.verification), "GET /paper-learn/learnings?slug= lists a paper's learnings");
 const ev = audit.prepare("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE job = 'paper-learn'").get().n;
