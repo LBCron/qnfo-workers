@@ -5,7 +5,7 @@ _repo_version() must return the VERSION a worker serves from /health: the declar
 to survive the constructs that break a naive brace counter: braces inside strings, comments, regex literals and template
 literals, and the division-vs-regex ambiguity. Exit 0 = every case passed.
 """
-import importlib.util, os, sys
+import importlib.util, os, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -77,6 +77,25 @@ for path in ["radar-hub/worker.js", "fleet-exec/worker.js", "personal-companion/
     if os.path.exists(os.path.join(ROOT, path)):
         got = real(path)
         check("real file " + path + " yields a semver-shaped VERSION", bool(got and re.match(r"^\d+\.\d+\.\d+", got)), True)
+
+# The canonical-deploy workflow uploads worker.js. A stale mirror must not override it
+# when measuring repo-to-live drift; retain mirror fallback for directories without source.
+original_root = g.ROOT
+with tempfile.TemporaryDirectory() as root:
+    g.ROOT = root
+    directory = os.path.join(root, "fixture")
+    os.makedirs(directory)
+    with open(os.path.join(directory, "worker.js"), "w", encoding="utf-8") as fh:
+        fh.write('var VERSION = "2.0.0";\n')
+    with open(os.path.join(directory, "deployed-current.worker.js"), "w", encoding="utf-8") as fh:
+        fh.write('var VERSION = "1.0.0";\n')
+    version, path, _ = g.repo_artifact("fixture")
+    check("worker.js wins when the mirror is stale", (version, os.path.basename(path)), ("2.0.0", "worker.js"))
+    os.remove(os.path.join(directory, "worker.js"))
+    version, path, _ = g.repo_artifact("fixture")
+    check("the mirror remains a fallback when worker.js is absent", (version, os.path.basename(path)),
+          ("1.0.0", "deployed-current.worker.js"))
+g.ROOT = original_root
 
 # ---------------------------------------------------------------- UNMANAGED-PROBE-1 / AUDIT-CRASH-FIX-1 (2026-10-26)
 # The guard is the producer of `unmanaged_workers` (deployed scripts that no repo directory names). `cf_script_list` stays a boolean.

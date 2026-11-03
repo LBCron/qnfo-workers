@@ -2,9 +2,9 @@
 """deploy-drift-guard.py - repo<->live drift monitor (VERSION + CONTENT + DIRECTION).
 
 ROOT CAUSE (why this exists):
-  1. The canonical deploy (qnfo-ops POST /ops/deploy + the qnfo-fleet-control redeploy)
-     fetches <dir>/deployed-current.worker.js -- NOT <dir>/worker.js (see mirror-guard.py).
-     A monitor that reads worker.js measures the wrong artifact and false-reports.
+  1. The canonical deploy workflow passes <dir>/worker.js to scripts/canonical_deploy.py.
+     The drift monitor must compare that same artifact; preferring a stale mirror can report
+     drift even when the deployed worker matches the repository's canonical deploy input.
   2. A worker with NO version constant is INVISIBLE to any version-based drift check
      (silent skip) -> the drift can never be seen or reconciled. Silent skips are the
      defect this tool refuses to allow.
@@ -120,7 +120,7 @@ CONST_TOP = re.compile(r'(?m)^(?<![\^/\\\'"`])(?:var|let|const)\s+(QNFO_)?VERSIO
 # VERSION-QUOTE-1 (2026-09-29): SERVER_VERSION fallback. PROTOCOL_VERSION is a
 # different fact and is deliberately NOT matched (see the module docstring).
 SERVER_CONST = re.compile(r'(?:var|let|const)\s+SERVER_VERSION\s*=\s*[\'"]([^\'"]+)[\'"]')
-CANON = ("deployed-current.worker.js", "worker.js")
+CANON = ("worker.js", "deployed-current.worker.js")
 TIMEOUT = 20
 NARRATIVE = ["qnfo-ai", "qnfo-research-exec", "qnfo-ipatent", "qnfo-gateway"]
 API_CONTENT = ("https://api.cloudflare.com/client/v4/accounts/{acct}"
@@ -429,7 +429,7 @@ def _repo_version(text):
 
 
 def repo_artifact(d):
-    """Return (version, path, text) for the canonical repo artifact, or (None, None, None)."""
+    """Return the version and text of the canonical deploy input, or the legacy mirror fallback."""
     first = None
     for fn in CANON:
         p = os.path.join(ROOT, d, fn)
