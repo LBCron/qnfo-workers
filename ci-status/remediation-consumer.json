@@ -1,12 +1,12 @@
 {
  "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
- "verifier": "remediation-consumer@ecf25383dcb0",
+ "verifier": "remediation-consumer@95fab96470dc",
  "due": 520,
- "pass": 183,
- "fail": 327,
- "skipped": 10,
- "deferred": 9,
+ "pass": 178,
+ "fail": 329,
+ "skipped": 13,
+ "deferred": 12,
  "contracts": [
   {
    "class": "rt-gateway",
@@ -18,22 +18,6 @@
   },
   {
    "class": "rt-ai-router",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-ipatent",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-ai-calibration",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -65,31 +49,23 @@
    "written": true
   },
   {
+   "class": "rt-ipatent",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-ai-calibration",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-live-qnfo-containers-pilot",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-deploy-guard",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-personal-api",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-email",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -105,7 +81,23 @@
    "written": true
   },
   {
+   "class": "rt-personal-api",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-live-qnfo-lifecycle",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-memory-mcp",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -129,7 +121,15 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-memory-mcp",
+   "class": "rt-live-qnfo-deploy-guard",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-email",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -138,6 +138,14 @@
   },
   {
    "class": "rt-live-qnfo-social",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "fm-notice-reply-encoded-subject",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -177,7 +185,7 @@
    "written": true
   },
   {
-   "class": "fm-notice-reply-encoded-subject",
+   "class": "rt-live-radar-hub",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -186,14 +194,6 @@
   },
   {
    "class": "rt-page-work-with-me",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-radar-hub",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -225,6 +225,14 @@
    "written": true
   },
   {
+   "class": "rt-page-papers-feed",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-page-ask-robots",
    "issue_id": null,
    "verdict": "pass",
@@ -234,22 +242,6 @@
   },
   {
    "class": "rt-papers",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-page-papers-feed",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-fleet-control",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -281,6 +273,22 @@
    "written": true
   },
   {
+   "class": "rt-live-qnfo-fleet-control",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-page-graph-api",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-page-ask",
    "issue_id": null,
    "verdict": "pass",
@@ -297,7 +305,7 @@
    "written": true
   },
   {
-   "class": "rt-page-graph-api",
+   "class": "slice-gh-app-broker-live",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -313,14 +321,6 @@
    "written": true
   },
   {
-   "class": "slice-gh-app-broker-live",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "fm-reader-history-navigation",
    "issue_id": null,
    "verdict": "pass",
@@ -329,7 +329,7 @@
    "written": true
   },
   {
-   "class": "rt-live-voice-stt",
+   "class": "rt-live-qnfo-model-eval",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -337,7 +337,7 @@
    "written": true
   },
   {
-   "class": "rt-page-ideas-sitemap",
+   "class": "rt-live-voice-stt",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -377,7 +377,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-model-eval",
+   "class": "rt-live-qnfo-evolve",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -385,7 +385,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-evolve",
+   "class": "rt-page-ideas-sitemap",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -417,11 +417,9 @@
    "written": true
   },
   {
-   "class": "rt-live-ai-models",
+   "class": "rt-live-personal-companion",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
    "observed": "ok",
-   "written": true
-  },
-  {
+   "written": tru
