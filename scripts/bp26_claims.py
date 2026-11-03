@@ -18,9 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bp26_producers import Collector, Result  # noqa: E402
 
 SQL = ("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN verification_state = 'verified' THEN 1 ELSE 0 END), 0) AS v "
-       "FROM paper_claims WHERE published_at >= datetime('now', '-7 days')")
-BY_STATE = ("SELECT verification_state AS s, COUNT(*) AS n FROM paper_claims WHERE published_at >= datetime('now', '-7 days') "
-            "GROUP BY verification_state ORDER BY verification_state")
+       "FROM paper_claims WHERE claim_kind = 'atomic' AND published_at >= datetime('now', '-7 days')")
+BY_STATE = ("SELECT verification_state AS s, COUNT(*) AS n FROM paper_claims WHERE claim_kind = 'atomic' "
+            "AND published_at >= datetime('now', '-7 days') GROUP BY verification_state ORDER BY verification_state")
 
 
 def collect(ctx):
@@ -31,7 +31,7 @@ def collect(ctx):
     except Exception as e:  # noqa: BLE001
         return [Result("claim_coverage", None, "unknown: claims ledger unreadable: " + str(e)[:100], [])]
     if n == 0:
-        return [Result("claim_coverage", None, "unknown: paper_claims holds no claim of a paper published in the last 7 days (the ledger writer has not run)", [])]
+        return [Result("claim_coverage", None, "unknown: paper_claims holds no atomic claim of a paper published in the last 7 days", [])]
     rows = [("state:%s" % s["s"], 1 if s["s"] == "verified" else 0, "%d claim(s)" % int(s["n"])) for s in states]
     return [Result("claim_coverage", round(v / n, 4), "%d of %d atomic claims of papers published in 7 days are verified (paper_claims ledger)" % (v, n), rows)]
 
@@ -41,7 +41,7 @@ COLLECTORS = [Collector("claims_ledger", collect, ["claim_coverage"], 55)]
 
 def selftest():
     c = sqlite3.connect(":memory:")
-    c.execute("CREATE TABLE paper_claims (id INTEGER PRIMARY KEY, slug TEXT, claim_text TEXT, source_ref TEXT, verification_state TEXT, published_at TEXT)")
+    c.execute("CREATE TABLE paper_claims (id INTEGER PRIMARY KEY, slug TEXT, claim_kind TEXT, claim_text TEXT, source_ref TEXT, verification_state TEXT, published_at TEXT)")
 
     def d1(sql, params=None):
         cur = c.execute(sql, params or [])
@@ -58,13 +58,15 @@ def selftest():
         if not cond:
             fails.append(m)
             print("FAIL " + m)
-    ok(collect(ctx)[0].value is None, "empty ledger is unknown, not 0")
-    c.executemany("INSERT INTO paper_claims (slug, claim_text, source_ref, verification_state, published_at) VALUES (?,?,?,?,datetime('now', ?))", [
-        ("a", "c1", "doi:1", "verified", "-1 days"), ("a", "c2", "doi:2", "verified", "-2 days"), ("b", "c3", "", "unsupported", "-3 days"),
-        ("b", "c4", "", "unverified", "-4 days"), ("old", "c5", "", "refuted", "-30 days")])
+    c.executemany("INSERT INTO paper_claims (slug, claim_kind, claim_text, source_ref, verification_state, published_at) VALUES (?,?,?,?,?,datetime('now', ?))", [
+        ("a", "reference", "r1", "doi:1", "verified", "-1 days"), ("a", "reference", "r2", "doi:2", "verified", "-2 days")])
+    ok(collect(ctx)[0].value is None, "reference rows alone are not an atomic-claims measurement")
+    c.executemany("INSERT INTO paper_claims (slug, claim_kind, claim_text, source_ref, verification_state, published_at) VALUES (?,?,?,?,?,datetime('now', ?))", [
+        ("a", "atomic", "c1", "claim:1", "verified", "-1 days"), ("a", "atomic", "c2", "claim:2", "unverified", "-2 days"),
+        ("old", "atomic", "c3", "claim:3", "refuted", "-30 days")])
     out = collect(ctx)[0]
-    ok(out.value == 0.5, "2 verified of 4 recent claims = 0.5, old claims ignored: %r" % (out,))
-    ok(len(out.rows) == 3, "one evidence row per state")
+    ok(out.value == 0.5, "1 verified of 2 recent atomic claims = 0.5, references and old claims ignored: %r" % (out,))
+    ok(len(out.rows) == 2, "one evidence row per atomic claim state")
     bad = Ctx()
     bad.d1 = lambda sql, params=None: (_ for _ in ()).throw(RuntimeError("no such table: paper_claims"))
     ok(collect(bad)[0].value is None, "unreadable ledger is unknown")
