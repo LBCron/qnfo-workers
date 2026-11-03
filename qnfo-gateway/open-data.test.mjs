@@ -94,6 +94,10 @@ ok(/Built on the framework/.test(r.t) && /^[\s\S]*"version": "0\.8\.1"/.test(r.t
   ok(csl.s === 200 && /citationstyles/.test(csl.h.get("Content-Type")) && item.type === "article" && item.title === "Paper 1" && item.DOI === "10.1234/live.99999999" && Array.isArray(item.author) && item.author[0].family === "Quni-Gudzinas", "CSL-JSON item", csl.t);
   const bib = await get("/api/papers/p001.bib");
   ok(bib.s === 200 && /^@article\{qnfo_p001,/.test(bib.t) && /doi = \{10\.1234\/live\.99999999\}/.test(bib.t) && /author = \{Rowan Brad Quni-Gudzinas and Co Author\}/.test(bib.t), "BibTeX entry", bib.t);
+  for (const [format, api] of [["cff", cff], ["bib", bib], ["csl.json", csl]]) {
+    const publicExport = await get("/papers/p001/cite." + format);
+    ok(publicExport.s === 200 && publicExport.t === api.t && publicExport.h.get("Content-Type") === api.h.get("Content-Type"), "public citation route matches API " + format + " export");
+  }
   ok((await get("/api/papers/nope.cff")).s === 404, "export of an unknown paper is 404");
   ok(!/10\.5281|zeno\x64o/i.test((await get("/api/papers/p000.cff")).t + (await get("/api/papers/p000.bib")).t), "exports never carry the retired DOI prefix");
   ok(JSON.parse((await get("/api/papers/p001")).t).slug === "p001", "plain /api/papers/<slug> unchanged");

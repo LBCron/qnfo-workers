@@ -165,7 +165,8 @@ function formatPaper(source, record) {
 }
 // PAPER-FORMAT-2:END
 // 3.48.7 PAPER-REVISION-QUALITY-1 (2026-11-03, pillar reach): recover split revision titles and record abstracts at public rendering, and reject cached refusals from both summary surfaces.
-var VERSION="3.49.0"; // 3.49.0 PLAIN-ARTICLE-COVERAGE-1 (2026-11-03, pillar reach, qnfo-workers#6437): retry an empty Kimi article reply once with the independent Google writer; raise the bounded hourly backfill cap to 30.
+var VERSION="3.50.0"; // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports.
+// 3.49.0 PLAIN-ARTICLE-COVERAGE-1 (2026-11-03, pillar reach, qnfo-workers#6437): retry an empty Kimi article reply once with the independent Google writer; raise the bounded hourly backfill cap to 30.
 // 3.48.0 PLAIN-STANDARD-1 (2026-10-28, pillar reach, agent_issues 1000476; minor: the plain-language summary now has a hard readability gate): plainPrompt asks for at most two figures, one everyday comparison, terms defined inline and sentences under 20 words; plainBuild regenerates once and flags a result above Flesch-Kincaid grade 9 as gated, which is never stored or shown (a gated build keeps the old row and waits 6 hours); plainFill queues stored summaries above grade 9 for regeneration, hardest first. qnfo-gateway/plain-standard.test.mjs. // 3.47.0 BP26-AI-ACT-ART50-1 + BP26-PROVENANCE-MARKING-1 (2026-10-28, pillars research and security, agent_issues 1000341 and 1000335): every paper page carries a visible AI label (AI-generated, or AI-assisted only where paper_provenance names a reviewer), JSON-LD creditText / digitalSourceType / isAIGenerated and, when the secret PROVENANCE_SIGNING_KEY is set, a signed Ed25519 sidecar at /papers/<slug>/provenance.json linked by <link rel="c2pa-manifest">, the public key at /.well-known/provenance-key.json, an hourly sweep that signs 40 unsigned papers and files each in qnfo-audit asset_provenance; the footer and the JSON-LD of qnfo.org pages say papers are written by AI. Absent secret = no sidecar, no link. qnfo-gateway/provenance.test.mjs. // 3.45.0 PAPER-PIDS-1 slice (2026-10-28, pillar research): per-paper CITATION.cff, CSL-JSON and BibTeX at /api/papers/<slug>.cff|.csl.json|.bib, built from the same open record as the JSON API and OAI-PMH (BP26-PAPER-PIDS-1, agent_issues 1000338).
 /* 3.46.0 PAPER-PIDS-HASH-1 (2026-10-28, pillar research, agent_issues 1000338; minor): GET /papers/<slug>/v/<version> (alias /api/papers/<slug>/v/<version>) serves that version's Markdown with X-Content-SHA256 and an immutable cache header for a superseded version; /api/papers/<slug> returns sha256 and version_url. 3.45.0 note: */
 // 3.44.2 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): the apex qnfo.org answered HTML pages with no frame protection (measured 2026-10-26: the *.qnfo.org hosts get X-Frame-Options DENY from a zone rule whose expression is the wildcard *.qnfo.org, which does not match the apex). withPagePolicy now adds X-Frame-Options DENY to every HTML response that has none, on every host, so the apex no longer depends on the zone rule; a handler's own value is kept.
@@ -4151,10 +4152,11 @@ async function handleOpenData(request, env, p) {
     }
     const pv = /^\/(?:api\/)?papers\/([^/]+)\/v\/([^/]+)$/.exec(p);
     if (pv) return await handlePaperVersion(env, decodeURIComponent(pv[1]), decodeURIComponent(pv[2]), request.method === "HEAD");
-    if (p.indexOf("/api/papers/") === 0) {
-      let slug = decodeURIComponent(p.slice(12));
-      const cite = /\.(cff|bib|csl\.json)$/.exec(slug);
-      if (cite) slug = slug.slice(0, -cite[0].length);
+    const publicCitation = /^\/papers\/([^/]+)\/cite\.(cff|bib|csl\.json)$/.exec(p);
+    if (p.indexOf("/api/papers/") === 0 || publicCitation) {
+      let slug = publicCitation ? decodeURIComponent(publicCitation[1]) : decodeURIComponent(p.slice(12));
+      const cite = publicCitation ? [publicCitation[0], publicCitation[2]] : /\.(cff|bib|csl\.json)$/.exec(slug);
+      if (!publicCitation && cite) slug = slug.slice(0, -cite[0].length);
       const row = await env.LIVING_PAPER.prepare("SELECT " + OPEN_COLS + " FROM papers WHERE " + OPEN_WHERE + " AND slug = ?").bind(slug).first();
       if (!row) return openJson({ error: "not found" }, 404);
       const r = openRecord(row);
@@ -7681,7 +7683,7 @@ var gateway_worker_default = {
       if (od) return od;
     }
     if (host === "papers.qnfo.org" || host === "qnfo-publications.pages.dev") {
-      if (p === "/oai" || p === "/openapi.json" || p === "/feed.json" || p.indexOf("/api/papers") === 0 && p !== "/api/paper-context" || /^\/papers\/[^/]+\/v\/[^/]+$/.test(p)) {
+      if (p === "/oai" || p === "/openapi.json" || p === "/feed.json" || p.indexOf("/api/papers") === 0 && p !== "/api/paper-context" || /^\/papers\/[^/]+\/v\/[^/]+$/.test(p) || /^\/papers\/[^/]+\/cite\.(?:cff|bib|csl\.json)$/.test(p)) {
         const od = await handleOpenData(request, env, p);
         if (od) return od;
       }
