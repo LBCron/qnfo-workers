@@ -23,6 +23,7 @@ function structuralPaper() {
   return "# A paper about a model\n\n## Abstract\n\nContext, gap, approach, result and practice are stated here in order.\n\n"
     + sec("1. Introduction", 1, 12) + sec("2. Background and Related Work", 20, 12) + sec("3. Methods", 40, 12)
     + sec("5. Analysis", 60, 12) + sec("6. Results", 80, 12) + sec("7. Discussion", 100, 12)
+    + "### 7.1 Discussion detail\n\nThis detail belongs to the discussion section.\n\n```md\n### 7.2 Example\n```\n\n"
     + sec("8. Practical Implications and Engineering Pathways", 120, 12) + sec("9. Conclusion", 140, 6)
     + "## References\n\n[1] Work number 1. https://arxiv.org/abs/2401.00001\n";
 }
@@ -34,25 +35,30 @@ function mkEnv(opts) {
   const o = opts || {};
   const store = { "pipeline/r1/reconciled.md": o.paper, "pipeline/r1/grounding.md": grounding };
   const sqls = [], calls = [];
-  const D1 = { prepare(sql) { let args = []; const q = { bind(...x) { args = x; return q; }, async run() { sqls.push({ sql, args }); return { meta: { changes: 1 } }; }, async first() { return null; }, async all() { return { results: [] }; } }; return q; } };
+  const D1 = { prepare(sql) { let args = []; const q = { bind(...x) { args = x; return q; }, async run() { sqls.push({ sql, args }); return { meta: { changes: 1 } }; }, async first() { return args[0] === "research_floor_extend" ? { value: "off" } : null; }, async all() { return { results: [] }; } }; return q; } };
   const MIRROR = { async get(k) { const v = store[k]; return v == null ? null : { text: async () => v }; }, async put(k, v) { store[k] = v; } };
   const AI = { async run(model, input) { calls.push({ model, prompt: input.messages[0].content }); return { response: "" }; } };
   return { env: { AI, QNFO_AUDIT: D1, MIRROR }, sqls, calls, store };
 }
 const row = { id: "r1", context: "{}", recover_count: 0, source: "remediation", source_id: "errata:105", stage: "complete", status: "researching" };
 
-// 1. The structural-only paper no longer throws; the row is routed through markError with the reasons, and no model call is spent.
+// 1. A numbering-only structural defect is normalized deterministically, even at the recovery ceiling.
 {
   const t = mkEnv({ paper: structuralPaper() });
   let res, threw = null;
-  try { res = await stageComplete(t.env, row); } catch (e) { threw = e; }
+  try { res = await stageComplete(t.env, Object.assign({}, row, { recover_count: 6 })); } catch (e) { threw = e; }
   ok(threw === null, "stageComplete does not throw on a structural-only incomplete paper", threw && threw.message);
-  ok(res && res.ok === false && res.stage === "complete" && res.structural === true, "the stage answers a handled structural result", res);
+  ok(res && res.ok === true && res.stage === "complete->review", "the repaired paper advances without exhausting recovery", res);
   ok(t.calls.length === 0, "no model call is spent on a paper no section can fix", t.calls.length);
+  const normalized = t.store["pipeline/r1/reconciled.md"];
+  const headings = normalized.match(/^## \d+\. /gm) || [];
+  ok(headings.length === 8 && headings.every((h, i) => h === "## " + (i + 1) + ". "), "required headings use consecutive canonical numbers", headings);
+  ok(normalized.includes("### 6.1 Discussion detail") && normalized.includes("### 7.2 Example"), "subsections follow their renumbered section while fenced examples remain unchanged");
   const rearm = t.sqls.filter((s) => /UPDATE research_queue SET status='queued', stage='ground'/.test(s.sql));
-  ok(rearm.length === 1 && /structural defects only, no writable section/.test(String(rearm[0].args[0])) && /skipped section numbers: 4/.test(String(rearm[0].args[0])), "markError re-queues the row from ground with the structural reasons recorded", t.sqls.map((s) => s.sql).slice(0, 6));
+  ok(rearm.length === 0, "numbering repair avoids another whole-paper retry", t.sqls.map((s) => s.sql));
+  ok(t.sqls.some((s) => /UPDATE research_queue SET stage='review'/.test(s.sql)), "the repaired paper is routed to review", t.sqls.map((s) => s.sql));
   const ev = t.sqls.filter((s) => /INSERT INTO cloud_ops_events/.test(s.sql)).map((s) => ({ kind: s.args[2], text: s.args[3] }));
-  ok(ev.some((e) => e.kind === "complete-structural" && /skipped section numbers: 4/.test(e.text)), "a complete-structural event records the reasons", ev);
+  ok(ev.some((e) => e.kind === "complete-structure-numbering"), "a repair event records the deterministic normalization", ev);
 }
 
 // 2. A paper with a genuinely missing middle section still takes the section branch (regression guard for the branch order).
