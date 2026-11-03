@@ -679,10 +679,11 @@ async function bearerMatches(header, secrets) {
 // other 180 times out of 180, issue 2147). The default is unchanged; the resolution is now named, returned and logged.
 var UNKNOWN_MODEL_DEFAULT = "deepseek-v4-flash";
 // models routed via AI Gateway dynamic routes -- see qnfo-ops issue #7.
-var DYNAMIC_ROUTES = ["dynamic/value", "dynamic/standard", "dynamic/premium"];
+var DYNAMIC_ROUTES = ["dynamic/value", "dynamic/standard", "dynamic/premium", "dynamic/flash"];
 function isDynamicRoute(model) { return DYNAMIC_ROUTES.includes(String(model)); }
-function chatRoute(model) {
+function chatRoute(model, route) {
   if (isDynamicRoute(model)) return model;
+  if (route && String(route).includes("/grounded-qa")) return "dynamic/flash";
   const id = String(model || "");
   if (/code|thinking|reasoner|pro|glm-5\.3$|kimi-k2\.6|gpt-oss-120b/.test(id)) return "dynamic/premium";
   if (/flash|mini|small|cleanup|summary|health/.test(id)) return "dynamic/value";
