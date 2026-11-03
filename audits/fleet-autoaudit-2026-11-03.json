@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 17:11:53",
+  "audited_at": "2026-11-03 17:45:39",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -596,7 +596,7 @@
       },
       {
         "dir": "qnfo-ai-search",
-        "version": "2.12.12-codeagent",
+        "version": "2.12.13-codeagent",
         "worker": "qnfo-ai-search"
       },
       {
@@ -606,7 +606,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.37.0-codeagent",
+        "version": "0.37.1-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -616,7 +616,7 @@
       },
       {
         "dir": "qnfo-deploy-guard",
-        "version": "1.4.4-scheduled-fleet-probe-sharing",
+        "version": "1.4.5-codeagent",
         "worker": "qnfo-deploy-guard"
       },
       {
@@ -726,7 +726,7 @@
       },
       {
         "dir": "radar-hub",
-        "version": "1.5.0-venue-recovered",
+        "version": "1.5.1-heartbeat-retry",
         "worker": "radar-hub"
       }
     ],
@@ -1128,9 +1128,9 @@
       "worker": "qnfo-ai-calibration"
     },
     "qnfo-ai-search": {
-      "before": "2.12.12-codeagent",
+      "before": "2.12.13-codeagent",
       "http": 200,
-      "live": "2.12.12-codeagent",
+      "live": "2.12.13-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai-search"
@@ -1288,9 +1288,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.37.0-codeagent",
+      "before": "0.37.1-codeagent",
       "http": 200,
-      "live": "0.37.0-codeagent",
+      "live": "0.37.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1313,9 +1313,9 @@
       "worker": "qnfo-ddocs-indexer"
     },
     "qnfo-deploy-guard": {
-      "before": "1.4.4-scheduled-fleet-probe-sharing",
+      "before": "1.4.5-codeagent",
       "http": 200,
-      "live": "1.4.4-scheduled-fleet-probe-sharing",
+      "live": "1.4.5-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-deploy-guard"
@@ -1811,9 +1811,9 @@
       "worker": "qnfo-youtube-shorts"
     },
     "radar-hub": {
-      "before": "1.5.0-venue-recovered",
+      "before": "1.5.1-heartbeat-retry",
       "http": 200,
-      "live": "1.5.0-venue-recovered",
+      "live": "1.5.1-heartbeat-retry",
       "match": 1,
       "note": "SYNC",
       "worker": "radar-hub"
