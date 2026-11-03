@@ -12,6 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 
 const IMPORT = 'import { WorkflowEntrypoint, DurableObject, tracing } from "cloudflare:workers";';
+const OAUTH_IMPORT = 'import { handleOAuthBroker, refreshOAuthBrokerTokens } from "./oauth-broker.mjs";';
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 if (src.indexOf(IMPORT) < 0) throw new Error("worker.js import line changed: update the loader in this test");
 // The breaker row carries the worker's own VERSION (read from worker.js, so a version bump does not break this check).
@@ -19,7 +20,7 @@ const WORKER_VERSION = (src.match(/var VERSION = "([^"]+)"/) || [])[1];
 if (!WORKER_VERSION) throw new Error("worker.js VERSION line not found");
 // Each load is a fresh module, so the per-isolate breaker starts closed.
 let loads = 0;
-const load = async () => (await import("data:text/javascript;base64," + Buffer.from(src.replace(IMPORT, "var WorkflowEntrypoint = class {}; var DurableObject = class {}; var tracing = { enterSpan(_name, callback) { return callback({ setAttribute() {} }); } };") + "\n// load " + (++loads)).toString("base64"))).default;
+const load = async () => (await import("data:text/javascript;base64," + Buffer.from(src.replace(IMPORT, "var WorkflowEntrypoint = class {}; var DurableObject = class {}; var tracing = { enterSpan(_name, callback) { return callback({ setAttribute() {} }); } };").replace(OAUTH_IMPORT, `import { handleOAuthBroker, refreshOAuthBrokerTokens } from "${new URL("./oauth-broker.mjs", import.meta.url).href}";`) + "\n// load " + (++loads)).toString("base64"))).default;
 
 const say = console.log.bind(console);
 console.log = () => {};
@@ -60,7 +61,7 @@ function mk(gwStatus) {
     try { body = o && o.body ? JSON.parse(o.body) : null; } catch (e) { }
     fetches.push({ url, body });
     if (GW.test(url)) {
-      if (gwStatus === 402) return new Response(JSON.stringify({ error: { message: "Insufficient Balance (request_id: test)", type: "unknown_error" } }), { status: 402, headers: { "Content-Type": "application/json" } });
+      if (gwStatus === 402 || gwStatus === 429) return new Response(JSON.stringify({ error: { message: gwStatus === 402 ? "Insufficient Balance (request_id: test)" : "Wholesale Rate limited (request_id: test)", type: "unknown_error" } }), { status: gwStatus, headers: { "Content-Type": "application/json" } });
       if (body && body.stream) {
         const sse = "data: " + JSON.stringify({ choices: [{ index: 0, delta: { role: "assistant", content: "Paid streamed answer, long enough to be a real answer." } }] }) + "\n\ndata: " + JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 10 } }) + "\n\ndata: [DONE]\n\n";
         return new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
@@ -176,6 +177,34 @@ const breakerRows = (t) => t.audit.prepare("SELECT kind, status, meta FROM cloud
   ok(a.res.status === 200 && b.res.status === 200, "F healthy turns answered");
   ok(gwCalls(t).length >= 2, "F paid path used on both turns, saw " + gwCalls(t).length);
   ok(breakerRows(t).length === 0, "F no breaker row on a healthy gateway");
+}
+
+// H. repeated DeepSeek 429s share the breaker and both response paths degrade to Workers AI.
+{
+  const W = await load();
+  const t = mk(429);
+  const { res, text } = await call(W, t, Q(false));
+  ok(res.status === 200 && /Free-tier answer/.test(text), "H non-streamed 429 answered from the free tier: " + text.slice(0, 200));
+  ok(gwCalls(t).length === 1, "H one paid attempt before the breaker opens, saw " + gwCalls(t).length);
+  ok(breakerRows(t).length === 1, "H one shared breaker row for the 429");
+  const W2 = await load();
+  const t2 = mk(429);
+  t2.env.QNFO_AUDIT = t.env.QNFO_AUDIT;
+  const next = await call(W2, t2, Q(true));
+  ok(next.res.status === 200 && /Free-tier answer/.test(next.text), "H fresh isolate answered from free tier while breaker is open");
+  ok(gwCalls(t2).length === 0, "H another isolate skips the paid path after the shared 429 breaker opens, saw " + gwCalls(t2).length);
+  const errors = t.audit.prepare("SELECT status FROM cloud_ops_events WHERE kind = 'ops_upstream_error'").all();
+  ok(errors.length === 1 && errors[0].status === "error", "H the original 429 remains recorded as an upstream error: " + JSON.stringify(errors));
+}
+
+// I. a first streamed 429 also opens the shared breaker before falling back.
+{
+  const W = await load();
+  const t = mk(429);
+  const { res, text } = await call(W, t, Q(true));
+  ok(res.status === 200 && /Free-tier answer/.test(text), "I streamed 429 answered from the free tier: " + text.slice(0, 200));
+  ok(gwCalls(t).length === 1, "I one paid streamed attempt before the breaker opens");
+  ok(breakerRows(t).length === 1, "I streamed 429 opens the shared breaker");
 }
 
 say(pass + " passed, " + fail + " failed");
