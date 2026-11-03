@@ -5,6 +5,11 @@
 # Cloudflare token. Rollback: dispatch again with the previous ref (the Pages dashboard keeps every deployment).
 name: qwav-pages-deploy
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/qwav-pages-deploy.yml"
+      - "scripts/qwav_pages.py"
   workflow_dispatch:
     inputs:
       ref:
@@ -19,6 +24,10 @@ on:
         description: "Pages deployment branch (main = production)"
         required: false
         default: "main"
+      paper_slug:
+        description: "Known R2 markdown slug to probe (empty checks published index candidates)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -33,11 +42,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      - name: Check out deployment tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
       - name: Check out QNFO/qwav
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: QNFO/qwav
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || 'main' }}
           path: site
           fetch-depth: 1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -50,19 +64,30 @@ jobs:
           hits=$(grep -rIl -i -E '10\.5281/' site --include='*.html' --exclude-dir=.git || true)
           if [ -n "$hits" ]; then echo "::error::public HTML still names the retired deposit service:"; echo "$hits"; exit 1; fi
           echo "public HTML clean"
+      - name: Validate the complete Pages source tree
+        run: python3 scripts/qwav_pages.py validate --site site
+      - name: Read the existing Pages project before upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/qwav_pages.py preflight
       - name: Pages direct upload
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          IN_PROJECT: ${{ inputs.project }}
-          IN_BRANCH: ${{ inputs.branch }}
+          IN_PROJECT: ${{ inputs.project || 'qwav' }}
+          IN_BRANCH: ${{ inputs.branch || 'main' }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
+          if [ "$IN_PROJECT" != qwav ]; then echo "::error::only the qwav project is allowed"; exit 1; fi
           cd site
+          commit=$(git rev-parse HEAD)
+          if [ -n "$(git status --porcelain)" ]; then echo "::error::deployment source is dirty"; exit 1; fi
+          echo "QWAV_COMMIT=$commit" >> "$GITHUB_ENV"
           rm -rf .git .wrangler
           rc=0
-          npx --yes wrangler@4 pages deploy . --project-name "$IN_PROJECT" --branch "$IN_BRANCH" --commit-dirty=true 2>&1 | tee ../deploy.log || rc=$?
+          npx --yes wrangler@4 pages deploy . --project-name "$IN_PROJECT" --branch "$IN_BRANCH" --commit-hash "$commit" --commit-dirty=false 2>&1 | tee ../deploy.log || rc=$?
           echo "wrangler rc=$rc"
           if [ "$rc" != "0" ]; then
             if grep -q -E 'Authentication error|10000|not authorized|403' ../deploy.log; then
@@ -70,13 +95,16 @@ jobs:
             fi
             exit "$rc"
           fi
-      - name: Verify the production host
-        shell: bash
-        run: |
-          set -uo pipefail
-          for i in 1 2 3 4 5 6; do
-            body=$(curl -s -m 20 https://qwav.org/ || true)
-            if [ -n "$body" ] && ! printf '%s' "$body" | grep -q -i -E '10\.5281/'; then echo "qwav.org clean on try $i"; exit 0; fi
-            sleep 20
-          done
-          echo "::warning::qwav.org still shows the old build after 2 minutes (edge cache or a custom domain on another project); the deployment itself succeeded"
+      - name: Restore host-scoped Pages routing
+        if: (inputs.branch || 'main') == 'main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/qwav_pages.py repair
+      - name: Verify production pages redirects markdown and domain validation
+        if: (inputs.branch || 'main') == 'main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          IN_PAPER_SLUG: ${{ inputs.paper_slug }}
+        run: python3 scripts/qwav_pages.py verify --site site --commit "$QWAV_COMMIT" --paper-slug "${IN_PAPER_SLUG:-}"
