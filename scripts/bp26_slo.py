@@ -99,19 +99,51 @@ def budget(good, n, objective):
     return good / float(n), spent, "spent" if spent >= 100 else ("warn" if spent >= WARN_PCT else "ok")
 
 
-def file_action(ctx, title, desc):
-    """One open agent_issues row per title (the unique open-title index is the second guard); True when a row exists after the call."""
+def action_recovery_probe(surface):
+    """Require the SLO to be healthy with enough clean samples for a full day."""
+    surface_sql = "'" + str(surface).replace("'", "''") + "'"
+    subject_sql = "'" + ("avail:" + str(surface)).replace("'", "''") + "'"
+    window = "run_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours')"
+    return (
+        "SELECT 'ok' AS expected, CASE "
+        "WHEN COALESCE((SELECT state FROM slo_budget_state WHERE surface = %s), '') <> 'ok' THEN 'budget state is not ok' "
+        "WHEN (SELECT COUNT(*) FROM bp26_probe_results WHERE metric = 'slo_attainment_28d_min' AND subject = %s AND %s) < 12 THEN 'fewer than 12 samples in 24 h' "
+        "WHEN (SELECT COUNT(*) FROM bp26_probe_results WHERE metric = 'slo_attainment_28d_min' AND subject = %s AND ok = 0 AND %s) > 0 THEN 'a sample failed in the last 24 h' "
+        "ELSE 'ok' END AS observed"
+    ) % (surface_sql, subject_sql, window, subject_sql, window)
+
+
+def file_action(ctx, title, desc, surface):
+    """Keep one open action issue per title and arm its SLO recovery contract."""
     try:
-        if ctx.d1("SELECT id FROM agent_issues WHERE title = ?1 AND status IN ('open','in_progress','triaged') LIMIT 1", [title]):
-            return True
-        ctx.d1("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) VALUES (?1, ?2, 'bp26-slo', 'reliability', 'high', 'open', "
-               "CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)", [title, desc])
-        return True
+        issue = ctx.d1("SELECT id FROM agent_issues WHERE title = ?1 AND status IN ('open','in_progress','triaged') LIMIT 1", [title])
+        if not issue:
+            try:
+                ctx.d1("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) VALUES (?1, ?2, 'bp26-slo', 'reliability', 'high', 'open', "
+                       "CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)", [title, desc])
+            except Exception as e:  # noqa: BLE001 - a concurrent issue may win the unique open-title index
+                if "UNIQUE" not in str(e):
+                    raise
+            issue = ctx.d1("SELECT id FROM agent_issues WHERE title = ?1 AND status IN ('open','in_progress','triaged') ORDER BY id DESC LIMIT 1", [title])
+        if not issue:
+            return None
+        issue_id = int(issue[0]["id"])
+        probe = action_recovery_probe(surface)
+        ctx.d1(
+            "UPDATE remediation_contracts SET verify_probe = ?1, verify_transport = 'd1-query', status = 'active', "
+            "module = 'slo-action-recovery-1', attempts = 0, last_verdict = NULL, next_due_at = datetime('now'), "
+            "expected_cadence_h = 1, max_attempts = 3, precondition = 'SLO recovery for 24 hours', "
+            "action = 'the action issue closes only after the SLO is ok with at least 12 passing samples and no failures in 24 hours' "
+            "WHERE class = ?2 AND issue_id = ?3 AND (verify_probe IS NOT ?1 OR verify_transport IS NOT 'd1-query' "
+            "OR status IS NOT 'active' OR module IS NOT 'slo-action-recovery-1')",
+            [probe, "issue-" + str(issue_id), issue_id],
+        )
+        armed = ctx.d1("SELECT class FROM remediation_contracts WHERE class = ?1 AND issue_id = ?2 AND verify_transport = 'd1-query' AND verify_probe = ?3 AND status = 'active' AND module = 'slo-action-recovery-1'",
+                       ["issue-" + str(issue_id), issue_id, probe])
+        return issue_id if armed else None
     except Exception as e:  # noqa: BLE001
-        if "UNIQUE" in str(e):
-            return True
         print("bp26_slo: action issue not filed: %s" % str(e)[:160], file=sys.stderr)
-        return False
+        return None
 
 
 def collect_slo(ctx):
@@ -182,10 +214,10 @@ def collect_slo(ctx):
         elif n_bad >= 2 or burned:
             title = "SLO-POSTMORTEM-ACTION-1 %s: find the root cause of repeated availability failures" % surface
             desc = ("Charter pillar: autonomy. Program QNFO.OPS (BP26-SLO-ERROR-BUDGETS-1). Incident %s: %s. Root-cause class from the evidence: %s (%s). Budget state: %s. "
-                    "Definition of done: the cause is named in the postmortem row (qnfo-audit.postmortems, incident_key above), the fix is merged and slo_budget_state for the surface returns to ok.\n"
-                    "runtime-probe: {\"url\": \"https://%s/\", \"status\": 200}" % (key, summary, klass, why, "spent" if burned else "at risk", surface))
+                    "Definition of done: the cause is named in the postmortem row (qnfo-audit.postmortems, incident_key above), the fix is merged and slo_budget_state for the surface returns to ok."
+                    % (key, summary, klass, why, "spent" if burned else "at risk"))
             action = "action issue filed: " + title
-            action_issue = title if file_action(ctx, title, desc) else None
+            action_issue = title if file_action(ctx, title, desc, surface) else None
             if action_issue is None:
                 state = "draft"
         if not ctx.dry:
@@ -243,6 +275,11 @@ CREATE TABLE incidents (incident_key TEXT PRIMARY KEY, kind TEXT, surface TEXT, 
 CREATE TABLE postmortems (incident_key TEXT PRIMARY KEY, created_at TEXT, completed_at TEXT, state TEXT, timeline TEXT, root_cause TEXT, contributing TEXT, actions TEXT, action_issue TEXT, generator TEXT);
 CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE agent_issues (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);
+CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, verify_probe TEXT, verify_transport TEXT, status TEXT, module TEXT, attempts INTEGER, last_verdict TEXT, next_due_at TEXT, expected_cadence_h INTEGER, max_attempts INTEGER, precondition TEXT, action TEXT);
+CREATE TRIGGER agent_issues_birth_contract AFTER INSERT ON agent_issues BEGIN
+  INSERT INTO remediation_contracts (class, issue_id, verify_probe, verify_transport, status, module, attempts, expected_cadence_h, max_attempts)
+  VALUES ('issue-' || NEW.id, NEW.id, 'needs-machine-probe', 'd1-query', 'active', 'birth', 0, 6, 3);
+END;
 CREATE TABLE bp26_probe_results (id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT, metric TEXT, subject TEXT, ok INTEGER, detail TEXT, producer TEXT);
 """
     c.executescript(script)
@@ -273,9 +310,23 @@ CREATE TABLE bp26_probe_results (id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TE
     pm = {r["incident_key"]: r for r in d1("SELECT * FROM postmortems")}
     ok(len(pm) == 3 and all(p["state"] == "complete" for p in pm.values()), "every incident has a complete postmortem: %r" % {k: v["state"] for k, v in pm.items()})
     ok(sum(1 for r in d1("SELECT title FROM agent_issues WHERE title LIKE 'SLO-POSTMORTEM-ACTION-1%'")) == 1, "one action issue (the 3-sample episode; the lone sample is also on a spent surface but shares the surface title)")
+    action_contract = d1("SELECT verify_transport, verify_probe, module FROM remediation_contracts WHERE class = (SELECT 'issue-' || id FROM agent_issues WHERE title LIKE 'SLO-POSTMORTEM-ACTION-1%' LIMIT 1)")[0]
+    ok(action_contract["verify_transport"] == "d1-query" and action_contract["verify_probe"] == action_recovery_probe("a.example") and action_contract["module"] == "slo-action-recovery-1", "the action issue is armed with the SLO recovery probe")
     ok(res.value == 1.0, "coverage 1.0: %r %s" % (res.value, res.note))
     collect_slo(ctx)
     ok(d1("SELECT COUNT(*) n FROM postmortems")[0]["n"] == 3 and d1("SELECT COUNT(*) n FROM agent_issues WHERE title LIKE 'SLO-POSTMORTEM-ACTION-1%'")[0]["n"] == 1, "a second run adds nothing")
+    d1("UPDATE slo_budget_state SET state = 'ok' WHERE surface = 'a.example'")
+    recent = time.time()
+    for i in range(12):
+        d1("INSERT INTO bp26_probe_results (run_at, metric, subject, ok) VALUES (?1, 'slo_attainment_28d_min', 'avail:a.example', 1)",
+           [iso(recent - i * 3600)])
+    observed = d1(action_recovery_probe("a.example"))[0]["observed"]
+    ok(observed == "ok", "the recovery probe passes on 12 recent good samples and an ok budget")
+    d1("INSERT INTO bp26_probe_results (run_at, metric, subject, ok) VALUES (?1, 'slo_attainment_28d_min', 'avail:a.example', 0)",
+       [iso(recent)])
+    observed = d1(action_recovery_probe("a.example"))[0]["observed"]
+    ok(observed == "a sample failed in the last 24 h", "a fresh SLO failure blocks issue closure even when the host may answer 200")
+    d1("DELETE FROM bp26_probe_results WHERE subject = 'avail:a.example' AND run_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours')")
     c.execute("DELETE FROM postmortems WHERE incident_key LIKE 'avail:a.example:%'")
     ok(collect_slo(ctx)[0].value == 1.0 and d1("SELECT COUNT(*) n FROM postmortems")[0]["n"] == 3, "a missing postmortem is regenerated")
     c.execute("DROP TABLE slo_definitions")
