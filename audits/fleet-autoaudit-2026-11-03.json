@@ -1,8 +1,15 @@
 {
-  "audited_at": "2026-11-03 04:52:15",
+  "audited_at": "2026-11-03 05:21:51",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
+    "_drift_confirm": {
+      "first_pass": [
+        "personal-api"
+      ],
+      "refreshed": true,
+      "second_pass": []
+    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -556,7 +563,7 @@
       },
       {
         "dir": "personal-api",
-        "version": "4.31.0",
+        "version": "4.32.0",
         "worker": "personal-api"
       },
       {
@@ -596,7 +603,7 @@
       },
       {
         "dir": "qnfo-ai-search",
-        "version": "2.12.9-codeagent",
+        "version": "2.12.10-codeagent",
         "worker": "qnfo-ai-search"
       },
       {
@@ -616,7 +623,7 @@
       },
       {
         "dir": "qnfo-deploy-guard",
-        "version": "1.4.2-leases-killswitch",
+        "version": "1.4.3-ops-probe-timeout",
         "worker": "qnfo-deploy-guard"
       },
       {
@@ -631,7 +638,7 @@
       },
       {
         "dir": "qnfo-fleet-control",
-        "version": "0.61.0",
+        "version": "0.61.1-codeagent",
         "worker": "qnfo-fleet-control"
       },
       {
@@ -730,13 +737,17 @@
         "worker": "radar-hub"
       }
     ],
+    "unmanaged_route_drift": [],
     "unmanaged_tombstones": 1,
     "unmanaged_truncated": false,
     "unmanaged_workers": [
       {
         "http": 200,
+        "route_drift": false,
         "version": null,
-        "worker": "qnfo-fleet-lee"
+        "worker": "qnfo-fleet-lee",
+        "workers_dev_enabled": false,
+        "workers_dev_expected": false
       },
       {
         "http": 200,
@@ -988,9 +999,9 @@
       "worker": "patches"
     },
     "personal-api": {
-      "before": "4.31.0",
+      "before": "4.32.0",
       "http": 200,
-      "live": "4.31.0",
+      "live": "4.32.0",
       "match": 1,
       "note": "SYNC",
       "worker": "personal-api"
@@ -1115,9 +1126,9 @@
       "worker": "qnfo-ai-calibration"
     },
     "qnfo-ai-search": {
-      "before": "2.12.9-codeagent",
+      "before": "2.12.10-codeagent",
       "http": 200,
-      "live": "2.12.9-codeagent",
+      "live": "2.12.10-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai-search"
@@ -1300,9 +1311,9 @@
       "worker": "qnfo-ddocs-indexer"
     },
     "qnfo-deploy-guard": {
-      "before": "1.4.2-leases-killswitch",
+      "before": "1.4.3-ops-probe-timeout",
       "http": 200,
-      "live": "1.4.2-leases-killswitch",
+      "live": "1.4.3-ops-probe-timeout",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-deploy-guard"
@@ -1405,9 +1416,9 @@
       "worker": "qnfo-fleet-calibrator"
     },
     "qnfo-fleet-control": {
-      "before": "0.61.0",
+      "before": "0.61.1-codeagent",
       "http": 200,
-      "live": "0.61.0",
+      "live": "0.61.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-control"
