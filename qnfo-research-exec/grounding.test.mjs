@@ -166,4 +166,27 @@ globalThis.fetch = async (url) => {
 res = await stageGround(env, row("retried", 0));
 assert.equal(res.ok, true); assert.equal(res.bibCount, 10); assert.equal(n429, 3, "two refusals, then the answer");
 
+// 2g. replace metadata candidates whose full text is unavailable when filtering leaves fewer than the reference floor.
+lp.prepare("UPDATE papers SET body_md = '' WHERE slug IN ('corpus-a', 'corpus-b')").run();
+arxivCalls = []; dataciteCalls = [];
+dataciteAnswer = () => new Response(JSON.stringify({ data: [
+  dcRecord("2601.20001", "Weight sequence classification for numeration systems", "We classify weight sequences for polynomial-time arithmetic."),
+  dcRecord("2601.20002", "Weight sequence arithmetic and carry rules", "We study carry rules for weight sequences.")
+] }), { status: 200 });
+globalThis.fetch = async (url) => {
+  const u = decodeURIComponent(String(url));
+  if (u.startsWith("https://api.datacite.org/")) { dataciteCalls.push(u); return dataciteAnswer(); }
+  if (htmlUrl(u)) return /2601\.0100[3-7]/.test(u) ? new Response("Not Found", { status: 404 }) : new Response(fullHtml(u));
+  if (!u.startsWith("https://export.arxiv.org/")) return new Response("unexpected " + u, { status: 404 });
+  arxivCalls.push(u);
+  return new Response(feed(/ OR /.test(u) ? 8 : 0));
+};
+res = await stageGround(env, row("fulltext-topup", 0));
+assert.equal(res.ok, true, "DataCite should replace candidates dropped by the full-text filter");
+assert.equal(res.bibCount, 5);
+assert.equal(dataciteCalls.length, 1, "the second source runs after the full-text shortfall");
+assert.match(audit.prepare("SELECT text FROM cloud_ops_events WHERE kind = 'ground-fulltext' ORDER BY rowid DESC LIMIT 1").get().text, /candidates=12 kept_arxiv=5 kept_qnfo=0 dropped_no_fulltext=7 transport_errors=0/);
+assert.match(audit.prepare("SELECT text FROM cloud_ops_events WHERE kind = 'ground-second-source' ORDER BY rowid DESC LIMIT 1").get().text, /returned=2 added=2/);
+assert.equal((r2.get("pipeline/fulltext-topup/grounding.md").match(/Full text \(https:\/\/arxiv\.org\/html\//g) || []).length, 5);
+
 console.log("grounding tests passed");
