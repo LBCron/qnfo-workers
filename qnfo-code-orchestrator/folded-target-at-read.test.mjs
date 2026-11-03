@@ -79,7 +79,8 @@ add("ct_f_retired", "qnfo-workers", "fxretired/worker.js");
 add("ct_f_retired_q", "QNFO/qnfo-workers", "fxretired/worker.js");
 add("ct_f_other_repo", "other-repo", "fxretired/worker.js");
 add("ct_f_script", "qnfo-workers", "docs/NOTES.md");
-for (let i = 0; i < 8; i++) await tick(); // maxSteps 4 a tick, ten rows
+for (let i = 0; i < 16; i++) await tick(); // bounded for the full queue even when a tick runs one step
+console.log("DEBUG", lease, db.prepare("SELECT id, status, step, attempts, lease_until, ctx, last_error FROM code_tasks").all(), db.prepare("SELECT kind, text FROM cloud_ops_events").all());
 
 for (const id of ["ct_f_a", "ct_f_b"]) {
   ok(row(id).path === (id === "ct_f_a" ? "fxhost/worker.js" : "fxhost2/worker.js"), id + " (" + (id === "ct_f_a" ? "qnfo-workers" : "QNFO/qnfo-workers") + ") is redirected to its host", row(id));

@@ -32,8 +32,10 @@ const parts = {
   done: grab("const CODE_TASK_DONE = [", "\n// PLAN-WIP-SUPERSEDED-1"),
   paths: grab("function taskPaths(path) {", "\n// NO-PROGRESS-CEILING-1"),
   busy: grab("var CLAIM_TTL_MAX_MS", "\n// RETIRED-TARGET-1"),
+  owner: grab("const CLAIM_OWNER = ", "\nconst CLAIM_TTL_S"),
 };
 ok(parts.done.includes("CODE_TASK_DONE") && parts.paths.includes("taskPaths") && parts.busy.includes("async function pathBusy"), "CODE_TASK_DONE, taskPaths and pathBusy are found in worker.js", Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v.length])));
+ok(parts.owner.includes("CLAIM_OWNER"), "pathBusy's claim owner dependency is found in worker.js");
 ok(/var CLAIM_TTL_MAX_MS = 90 \* 60 \* 1e3;/.test(parts.busy), "the ceiling is 90 minutes");
 
 // pathNoProgress (the task-level ceiling, NO-PROGRESS-CEILING-1) has its own suite; here it only answers "keep the file" or "freed".
