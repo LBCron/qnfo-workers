@@ -18,9 +18,10 @@ or stores a secret: the secret scan reports file:line and a pattern NAME only.
         KV is eventually consistent, so two concurrent agents can both win; locks and counters belong in Durable Objects or D1. The value is the number of hits, evidence rows are
         file:line and the pattern. A line carrying `standards-ok:` is skipped, like the workers standards guard.
   collect_secrets_in_repo     secrets_in_repo
-        Scan of the tracked files (git ls-files; the walk of the checkout when git is absent) for high-confidence secret formats only: a PEM private key WITH a key body, an AWS
+        Scan of the tracked files (git ls-files; the walk of the checkout when git is absent) for secret patterns: a PEM private key WITH a key body, an AWS
         access key id, GitHub tokens, Slack tokens, Stripe/OpenAI-style secret keys of real length, a Cloudflare-style 40-character token assigned to a token variable, and a
-        Bluesky app password (four groups of four) on a password line. Entries of scripts/secret-scan-allowlist.txt (path | pattern | expiry | reason) are honoured until they
+        Bluesky app password (four groups of four) on a password line, and quoted TOKEN/API_KEY assignments of 24 or more token characters (including Zenodo variable names).
+        The generic assignment pattern is a heuristic, not proof that a credential is live. Entries of scripts/secret-scan-allowlist.txt (path | pattern | expiry | reason) are honoured until they
         expire. The value is the number of unallowlisted hits; a hit's text is never printed or stored. It is a pattern scan, not a replacement for a full scanner with entropy
         checks; the note says so.
   collect_credential_expiry   secret_expiry_warnings_open
@@ -269,8 +270,9 @@ SECRET_PATTERNS = [
     ("secret-key-sk", re.compile(r"\b(?:sk_live_[A-Za-z0-9]{20,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{32,})\b")),
     ("cloudflare-token-assignment", re.compile(r"(?:CLOUDFLARE_API_TOKEN|CF_API_TOKEN|CF_TOKEN)[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9_-]{40}(?![A-Za-z0-9_-])")),
     ("bluesky-app-password", re.compile(r"(?i)(?:password|app_?pass)[\"']?\s*[:=]\s*[\"']?[a-z0-9]{4}(?:-[a-z0-9]{4}){3}[\"']?")),
+    ("credential-literal-assignment", re.compile(r"(?i)\b(?:TOKEN|API_KEY|ZENODO_TOKEN|ZENODO_SANDBOX_TOKEN)\b[\"']?[ \t]*[:=][ \t]*([\"'])[A-Za-z0-9_-]{24,}\1")),
 ]
-PREFILTER = ("private key", "akia", "asia", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "xox", "sk_live_", "sk-", "api_token", "cf_token", "password", "app_pass", "apppass")
+PREFILTER = ("private key", "akia", "asia", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "xox", "sk_live_", "sk-", "token", "api_key", "password", "app_pass", "apppass")
 
 
 def parse_allowlist(text, today=None):
@@ -349,8 +351,8 @@ def collect_secrets_in_repo(ctx):
             hits += 1
             rows.append(("%s:%d" % (rel, ln), 0, name))
     return [Result("secrets_in_repo", hits,
-                   "%d unallowlisted high-confidence secret patterns in %d tracked text files (pattern scan: PEM key with body, AWS key id, GitHub/Slack tokens, sk- keys, Cloudflare-style token "
-                   "assignment, Bluesky app password; no entropy check; %d allowlist entries in force); a hit is reported as file:line and pattern name only" % (hits, scanned, len(allow)), rows[:60])]
+                   "%d unallowlisted secret patterns in %d tracked text files (pattern scan: PEM key with body, AWS key id, GitHub/Slack tokens, sk- keys, Cloudflare-style token "
+                   "assignment, Bluesky app password, quoted TOKEN/API_KEY assignments (heuristic); no entropy check; %d allowlist entries in force); a hit is reported as file:line and pattern name only" % (hits, scanned, len(allow)), rows[:60])]
 
 
 # ---------------------------------------------------------------- credential expiry
@@ -652,6 +654,27 @@ def selftest():
         ok(names == ["bluesky-app-password", "cloudflare-token-assignment", "github-token", "pem-private-key"], "four of the five fixtures are reported (the AWS one is allowlisted, the expired entry is ignored): %r" % names)
         ok(r.value == 4 and all(":" in x[0] and "AKIA" not in str(x) and "a" * 40 not in str(x) for x in r.rows), "the value counts them and no row carries the secret text")
         ok(scan_text("const re = /AKIA[0-9A-Z]{16}/; const x = 'sk-abc';") == [], "a pattern written as a regex or a short sk- string is not a secret")
+        for name, length in [("TOKEN", 60), ("TOKEN", 59), ("API_KEY", 43), ("ZENODO_TOKEN", 24), ("ZENODO_SANDBOX_TOKEN", 24)]:
+            literal = "a1" * (length // 2) + "a" * (length % 2)
+            text = '# archived example\n' + name + ' = "' + literal + '"\n'
+            ok(scan_text(text) == [(2, "credential-literal-assignment")], "audit-format quoted assignment detected by name and line only: %s/%d" % (name, length))
+        literal = "a1_-" * 6
+        ok(scan_text('{"api_key": "' + literal + '"}') == [(1, "credential-literal-assignment")], "JSON and token punctuation are covered")
+        ok(scan_text("token = '" + literal + "'") == [(1, "credential-literal-assignment")], "single quotes and lowercase are covered")
+        ok(scan_text('TOKEN = "' + literal + '" + suffix') == [(1, "credential-literal-assignment")], "a long literal remains exposed when concatenated")
+        for text in [
+            'TOKEN = "' + "a" * 23 + '"',
+            'TOKEN = "<REDACTED>"',
+            'TOKEN = os.environ["ZENODO_TOKEN"]',
+            'API_KEY = process.env.API_KEY',
+            'TOKEN = "' + "a" * 12 + '" * 5',
+            'NOT_TOKEN = "' + "a" * 24 + '"',
+            'TOKEN = "' + "a" * 24 + "'",
+        ]:
+            ok(scan_text(text) == [], "only a complete long quoted credential literal is reported")
+        write("src/zenodo.py", 'TOKEN = "' + "a1" * 30 + '"\n')
+        r = collect_secrets_in_repo(P.Ctx(root=root, now=time.time(), deadline=time.time() + 100, ))[0]
+        ok(r.value == 5 and ("src/zenodo.py:1", 0, "credential-literal-assignment") in r.rows and "a1" * 30 not in str(r), "collector counts the generic literal without exposing its value")
         ok(parse_allowlist("a | b | 2099-01-01 | why\nc | d | 2000-01-01 | old\ne | f | notadate | x\n") == [("a", "b")], "allowlist: unexpired well-formed entries only")
         # ---- credential expiry, D1 size, drills, bookmarks on an in-memory ledger
         c = sqlite3.connect(":memory:")
