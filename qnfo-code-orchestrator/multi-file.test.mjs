@@ -248,5 +248,37 @@ ok(atLeast(mod.__version, "0.12.0"), "the worker is 0.12.0 or later", mod.__vers
   ok(mod.__parse("FILE: " + T + "\n(no blocks)", P, [T]).by[T] === undefined, "F2 a FILE: line with no block adds nothing");
 }
 
+// ===== G. publisher feedback adds every eligible failing suite, not just the first =====
+{
+  const U = "fx-worker/second.test.mjs", V = "fx-worker/third.test.mjs", W = "fx-worker/fourth.test.mjs";
+  const feedback = (paths) => "PUBLISH-SUITE-CHECK-1: " + paths.map((p) => "FAIL " + p + ": assertion failed").join(" | ");
+  const cases = [
+    { initial: [T], last: feedback([T, T, "other-worker/foreign.test.mjs", "fx-worker/../escape.test.mjs", U, U, V, W]), expected: [T, U, V] },
+    { initial: [T], last: "edit 1: SEARCH text occurs 0 times", previous: feedback([T, U]), expected: [T, U] },
+    { initial: [], last: feedback(["other-worker/foreign.test.mjs", T, U]), expected: [T, U] },
+  ];
+  for (const [i, c] of cases.entries()) {
+    serve();
+    for (const p of [U, V, W]) FILES[p] = TEST_SRC;
+    const reply = (paths) => "FILE: " + P + "\n" + B_WORKER + "\n" + paths.map((p) => "FILE: " + p + "\n" + B_TEST).join("\n");
+    const { env, calls } = envWith([reply(c.initial), reply(c.expected)]);
+    await post(env, c.initial.length ? task(c.initial.map((p) => ({ path: p }))) : task(undefined));
+    await tick(env);
+    const cx = JSON.parse(row(env).ctx);
+    cx.lastError = c.last;
+    cx.suite_rebase_reason = c.previous;
+    cx.suite_rebase_attempted = true;
+    cx.sig_n = 1;
+    env.AUDIT_DB._db.prepare("UPDATE code_tasks SET status='queued', step='propose', attempts=1, ctx=?, lease_until=NULL")
+      .run(JSON.stringify(cx));
+    await tick(env);
+    const t = row(env), repaired = JSON.parse(t.ctx);
+    ok(t.status === "ready_to_publish" && calls.length === 2, "G" + i + " suite repairs land without an out-of-scope retry", { status: t.status, error: t.last_error, calls: calls.length });
+    ok(JSON.stringify((repaired.extras || []).map((x) => x.path)) === JSON.stringify(c.expected), "G" + i + " discovery skips existing, duplicate, foreign and over-limit paths", repaired.extras);
+    ok(c.expected.every((p) => (repaired.paths || []).includes(p) && calls[1].prompt.includes("FILE PATH: " + p)),
+      "G" + i + " every accepted suite is read, shown and included in the patch", repaired.paths);
+  }
+}
+
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
