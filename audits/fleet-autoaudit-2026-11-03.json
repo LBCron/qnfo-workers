@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 08:20:44",
+  "audited_at": "2026-11-03 08:59:25",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -586,7 +586,7 @@
       },
       {
         "dir": "qnfo-ai",
-        "version": "5.43.0",
+        "version": "5.44.0",
         "worker": "qnfo-ai"
       },
       {
@@ -636,7 +636,7 @@
       },
       {
         "dir": "qnfo-fleet-dashboard",
-        "version": "1.81.0",
+        "version": "1.81.1",
         "worker": "qnfo-fleet-dashboard"
       },
       {
@@ -671,7 +671,7 @@
       },
       {
         "dir": "qnfo-lifecycle",
-        "version": "1.17.4-codeagent",
+        "version": "1.17.5-codeagent",
         "worker": "qnfo-lifecycle"
       },
       {
@@ -691,7 +691,7 @@
       },
       {
         "dir": "qnfo-ops",
-        "version": "2.62.11-rm1646-qwen-chat",
+        "version": "2.62.12-patch-budget",
         "worker": "qnfo-ops"
       },
       {
@@ -721,7 +721,7 @@
       },
       {
         "dir": "qnfo-youtube-shorts",
-        "version": "0.4.0-oauth",
+        "version": "0.4.1-oauth",
         "worker": "qnfo-youtube-shorts"
       },
       {
@@ -1103,9 +1103,9 @@
       "worker": "qnfo-agents"
     },
     "qnfo-ai": {
-      "before": "5.43.0",
+      "before": "5.44.0",
       "http": 200,
-      "live": "5.43.0",
+      "live": "5.44.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai"
@@ -1417,9 +1417,9 @@
       "worker": "qnfo-fleet-control"
     },
     "qnfo-fleet-dashboard": {
-      "before": "1.81.0",
+      "before": "1.81.1",
       "http": 200,
-      "live": "1.81.0",
+      "live": "1.81.1",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-dashboard"
@@ -1544,9 +1544,9 @@
       "worker": "qnfo-kaizen"
     },
     "qnfo-lifecycle": {
-      "before": "1.17.4-codeagent",
+      "before": "1.17.5-codeagent",
       "http": 200,
-      "live": "1.17.4-codeagent",
+      "live": "1.17.5-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-lifecycle"
@@ -1585,9 +1585,9 @@
       "worker": "qnfo-observability"
     },
     "qnfo-ops": {
-      "before": "2.62.11-rm1646-qwen-chat",
+      "before": "2.62.12-patch-budget",
       "http": 200,
-      "live": "2.62.11-rm1646-qwen-chat",
+      "live": "2.62.12-patch-budget",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ops"
@@ -1794,9 +1794,9 @@
       "worker": "qnfo-web-unified"
     },
     "qnfo-youtube-shorts": {
-      "before": "0.4.0-oauth",
+      "before": "0.4.1-oauth",
       "http": 200,
-      "live": "0.4.0-oauth",
+      "live": "0.4.1-oauth",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-youtube-shorts"
