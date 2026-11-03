@@ -113,7 +113,7 @@ ok(atLeast(h.version, "0.11.0") && h.capabilities.indexOf("search-fuzzy") >= 0, 
   const c = await addTask(env, "x");
   const r = await runTask(env, c.id);
   const f = String(r.last_error || "");
-  ok(r.attempts >= 1 && /SEARCH text occurs 0 times in the shown content \(it must be copied verbatim/.test(f) && /the closest file lines are line \d+: if \(!row\) return/.test(f), "miss keeps the 0-times text and names the closest file line", f);
+  ok(r.attempts >= 1 && /SEARCH text occurs 0 times in the shown content \(it must be copied verbatim/.test(f) && /the closest file lines start at line \d+/.test(f) && f.includes("\n" + L2), "miss keeps the 0-times text and quotes the complete closest file line", f);
 }
 
 console.log("search-fuzzy.test: " + pass + " passed, " + fail + " failed");
