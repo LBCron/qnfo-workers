@@ -37,7 +37,8 @@
 // Q08-ASCII-SOURCE-1 (2026-10-01): this file is ASCII-only; every typographic character is a \uXXXX escape. The deploy path
 // double-encoded raw UTF-8, so live pages read "... \u00e2 q08" and posts "\u00e2\u0080\u0094". Keep new literals escaped.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "0.41.6-codeagent";
+var VERSION = "0.42.0-codeagent";
+/* 0.42.0 RM-FORECAST-UPDATE-SCORING-1 (#5578; research): score the last valid update before the horizon with the resolved outcome. */
 /* 0.41.6 FORECAST-CALIBRATION-BUCKET-COVERAGE-1 (#5576, charter pillar research; patch): calibration buckets include probabilities across the full [0,1] range, including the tails, rather than silently omitting forecasts below 5% or above 96%. */
 // Q08-FORECAST-RESEARCH-1 (#4291, agent_issues 1000268, pillar reach): researched forecasts and dated secondary claims.
 /* 0.40.5 Q08-FINAL-READ-RETRY-1 (#99929, pillar reach; patch): a missing strict final-reader verdict gets one fresh-cache retry; publication remains fail-closed if the retry has no verdict. FACTS and reader thresholds are unchanged. */
@@ -4180,6 +4181,42 @@ function fcStatus(f) {
   if (f.status === "void") return "void: no decidable public evidence";
   return Date.parse(String(f.horizon) + "T00:00:00Z") <= Date.now() ? "due, being checked" : "open";
 }
+function lastForecastUpdateScore(f, updates) {
+  if (!f || f.status !== "resolved" || (f.outcome !== 0 && f.outcome !== 1)) return null;
+  var horizonMs = Date.parse(String(f.horizon || ""));
+  if (!isFinite(horizonMs)) return null;
+  var last = null, lastMs = -Infinity;
+  (updates || []).forEach(function (u) {
+    var atMs = Date.parse(String(u && u.at || ""));
+    var p = Number(u && u.probability);
+    if (!isFinite(atMs) || atMs >= horizonMs || !isFinite(p) || p < 0 || p > 1 || atMs < lastMs) return;
+    last = u;
+    lastMs = atMs;
+  });
+  if (!last) return null;
+  var probability = Number(last.probability);
+  var bounded = Math.min(0.999, Math.max(0.001, probability));
+  var originalProbability = Number(f.probability);
+  var originalBounded = Math.min(0.999, Math.max(0.001, originalProbability));
+  return {
+    probability: probability,
+    at: last.at,
+    original_log_score: Math.round(Math.log(f.outcome === 1 ? originalBounded : 1 - originalBounded) * 1000) / 1000,
+    brier: Math.round(Math.pow(probability - f.outcome, 2) * 1000) / 1000,
+    log_score: Math.round(Math.log(f.outcome === 1 ? bounded : 1 - bounded) * 1000) / 1000
+  };
+}
+function attachForecastUpdateScore(f, updates) {
+  var score = lastForecastUpdateScore(f, updates);
+  if (score) {
+    f.updated_probability = score.probability;
+    f.updated_at = score.at;
+    f.original_log_score = score.original_log_score;
+    f.updated_brier = score.brier;
+    f.updated_log_score = score.log_score;
+  }
+  return f;
+}
 function renderForecastBox(f) {
   if (!f) return "";
   var alts = []; try { alts = JSON.parse(f.alternatives_json || "[]"); } catch (e) { alts = []; }
@@ -4206,7 +4243,9 @@ function renderCalibration(c) {
 }
 function renderForecasts(rows, stats) {
   var item = function (f) {
-    var extra = f.status === "resolved" ? " &middot; " + escHtml(fcStatus(f)) + (f.brier != null ? " &middot; Brier " + escHtml(String(f.brier)) : "") : " &middot; " + escHtml(fcStatus(f));
+    var updated = f.updated_brier != null ? " &middot; Last pre-horizon update (" + fcPct(f.updated_probability) + ") Brier " + escHtml(String(f.updated_brier)) + ", log score " + escHtml(String(f.updated_log_score)) : "";
+    var original = f.brier != null ? " &middot; Original Brier " + escHtml(String(f.brier)) + (f.original_log_score != null ? ", log score " + escHtml(String(f.original_log_score)) : "") : "";
+    var extra = f.status === "resolved" ? " &middot; " + escHtml(fcStatus(f)) + original + updated : " &middot; " + escHtml(fcStatus(f));
     return '<li class="q-item"><a class="q-item-title" href="/p/' + escHtml(f.slug) + '">' + q08Inline(f.claim) + '</a><div class="q-item-meta"><span class="q-badge">' + fcPct(f.probability) + '</span> settled by ' + escHtml(f.horizon) + extra + '</div></li>';
   };
   var open = rows.filter(function (f) { return f.status === "open"; }).sort(function (a, b) { return String(a.horizon).localeCompare(String(b.horizon)); });
@@ -4737,7 +4776,7 @@ function cleanNote(v) {
   return t || null;
 }
 // Q08-QUALITY-1: pure helpers exposed for the offline suite (quality.test.mjs); no route uses this export.
-export const __forecast = { forecastResolutionGaps: forecastResolutionGaps, recordForecastUpdate: recordForecastUpdate, renderCalibration: renderCalibration, forecastPostText: forecastPostText, gatherEvidence: gatherEvidence, forecastDue: forecastDue, resolveForecasts: resolveForecasts, ensureForecastSchema: ensureForecastSchema, generateForecast: generateForecast, forecastStats: forecastStats, parseForecastBlock: parseForecastBlock, validateForecast: validateForecast, forecastXform: forecastXform, forecastProblems: forecastProblems, buildForecastPrompt: buildForecastPrompt, calibration: calibration, parseJudgeVerdict: parseJudgeVerdict, aggregateJudges: aggregateJudges, parseForecastCap: parseForecastCap, publicHttpsUrl: publicHttpsUrl, fcStatus: fcStatus, renderForecastBox: renderForecastBox, renderForecasts: renderForecasts, FORECAST_DIRECTIVE: FORECAST_DIRECTIVE, FORECAST_EVERY: FORECAST_EVERY, FORECAST_MAX_CHECKS: FORECAST_MAX_CHECKS };
+export const __forecast = { forecastResolutionGaps: forecastResolutionGaps, recordForecastUpdate: recordForecastUpdate, renderCalibration: renderCalibration, forecastPostText: forecastPostText, gatherEvidence: gatherEvidence, forecastDue: forecastDue, resolveForecasts: resolveForecasts, ensureForecastSchema: ensureForecastSchema, generateForecast: generateForecast, forecastStats: forecastStats, parseForecastBlock: parseForecastBlock, validateForecast: validateForecast, forecastXform: forecastXform, forecastProblems: forecastProblems, buildForecastPrompt: buildForecastPrompt, calibration: calibration, lastForecastUpdateScore: lastForecastUpdateScore, parseJudgeVerdict: parseJudgeVerdict, aggregateJudges: aggregateJudges, parseForecastCap: parseForecastCap, publicHttpsUrl: publicHttpsUrl, fcStatus: fcStatus, renderForecastBox: renderForecastBox, renderForecasts: renderForecasts, FORECAST_DIRECTIVE: FORECAST_DIRECTIVE, FORECAST_EVERY: FORECAST_EVERY, FORECAST_MAX_CHECKS: FORECAST_MAX_CHECKS };
 export const __gen = { thinPassedOver: thinPassedOver, parseArxivPool: parseArxivPool, arxivPoolSize: arxivPoolSize, resetArxivPool: function () { __arxivPool = { at: 0, n: ARXIV_POOL_DEFAULT }; }, scrapeArxiv: scrapeArxiv, ARXIV_POOL_DEFAULT: ARXIV_POOL_DEFAULT, parseComposeOrder: parseComposeOrder, q08Budget: q08Budget, Q08_DAILY_NEURONS_DEFAULT: Q08_DAILY_NEURONS_DEFAULT, resetRunColumns: function () { __runColsOk = false; __runColsTried = 0; }, sourceFloorFrom: sourceFloorFrom, learnedSourceFloor: learnedSourceFloor, thinSourceVerdict: thinSourceVerdict, sourceKindOf: sourceKindOf, markThinSkipped: markThinSkipped, ensureRunColumns: ensureRunColumns, insertRun: insertRun, meterCall: meterCall, claimClassesOf: claimClassesOf, get SOURCE_FLOOR_MIN_OK() { return SOURCE_FLOOR_MIN_OK; }, get THIN_MIN_ARTICLE() { return THIN_MIN_ARTICLE; }, get MIN_GROUND_CHARS() { return MIN_GROUND_CHARS; }, composeOrder: composeOrder, COMPOSE_MODELS: COMPOSE_MODELS, COMPOSE_MODELS_AT_CAP: COMPOSE_MODELS_AT_CAP, generate: generate, get TICK_BUDGET_MS() { return TICK_BUDGET_MS; }, get ESSAY_AFTER_FORECAST_MS() { return ESSAY_AFTER_FORECAST_MS; } };
 export const __stall = { stallRetryDue: stallRetryDue, stallDetector: stallDetector, stallDigest: stallDigest, stallStage: stallStage, get STALL_RETRY_H() { return STALL_RETRY_H; } };
 export const __factledger = { groundPreCheck: groundPreCheck, sourceLedger: sourceLedger, ledgerBlock: ledgerBlock, stripLedgerTags: stripLedgerTags, groundPreCheckMode: groundPreCheckMode, resetGroundPreCheck: function () { __groundPre = { at: 0, mode: "on" }; __groundPreCalls = 0; }, get groundPreCalls() { return __groundPreCalls; }, stallStage: stallStage, buildPrompt: buildPrompt, labelledGround: labelledGround, groundingProblems: groundingProblems, normalizeDraft: normalizeDraft, runLevels: runLevels, generate: generate, generateForecast: generateForecast, Q08_DIRECTIVE: Q08_DIRECTIVE, get LEDGER_MAX_LINES() { return LEDGER_MAX_LINES; }, get LEDGER_MAX_CHARS() { return LEDGER_MAX_CHARS; } };
@@ -5163,7 +5202,11 @@ async function q08Fetch(req, env, ctx) {
     if (path === "/unsubscribe") { var t1 = (url.searchParams.get("t")||"").trim(); if (!t1) return html("<h2>Invalid link</h2><p>No unsubscribe token provided.</p>", 400); var unsub = await env.DB.prepare("UPDATE subscribers SET status='unsubscribed' WHERE token=?").bind(t1).run(); return (unsub && unsub.meta && unsub.meta.changes > 0) ? html("<h2>Unsubscribed</h2><p>You have been removed from the daily digest.</p>") : html("<h2>Not found</h2><p>That unsubscribe link is invalid or already used.</p>", 404); }
     if (path === "/forecasts") {
       var frs = await env.DB.prepare("SELECT slug, source_slug, claim, probability, horizon, resolution, status, outcome, brier FROM q08_forecasts WHERE slug NOT IN (SELECT slug FROM q08_retractions) ORDER BY id DESC LIMIT 200").all().catch(function () { return { results: [] }; });
-      return html(renderForecasts(frs.results || [], await forecastStats(env)));
+      var updateRows = await env.DB.prepare("SELECT slug, probability, created_at FROM q08_forecast_updates ORDER BY id").all().catch(function () { return { results: [] }; });
+      var updatesBySlug = {};
+      (updateRows.results || []).forEach(function (u) { (updatesBySlug[u.slug] = updatesBySlug[u.slug] || []).push({ probability: u.probability, at: u.created_at }); });
+      var forecastRows = (frs.results || []).map(function (f) { return attachForecastUpdateScore(f, updatesBySlug[f.slug] || []); });
+      return html(renderForecasts(forecastRows, await forecastStats(env)));
     }
     if (path === "/retractions" || path === "/api/retractions" || path === "/corrections" || path === "/api/corrections") {
       var rrows = await env.DB.prepare("SELECT r.slug, r.reason, r.retracted_at, p.title FROM q08_retractions r LEFT JOIN published_pieces p ON p.slug = r.slug ORDER BY r.retracted_at DESC LIMIT 500").all().catch(function () { return { results: [] }; });
@@ -5193,23 +5236,7 @@ async function q08Fetch(req, env, ctx) {
   f.original_probability = f.probability;
   f.secondary_claims = cby[f.slug] || [];
   f.updates = fby[f.slug] || [];
-  // Compute updated_brier: last forecast update before the horizon (if resolved)
-  if (f.resolution != null && f.updates.length) {
-    var horizonMs = Date.parse(f.horizon);
-    var lastUpd = null;
-    f.updates.forEach(function (u) {
-      var uMs = Date.parse(u.at);
-      if (!isNaN(uMs) && (isNaN(horizonMs) || uMs <= horizonMs)) {
-        if (!lastUpd || uMs > Date.parse(lastUpd.at)) lastUpd = u;
-      }
-    });
-    if (lastUpd) {
-      var prob = Number(lastUpd.probability);
-      var outcome = (f.resolution === "true" || f.resolution === "yes" || f.resolution === "1") ? 1 : 0;
-      f.updated_brier = Math.pow(prob - outcome, 2);
-    }
-  }
-  return f;
+  return attachForecastUpdateScore(f, f.updates);
 }) });
     }
     if (path === "/api/pieces") {

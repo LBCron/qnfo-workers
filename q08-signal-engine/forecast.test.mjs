@@ -41,6 +41,18 @@ check("publicHttpsUrl refuses private hosts", !F.publicHttpsUrl("https://localho
   check("calibration bins carry observed frequency", c.bins.some((b) => b.from === 0.8 && b.n === 2 && b.observed_frequency === 0.5), c.bins);
   check("empty calibration is null, never a number", F.calibration([]).brier === null && F.calibration([]).n === 0);
 }
+{
+  const updates = [
+    { probability: 0.6, at: "2026-03-08T12:00:00Z" },
+    { probability: 0.8, at: "2026-03-09T12:00:00Z" },
+    { probability: 0.1, at: "2026-03-10T00:00:00Z" },
+    { probability: 0.99, at: "2026-03-11T00:00:00Z" }
+  ];
+  const score = F.lastForecastUpdateScore({ status: "resolved", outcome: 1, probability: 0.55, horizon: "2026-03-10" }, updates);
+  check("update scoring selects the latest update strictly before the horizon and uses the resolved outcome", score && score.probability === 0.8 && score.at === updates[1].at && score.original_log_score === -0.598 && score.brier === 0.04 && score.log_score === -0.223, score);
+  const no = (f) => F.lastForecastUpdateScore(f, updates) === null;
+  check("update scoring skips open or void forecasts and invalid horizons", no({ status: "open", outcome: 1, horizon: "2026-03-10" }) && no({ status: "void", outcome: 0, horizon: "2026-03-10" }) && no({ status: "resolved", outcome: 1, horizon: "unknown" }));
+}
 check("judge verdict parses and normalises", F.parseJudgeVerdict('<think>x</think>{"outcome":"YES","basis":"1: the fork exists"}').outcome === "yes" && F.parseJudgeVerdict("no json") === null && F.parseJudgeVerdict('{"outcome":"maybe"}') === null);
 check("two agreeing judges settle; a split or an unclear does not", F.aggregateJudges([{ outcome: "yes", basis: "a" }, { outcome: "yes", basis: "b" }]).outcome === "yes" && F.aggregateJudges([{ outcome: "yes" }, { outcome: "no" }]).outcome === "unclear" && F.aggregateJudges([{ outcome: "unclear" }, { outcome: "unclear" }]).outcome === "unclear" && F.aggregateJudges([{ outcome: "yes" }, null]).outcome === "unclear");
 check("forecast cap parses 0..10 and defaults to 3", F.parseForecastCap("0") === 0 && F.parseForecastCap("7") === 7 && F.parseForecastCap("99") === 10 && F.parseForecastCap("x") === 3 && F.parseForecastCap(undefined) === 3);
@@ -166,8 +178,16 @@ const settled = db.prepare("SELECT * FROM q08_forecasts").get();
 check("a due forecast is settled yes with Brier (p - 1)^2", res.checked === 1 && settled.status === "resolved" && settled.outcome === 1 && Math.abs(settled.brier - 0.2025) < 1e-9 && /^resolved yes/.test(settled.disposition) && !!settled.resolved_at, settled);
 const st = await F.forecastStats(env);
 check("stats count it as resolved with a calibration entry", st.resolved === 1 && st.calibration.n === 1 && Math.abs(st.calibration.brier - 0.2025) <= 0.001 && st.calibration.reliable === false, st);
+const horizonMs = Date.parse(settled.horizon);
+const updateAt = (offset) => new Date(horizonMs + offset).toISOString();
+for (const [probability, at] of [[0.6, updateAt(-2 * 864e5)], [0.8, updateAt(-864e5)], [0.1, updateAt(0)], [0.99, updateAt(864e5)]]) {
+  db.prepare("INSERT INTO q08_forecast_updates (forecast_id, slug, prior_probability, probability, reason, evidence_url, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)").run(settled.id, settled.slug, 0.55, probability, "A new reason for the changed probability.", at);
+}
 page = await (await get("/forecasts")).text();
-check("/forecasts shows the settled forecast with its outcome", /came true/.test(page) && /Brier 0\.2025/.test(page));
+check("/forecasts shows the settled forecast with the original and last pre-horizon update scores", /came true/.test(page) && /Original Brier 0\.2025, log score -0\.598/.test(page) && /Last pre-horizon update \(80%\) Brier 0\.04, log score -0\.223/.test(page));
+api = await (await get("/api/forecasts")).json();
+const scored = api.forecasts.find((f) => f.slug === settled.slug);
+check("/api/forecasts returns the latest pre-horizon update probability and original/updated Brier/log scores", scored && scored.original_probability === 0.55 && scored.original_log_score === -0.598 && scored.updated_probability === 0.8 && scored.updated_at === updateAt(-864e5) && scored.updated_brier === 0.04 && scored.updated_log_score === -0.223, scored);
 
 // void path: undecidable evidence four times in a row, rechecked weekly, never dropped silently
 db.prepare("UPDATE q08_forecasts SET status = 'open', outcome = NULL, brier = NULL, checks = 0, last_check_at = NULL, resolved_at = NULL, disposition = NULL").run();
