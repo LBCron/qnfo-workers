@@ -59,8 +59,9 @@ test("metadata is public by default, synthetic and links the article", () => {
   assert.equal(m.privacyStatus, "public");
   assert.equal(m.containsSyntheticMedia, true);
   assert.match(m.title, /#Shorts$/);
+  assert.match(m.description, /Living papers and an open knowledge graph from the QNFO autonomous research fleet — https:\/\/qnfo\.org/);
   assert.match(m.description, /papers\.qnfo\.org\/papers\/slug-1\/quickread/);
-  assert.match(m.description, /synthetic/);
+  assert.match(m.description, /AI disclosure: the voice is synthetic/);
 });
 test("single hourly cron entry and a versioned worker", () => {
   assert.deepEqual(CRON_TABLE, ["0 * * * *"]);
