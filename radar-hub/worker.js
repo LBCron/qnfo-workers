@@ -1,18 +1,19 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
 // HUB-VERSION-SCOPE-1 (2026-09-23): radar-hub's OWN version, at MODULE scope so the hub's
-// `export default` can read it. Each embedded sub-worker IIFE declares its own `VERSION`
+// `export default` can read it. Each embedded sub-worker IIFE declares its own version constant
 // inside its own scope; a bare reference from module scope throws ReferenceError.
 // 1.1.3 (2026-10-02, pillar: reach): JOB-MARKET-INLINE-1 (the weekly job-market scan runs from the cron and records a
 // handoffs row with a claim_sheet), MENTION-RADAR-LEDGER-1 (one cloud_ops_events row per mention-radar run day),
 // EVENTS-RADAR-CF-DOW-1 (events cron moved from Sunday to Monday, the day its weekly sources are read).
-var VERSION = "1.5.0-venue-recovered"; // 1.5.0 RADAR-VENUE-RECOVERED-1 (agent_issues 2573, pillar personal; minor: a decision radar-hub now takes on its own): a venue that yields usable candidates again closes the open RADAR-VENUE-SILENT-1 issue this worker filed, through issue_triage.close_evidence (close_channel auto-recovery); the run result lists recoveredVenues. The counter already reset on recovery, but nothing closed the issue, so it sat open until the 48 h stale probe. venue-recovered.test.mjs. // 1.4.4 BAD-TAG-FILTER-1 (2026-10-19): HTML-to-text helpers handle odd end tags, unclosed blocks and entity order. // 1.4.3 WORKERS-BP-LOGGING-radar-hub-1 (2026-10-14, agent_issues 2540, child of 2342, pillar autonomy): the 13 swallowed catches log as a structured console.error (worker, where, error); control flow unchanged. // 1.4.2 FAMILIES-WINDOW-CLOCK-1: signal_source_families_7d counts its 7 days from the run clock, not the database clock.
+var VERSION = "1.5.1-heartbeat-retry"; // agent_issues 1000854, 1000787 (#5485): bounded transient D1 heartbeat retries; one bumpable hub VERSION.
+// 1.5.0 RADAR-VENUE-RECOVERED-1 (agent_issues 2573, pillar personal; minor: a decision radar-hub now takes on its own): a venue that yields usable candidates again closes the open RADAR-VENUE-SILENT-1 issue this worker filed, through issue_triage.close_evidence (close_channel auto-recovery); the run result lists recoveredVenues. The counter already reset on recovery, but nothing closed the issue, so it sat open until the 48 h stale probe. venue-recovered.test.mjs. // 1.4.4 BAD-TAG-FILTER-1 (2026-10-19): HTML-to-text helpers handle odd end tags, unclosed blocks and entity order. // 1.4.3 WORKERS-BP-LOGGING-radar-hub-1 (2026-10-14, agent_issues 2540, child of 2342, pillar autonomy): the 13 swallowed catches log as a structured console.error (worker, where, error); control flow unchanged. // 1.4.2 FAMILIES-WINDOW-CLOCK-1: signal_source_families_7d counts its 7 days from the run clock, not the database clock.
 function rhex(n) { var b = new Uint8Array(Math.ceil(n / 2)); crypto.getRandomValues(b); return Array.prototype.map.call(b, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("").slice(0, n); } // 1.3.5 CRYPTO-IDS-1: outreach_queue ids draw from crypto.getRandomValues. // 1.3.4-doi-scrub NOZ-DOI-1 (2026-10-10): the weekly attribution-audit job and its cron branch are gone; the citation watch tracks no static DOIs; the mention radar tracks only non-retired DOIs. // // 1.3.3 NO-TOPIC-HARDCODE-1 (owner directive 2026-10-10): the arXiv radar builds its query, keyword list and classes from the owner's accepted ideas in idea_proposals instead of fixed tables; with none on file it skips. // 1.3.2 RADAR-VENUE-SILENT-1 (2026-10-06, pillar: personal): a per-venue consecutive-zero counter kept as one row in the existing personal_radar table; a normally productive venue (>= 2 productive days) with zero usable candidates for 3 consecutive days files ONE agent_issues row "RADAR-VENUE-SILENT-1: <venue>" (source radar-hub, personal, low, epoch-ms), a failed fetch is a gap not a zero, a same-day re-run does not double count, and the run report names silent venues. 1.3.1 (2026-10-06): the intake run result never echoes exception text (CodeQL js/stack-trace-exposure on PR 662); details go to the worker log. 1.3.0 SIGNAL-INTAKE-SOURCES-1 (2026-10-06, agent_issues 1947, pillar: research): a D1-driven interdisciplinary feed intake (radar_sources kind 'signal': arXiv beyond quant-ph, journals, science news, community feeds) scored by lexicon with no model call into idea_proposals (name intake:<family>), bounded per run and per family, deduped by URL in signal_intake_seen, in the 08:30Z slot (no new cron); metric signal_source_families_7d; GET /intake, POST /intake/run; the events radar skips kind 'signal' rows. 1.2.4 RADAR-TASTE-SHRINK-1 + RADAR-TITLE-NOISE-2 (pillar: personal): taste prior shrunk by n/(n+3) with a 0.6 floor under 5 feedback rows and a half-the-day safety valve; Stedelijk date-range, Iamsterdam navigation and Eventbrite chrome titles dropped or cleaned. 1.2.3 RADAR-TITLE-NOISE-1 (pillar: personal): clean readable calendar titles for personal radar rows, dedupe key unchanged. 1.2.2 RADAR-TASTE-LEARN-1 (pillar: personal): the personal radar learns per-venue and per-domain taste from calendar_feedback. 1.2.1 AWAY-GATE-1 (pillar: personal): the personal radar skips Amsterdam events while a lodging row places the owner elsewhere. 1.2.0 CRON-SINGLE-TRIGGER-1 (#1785): one hourly trigger, CRON_TABLE in code
 var eventsMod = (function(){
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "1.0.8";
+var EVENTS_VERSION = "1.0.8";
 var WORKER = "events-radar";
 var DOMAINS = [
   { code: "ADL", name: "Adelic Physics / p-adic info", kw: ["adelic", "p-adic", "idelic", "non-archimedean", "shannon", "rate-distortion", "rate distortion", "entropy", "number theory", "adele", "adelic shannon"] },
@@ -401,7 +402,7 @@ async function run(env) {
   ).bind(slug, report, JSON.stringify(uniq), JSON.stringify(catalogs), JSON.stringify(flags), scannedAt, scannedAt).run();
   return {
     slug,
-    version: VERSION,
+    version: EVENTS_VERSION,
     events: uniq.length,
     discarded,
     venueErrors: venueErrors.length,
@@ -429,7 +430,7 @@ var worker_default = {
       return new Response(latest ? latest.report : "No scan yet. GET /?run=1", { headers: { "content-type": "text/markdown" } });
     }
     if (url.pathname === "/health") {
-      return new Response(JSON.stringify({ ok: true, worker: WORKER, version: VERSION }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, worker: WORKER, version: EVENTS_VERSION }), { headers: { "content-type": "application/json" } });
     }
     return new Response("events-radar worker: GET / (latest report) | GET /?run=1 (trigger scan) | GET /health", { status: 404 });
   }
@@ -861,7 +862,7 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "1.2.8";
+var PERSONAL_VERSION = "1.2.8";
 var WORKER = "personal-events-radar";
 var TAB = String.fromCharCode(9);
 var LF = String.fromCharCode(10);
@@ -1696,7 +1697,7 @@ async function run(env) {
   if (venueSilent.state) { try { await env.AUDIT_DB.prepare("UPDATE personal_radar SET venue_zero = ? WHERE slug = ?").bind(venueSilent.state, slugN).run(); } catch (e) { console.error("venue_zero write", e && e.message || e); } }
   return {
     slug: slugN,
-    version: VERSION,
+    version: PERSONAL_VERSION,
     events: uniq.length,
     discarded,
     venueErrors: venueErrors.length,
@@ -1726,7 +1727,7 @@ var worker_default = {
       return new Response(latest ? latest.report : "No scan yet. GET /?run=1", { headers: { "content-type": "text/markdown" } });
     }
     if (url.pathname === "/health") {
-      return new Response(JSON.stringify({ ok: true, worker: WORKER, version: VERSION }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, worker: WORKER, version: PERSONAL_VERSION }), { headers: { "content-type": "application/json" } });
     }
     return new Response("personal-events-radar worker: GET / (latest report) | GET /?run=1 (trigger scan) | GET /health", { status: 404 });
   }
@@ -2215,7 +2216,7 @@ export { JobMarketWatchWorkflow, intakeMod };
 
 // ===== MERGED RADAR HUB v2 (2026-09-11: + job-market-watch + personal-events-radar) =====
 // HUB-VERSION-SCOPE-1 (2026-09-23): the hub's own VERSION is declared at MODULE scope (top of
-// this file). The sub-worker IIFEs each declare their own `VERSION` in their own function
+// this file). The sub-worker IIFEs each declare their own version constant in their own function
 // scope, so a bare `VERSION` reference here previously resolved to nothing -> ReferenceError
 // -> /health returned CF error 1101 (the old hardcoded "1.0.0" literal had masked it).
 // Module scope also makes the deploy tooling's "first VERSION in file" extraction report the
@@ -2266,9 +2267,21 @@ async function cronTickDispatch(event, one) {
 // CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, charter pillar: autonomy): one fleet_heartbeat upsert when a scheduled run has finished,
 // so the fleet can tell when this worker's cron stops. ok is 1 when the run did not throw. A failed write is logged and never thrown.
 async function cronHeartbeat(env, ok) {
-  try {
-    await env.AUDIT.prepare("INSERT INTO fleet_heartbeat (worker, version, ts, ok) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(worker) DO UPDATE SET version=excluded.version, ts=excluded.ts, ok=excluded.ok").bind("radar-hub", VERSION, new Date().toISOString(), ok).run();
-  } catch (e) { console.error("fleet_heartbeat radar-hub: " + String(e && e.message || e)); }
+  var ts = new Date().toISOString();
+  // The upsert is idempotent even if D1 committed before losing the response; keep its bindings stable across retries.
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      await env.AUDIT.prepare("INSERT INTO fleet_heartbeat (worker, version, ts, ok) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(worker) DO UPDATE SET version=excluded.version, ts=excluded.ts, ok=excluded.ok").bind("radar-hub", VERSION, ts, ok).run();
+      return;
+    } catch (e) {
+      var message = String(e && e.message || e);
+      if (attempt === 2 || !/D1_ERROR: (?:D1 DB (?:storage operation exceeded timeout|is overloaded|reset because)|Internal error (?:while starting up |in )?D1 DB storage|Network connection lost|Replica disconnected from primary)/i.test(message)) {
+        console.error("fleet_heartbeat radar-hub: " + message);
+        return;
+      }
+      await new Promise(function (resolve) { setTimeout(resolve, 100 * Math.pow(2, attempt)); });
+    }
+  }
 }
 // The hub's cron router (the handler this worker always had). The exported scheduled() below runs it, then writes the heartbeat.
 // cronTickDispatch logs and swallows a table entry's error by design (one failing job does not stop the rest), so ok is 0 only when the handler
