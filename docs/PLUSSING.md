@@ -52,8 +52,14 @@ Per product, one cycle, run by the program manager that owns it (no new worker; 
 6. **Plus the plus.** A kept plus seeds the next one for the same product (what did the first one make possible?). A plus that did not
    move its metric is reverted and replaced by a different angle.
 
-State lives in two tables: `product_registry` (what the products are, who manages them, their usage and quality signals, `last_plus_at`)
-and `plus_ledger` (one row per plus: evidence, prediction, issue, PR, outcome). `v_product_plus_due` lists products in the order step 1 picks them.
+State spans the product catalog (`products.slug`), `product_registry` (program cadence, usage and quality signals, `last_plus_at`)
+and `plus_ledger` (one row per plus: evidence, prediction, issue, PR, outcome). Each active `product_registry.product` maps to one
+catalog slug; `v_product_plus_due` lists products in the order step 1 picks them.
+
+`PLUS-SUBSTRATE-RECONCILE-1` adds the catalog entries for jobs, travel and the Shorts channel using the live serving-worker graph,
+and keeps `q08-home` as the canonical slug for the q08.org product. The graph maps jobs.q08.org to `qnfo-jobsearch`, travel.q08.org
+to `personal-companion`, and q08.org to `q08-signal-engine`. The Shorts worker is live and publishes to YouTube; its catalog surface
+uses the existing product registry host `youtube` because the graph has no public route for that external channel.
 
 ## Rules that keep it from turning into noise
 
