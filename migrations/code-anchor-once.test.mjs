@@ -59,7 +59,7 @@ const countOf = (text, needle) => { let n = 0, i = 0; while ((i = text.indexOf(n
 // SUITE-DEPENDENTS-1 (scripts/run-suites.mjs) selects a suite for a PR when its text names "../<changed dir>/". These are the workers whose
 // files this suite reads; naming them here is what runs the guard on a PR that moves an anchored line. A pair that names a worker not listed
 // here fails the guard: add "../<dir>/worker.js" to this list in the PR that writes the pair.
-const WATCHED = ["../qnfo-jobsearch/worker.js", "../idea-hub/worker.js", "../q08-signal-engine/worker.js", "../qnfo-research-exec/worker.js", "../qnfo-fleet-control/worker.js", "../qnfo-code-orchestrator/worker.js", "../qnfo-fleet-dashboard/worker.js", "../qnfo-ai-search/worker.js"];
+const WATCHED = ["../qnfo-jobsearch/worker.js", "../idea-hub/worker.js", "../q08-signal-engine/worker.js", "../qnfo-research-exec/worker.js", "../qnfo-fleet-control/worker.js", "../qnfo-code-orchestrator/worker.js", "../qnfo-fleet-dashboard/worker.js", "../qnfo-ai-search/worker.js", "../qnfo-lifecycle/worker.js"];
 // scripts, .github and migrations changes already run every suite (SHARED in scripts/run-suites.mjs)
 const SHARED_DIRS = ["scripts", ".github", "migrations"];
 const dirOf = (p) => String(p).split("/")[0];
