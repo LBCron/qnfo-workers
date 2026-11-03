@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 03:20:37",
+  "audited_at": "2026-11-03 03:52:59",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -556,12 +556,12 @@
       },
       {
         "dir": "personal-api",
-        "version": "4.30.1",
+        "version": "4.31.0",
         "worker": "personal-api"
       },
       {
         "dir": "personal-companion",
-        "version": "1.44.12-codeagent",
+        "version": "1.44.13",
         "worker": "personal-companion"
       },
       {
@@ -988,17 +988,17 @@
       "worker": "patches"
     },
     "personal-api": {
-      "before": "4.30.1",
+      "before": "4.31.0",
       "http": 200,
-      "live": "4.30.1",
+      "live": "4.31.0",
       "match": 1,
       "note": "SYNC",
       "worker": "personal-api"
     },
     "personal-companion": {
-      "before": "1.44.12-codeagent",
+      "before": "1.44.13",
       "http": 200,
-      "live": "1.44.12-codeagent",
+      "live": "1.44.13",
       "match": 1,
       "note": "SYNC",
       "worker": "personal-companion"
