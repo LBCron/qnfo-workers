@@ -13,6 +13,10 @@ from pathlib import Path
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 
+def privacy_status(public=False):
+    return "public" if public else "private"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("outdir"); ap.add_argument("--client", default="client_secret.json")
@@ -35,7 +39,7 @@ def main():
         Path(a.token).write_text(cred.to_json())
     yt = build("youtube", "v3", credentials=cred)
     body = {"snippet": {"title": meta["title"], "description": meta["description"], "tags": meta["tags"], "categoryId": meta["categoryId"]},
-            "status": {"privacyStatus": "public" if a.public else meta["privacyStatus"], "selfDeclaredMadeForKids": meta["madeForKids"],
+            "status": {"privacyStatus": privacy_status(a.public), "selfDeclaredMadeForKids": meta["madeForKids"],
                        "containsSyntheticMedia": meta["containsSyntheticMedia"]}}
     req = yt.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload(str(video), chunksize=-1, resumable=True))
     resp = None
