@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 15:08:25",
+  "audited_at": "2026-11-03 16:25:31",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -632,7 +632,7 @@
       },
       {
         "dir": "qnfo-deploy-guard",
-        "version": "1.4.3-ops-probe-timeout",
+        "version": "1.4.4-scheduled-fleet-probe-sharing",
         "worker": "qnfo-deploy-guard"
       },
       {
@@ -1324,9 +1324,9 @@
       "worker": "qnfo-ddocs-indexer"
     },
     "qnfo-deploy-guard": {
-      "before": "1.4.3-ops-probe-timeout",
+      "before": "1.4.4-scheduled-fleet-probe-sharing",
       "http": 200,
-      "live": "1.4.3-ops-probe-timeout",
+      "live": "1.4.4-scheduled-fleet-probe-sharing",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-deploy-guard"
@@ -1881,5 +1881,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
