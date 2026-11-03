@@ -265,14 +265,14 @@ const WIP = Number((/^const PLAN_WIP = (\d+);/m.exec(fs.readFileSync(new URL("./
   await plan(env);
   ok(prompts.length === 1 && prompts[0].input.messages[1].content.includes("WORKER: qnfo-ai-search"), "10 qnfo-ai-search is planned as itself, not as qnfo-ai", prompts[0] && prompts[0].input.messages[1].content.slice(0, 400));
 }
-// CODE-LOOP-CEILINGS-TUNABLE-1 (0.18.26): the tick's lane count reads ops_config code_tick_lanes, bounded 1-16, default 8.
+// CODE-LOOP-CEILINGS-TUNABLE-1: the tick's lane count reads ops_config code_tick_lanes, bounded 1-16, default 16.
 {
   const { env } = envWith([]);
   const d = env.AUDIT_DB._db;
   const lanesOf = async () => (await call(env, "POST", "/v1/tick")).lanes;
   await call(env, "POST", "/v1/plan");
   let l = await lanesOf();
-  ok(l === 8, "11 the tick runs 8 lanes with no ops_config row", l);
+  ok(l === 16, "11 the tick runs 16 lanes with no ops_config row", l);
   d.exec("CREATE TABLE IF NOT EXISTS ops_config (key TEXT PRIMARY KEY, value TEXT)");
   d.exec("INSERT OR REPLACE INTO ops_config VALUES ('code_tick_lanes', '12')");
   l = await lanesOf();

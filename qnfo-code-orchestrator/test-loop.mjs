@@ -117,7 +117,7 @@ const call = async (env, method, p, body) => { const r = await worker.fetch(auth
   }
   const t = await call(env, "POST", "/v1/tick", { maxSteps: 16 });
   const distinct = new Set((t.body.done || []).map((d) => d.id));
-  check("one tick touches all four tasks (lanes)", distinct.size === 4 && t.body.lanes === 8, { steps: t.body.steps, lanes: t.body.lanes, distinct: distinct.size });
+  check("one tick touches all four tasks (16 lanes)", distinct.size === 4 && t.body.lanes === 16, { steps: t.body.steps, lanes: t.body.lanes, distinct: distinct.size });
   let open = 0;
   for (const id of ids) { const g = await call(env, "GET", "/v1/tasks/" + id); if (g.body.task.status === "pr_open") open++; }
   check("all four tasks reach pr_open in one tick", open === 4, { open: open });
@@ -371,10 +371,16 @@ function fakeLoader(spinMs) {
 {
   const src = (await import("node:fs")).readFileSync(new URL("./worker.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const m = /async function claim\(env\) \{[\s\S]*?\n\}/.exec(src);
-  check("claim order (source check): waited-first, then attempts ASC, created_at ASC in claim()", !!m && /ORDER BY CASE WHEN q.updated_at < \? THEN 0 ELSE 1 END, q.attempts ASC, q.created_at ASC/.test(m[0]), m && m[0].slice(0, 300));
+  check("claim order (source check): merged-family priority, then waited-first, attempts ASC, created_at ASC in claim()",
+    !!m && m[0].includes('"ORDER BY CASE WHEN " + recentMerges + " >= 2 THEN 0 ELSE 1 END, CASE WHEN q.updated_at < ? THEN 0 ELSE 1 END, q.attempts ASC, q.created_at ASC'),
+    m && m[0].slice(0, 300));
   // CLAIM-AGE-1: run the shipped claim SQL on real SQL. A fresh task beats a retry that just failed (CLAIM-FAIRNESS-1),
   // and a retry that has waited 20+ minutes beats a fresh one (no starvation under continuous intake).
-  const defs = /^const CODE_TASK_DONE = .*$/m.exec(src)[0] + "\n" + /^const CODE_TASK_DONE_SQL = .*$/m.exec(src)[0] + "\n" + /function taskPathKeySql\(alias\) \{[\s\S]*?\n\}/.exec(src)[0];
+  const defs = /^const CODE_TASK_DONE = .*$/m.exec(src)[0] + "\n" + /^const CODE_TASK_DONE_SQL = .*$/m.exec(src)[0] + "\n" +
+    /^const FAMILY_HISTORY_DAYS = .*$/m.exec(src)[0] + "\n" +
+    /function taskFamilySql\(alias\) \{[\s\S]*?\n\}/.exec(src)[0] + "\n" +
+    /function taskPathKeySql\(alias\) \{[\s\S]*?\n\}/.exec(src)[0] + "\n" +
+    /const recentMerges = .*;\n/.exec(m[0])[0];
   const expression = /prepare\(([\s\S]*?)\n  \)\.bind/.exec(m[0])[1];
   const sql = new Function(defs + "\nreturn (" + expression + ");")();
   const run = (rows, nowMs) => {
