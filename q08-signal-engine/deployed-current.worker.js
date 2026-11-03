@@ -37,7 +37,8 @@
 // Q08-ASCII-SOURCE-1 (2026-10-01): this file is ASCII-only; every typographic character is a \uXXXX escape. The deploy path
 // double-encoded raw UTF-8, so live pages read "... \u00e2 q08" and posts "\u00e2\u0080\u0094". Keep new literals escaped.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "0.41.5-codeagent";
+var VERSION = "0.41.6-codeagent";
+/* 0.41.6 FORECAST-CALIBRATION-BUCKET-COVERAGE-1 (#5576, charter pillar research; patch): calibration buckets include probabilities across the full [0,1] range, including the tails, rather than silently omitting forecasts below 5% or above 96%. */
 // Q08-FORECAST-RESEARCH-1 (#4291, agent_issues 1000268, pillar reach): researched forecasts and dated secondary claims.
 /* 0.40.5 Q08-FINAL-READ-RETRY-1 (#99929, pillar reach; patch): a missing strict final-reader verdict gets one fresh-cache retry; publication remains fail-closed if the retry has no verdict. FACTS and reader thresholds are unchanged. */
 /* 0.40.0 Q08-FORECAST-LEDGER-1 (2026-10-30, agent_issues 1000512, pillar reach; minor: a data product it did not have, default off): with ops_config q08_forecast_ledger = on, generateForecast adds a research ledger of verbatim sentences (researchLedger: four evidence APIs queried with at most 6 capitalised names, the public https pages they link, at most 10 documents of 40000 characters, 60 lines "[R<n>] <sentence> (<host>, <date>)") to the forecast prompt and to fcGround; a fact may be cited by its tag, stripLedgerTags removes [R<n>] like [S<n>], the ledger is stored in q08_forecasts.ground_json and its sources join sources_json, and groundForPublished appends it for the re-audit. Off (absent or any other value) makes no request and leaves the prompt and ground unchanged. Replaces the unused forecastLedger draft. forecast-ledger.test.mjs. */
@@ -4147,8 +4148,8 @@ function calibration(rows) {
   out.brier = Math.round((sb / n) * 1000) / 1000;
   out.log_score = Math.round((sl / n) * 1000) / 1000;
   out.hit_rate = Math.round((hits / n) * 1000) / 1000;
-  [[0.05, 0.3], [0.3, 0.5], [0.5, 0.7], [0.7, 0.96]].forEach(function (b) {
-    var g = r.filter(function (x) { var p = Number(x.probability); return p >= b[0] && p < b[1]; });
+  [[0, 0.2], [0.2, 0.4], [0.4, 0.6], [0.6, 0.8], [0.8, 1]].forEach(function (b) {
+    var g = r.filter(function (x) { var p = Number(x.probability); return p >= b[0] && (p < b[1] || (b[1] === 1 && p <= 1)); });
     if (!g.length) return;
     var mp = g.reduce(function (a, x) { return a + Number(x.probability); }, 0) / g.length, fq = g.reduce(function (a, x) { return a + x.outcome; }, 0) / g.length;
     out.bins.push({ from: b[0], to: b[1], n: g.length, mean_probability: Math.round(mp * 1000) / 1000, observed_frequency: Math.round(fq * 1000) / 1000 });

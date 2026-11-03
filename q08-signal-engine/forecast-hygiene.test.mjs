@@ -17,6 +17,8 @@ const text55 = "A paragraph that says the main scenario is judged at 55 percent 
   { const f = good(); f.resolution = "A public repository named as the successor of the library exists with a tagged one."; check("validateForecast rejects a resolution that names no source/date/edge case", F.validateForecast(f, text55, Date.now()).some((p) => /resolution condition must name/.test(p))); }
   const c = F.calibration([{ probability: 0.9, outcome: 1 }, { probability: 0.9, outcome: 0 }]);
   check("log score is the mean log of the probability given to the outcome, baseline ln 0.5", Math.abs(c.log_score - Math.round(((Math.log(0.9) + Math.log(0.1)) / 2) * 1000) / 1000) < 1e-9 && c.baseline_log_score === -0.693, c);
+  const coverage = F.calibration([0.01, 0.2, 0.4, 0.6, 0.8, 0.99].map((probability) => ({ probability, outcome: 1 })));
+  check("calibration buckets include both tails and every published probability", coverage.bins.reduce((n, b) => n + b.n, 0) === coverage.n && coverage.bins[0].n === 1 && coverage.bins[coverage.bins.length - 1].n === 2, coverage);
   const html = F.renderCalibration(F.calibration([{ probability: 0.9, outcome: 1 }]));
   check("calibration page renders the diagram and both scores", /<svg/.test(html) && /Log score/.test(html) && /Brier score/.test(html));
   check("empty calibration page says nothing resolved", /nothing to plot/.test(F.renderCalibration(F.calibration([]))));

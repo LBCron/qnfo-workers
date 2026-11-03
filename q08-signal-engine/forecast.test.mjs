@@ -38,7 +38,7 @@ check("publicHttpsUrl refuses private hosts", !F.publicHttpsUrl("https://localho
 {
   const c = F.calibration([{ probability: 0.9, outcome: 1 }, { probability: 0.9, outcome: 0 }, { probability: 0.2, outcome: 0 }, { probability: 0.6, outcome: 1 }, { probability: 0.5, outcome: null }]);
   check("calibration: n counts only resolved rows and Brier is the mean squared error", c.n === 4 && c.brier === Math.round(((0.01 + 0.81 + 0.04 + 0.16) / 4) * 1000) / 1000 && c.reliable === false, c);
-  check("calibration bins carry observed frequency", c.bins.some((b) => b.from === 0.7 && b.n === 2 && b.observed_frequency === 0.5), c.bins);
+  check("calibration bins carry observed frequency", c.bins.some((b) => b.from === 0.8 && b.n === 2 && b.observed_frequency === 0.5), c.bins);
   check("empty calibration is null, never a number", F.calibration([]).brier === null && F.calibration([]).n === 0);
 }
 check("judge verdict parses and normalises", F.parseJudgeVerdict('<think>x</think>{"outcome":"YES","basis":"1: the fork exists"}').outcome === "yes" && F.parseJudgeVerdict("no json") === null && F.parseJudgeVerdict('{"outcome":"maybe"}') === null);
