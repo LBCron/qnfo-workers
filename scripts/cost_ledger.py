@@ -29,6 +29,7 @@ LOOKBACK_DAYS = int(os.environ.get("COST_LOOKBACK_DAYS", "10"))
 NEURON_USD_PER_1K = 0.011
 FREE_NEURONS_PER_DAY = 10000
 TASK_COST_DETAIL_LIMIT = 50
+AI_SEARCH_BILLING_START = dt.date(2026, 12, 1)
 
 
 def cf(method, path, body=None, timeout=30):
@@ -135,6 +136,171 @@ def gateway_window(start, end, call=cf):
         by[provider] = (amount + float((row.get("sum") or {}).get("cost") or 0),
                         requests + int(row.get("count") or 0))
     return by, len(rows)
+
+
+def ai_search_usage_window(start, end, call=cf):
+    """Return billable AI Search charges by charge-period day. Missing lines are not zero after billing starts."""
+    info_status, info = call("GET", "/accounts/%s/billable-usage/info" % RC.ACCOUNT)
+    if not 200 <= (info_status or 0) < 300 or info.get("success") is False:
+        raise RuntimeError("billable-usage info unavailable (%s)" % info_status)
+    subscriptions = ((info.get("result") or {}).get("subscriptions") or [])
+    anchor_days = []
+    for subscription in subscriptions:
+        try:
+            anchor_days.append(int(str(subscription["billing_cycle_anchor_timestamp"])[8:10]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    query_start = dt.date.fromisoformat(start)
+    query_end = dt.date.fromisoformat(end)
+    if anchor_days:
+        anchor_day = anchor_days[0]
+        anchor = query_end.replace(day=min(anchor_day, 28))
+        if anchor > query_end:
+            anchor = (anchor - dt.timedelta(days=1)).replace(day=min(anchor_day, 28))
+        if anchor < query_start:
+            query_start = anchor
+    path = "/accounts/%s/billable-usage?from=%s&to=%s" % (RC.ACCOUNT, query_start.isoformat(), query_end.isoformat())
+    status, payload = call("GET", path)
+    if not 200 <= (status or 0) < 300 or payload.get("success") is False:
+        raise RuntimeError("billable-usage answered %s" % status)
+    rows = payload.get("result")
+    if not isinstance(rows, list):
+        raise RuntimeError("billable-usage result is unreadable")
+    by_day, details = {}, []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        product = " ".join(str(row.get(k) or "") for k in ("ServiceFamilyName", "ServiceName", "ChargeDescription"))
+        if not __import__("re").search(r"\bAI[\s-]*Search\b", product, __import__("re").I):
+            continue
+        period = str(row.get("ChargePeriodStart") or "")[:10]
+        if not period or period < start or period > end:
+            continue
+        try:
+            amount = float(row["ContractedCost"])
+        except (KeyError, TypeError, ValueError):
+            raise RuntimeError("AI Search billable cost is missing")
+        if not isfinite(amount) or amount < 0:
+            raise RuntimeError("AI Search billable cost is invalid")
+        by_day[period] = by_day.get(period, 0.0) + amount
+        details.append({
+            "service": str(row.get("ServiceName") or "")[:120],
+            "description": str(row.get("ChargeDescription") or "")[:200],
+            "period_start": str(row.get("ChargePeriodStart") or "")[:32],
+            "consumed_quantity": row.get("ConsumedQuantity"),
+            "consumed_unit": str(row.get("ConsumedUnit") or "")[:40],
+            "contracted_cost_usd": amount,
+        })
+    state = "measured" if details else ("pre-billing" if query_end < AI_SEARCH_BILLING_START else "unmeasured")
+    return {"by_day": by_day, "details": details, "state": state, "query_start": query_start.isoformat(),
+            "query_end": query_end.isoformat(), "total_usd": round(sum(by_day.values()), 4) if details else None}
+
+
+def ai_search_inventory(call=cf):
+    """Enumerate all AI Search namespaces and instances, retaining only non-secret settings and statistics."""
+    namespaces = []
+    page = 1
+    while True:
+        status, payload = call("GET", "/accounts/%s/ai-search/namespaces?page=%d&per_page=100" % (RC.ACCOUNT, page))
+        if not 200 <= (status or 0) < 300 or payload.get("success") is False:
+            raise RuntimeError("AI Search namespace inventory answered %s" % status)
+        namespaces.extend(payload.get("result") or [])
+        pages = int((payload.get("result_info") or {}).get("total_pages") or page)
+        if page >= pages:
+            break
+        page += 1
+    instances = []
+    for namespace in namespaces:
+        name = str(namespace.get("name") or "")
+        if not name:
+            continue
+        page = 1
+        while True:
+            path = "/accounts/%s/ai-search/namespaces/%s/instances?page=%d&per_page=100" % (RC.ACCOUNT, name, page)
+            status, payload = call("GET", path)
+            if not 200 <= (status or 0) < 300 or payload.get("success") is False:
+                raise RuntimeError("AI Search instance inventory answered %s for namespace %s" % (status, name))
+            found = payload.get("result") or []
+            pages = int((payload.get("result_info") or {}).get("total_pages") or page)
+            for instance in found:
+                instance_id = str(instance.get("id") or "")
+                if not instance_id:
+                    continue
+                stats_state = "unavailable"
+                stats = {}
+                stats_path = "/accounts/%s/ai-search/namespaces/%s/instances/%s/stats" % (RC.ACCOUNT, name, instance_id)
+                try:
+                    stats_status, stats_payload = call("GET", stats_path)
+                    if 200 <= (stats_status or 0) < 300 and stats_payload.get("success") is not False:
+                        stats = stats_payload.get("result") or {}
+                        stats_state = "degraded" if stats.get("degraded") else "measured"
+                except Exception:  # noqa: BLE001
+                    pass
+                engine = stats.get("engine") or {}
+                vectorize = engine.get("vectorize") or {}
+                r2 = engine.get("r2") or {}
+                instances.append({
+                    "id": instance_id,
+                    "namespace": name,
+                    "engine_version": instance.get("engine_version"),
+                    "enabled": instance.get("enable"),
+                    "paused": instance.get("paused"),
+                    "embedding_model": instance.get("embedding_model"),
+                    "hybrid_search_enabled": instance.get("hybrid_search_enabled"),
+                    "reranking": instance.get("reranking"),
+                    "reranking_model": instance.get("reranking_model"),
+                    "rewrite_query": instance.get("rewrite_query"),
+                    "summarization": instance.get("summarization"),
+                    "use_ocr": (instance.get("indexing_options") or {}).get("use_ocr"),
+                    "stats_state": stats_state,
+                    "vectors_count": vectorize.get("vectorsCount"),
+                    "storage_bytes": (r2.get("payloadSizeBytes") or 0) + (r2.get("metadataSizeBytes") or 0) if r2 else None,
+                    "object_count": r2.get("objectCount"),
+                    "indexing": {key: stats.get(key) for key in ("completed", "queued", "running", "error", "skipped", "outdated") if key in stats},
+                    "last_activity": stats.get("last_activity") or instance.get("last_activity"),
+                })
+            if page >= pages:
+                break
+            page += 1
+    return instances
+
+
+def write_ai_search_snapshot(d1, day, call=cf):
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    result = {"state": "unavailable", "errors": []}
+    inventory = []
+    try:
+        inventory = ai_search_inventory(call)
+    except Exception as error:  # noqa: BLE001
+        result["errors"].append("inventory: %s" % str(error)[:120])
+    start = (day - dt.timedelta(days=29)).isoformat()
+    try:
+        usage = ai_search_usage_window(start, day.isoformat(), call)
+        result.update(usage)
+        for charge_day, amount in usage["by_day"].items():
+            upsert(d1, charge_day, "ai_search:usage", "fleet", amount, 0,
+                   "Cloudflare billable-usage v1 ContractedCost; account-wide AI Search charges")
+        if usage["state"] == "pre-billing":
+            result["state"] = "pre-billing"
+        elif usage["state"] == "measured":
+            result["state"] = "measured"
+        else:
+            result["state"] = "unmeasured"
+    except Exception as error:  # noqa: BLE001
+        result["errors"].append("usage: %s" % str(error)[:120])
+        result["state"] = "pre-billing" if day < AI_SEARCH_BILLING_START else "unavailable"
+    count = len(inventory)
+    instance_fee = 0 if count <= 100 else None
+    d1("INSERT INTO ai_search_cost_snapshots (snapshot_day, observed_at, instance_count, known_instance_fee_usd, usage_state, usage_usd, query_start, query_end, inventory_json, usage_json) "
+       "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) ON CONFLICT(snapshot_day) DO UPDATE SET observed_at=excluded.observed_at, instance_count=excluded.instance_count, "
+       "known_instance_fee_usd=excluded.known_instance_fee_usd, usage_state=excluded.usage_state, usage_usd=excluded.usage_usd, query_start=excluded.query_start, query_end=excluded.query_end, "
+       "inventory_json=excluded.inventory_json, usage_json=excluded.usage_json",
+       [day.isoformat(), now, count, instance_fee, result["state"], result.get("total_usd"), result.get("query_start"),
+        result.get("query_end"), json.dumps(inventory, separators=(",", ":")), json.dumps(result.get("details") or [], separators=(",", ":"))])
+    result["instance_count"] = count
+    result["known_instance_fee_usd"] = instance_fee
+    result["inventory"] = inventory
+    return result
 
 
 def owner_local_window(d1, first_day):
