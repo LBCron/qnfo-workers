@@ -1,13 +1,21 @@
 {
  "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
- "verifier": "remediation-consumer@317bcf7d81d5",
+ "verifier": "remediation-consumer@68e1583d64c9",
  "due": 640,
- "pass": 320,
- "fail": 299,
- "skipped": 21,
- "deferred": 20,
+ "pass": 160,
+ "fail": 458,
+ "skipped": 22,
+ "deferred": 21,
  "contracts": [
+  {
+   "class": "rt-gateway",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
   {
    "class": "rt-ai-router",
    "issue_id": null,
@@ -65,30 +73,6 @@
    "written": true
   },
   {
-   "class": "rt-gateway",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-email",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-intent-orchestrator",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-lifecycle",
    "issue_id": null,
    "verdict": "pass",
@@ -106,6 +90,22 @@
   },
   {
    "class": "rt-live-qnfo-ops",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-email",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-intent-orchestrator",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -145,14 +145,6 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-research-exec",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-subscribers",
    "issue_id": null,
    "verdict": "pass",
@@ -169,14 +161,6 @@
    "written": true
   },
   {
-   "class": "fm-notice-reply-encoded-subject",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-page-qnfo-home",
    "issue_id": null,
    "verdict": "pass",
@@ -185,7 +169,15 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-fleet-control",
+   "class": "rt-live-qnfo-research-exec",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "fm-notice-reply-encoded-subject",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -194,6 +186,14 @@
   },
   {
    "class": "rt-page-work-with-me",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-fleet-control",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -241,7 +241,7 @@
    "written": true
   },
   {
-   "class": "rt-page-papers-feed",
+   "class": "rt-page-papers-index",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -249,7 +249,7 @@
    "written": true
   },
   {
-   "class": "rt-page-papers-index",
+   "class": "rt-page-papers-feed",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -353,14 +353,6 @@
    "written": true
   },
   {
-   "class": "slice-gh-webhook-route-live",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-model-eval",
    "issue_id": null,
    "verdict": "pass",
@@ -377,14 +369,6 @@
    "written": true
   },
   {
-   "class": "rt-page-ideas-sitemap",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-voice-stt",
    "issue_id": null,
    "verdict": "pass",
@@ -393,11 +377,19 @@
    "written": true
   },
   {
-   "class": "fm-edge-copy-version-skew",
+   "class": "rt-page-ideas-sitemap",
    "issue_id": null,
-   "verdict": "fail",
+   "verdict": "pass",
    "expected": "ok",
-   "observed": "missing-marker",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "slice-gh-webhook-route-live",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
    "written": true
   },
   {
@@ -418,6 +410,14 @@
   },
   {
    "class": "fm-zaraz-autoinject-worker-html",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "missing-marker",
+   "written": true
+  },
+  {
+   "class": "fm-edge-copy-version-skew",
    "issue_id": null,
    "verdict": "fail",
    "expected": "ok",
