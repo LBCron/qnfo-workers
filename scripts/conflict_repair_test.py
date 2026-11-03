@@ -10,8 +10,10 @@ statement the real database would refuse fails here.
 Run: python3 scripts/conflict_repair_test.py
 """
 import os
+import calendar
 import sqlite3
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["CLOUDFLARE_ACCOUNT_ID"] = "acct"
@@ -154,7 +156,7 @@ for wf_name in cr.DISPATCHABLE:
     check(re.search(r"^  workflow_dispatch:", wf_text, re.M) is not None, "%s exists and declares workflow_dispatch, so `gh workflow run` can start it (repair() runs that command with check=False, a workflow without the trigger would fail silently)" % wf_name)
 
 
-def drive(in_place, base_branch="main", delta="1\t1\tscripts/fix.py\n"):
+def drive(in_place, base_branch="main", delta="1\t1\tscripts/fix.py\n", head_moved=False):
     """Run repair() for one PR with git, GitHub and checks stubbed."""
     calls, git_calls, trace = [], [], {}
     pr = {"number": 5, "state": "open", "title": "fix x", "body": "", "head": {"sha": "abcdef1234567", "ref": "fix/x"}, "base": {"ref": base_branch}}
@@ -164,6 +166,10 @@ def drive(in_place, base_branch="main", delta="1\t1\tscripts/fix.py\n"):
             return pr
         if "/files" in path:
             return []
+        if "/comments" in path:
+            return []
+        if "/commits/" in path:
+            return {"commit": {"committer": {"date": "2026-11-03T00:00:00Z"}}}
         if path.endswith("/pulls") and method == "POST":
             trace["replacement_base"] = fields.get("base")
             return {"number": 9}
@@ -176,13 +182,15 @@ def drive(in_place, base_branch="main", delta="1\t1\tscripts/fix.py\n"):
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
     def fake_git(args, cwd=None, check=True):
         git_calls.append(list(args))
+        if args[:1] == ["rev-parse"] and args[-1] == "refs/remotes/origin/pr-5":
+            return ("new-head" if head_moved else pr["head"]["sha"]) + "\n"
         if args[:2] == ["diff", "--numstat"]:
             return delta
         return "0123456789abcdef\n"
     def fake_reapply(head, base, branch, cwd=None, message=None, in_place=False):
         trace["reapply_base"] = base
         return {"outcome": "reapplied", "workers": [], "resolved": []}
-    def fake_bump(workers, number, cwd=None, claims=cr.claimed_versions, base_branch="main"):
+    def fake_bump(workers, number, cwd=None, claims=cr.claimed_versions, base_branch="main", release_kinds=None):
         trace["bump_base"] = base_branch
         return []
     def fake_checks(workers, base, cwd=None):
@@ -246,6 +254,153 @@ for script in ("conflict_repair.py", "apply_migrations.py", "canary_revert.py"):
 check(closers.get("conflict_repair.py") == [True] and closers.get("apply_migrations.py") == [True], "every closing UPDATE agent_issues in conflict_repair.py and apply_migrations.py sets close_channel (one closing site each)", closers)
 check(all(all(v) for v in closers.values()), "no closing statement in the scripts omits close_channel", closers)
 check("close_channel = 'auto:conflict-repair-settle'" in cr.SETTLE_CLOSE_SQL and "close_channel = 'auto:migration-apply-resolve'" in apply_migrations.RESOLVE_CLOSE_SQL, "the two channels are the named values the closing probe counts", (cr.SETTLE_CLOSE_SQL, apply_migrations.RESOLVE_CLOSE_SQL))
+
+import tempfile  # noqa: E402
+
+base_source = 'var VERSION = "1.0.0"; /* base */\nconst value = 1;\n\nfunction other() { return 1; }\n'
+pr_source = base_source.replace("1.0.0", "1.0.1-pr").replace("value = 1", "value = 2")
+main_source = base_source.replace("1.0.0", "1.0.1-main").replace("return 1", "return 3")
+merged = cr.merge_worker_metadata(pr_source, base_source, main_source)
+check(merged is not None and "value = 2" in merged and "return 3" in merged
+      and cr.read_version(merged) == "1.0.1-pr", "metadata isolation preserves both independent code edits")
+check(cr.merge_worker_metadata(pr_source, base_source, main_source.replace("value = 1", "value = 9")) is None,
+      "a genuine code overlap is never resolved by choosing a side")
+check(cr.merge_worker_metadata(pr_source + 'var VERSION = "9.0.0";\n', base_source, main_source) is None,
+      "duplicate VERSION declarations refuse metadata isolation")
+check(cr.merge_worker_metadata(pr_source.replace("/* base */", "doSomething();"), base_source, main_source) is None,
+      "executable code after VERSION is never discarded")
+formatted = pr_source.replace('var VERSION = ', '\tvar   VERSION\t= ')
+check(cr.read_version(formatted) == "1.0.1-pr"
+      and cr.read_version(cr.set_version(formatted, "1.0.2")) == "1.0.2"
+      and cr.merge_worker_metadata(formatted, base_source, main_source) is not None,
+      "indented and spaced declarations parse, bump and merge consistently")
+check("/* main note */" in cr.chain_notes('var VERSION = "1.0.1";', 'var VERSION = "1.0.2"; /* main note */'),
+      "main release notes survive when the PR has no inline note")
+note_base = base_source.replace("/* base */", "/* base */\n/* old note */")
+note_pr = note_base.replace("1.0.0", "1.1.0-pr").replace("/* old note */", "/* pr note */\n/* old note */")
+note_main = note_base.replace("1.0.0", "1.0.2-main").replace("/* old note */", "/* main note */\n/* old note */")
+note_merged = cr.merge_worker_metadata(note_pr, note_base, note_main)
+check(note_merged is not None and all(note_merged.count(n) == 1 for n in ("/* pr note */", "/* main note */", "/* old note */")),
+      "split release-note history is retained without duplicate common notes")
+for old, new, claimed, expected in [
+    ("1.0.0", "1.0.1-fix", "1.1.3", "1.1.4-fix"),
+    ("1.0.0", "1.1.0-feature", "1.1.3", "1.2.0-feature"),
+    ("1.0.0", "2.0.0-breaking", "2.1.3", "3.0.0-breaking"),
+    ("v1.0.0", "v1.1.0-feature", "v1.1.3", "v1.2.0-feature"),
+]:
+    check(cr.bump_above(new, [claimed], cr.release_kind(old, new)) == expected,
+          "repair preserves declared release category and suffix: " + expected)
+check(cr.core("v1.2") == cr.core("1.2.0") == cr.core("1.2.0.0"),
+      "numeric version parsing matches the guard's padded comparison")
+
+for in_place in (False, True):
+    with tempfile.TemporaryDirectory(prefix="version-repair-test-") as directory:
+        def g(*args):
+            return cr.git(list(args), directory)
+        def put(text):
+            for name in ("worker.js", "deployed-current.worker.js"):
+                with open(os.path.join(directory, "w", name), "w", encoding="utf-8") as fh:
+                    fh.write(text)
+        g("init", "-q", "-b", "main")
+        g("config", "user.email", "test@example.invalid")
+        g("config", "user.name", "test")
+        os.mkdir(os.path.join(directory, "w"))
+        put(base_source); g("add", "-A"); g("commit", "-qm", "base")
+        g("checkout", "-q", "-b", "pr"); put(pr_source); g("commit", "-qam", "pr")
+        pr_sha = g("rev-parse", "HEAD").strip()
+        g("checkout", "-q", "main"); put(main_source); g("commit", "-qam", "main")
+        main_sha = g("rev-parse", "HEAD").strip()
+        result = cr.reapply("pr", "main", "repair-local", directory, in_place=in_place)
+        with open(os.path.join(directory, "w", "worker.js"), encoding="utf-8") as fh:
+            source = fh.read()
+        with open(os.path.join(directory, "w", "deployed-current.worker.js"), encoding="utf-8") as fh:
+            mirror = fh.read()
+        check(result["outcome"] == "reapplied" and source == mirror
+              and "value = 2" in source and "return 3" in source,
+              "real Git repair resolves VERSION plus adjacent code, mirrors source: in_place=" + str(in_place), result)
+        cr.bump_workers(result["workers"], 1, directory, claims=lambda *_: ["1.0.4"],
+                        release_kinds=result["release_kinds"])
+        g("commit", "-qm", "resolved")
+        parents = g("show", "-s", "--format=%P", "HEAD").strip().split()
+        check(parents == ([pr_sha, main_sha] if in_place else [main_sha, pr_sha]),
+              "repair finalizes a true two-parent merge with the original branch as first parent")
+        check(g("diff", "--name-only", "--diff-filter=U").strip() == "", "no unmerged index entries remain")
+        check(cr.sh([sys.executable, os.path.join(HERE, "version-bump-guard.py"), "main", "HEAD"],
+                    directory, check=False).returncode == 0, "repaired version passes the existing monotonic version guard")
+
+sample = {"number": 7, "head": {"sha": "head"}, "base": {"sha": "base", "ref": "main"}}
+def version_api(path, method="GET", raw=False):
+    if "/files?" in path:
+        return [{"filename": "w/worker.js", "status": "modified"}]
+    return main_source if "ref=base" in path else pr_source
+check(cr.stale_worker_versions(sample, version_api), "clean merge with an equal-core changed worker requires normalization")
+check(not cr.stale_worker_versions(sample, lambda path, **kwargs:
+      [{"filename": "w/worker.js", "status": "modified"}] if "/files?" in path
+      else (main_source if "ref=base" in path else pr_source.replace("1.0.1-pr", "1.0.2-pr"))),
+      "already-ahead versions do not trigger a normalization loop")
+try:
+    cr.stale_worker_versions(sample, lambda *args, **kwargs: None)
+    unreadable = False
+except RuntimeError:
+    unreadable = True
+check(unreadable, "an unreadable diff never authorizes a safe empty repair")
+pages = []
+def paged_files(path):
+    pages.append(path)
+    return [{"filename": "w/worker.js"}] * 100 if path.endswith("&page=1") else [{"filename": ".github/workflows/check.yml"}]
+check(len(cr.pr_files(7, paged_files)) == 101 and len(pages) == 2, "file inspection includes protected paths beyond page one")
+check(cr.eligible(dict(sample, state="open", title="HOLD: unfinished", draft=False), allow_clean=True) is not None,
+      "normalization never bypasses an explicit hold on a ready PR")
+
+activity = dict(sample, user={"login": "copilot-swe-agent[bot]"})
+def activity_api(events, comments):
+    def api(path):
+        if "/timeline?" in path:
+            return [{"event": event} for event in events]
+        if "/comments?" in path:
+            return comments
+        return {"commit": {"committer": {"date": "2026-11-03T00:00:00Z"}}}
+    return api
+at = calendar.timegm(time.strptime("2026-11-03T01:00:00Z", "%Y-%m-%dT%H:%M:%SZ"))
+check(cr.activity_hold(activity, activity_api(["copilot_work_started"], []), at) is not None,
+      "a quiet but unfinished Copilot session is never repaired")
+hold_comment = {"body": "HOLD: fix behavior", "created_at": "2026-11-03T00:01:00Z"}
+release_comment = {"body": "hold released", "created_at": "2026-11-03T00:02:00Z"}
+check(cr.activity_hold(activity, activity_api(["copilot_work_finished"], [hold_comment]), at) is not None,
+      "a current review HOLD blocks repair")
+check(cr.activity_hold(activity, activity_api(["copilot_work_finished"], [hold_comment, release_comment]), at) is None,
+      "a later hold release permits repair of finished work")
+res, runs, trace, _ = drive(True, head_moved=True)
+check(res.get("outcome") == "head-moved" and not runs and "reapply_base" not in trace and not trace.get("pushed"),
+      "a concurrent author push stops repair before code inspection, validation or publishing")
+
+clean_pr = dict(sample, state="open", draft=False, title="fix", body="", mergeable=True, mergeable_state="clean",
+                head=dict(sample["head"], repo={"full_name": cr.REPO}, ref="fix/version"),
+                base=dict(sample["base"], repo={"full_name": cr.REPO}))
+def scan_api(path, **kwargs):
+    if path.endswith("/pulls?state=open&per_page=100"):
+        return [clean_pr]
+    if path.endswith("/pulls/7"):
+        return clean_pr
+    if "/commits/" in path:
+        return {"commit": {"committer": {"date": "2026-11-03T00:00:00Z"}}}
+    return version_api(path, **kwargs)
+check(cr.dirty_prs(4, now=at, ghf=scan_api, normalize=True) == [7]
+      and cr.dirty_prs(4, now=at, ghf=scan_api) == [],
+      "normalization scan selects stale-version clean PRs without changing the legacy dirty-only scan")
+check(cr.dirty_prs(4, now=at - 3550, ghf=scan_api, normalize=True) == [],
+      "normalization still leaves a newly pushed PR to its author")
+
+saved_config = {key: value for key, value in os.environ.items() if key.startswith("GIT_CONFIG_")}
+os.environ.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="test.example", GIT_CONFIG_VALUE_0="fixture")
+try:
+    check(not any(key.startswith("GIT_CONFIG_") for key in cr.clean_env()),
+          "credential-free subprocess environments remove Git config count and values together")
+finally:
+    for key in list(os.environ):
+        if key.startswith("GIT_CONFIG_"):
+            del os.environ[key]
+    os.environ.update(saved_config)
 
 print("FAILS=%d" % fails)
 sys.exit(1 if fails else 0)

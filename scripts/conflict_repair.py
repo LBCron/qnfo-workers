@@ -3,19 +3,19 @@
 
 WHAT  The doer for STALE-PR-CONFLICT-REPAIR-1 issues (qnfo-fleet-control files one per quiet pull request that conflicts with
       its base branch). For one pull request it
-        1. reads the pull request (open, same repository, not a draft, `mergeable_state: dirty`);
+        1. reads an eligible quiet pull request (open, same repository, no active hold);
         2. branches `repair/pr-<n>-<head sha7>` from its base branch and merges the pull request's head into it without committing;
         3. resolves what can be resolved without judgement, keeping the base branch's meaning everywhere else:
              - a conflict whose every hunk is only the `var VERSION = "..."` line of a worker.js takes the pull request's
                line (the next step bumps it), which is how nearly every conflict on this repository arises: two changes to
                one worker each bump the same line;
              - deployed-current.worker.js is never merged: it is rewritten from the resolved worker.js (mirror-guard);
-             - anything else is a semantic overlap. The merge is aborted, nothing is pushed, and the outcome is
-               `needs-session` with the files, so the issue stays open for a doer that can read the code;
+             - a larger worker hunk is retried as a three-way code merge with VERSION and adjacent release notes
+               isolated first; any remaining semantic overlap aborts with `needs-session`;
         4. bumps each changed worker's VERSION above what the base branch and every other open pull request claim (VERSION-AHEAD-1);
         5. runs the checks a pull request gets: node --check, the changed workers' suites (scripts/run-suites.mjs),
            mirror-guard, version-bump-guard and the workers-standards guard;
-        6. with --push: pushes the branch, opens the replacement pull request naming the old one, dispatches the check
+        6. with --push: updates the original branch without force; the legacy replacement mode opens a replacement and dispatches the check
            workflows that accept a dispatch (a pull_request run on a GITHUB_TOKEN push starts no job, see DISPATCHABLE),
            comments on the old pull request and closes it as superseded by the new number.
       Every run writes one cloud_ops_events row (kind conflict-repair-reapplied, status ok | warn) and a branch_hygiene_log
@@ -24,7 +24,8 @@ WHAT  The doer for STALE-PR-CONFLICT-REPAIR-1 issues (qnfo-fleet-control files o
       It never merges, never force-pushes, never touches main, and refuses a pull request that changes .github/ (the
       Actions token may not push workflow files).
 USAGE python3 scripts/conflict_repair.py --pr <n> [--push] [--keep-branch]
-      python3 scripts/conflict_repair.py --all [--push] [--max 3]      every open STALE-PR-CONFLICT-REPAIR-1 issue's pull request
+      python3 scripts/conflict_repair.py --all --dirty --normalize [--push] [--max 3]
+      --normalize also takes clean PRs whose changed worker VERSION is not ahead of the current base.
       python3 scripts/conflict_repair.py --selftest
       Reads GH_TOKEN (gh), CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (ledger rows; skipped with a warning when absent).
       Exit 0 unless the arguments are wrong: an outcome is data, written to the ledger and printed as JSON.
@@ -38,13 +39,15 @@ import shutil
 import subprocess
 import sys
 import time
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from code_delivery import numstat_has_code_changes  # noqa: E402
 REPO = os.environ.get("GITHUB_REPOSITORY") or "QNFO/qnfo-workers"
 DB_ID = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
-VERSION_LINE = re.compile(r'^(var VERSION ?= ?)"([^"\n]*)"(;?.*)$', re.M)  # group 1 keeps the file's own spacing (qnfo-gateway writes var VERSION="x")
+VERSION_LINE = re.compile(r'^([ \t]*var[ \t]+VERSION[ \t]*=[ \t]*)"([^"\n]*)"([^\n]*)$', re.M)
+CORE_LINE = re.compile(r'^[vV]?(\d+(?:\.\d+)*)(.*)$')
 NOTE_BLOCK = re.compile(r"/\*.*?\*/", re.S)
 HOLD_RE = re.compile(r"(^|[\s\[(])(wip|do[\s-]*not[\s-]*merge|hold)([\s:\])]|$)", re.I)
 # PR-MERGE-SLA-10M-1 (2026-10-26, owner directive: every pull request merges within 10 minutes of opening): a person's branch waited the full ten
@@ -147,7 +150,7 @@ SECRET_ENV = re.compile(r"TOKEN|SECRET|KEY|PASSWORD|CLOUDFLARE|CF_ACCOUNT", re.I
 
 def clean_env():
     """The environment without credentials: the suites and guards run the pull request's own code, which gets no token."""
-    return {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k)}
+    return {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k) and not k.startswith("GIT_CONFIG_")}
 
 
 def sh(args, cwd=None, check=True, timeout=900, env=None):
@@ -188,11 +191,16 @@ def read_version(text):
 
 def core(v):
     """'0.14.0-conflict-repair' -> (0, 14, 0); None when there is no numeric core."""
-    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(v or ""))
-    return tuple(int(x) for x in m.groups()) if m else None
+    m = CORE_LINE.match(str(v or "").strip())
+    if not m:
+        return None
+    parts = [int(x) for x in m.group(1).split(".")]
+    while len(parts) > 3 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts + [0] * max(0, 3 - len(parts)))
 
 
-def bump_above(version, others):
+def bump_above(version, others, release_kind=None):
     """version stays when its core is above every core in others; otherwise the highest core's patch + 1, the suffix kept."""
     mine = core(version)
     top = max([c for c in (core(o) for o in others) if c] or [None], key=lambda c: c or (-1,))
@@ -200,11 +208,27 @@ def bump_above(version, others):
         return None
     if top is None or mine > top:
         return version
-    suffix = re.sub(r"^\d+\.\d+\.\d+", "", version)
+    suffix = CORE_LINE.match(version.strip()).group(2)
+    prefix = version.strip()[0] if version.strip().startswith(("v", "V")) else ""
     # keep the kind of release the change declared: a minor bump stays a minor bump above main
-    if mine[2] == 0 and mine[1] > 0:
-        return "%d.%d.0%s" % (top[0], top[1] + 1, suffix)
-    return "%d.%d.%d%s" % (top[0], top[1], top[2] + 1, suffix)
+    if release_kind == "major":
+        return prefix + "%d.0.0%s" % (top[0] + 1, suffix)
+    if release_kind == "minor" or (release_kind is None and mine[2] == 0 and mine[1] > 0):
+        return prefix + "%d.%d.0%s" % (top[0], top[1] + 1, suffix)
+    # Additional numeric components are supported by the deployment comparator too.
+    parts = list(top)
+    parts[-1] += 1
+    return prefix + ".".join(map(str, parts)) + suffix
+
+
+def release_kind(old, new):
+    before, after = core(old), core(new)
+    if before and after:
+        if after[0] > before[0]:
+            return "major"
+        if after[:2] > before[:2]:
+            return "minor"
+    return "patch"
 
 
 def set_version(text, new):
@@ -221,7 +245,7 @@ def chain_notes(pr_line, main_line):
     if not mp or not mm:
         return pr_line
     pb, mb = NOTE_BLOCK.findall(mp.group(3)), NOTE_BLOCK.findall(mm.group(3))
-    if not pb or not mb or NOTE_BLOCK.sub("", mp.group(3)).strip(" ;") or NOTE_BLOCK.sub("", mm.group(3)).strip(" ;"):
+    if not mb or NOTE_BLOCK.sub("", mp.group(3)).strip(" ;\t") or NOTE_BLOCK.sub("", mm.group(3)).strip(" ;\t"):
         return pr_line
     k = 0
     while k < min(len(pb), len(mb)) and pb[-1 - k] == mb[-1 - k]:
@@ -230,6 +254,122 @@ def chain_notes(pr_line, main_line):
 
 
 NOTE_LINE = re.compile(r"^[ \t]*/\*.*\*/[ \t]*$")
+
+
+def merge_worker_metadata(pr_text, base_text, main_text):
+    """Merge code with identical metadata placeholders; refuse any remaining code conflict."""
+    marker = 'var VERSION = "CONFLICT_REPAIR_METADATA";'
+    def separate(text):
+        lines = text.splitlines(keepends=True)
+        matches = [i for i, line in enumerate(lines) if VERSION_LINE.fullmatch(line.rstrip("\r\n"))]
+        if len(matches) != 1 or marker in text:
+            return None
+        start = matches[0]
+        declaration = lines[start].rstrip("\r\n")
+        tail = VERSION_LINE.fullmatch(declaration).group(3)
+        if NOTE_BLOCK.sub("", tail).strip(" ;\t"):
+            return None  # never discard executable code after the declaration
+        end = start + 1
+        while end < len(lines) and NOTE_LINE.fullmatch(lines[end].rstrip("\r\n")):
+            end += 1
+        return "".join(lines[:start] + [marker + "\n"] + lines[end:]), declaration, lines[start + 1:end]
+    parts = [separate(t) for t in (pr_text, base_text, main_text)]
+    if any(p is None for p in parts):
+        return None
+    with tempfile.TemporaryDirectory(prefix="conflict-repair-") as directory:
+        paths = [os.path.join(directory, name) for name in ("pr", "base", "main")]
+        for path, part in zip(paths, parts):
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(part[0])
+        merged = sh(["git", "merge-file", "-p"] + paths, check=False, env=clean_env())
+    if merged.returncode != 0 or merged.stdout.count(marker) != 1:
+        return None
+    notes = list(parts[0][2])
+    have = {line.strip() for line in notes}
+    notes += [line for line in parts[2][2] if line.strip() not in have]
+    metadata = chain_notes(parts[0][1], parts[2][1]) + "\n" + "".join(notes)
+    return merged.stdout.replace(marker + "\n", metadata, 1)
+
+
+def pr_files(number, api=None):
+    """Read every page, never treating an unreadable diff as an empty safe diff."""
+    api = api or gh
+    files = []
+    for page in range(1, 101):
+        rows = api("repos/%s/pulls/%d/files?per_page=100&page=%d" % (REPO, number, page))
+        if not isinstance(rows, list):
+            raise RuntimeError("pull request files could not be read")
+        files.extend(rows)
+        if len(rows) < 100:
+            return files
+    raise RuntimeError("pull request files exceed the repair limit")
+
+
+def stale_worker_versions(pr, api=None):
+    """Only a changed worker with a parseable version at or below its current base needs repair."""
+    api = api or gh
+    for f in pr_files(pr["number"], api):
+        path = str(f.get("filename") or "")
+        if not re.fullmatch(r"[^/]+/worker\.js", path) or f.get("status") in ("removed", "added", "renamed"):
+            continue
+        texts = [api("repos/%s/contents/%s?ref=%s" % (REPO, path, pr[side]["sha"]), raw=True)
+                 for side in ("base", "head")]
+        if any(not isinstance(t, str) for t in texts):
+            raise RuntimeError("worker version could not be read")
+        before, after = [core(read_version(t)) for t in texts]
+        if texts[0] != texts[1] and before and after and after <= before:
+            return True
+    return False
+
+
+def activity_hold(pr, api=None, now=None):
+    """Respect unfinished Copilot work and current HOLD comments before automatic repair."""
+    api = api or gh
+    login = str((pr.get("user") or {}).get("login") or "")
+    if re.fullmatch(r"(copilot|copilot-swe-agent)(\[bot\])?", login, re.I):
+        events = []
+        for page in range(1, 101):
+            rows = api("repos/%s/issues/%d/timeline?per_page=100&page=%d" % (REPO, pr["number"], page))
+            if not isinstance(rows, list):
+                return "the Copilot work state could not be read"
+            events.extend(rows)
+            if len(rows) < 100:
+                break
+        else:
+            return "the Copilot timeline exceeds the repair limit"
+        states = [e.get("event") for e in events if str(e.get("event") or "").startswith("copilot_work_")]
+        if not states or states[-1] != "copilot_work_finished":
+            return "Copilot has not finished work on this pull request"
+    comments = []
+    for page in range(1, 101):
+        rows = api("repos/%s/issues/%d/comments?per_page=100&page=%d" % (REPO, pr["number"], page))
+        if not isinstance(rows, list):
+            return "the pull request holds could not be read"
+        comments.extend(rows)
+        if len(rows) < 100:
+            break
+    else:
+        return "the pull request comments exceed the repair limit"
+    commit = api("repos/%s/commits/%s" % (REPO, pr["head"]["sha"]))
+    stamp = (((commit or {}).get("commit") or {}).get("committer") or {}).get("date")
+    if not stamp:
+        return "the head commit time could not be read"
+    now = time.time() if now is None else now
+    held = False
+    for comment in comments:
+        date = comment.get("created_at") or ""
+        try:
+            age = now - calendar.timegm(time.strptime(date, "%Y-%m-%dT%H:%M:%SZ"))
+        except ValueError:
+            return "a hold comment time could not be read"
+        if date <= stamp or age >= 86400:
+            continue
+        body = str(comment.get("body") or "").strip()
+        if body.startswith("HOLD:"):
+            held = True
+        elif re.search(r"\b(resolved|hold released)\b", body, re.I):
+            held = False
+    return "a current HOLD comment asks for changes" if held else None
 
 
 def merge_note_hunk(pr_part, main_part):
@@ -335,7 +475,7 @@ def merge_tree_conflicts(number, cwd=None, base_ref="main"):
     return False if r.returncode == 0 else None
 
 
-def dirty_prs(limit, quiet_min=DIRTY_QUIET_MIN, now=None, ghf=None, sleep=time.sleep, mtf=None):
+def dirty_prs(limit, quiet_min=DIRTY_QUIET_MIN, now=None, ghf=None, sleep=time.sleep, mtf=None, normalize=False):
     """Open pull requests GitHub reports as conflicting with their base (mergeable_state dirty), oldest-quiet first, up to limit: any author,
     any branch except repair/*, a draft, a hold or a fork. A pull request whose newest commit is younger than quiet_min minutes
     is left to its author. GitHub computes mergeability on the first read, so a null is read again a few times; a pull request still null
@@ -354,14 +494,12 @@ def dirty_prs(limit, quiet_min=DIRTY_QUIET_MIN, now=None, ghf=None, sleep=time.s
             if not isinstance(full, dict) or full.get("mergeable") is not None:
                 break
             sleep(5)
-        if not isinstance(full, dict) or eligible(full):
+        if not isinstance(full, dict) or eligible(full, allow_clean=normalize):
             continue
         base_branch = str((full.get("base") or {}).get("ref") or "")
         conflicting = full.get("mergeable") is False and full.get("mergeable_state") == "dirty"
         if not conflicting and full.get("mergeable") is None:
             conflicting = mtf(n, base_branch) is True
-        if not conflicting:
-            continue
         c = ghf("repos/%s/commits/%s" % (REPO, full["head"]["sha"])) or {}
         stamp = ((c.get("commit") or {}).get("committer") or {}).get("date") or ""
         try:
@@ -369,12 +507,13 @@ def dirty_prs(limit, quiet_min=DIRTY_QUIET_MIN, now=None, ghf=None, sleep=time.s
         except ValueError:
             age = 1e9
         if age >= (min(quiet_min, BOT_QUIET_MIN) if ref.startswith(BOT_BRANCH_PREFIX) else quiet_min):
-            found.append((age, n))
+            if conflicting or (normalize and stale_worker_versions(full, ghf)):
+                found.append((age, n))
     found.sort(reverse=True)
     return [n for _, n in found[: max(1, limit)]]
 
 
-def eligible(pr):
+def eligible(pr, allow_clean=False):
     """A pull request object -> None when the doer may take it, else the reason it does not."""
     if not isinstance(pr, dict) or not pr.get("number"):
         return "the pull request could not be read"
@@ -382,8 +521,8 @@ def eligible(pr):
         return "the pull request is " + str(pr.get("state"))
     if pr.get("draft") and not DRAFTS:
         return "the pull request is a draft"
-    if pr.get("draft") and asks_to_wait(pr):
-        return "the pull request is a draft that asks to wait"
+    if asks_to_wait(pr):
+        return "the pull request asks to wait"
     head = pr.get("head") or {}
     base = pr.get("base") or {}
     if ((head.get("repo") or {}).get("full_name") or "") != (base.get("repo") or {}).get("full_name"):
@@ -392,7 +531,7 @@ def eligible(pr):
         return "the base branch could not be read"
     if str(head.get("ref") or "").startswith("repair/"):
         return "the pull request is itself a repair"
-    if pr.get("mergeable") is True:
+    if pr.get("mergeable") is True and not allow_clean:
         return "the pull request does not conflict with main"
     return None
 
@@ -451,6 +590,9 @@ def reapply(head_ref, base_ref, branch, cwd=None, message=None, in_place=False):
         if os.path.basename(p) == "worker.js" and os.path.isfile(full):
             with open(full, encoding="utf-8", errors="replace") as fh:
                 fixed = resolve_version_only(fh.read(), "ours" if in_place else "theirs")
+            if fixed is None:
+                blobs = [git(["show", ":%d:%s" % (stage, p)], cwd) for stage in (2 if in_place else 3, 1, 3 if in_place else 2)]
+                fixed = merge_worker_metadata(*blobs)
             if fixed is not None:
                 with open(full, "w", encoding="utf-8") as fh:
                     fh.write(fixed)
@@ -471,7 +613,13 @@ def reapply(head_ref, base_ref, branch, cwd=None, message=None, in_place=False):
             git(["add", w + "/deployed-current.worker.js"], cwd)
             if (w + "/deployed-current.worker.js") in conflicted:
                 resolved.append(w + "/deployed-current.worker.js")
-    return {"outcome": "reapplied" if conflicted else "clean", "workers": workers, "resolved": resolved, "changed": changed}
+    ancestor = git(["merge-base", head_ref, base_ref], cwd).strip()
+    kinds = {}
+    for w in workers:
+        before = git(["show", ancestor + ":" + w + "/worker.js"], cwd, check=False)
+        after = git(["show", head_ref + ":" + w + "/worker.js"], cwd, check=False)
+        kinds[w] = release_kind(read_version(before), read_version(after))
+    return {"outcome": "reapplied" if conflicted else "clean", "workers": workers, "resolved": resolved, "changed": changed, "release_kinds": kinds}
 
 
 def landed_on_base(head_ref, base_ref, cwd=None, min_len=12):
@@ -555,7 +703,7 @@ def claimed_versions(worker, skip_pr=None, base_branch="main"):
     return out
 
 
-def bump_workers(workers, skip_pr, cwd=None, claims=claimed_versions, base_branch="main"):
+def bump_workers(workers, skip_pr, cwd=None, claims=claimed_versions, base_branch="main", release_kinds=None):
     """Raises each worker's VERSION above the claims and mirrors it. Returns [(worker, old, new)] for the ones that moved."""
     moved = []
     for w in workers:
@@ -566,7 +714,7 @@ def bump_workers(workers, skip_pr, cwd=None, claims=claimed_versions, base_branc
             text = fh.read()
         old = read_version(text)
         versions = claims(w, skip_pr, base_branch) if claims is claimed_versions else claims(w, skip_pr)
-        new = bump_above(old, versions) if old else None
+        new = bump_above(old, versions, (release_kinds or {}).get(w)) if old else None
         if not new or new == old:
             continue
         fixed = set_version(text, new)
@@ -715,22 +863,27 @@ def settle_issue(number, evidence):
         return False
 
 
-def repair(number, push=False, keep_branch=False, in_place=False):
+def repair(number, push=False, keep_branch=False, in_place=False, normalize=False):
     pr = gh("repos/%s/pulls/%d" % (REPO, number))
-    why = eligible(pr)
+    why = eligible(pr, allow_clean=True) if normalize else eligible(pr)
     if why:
         ev = settled_evidence(pr)
         if ev and push:
             done = settle_issue(number, ev)
             return {"pr": number, "outcome": "settled" if done else "settle-failed", "why": why, "evidence": ev}
         return {"pr": number, "outcome": "skipped", "why": why}
+    if normalize and pr.get("mergeable") is True and not stale_worker_versions(pr):
+        return {"pr": number, "outcome": "skipped", "why": "the worker versions are already ahead of the base"}
     base_branch = str((pr.get("base") or {}).get("ref") or "")
     if not valid_base_branch(base_branch):
         return {"pr": number, "outcome": "skipped", "why": "the base branch is missing or invalid"}
     head_sha = pr["head"]["sha"]
     if push and attempted(number, head_sha):
         return {"pr": number, "outcome": "skipped", "why": "head %s was already re-applied and pushed" % head_sha[:7]}
-    files = [f.get("filename") for f in gh("repos/%s/pulls/%d/files?per_page=100" % (REPO, number)) or []]
+    hold = activity_hold(pr)
+    if hold:
+        return {"pr": number, "outcome": "skipped", "why": hold}
+    files = [name for f in pr_files(number) for name in (f.get("filename"), f.get("previous_filename")) if name]
     branch = branch_name(pr)
     head_ref = str(pr["head"].get("ref") or "")
     if in_place:
@@ -748,6 +901,8 @@ def repair(number, push=False, keep_branch=False, in_place=False):
             res.update({"outcome": "skipped", "why": "the base branch could not be fetched"})
             return res
         git(["fetch", "-q", "origin", "+refs/pull/%d/head:refs/remotes/origin/pr-%d" % (number, number)])
+        if git(["rev-parse", "refs/remotes/origin/pr-%d" % number]).strip() != head_sha:
+            return dict(res, outcome="head-moved", why="the pull request changed during inspection")
         landed = landed_on_base("refs/remotes/origin/pr-%d" % number, base_ref)
         if landed:
             res.update({"outcome": "already-on-base", "files": landed})
@@ -763,7 +918,7 @@ def repair(number, push=False, keep_branch=False, in_place=False):
             if push and r["outcome"] == "needs-session":
                 gh("repos/%s/issues/%d/comments" % (REPO, number), "POST", {"body": "CONFLICT-REPAIR-DOER-1 could not re-apply this pull request onto base branch `%s` without judgement. Overlapping files: `%s`. Only VERSION-line and mirror conflicts are resolved automatically; the repair issue stays open for a session or the code loop." % (base_branch, "`, `".join(r.get("files") or []))})
             return res
-        bumped = bump_workers(r["workers"], number, base_branch=base_branch)
+        bumped = bump_workers(r["workers"], number, base_branch=base_branch, release_kinds=r.get("release_kinds"))
         res["bumped"] = bumped
         git(["-c", "user.name=qnfo-conflict-repair", "-c", "user.email=conflict-repair@users.noreply.github.com", "commit", "-q", "-m",
              ("merge %s into %s (CONFLICT-REPAIR-INPLACE-1, #%d)" % (base_branch, head_ref, number) if in_place else "re-apply #%d onto %s (CONFLICT-REPAIR-DOER-1)" % (number, base_branch)) + "\n\n%s\n\nResolved without judgement: %s. VERSION: %s." % ( str(pr.get("title") or "")[:200], ", ".join(r["resolved"]) or "nothing (clean merge)", "; ".join("%s %s -> %s" % b for b in bumped) or "unchanged")])
@@ -1162,6 +1317,7 @@ def main(argv=None):
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--dirty", action="store_true", help="also take every open pull request GitHub reports as conflicting and quiet "
                     "(CONFLICT-REPAIR-INPLACE-1): main is merged into its own branch, VERSION-line and mirror conflicts only")
+    ap.add_argument("--normalize", action="store_true", help="also normalize quiet PRs with stale worker versions")
     ap.add_argument("--quiet-min", type=int, default=DIRTY_QUIET_MIN)
     ap.add_argument("--max", type=int, default=3)
     ap.add_argument("--push", action="store_true")
@@ -1170,32 +1326,32 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
-    if not a.pr and not a.all and not a.dirty:
+    if not a.pr and not a.all and not a.dirty and not a.normalize:
         ap.error("--pr <n>, --all or --dirty")
     work = []  # (number, in_place)
     if a.pr:
-        work.append((a.pr, False))
+        work.append((a.pr, True))
     else:
         dirty = []
-        if a.dirty:
+        if a.dirty or a.normalize:
             try:
-                dirty = dirty_prs(max(1, a.max), a.quiet_min)
+                dirty = dirty_prs(max(1, a.max), a.quiet_min, normalize=a.normalize)
             except Exception as e:  # noqa: BLE001
                 emit("::warning::conflict-repair: cannot list the conflicting pull requests: " + str(e)[:200])
         work += [(n, True) for n in dirty]  # a pull request found conflicting is updated in place, whether or not it also has a repair issue
         if a.all:
             try:
-                work += [(n, False) for n in open_issue_prs()[: max(1, a.max)] if n not in dirty]
+                work += [(n, True) for n in open_issue_prs()[: max(1, a.max)] if n not in dirty]
             except Exception as e:  # noqa: BLE001
                 emit("::warning::conflict-repair: cannot read the repair issues: " + str(e)[:200])
-    if a.all or a.dirty:
+    if a.all or a.dirty or a.normalize:
         heartbeat(len(work), a.push)
     if not work:
         emit(json.dumps({"conflict_repair": "nothing to do"}))
         return 0
     for n, in_place in work:
         try:
-            emit(json.dumps({"conflict_repair": repair(n, a.push, a.keep_branch, in_place)}, default=str))
+            emit(json.dumps({"conflict_repair": repair(n, a.push, a.keep_branch, in_place, normalize=a.normalize)}, default=str))
         except Exception as e:  # noqa: BLE001  (one pull request's failure never stops the next)
             emit(json.dumps({"conflict_repair": {"pr": n, "outcome": "error", "error": type(e).__name__ + ": " + str(e)[:300]}}))
     return 0

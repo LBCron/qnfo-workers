@@ -3,16 +3,16 @@ name: conflict-repair
 # CONFLICT-REPAIR-DOER-1 (agent_issues 2305, charter pillar: autonomy).
 #
 # qnfo-fleet-control files one STALE-PR-CONFLICT-REPAIR-1 issue per quiet pull request that conflicts with its base branch, and until
-# now no loop executed the repair. This workflow is the doer: scripts/conflict_repair.py re-applies the pull request onto
-# its base branch on a new branch (repair/pr-<n>-<sha7>), resolves VERSION-line and mirror conflicts only, bumps VERSION above the base
-# and the open claims, runs the suites and guards with no credential in their environment, pushes the branch, opens the
-# replacement pull request and closes the old one as superseded. A semantic overlap is refused and stays with the issue.
+# now no loop executed the repair. This workflow is the doer: scripts/conflict_repair.py merges the base into the original PR,
+# isolates VERSION metadata before merging code, regenerates mirrors and bumps VERSION above the base and open claims.
+# Clean PRs with stale versions are normalized too. Suites and guards run without credentials before a non-force push;
+# the original PR survives and check workflows are dispatched on its repaired head. Semantic overlaps remain refused.
 # It NEVER merges or force-pushes, and never modifies a base branch.
 #
 # TRIGGERS: workflow_dispatch (one pull request, or every open repair issue when `pr` is empty) and the completion of
 # remediation-consumer, which qnfo-cloud-ops dispatches when it has been idle for 60 minutes (PROBE-CADENCE-1), so the
 # repair runs without a session and without a GitHub `schedule` (those fire rarely on this repository).
-# It pushes only repair/* branches, so the chain is acyclic.
+# Repair pushes are to PR branches, not main, so this workflow's push trigger is acyclic.
 #
 # CONFLICT-REPAIR-INPLACE-1 (2026-10-19, owner directive "pull requests need to squash, merge and close faster as they are holding up code
 # loops and CI pipelines"): a pull request that conflicted with its base waited for the hourly consumer, a repair issue and a quiet window, and
@@ -45,7 +45,7 @@ on:
         required: false
         default: ""
       push:
-        description: "true pushes the repair branch and replaces the pull request; false is a dry run that prints the outcome"
+        description: "true updates the original PR branch without force; false is a dry run that prints the outcome"
         required: false
         default: "true"
   workflow_run:
@@ -98,7 +98,17 @@ jobs:
             # repair branch are not.
             for n in $(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" --jq '.[]|select((.head.ref|startswith("repair/"))|not)|select((.title|test("(^|[\\s\\[(])(wip|do[\\s-]*not[\\s-]*merge|hold)([\\s:\\])]|$)";"i"))|not)|.number'); do
               st=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$n" --jq '"\(.mergeable) \(.mergeable_state)"' 2>/dev/null || echo "null unknown")
-              case "$st" in "false dirty") dirty=$((dirty+1));; "null "*) unknown=$((unknown+1));; esac
+              case "$st" in
+                "false dirty") dirty=$((dirty+1));;
+                "null "*) unknown=$((unknown+1));;
+                *)
+                  # Clean merges can still carry a stale VERSION; the doer checks the actual versions.
+                  if gh api "repos/${GITHUB_REPOSITORY}/pulls/$n/files?per_page=100" --paginate \
+                    --jq '.[] | select(.filename | test("^[^/]+/worker\\.js$")) | .filename' | grep -q .; then
+                    dirty=$((dirty+1))
+                  fi
+                  ;;
+              esac
             done
             [ "$unknown" -eq 0 ] && break
             sleep 15
@@ -133,6 +143,7 @@ jobs:
         run: |
           if [ ! -f scripts/conflict_repair.py ]; then echo "scripts/conflict_repair.py is not on main yet; nothing to do"; exit 0; fi
           python3 scripts/conflict_repair.py --selftest
+          python3 scripts/conflict_repair_test.py
 
       - name: re-apply conflicting quiet pull requests onto their base branches (never merges)
         if: steps.probe.outputs.dirty != '0'
@@ -142,7 +153,7 @@ jobs:
           MODE="--push"
           if [ "${INPUT_PUSH:-true}" = "false" ]; then MODE=""; fi
           if printf '%s' "${INPUT_PR:-}" | grep -Eq '^[0-9]+$'; then
-            python3 scripts/conflict_repair.py --pr "$INPUT_PR" $MODE
+            python3 scripts/conflict_repair.py --pr "$INPUT_PR" --normalize $MODE
           else
-            python3 scripts/conflict_repair.py --all --dirty --max 4 $MODE
+            python3 scripts/conflict_repair.py --all --dirty --normalize --max 4 $MODE
           fi
