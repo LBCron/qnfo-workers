@@ -135,14 +135,20 @@ def test_quiet_group_without_issue_is_not_filed():
 
 def test_live_group_filed_once_and_probe_lifecycle():
     now = B.now_ms()
-    env = Env([grp("g-live", "qnfo-ai", 60e3, now, count=92), grp("g-scan", "qnfo-gateway", 1e5, now, title="Potential vulnerability scan · /wp-login.php · low risk"),
-               grp("g-old", "qnfo-ops", 30 * H, now)])
+    high_risk_scan = grp("g-scan-high", "qnfo-fleet-lee", 1e5, now, title="Potential vulnerability scan · wordpress · high risk", count=3)
+    high_risk_scan["type"] = "security"
+    env = Env([grp("g-live", "qnfo-ai", 60e3, now, count=92),
+               grp("g-scan-low", "qnfo-gateway", 1e5, now, title="Potential vulnerability scan · /wp-login.php · low risk"),
+               high_risk_scan, grp("g-old", "qnfo-ops", 30 * H, now)])
     r1 = env.sweep(now)
-    assert r1["active"] == 3 and r1["noise"] == 1 and r1["live"] == 1 and len(r1["filed"]) == 1, r1
+    assert r1["active"] == 4 and r1["noise"] == 1 and r1["live"] == 2 and len(r1["filed"]) == 2, r1
     r2 = env.sweep(now)
-    assert r2["filed"] == [] and r2["already"] == 1, r2
+    assert r2["filed"] == [] and r2["already"] == 2, r2
     row = env.issues()[0]
     assert row["title"] == "CF-OBS-ISSUE-1: qnfo-ai: HttpServerError · HTTP 502 [cf-obs:g-live]" and "cf-obs-id: g-live" in row["description"], row
+    scan = env.issues()[1]
+    assert "Potential vulnerability scan · wordpress · high risk" in scan["title"] and scan["status"] == "open", scan
+    assert env.d1("SELECT priority FROM agent_issues WHERE id = ?", [scan["id"]])[0]["priority"] == "high", scan
     pr = env.d1("SELECT verify_probe FROM remediation_contracts WHERE class = 'issue-%d'" % row["id"])[0]["verify_probe"]
     assert pr.startswith("SELECT '1' AS expected") and "cf-obs-g-live" in pr, pr
     # the probe fails while the dispatch row is live, passes once it is quiet

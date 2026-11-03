@@ -52,7 +52,12 @@ def now_ms():
 
 def is_noise(it):
     t = str(it.get("title") or "").lower()
-    return any(n in t for n in NOISE)
+    return any(n in t for n in NOISE) and "low risk" in t
+
+
+def is_high_risk_scan(it):
+    t = str(it.get("title") or "").lower()
+    return "potential vulnerability scan" in t and "high risk" in t
 
 
 def is_router_drill_503(it):
@@ -186,7 +191,7 @@ def _file_and_resolve(d1, cf, now, res):
             it.get("count"), time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime(int(it.get("firstObserved") or 0) / 1000)),
             time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime(int(it.get("lastObserved") or 0) / 1000)), it.get("type"), svc, cid, cid,
             QUIET_H, code_task_line(svc))
-        pri = "high" if (it.get("type") == "exception" or int(it.get("count") or 0) >= 50) else "medium"
+        pri = "high" if (is_high_risk_scan(it) or it.get("type") == "exception" or int(it.get("count") or 0) >= 50) else "medium"
         try:
             d1("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) "
                "VALUES (?1, ?2, 'cf-obs-bridge', 'reliability', ?3, 'open', ?4, ?4)", [title, desc, pri, now])
