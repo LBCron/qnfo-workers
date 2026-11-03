@@ -12,12 +12,16 @@ let pass = 0, fail = 0;
 const ok = (c, m, d) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (d === undefined ? "" : " :: " + JSON.stringify(d).slice(0, 300))); } };
 const config = readFileSync(join(here, "wrangler.toml"), "utf8");
 const configHead = config.split(/^\s*\[/m)[0];
+const workerSource = readFileSync(join(here, "worker.js"), "utf8");
+ok(config.includes("# charter-pillar: personal") && workerSource.startsWith("// qnfo-jobsearch: verified-claims job matcher (JOBSEARCH-1). Charter pillar: personal."), "jobsearch is classified under the personal charter pillar");
 const compatDate = (configHead.match(/^\s*compatibility_date\s*=\s*"(\d{4}-\d{2}-\d{2})"/m) || [])[1];
 ok(compatDate >= "2026-10-10", "compatibility date includes the reviewed default changes", compatDate);
 ok(/^# compat-advance: reviewed \d{4}-\d{2}-\d{2}$/m.test(config), "compatibility date has its review marker");
 
 const JOB = { id: "t:1", company: "Acme", title: "Research Program Manager", location: "Amsterdam, Netherlands", url: "https://x/1",
   desc: "Lead our research program and research operations. LLM evaluation, responsible AI, public sector work, government agencies. Audit and reproducibility." };
+ok(T.has("policy analystical", ["policy analyst"]).length === 0 && T.has("policy analyst", ["policy analyst"]).length === 1, "role keywords require a right word boundary");
+ok(T.has("government agencies", ["government agenc*"]).length === 1, "explicit role keyword stems retain intended suffix matches");
 const m = T.evaluate(JOB), res = T.buildResume(JOB, m), note = T.buildNote(JOB, m);
 ok(m.status === "ok", "clean job matches", m);
 ok(T.verify(res, JOB).length === 0 && T.verify(note, JOB).length === 0, "clean artifacts verify");
@@ -28,6 +32,7 @@ ok(T.verify(note.replace(/"[^"]+"/, '"quantum cryptography"'), JOB).length > 0, 
 for (const [title, loc] of [["Sales Lead, Research", "Amsterdam"], ["Intern, Research Program", "Amsterdam"], ["Research Program Manager", "Remote - US only"], ["Staff Engineer, Research Platform", "Amsterdam"], ["Senior AI Governance Counsel", "Amsterdam"], ["Product Marketing, Data Products", "Amsterdam"], ["Forward Deployed Product Manager, Public Sector", "Amsterdam"]])
   ok(T.evaluate({ ...JOB, title, location: loc }).status === "excluded", "gate " + title + " / " + loc);
 const jobAt = (location, title = "Senior Policy Advisor") => ({ ...JOB, title, location });
+ok(T.scoreJob({ ...JOB, location: "", desc: JOB.desc + " The team is based in Amsterdam." }).drops.some((x) => x.includes("no location in the posting")), "missing feed locations are dropped even when a city appears elsewhere in the description");
 ok(T.evaluate(jobAt("Tokyo, Japan")).status === "excluded", "elsewhere is off by default");
 const tk = T.evaluate(jobAt("Tokyo, Japan"), T.makeCtx({ loc_world: true }));
 ok(tk.status === "ok" && tk.flags.some((f) => f.includes("visa")), "elsewhere comes back flagged when selected", tk);
@@ -91,6 +96,11 @@ globalThis.fetch = async (u) => {
   return j(u.includes("lever") ? [] : { jobs: [], data: [] });
 };
 const call = async (path, init, e = env) => { const r = await w.fetch(new Request("https://x" + path, init), e, { waitUntil: (p) => p }); return [r.status, await r.json().catch(() => null), r]; };
+{
+  const ui = await w.fetch(new Request("https://x/"), env, { waitUntil: (p) => p });
+  const page = await ui.text();
+  ok(ui.status === 200 && page.includes('id="signin"') && page.includes("id='signbox'") && page.includes('id="scode"'), "the real UI keeps sign-in and code entry inline");
+}
 await w.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
 const runs = (await call("/api/runs"))[1].runs;

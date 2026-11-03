@@ -1,4 +1,4 @@
-// qnfo-jobsearch: verified-claims job matcher (JOBSEARCH-1). Charter pillar: reach.
+// qnfo-jobsearch: verified-claims job matcher (JOBSEARCH-1). Charter pillar: personal.
 // Hourly cron fetches public ATS feeds (Greenhouse, Lever, Ashby) plus Remotive and Arbeitnow, gates and scores each posting
 // against the owner's claim ledger, assembles a tailored resume and note ONLY from ledger sentences, re-verifies every output
 // line, and stores the result in D1 (jobsearch_matches). Nothing is ever sent: status moves pending_owner_approval -> approved/rejected/applied
@@ -8,7 +8,7 @@
 // JOBSEARCH-PROFILE-1 (1.3.0): yes/no search survey, role families drawn from the whole record (policy, transport and planning, data, product, program, research, consulting, nonprofit, GIS, contracts, social policy), location gates from the owner answers (Netherlands and remote by default, US and other on-site only when selected), likes and dislikes teach the search, rejected matches stay hidden, "check a job" analysis of a pasted link or text.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.4.1-codeagent";
+var VERSION = "1.4.2";
 const WORKER = "qnfo-jobsearch";
 const LEDGER = {
  "ledger_verified_on": "2026-10-01",
@@ -506,7 +506,7 @@ const FAMILIES = {
   fam_product: ["product manager", "product owner", "head of product", "group product", "product lead", "director of product", "principal product", "product management"],
   fam_program: ["program manager", "programme manager", "project manager", "portfolio manager", "pmo", "delivery manager", "head of programs", "head of programmes", "director of programs", "programme director", "program director", "program lead", "programme lead"],
   fam_research: ["research manager", "research director", "research program", "research programme", "head of research", "director of research", "research operations", "research lead", "grants manager", "research coordinator", "research partnerships", "research strategy", "senior researcher", "principal researcher", "research advisor", "research adviser", "research fellow", "evaluation manager", "monitoring and evaluation"],
-  fam_consult: ["consultant", "engagement manager", "advisory", "associate partner", "management consult", "strategy consult"],
+  fam_consult: ["consultant", "engagement manager", "advisory", "associate partner", "management consult*", "strategy consult*"],
   fam_nonprofit: ["executive director", "managing director", "country director", "chief of staff", "director of operations", "foundation"],
   fam_gis: ["gis", "geospatial", "geographic information", "spatial data", "spatial analyst"],
   fam_contract: ["contracting officer", "contract manager", "contracts manager", "procurement manager", "vendor manager", "sourcing manager"],
@@ -518,24 +518,24 @@ const FAMILIES = {
 };
 const CLUSTER_KW = {
   research_mgmt: ["research program", "research portfolio", "research operations", "research management", "program management", "research strategy", "head of research", "research lead", "grant", "wetenschappelijk", "onderzoek"],
-  federal: ["federal government", "federal agenc", "government agenc", "public sector", "public administration", "government", "ministry", "municipal", "european commission"],
+  federal: ["federal government", "federal agenc*", "government agenc*", "public sector", "public administration", "government", "ministry", "municipal", "european commission"],
   transport_modeling: ["transportation", "travel demand", "mobility", "transit", "forecasting", "traffic", "infrastructure"],
   urban_planning: ["urban planning", "regional planning", "land use", "spatial planning", "urban development", "city planning", "smart city"],
   gis: ["gis", "geospatial", "arcgis", "qgis", "spatial analysis", "geographic information"],
   policy_research: ["public policy", "policy research", "survey", "social science", "evidence-based", "policy analysis", "stakeholder"],
-  social_policy: ["housing", "affordab", "ageing", "aging", "older adults", "livability", "community development", "social policy"],
+  social_policy: ["housing", "affordab*", "ageing", "aging", "older adults", "livability", "community development", "social policy"],
   survey_methods: ["statistical", "econometric", "survey methodology", "statistics", "modelling", "modeling", "quantitative"],
   ai_systems: ["llm", "large language model", "ai agent", "agentic", "generative ai", "applied ai", "machine learning", "ai evaluation", "evals", "rag "],
-  research_integrity: ["research integrity", "reproducib", "peer review", "scientific integrity", "open science", "provenance", "responsible ai", "ai governance", "ai safety", "audit", "trustworthy"],
+  research_integrity: ["research integrity", "reproducib*", "peer review", "scientific integrity", "open science", "provenance", "responsible ai", "ai governance", "ai safety", "audit", "trustworthy"],
   data_product: ["data product", "data platform", "analytics", "dashboard", "data strategy", "data governance"],
   quantum_energy: ["quantum", "energy efficiency", "benchmark"],
-  nonprofit: ["nonprofit", "non-profit", "civil society", "ngo", "foundation", "philanthrop"],
+  nonprofit: ["nonprofit", "non-profit", "civil society", "ngo", "foundation", "philanthrop*"],
   product: ["product manager", "product management", "roadmap", "product strategy", "stakeholder"],
   data_science: ["data science", "data scientist", "machine learning", "predictive"],
   program_mgmt: ["program management", "programme management", "project management", "portfolio", "pmo", "delivery", "milestone", "budget"],
   contracting: ["contracting officer", "procurement", "vendor management", "contract management", "deliverables", "tender"],
   consulting: ["consulting", "advisory", "client engagement", "clients"],
-  climate: ["sustainab", "climate", "energy transition", "net zero", "decarbon"],
+  climate: ["sustainab*", "climate", "energy transition", "net zero", "decarbon*"],
 };
 const TITLE_MEDIUM = ["product manager", "program manager", "programme manager", "principal", "director", "head of", "lead", "strategist", "manager", "analyst", "advisor", "adviser", "consultant", "researcher", "specialist", "policy", "research"];
 const SENIOR_RE = /\b(senior|sr\.?|lead|head|director|principal|chief|vp|vice president|staff|manager|partner|executive)\b/i;
@@ -554,9 +554,9 @@ const CORE = new Set(["federal", "policy_research", "transport_modeling", "resea
 const FRONTIER = new Set(["ai_systems", "research_integrity"]);
 const DATA_SIDE = new Set(["data_product", "data_science", "survey_methods", "ai_systems", "gis"]);
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-// a keyword must start a word (so "gis" is not found inside "strategist"); a short one must also end it
+// Keywords match whole words; a trailing * allows an intentional stem to continue to the word end.
 const KW_RE = new Map();
-const kwRe = (k) => { let r = KW_RE.get(k); if (!r) { r = new RegExp("(?<![a-z])" + escRe(k) + (k.trim().length <= 4 ? "(?![a-z])" : "")); KW_RE.set(k, r); } return r; };
+const kwRe = (k) => { let r = KW_RE.get(k); if (!r) { const stem = k.endsWith("*"); const term = stem ? k.slice(0, -1) : k; r = new RegExp("(?<![a-z])" + escRe(term) + (stem ? "[a-z]*" : "(?![a-z])")); KW_RE.set(k, r); } return r; };
 const has = (text, kws) => kws.filter((k) => kwRe(k).test(text));
 const STOP_TOKENS = new Set(["senior", "lead", "head", "manager", "director", "principal", "global", "europe", "remote", "team", "and", "for", "the", "with", "staff", "group", "associate"]);
 const tokens = (title) => [...new Set(String(title || "").toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !STOP_TOKENS.has(t)))];
@@ -677,7 +677,7 @@ function scoreJob(job, ctx = DEFAULT_CTX, mode = "rank") {
   if (!famOn.length && !medium.length) drop("title not in your role families");
   const [gate, locNote] = locationGate(job.location, desc.slice(0, 3000), ctx);
   if (gate === "fail") drop(locNote);
-  if (gate === "check" && locNote === "location missing" && mode !== "analyze" && !HOME.some((k) => desc.slice(0, 3000).toLowerCase().includes(k))) drop("no location in the posting; it cannot be placed against your preferences");
+  if (gate === "check" && locNote === "location missing" && mode !== "analyze") drop("no location in the posting; it cannot be placed against your preferences");
   else if (gate === "check") { flags.push("LOCATION: " + locNote); pen += /^(Elsewhere|Europe)/.test(locNote) ? 15 : 10; }
   const cl = clustersIn(desc, job.title);
   if (!famOn.length && cl.size < 2) drop("generic title and thin evidence in the posting");
@@ -1336,7 +1336,7 @@ const handler = {
     return J({ error: "not found", see: "/api" }, 404);
   },
 };
-handler.__test = { evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS };
+handler.__test = { evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS };
 export default handler;
 
 // ------------------------------------------------------------------ web UI (light theme, plain JS, talks only to the API above)
