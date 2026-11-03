@@ -1,13 +1,21 @@
 {
  "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
- "verifier": "remediation-consumer@e8ca47c104af",
- "due": 600,
- "pass": 329,
- "fail": 256,
- "skipped": 15,
- "deferred": 15,
+ "verifier": "remediation-consumer@f9e60db717fc",
+ "due": 640,
+ "pass": 326,
+ "fail": 306,
+ "skipped": 8,
+ "deferred": 8,
  "contracts": [
+  {
+   "class": "rt-gateway",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
   {
    "class": "rt-ai-router",
    "issue_id": null,
@@ -65,14 +73,6 @@
    "written": true
   },
   {
-   "class": "rt-gateway",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-email",
    "issue_id": null,
    "verdict": "pass",
@@ -81,7 +81,7 @@
    "written": true
   },
   {
-   "class": "rt-personal-api",
+   "class": "rt-live-qnfo-intent-orchestrator",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -89,7 +89,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-intent-orchestrator",
+   "class": "rt-personal-api",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -169,23 +169,7 @@
    "written": true
   },
   {
-   "class": "rt-page-qnfo-home",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-page-work-with-me",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-fleet-control",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -201,7 +185,7 @@
    "written": true
   },
   {
-   "class": "rt-page-ask-robots",
+   "class": "rt-live-qnfo-fleet-control",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -209,7 +193,7 @@
    "written": true
   },
   {
-   "class": "rt-papers",
+   "class": "rt-page-qnfo-home",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -233,7 +217,31 @@
    "written": true
   },
   {
+   "class": "rt-page-ask-robots",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-page-graph-api",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-papers",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-infra",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -257,7 +265,15 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-infra",
+   "class": "rt-live-radar-hub",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-page-papers-sitemap",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -281,14 +297,6 @@
    "written": true
   },
   {
-   "class": "rt-live-radar-hub",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "fm-reader-history-navigation",
    "issue_id": null,
    "verdict": "pass",
@@ -297,7 +305,7 @@
    "written": true
   },
   {
-   "class": "rt-page-papers-sitemap",
+   "class": "rt-live-q08-mind",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -313,14 +321,6 @@
    "written": true
   },
   {
-   "class": "rt-live-q08-mind",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-page-qwav-home",
    "issue_id": 1000986,
    "verdict": "fail",
@@ -329,39 +329,15 @@
    "written": true
   },
   {
-   "class": "rt-fleet-dashboard",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-model-eval",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-evolve",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-voice-stt",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-page-qnfo-sitemap",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-page-ideas",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -377,6 +353,14 @@
    "written": true
   },
   {
+   "class": "rt-live-voice-stt",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-page-ideas-sitemap",
    "issue_id": null,
    "verdict": "pass",
@@ -385,7 +369,23 @@
    "written": true
   },
   {
-   "class": "rt-page-ideas",
+   "class": "rt-fleet-dashboard",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-evolve",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-model-eval",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -425,4 +425,4 @@
    "written": true
   },
   {
-   "cl
+   "clas
