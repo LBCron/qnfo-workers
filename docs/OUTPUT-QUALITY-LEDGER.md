@@ -61,6 +61,10 @@ outcomes is `insufficient_history`. The first verdict on 2026-10-26 (live `metri
 gaps `papers` and `ask`: promotion, site, code and reads are up week on week (clicks 373 -> 695, sessions 12,440 -> 16,330, code success 0.40 -> 0.47), while the surface
 that holds the fleet's main product has no trend yet and 52% of its papers have an open high-severity erratum.
 
+For `remediation_latest_pass_pct_7d`, the verdict's values instead come from `v_output_quality_remediation_cohort`: latest verdicts for the same subjects
+(issue ID, otherwise contract class) in adjacent seven-day windows ending on the latest snapshot day. New-only and dropped subjects cannot bias the trend;
+no matched subjects means `insufficient_history`. The all-subject integrity guard and its `metric_history` values remain unchanged.
+
 ## What acts on it
 
 - `papers_with_open_high_errata_pct` (trigger, over 10): one issue; levers are reviser throughput, the producer of the repeated claim shape, and revising or unpublishing papers
