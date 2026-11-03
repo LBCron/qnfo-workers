@@ -35,7 +35,7 @@ bindings) or has no route. The graph reads routes and custom domains only; a nam
 | Host | Plane | Worker | Right place? |
 |---|---|---|---|
 | `me.q08.org` | personal | personal-api (the companion, `/v1`, `/mcp`) | yes; the address given to the owner |
-| `jobs.q08.org` | personal | qnfo-jobsearch (the job matches page; zone route by `scripts/attach-jobs-q08-route.py`, DOMAIN-PLANE-1:jobs.q08.org, agent_issues 1000582) | yes; the address given to the owner once the attach run verifies `/health` |
+| `jobs.q08.org` | personal | qnfo-jobsearch (the job matches page; zone route by `scripts/attach-jobs-q08-route.py`, DOMAIN-PLANE-1:jobs.q08.org, agent_issues 1000582) | yes; owner-facing address, verified 2026-11-02 by the live route and `/health` probe |
 | `reading.q08.org` (custom domain) | personal | personal-companion | yes |
 | `travel.q08.org` | personal | personal-companion | yes |
 | `q08.org`, `www.q08.org` | personal | q08-signal-engine | yes |
