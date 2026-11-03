@@ -1,8 +1,8 @@
-// qnfo-deploy-guard v1.4.2 (DEPLOY-LEDGER-EVENT-ORDER-1: use deploy event timestamps instead of insertion order when selecting the last code deployment, so a delayed historical mirror cannot supersede a newer canonical deploy; WORKERS-BUILDS-TOMBSTONE-1: a content-verified Workers Builds deploy of the retired repository-root stub is LEDGERED as TOMBSTONE-STUB instead of filing UNLOGGED-MUTATION/UNCOORDINATED-DEPLOY; CLAIM-TERMINAL-RELEASE-1; SECOND-PATH-CANONICAL-1: a successful deploy by canonical-deploy.yml's second path, direct_content_deploy, is not a non-canonical deploy; LEASE-TOKEN-CSPRNG-1: lease tokens come from crypto.getRandomValues; SECRET-ONLY-LEDGER-1: a ledgered secret rotation is not a code deploy for NON-CANONICAL-DEPLOY-1) - deploy lock + secret lock + work claims (one procedure: the D1 work_claims ledger and the code loop's tasks are read and written by /work-lock) + concurrent-mutation detector + cost watchdog + heartbeat (expected_version enforcement + per-session attribution + registry version refresh on redeploy + NON-CANONICAL-DEPLOY-1 detection excluding synthetic/test rows AND failed canonical attempts + SETTINGS-ONLY ledger rows + DEPLOY-TICKET-AUTORESOLVE-1 + CAPABILITY-SNAPSHOT-1 + WORK-CLAIM-1 + WORK-CLAIM-UNIFY-1)
+// qnfo-deploy-guard v1.4.3 (OPS-PROBE-TIMEOUT-RECOVERY-1: retry a timed-out ops probe once and cancel outstanding requests; DEPLOY-LEDGER-EVENT-ORDER-1: use deploy event timestamps instead of insertion order when selecting the last code deployment, so a delayed historical mirror cannot supersede a newer canonical deploy; WORKERS-BUILDS-TOMBSTONE-1: a content-verified Workers Builds deploy of the retired repository-root stub is LEDGERED as TOMBSTONE-STUB instead of filing UNLOGGED-MUTATION/UNCOORDINATED-DEPLOY; CLAIM-TERMINAL-RELEASE-1; SECOND-PATH-CANONICAL-1: a successful deploy by canonical-deploy.yml's second path, direct_content_deploy, is not a non-canonical deploy; LEASE-TOKEN-CSPRNG-1: lease tokens come from crypto.getRandomValues; SECRET-ONLY-LEDGER-1: a ledgered secret rotation is not a code deploy for NON-CANONICAL-DEPLOY-1) - deploy lock + secret lock + work claims (one procedure: the D1 work_claims ledger and the code loop's tasks are read and written by /work-lock) + concurrent-mutation detector + cost watchdog + heartbeat (expected_version enforcement + per-session attribution + registry version refresh on redeploy + NON-CANONICAL-DEPLOY-1 detection excluding synthetic/test rows AND failed canonical attempts + SETTINGS-ONLY ledger rows + DEPLOY-TICKET-AUTORESOLVE-1 + CAPABILITY-SNAPSHOT-1 + WORK-CLAIM-1 + WORK-CLAIM-UNIFY-1)
 // Worker Contract v1: VERSION constant + GET /health
 // Data: https://ops.qnfo.org/fleet (modified_on per worker) + https://ops.qnfo.org/cost (spend)
 // NOTE: source of truth is this file; GET /workers/scripts/<name> TRUNCATES large bodies - never patch from a GET.
-var VERSION = "1.4.2-leases-killswitch"; /* 1.4.1 DEPLOY-LEDGER-EVENT-ORDER-1: use deploy event time, not ledger insertion order, when choosing the last code deploy. 1.4.0 BP26-LEASES-KILLSWITCH-1 (2026-10-28, pillar autonomy, agent_issues 1000361; minor: two capabilities and a decision this worker now takes on its own). (a) Global kill switch: ops_config fleet_kill_switch = on makes workAcquire (fresh claims and renewals) and POST /lock/acquire (deploy locks and secret leases) answer 503 reason kill-switch, so no new claim, deploy or secret write starts while it is on; releases, reads, the sweep and /health keep working; the first refusal in five minutes writes one cloud_ops_events row of kind kill-switch.observed; GET /kill-switch reads the state. The flag is read with a 30 second cache, off when the row or table is absent. (b) Fencing tokens: every fresh work claim takes the next fence number for its path (work_claims.fence, migration 2026-10-28-bp26-leases-killswitch.sql; the claim still works while the column is absent), acquire and renew return it, and POST /work-lock/check {key, token, fence} answers valid only when the token holds the live claim and the fence is the live one, so a writer that lost its lease cannot pass. docs/KILL-SWITCH-DRILL.md and docs/LEASES-FENCING.md. prior 1.3.34-codeagent */ /* LEASE-EXPIRY-SWEEP-1 (2026-10-26, orphaned_leases 215): a work_claims row past expires_at and never released is closed with outcome expired on every acquire and on the 20-minute tick, so the BP26 lease metric counts sessions that died holding a claim and then settles. */ /* COMPAT-RISK-TIMER-NAME-1 (2026-10-25, unblocks red main): the four fetch-timeout blocks named their setTimeout handle `t`, and a DIFFERENT `t` (a timestamp from ms(row.ts)) in another function is compared numerically within 60 lines, so scripts/compat-risk-scan.mjs linked them by name across function scopes and reported timer-ids for a worker that never reads a timer id as a number. Renamed to timerId; scan is clean and the guard keeps its full meaning. */ /* WORKERS-BUILDS-TOMBSTONE-1 (2026-10-25, agent_issues 1000142): a Workers Builds rebuild of the retired repository-root stub is ledgered, not filed. CLAIM-TERMINAL-RELEASE-1 (2026-10-18): CODE_TASK_DONE now includes superseded, so the guard stops counting a superseded task as live work on its file. */
+var VERSION = "1.4.3-ops-probe-timeout"; /* OPS-PROBE-TIMEOUT-RECOVERY-1 (#6429): bounded retry and request cleanup. */ /* 1.4.1 DEPLOY-LEDGER-EVENT-ORDER-1: use deploy event time, not ledger insertion order, when choosing the last code deploy. 1.4.0 BP26-LEASES-KILLSWITCH-1 (2026-10-28, pillar autonomy, agent_issues 1000361; minor: two capabilities and a decision this worker now takes on its own). (a) Global kill switch: ops_config fleet_kill_switch = on makes workAcquire (fresh claims and renewals) and POST /lock/acquire (deploy locks and secret leases) answer 503 reason kill-switch, so no new claim, deploy or secret write starts while it is on; releases, reads, the sweep and /health keep working; the first refusal in five minutes writes one cloud_ops_events row of kind kill-switch.observed; GET /kill-switch reads the state. The flag is read with a 30 second cache, off when the row or table is absent. (b) Fencing tokens: every fresh work claim takes the next fence number for its path (work_claims.fence, migration 2026-10-28-bp26-leases-killswitch.sql; the claim still works while the column is absent), acquire and renew return it, and POST /work-lock/check {key, token, fence} answers valid only when the token holds the live claim and the fence is the live one, so a writer that lost its lease cannot pass. docs/KILL-SWITCH-DRILL.md and docs/LEASES-FENCING.md. prior 1.3.34-codeagent */ /* LEASE-EXPIRY-SWEEP-1 (2026-10-26, orphaned_leases 215): a work_claims row past expires_at and never released is closed with outcome expired on every acquire and on the 20-minute tick, so the BP26 lease metric counts sessions that died holding a claim and then settles. */ /* COMPAT-RISK-TIMER-NAME-1 (2026-10-25, unblocks red main): the four fetch-timeout blocks named their setTimeout handle `t`, and a DIFFERENT `t` (a timestamp from ms(row.ts)) in another function is compared numerically within 60 lines, so scripts/compat-risk-scan.mjs linked them by name across function scopes and reported timer-ids for a worker that never reads a timer id as a number. Renamed to timerId; scan is clean and the guard keeps its full meaning. */ /* WORKERS-BUILDS-TOMBSTONE-1 (2026-10-25, agent_issues 1000142): a Workers Builds rebuild of the retired repository-root stub is ledgered, not filed. CLAIM-TERMINAL-RELEASE-1 (2026-10-18): CODE_TASK_DONE now includes superseded, so the guard stops counting a superseded task as live work on its file. */
 var WORKER = "qnfo-deploy-guard";
 var LOCK_PREFIX = "deploylock:";
 var DENY_PREFIX = "deploydeny:";
@@ -27,40 +27,48 @@ function tok() {
   return out;
 }
 function ms(s) { if (!s) return NaN; var v = new Date(String(s).replace(" ", "T") + (String(s).indexOf("Z") >= 0 ? "" : "Z")).getTime(); return isNaN(v) ? NaN : v; }
-// CF-OBS-ISSUE-1 (a48ea72c, "The operation was aborted" x21): the probe was strictly serial -
-// when the primary ops URL hung past the timeout, c.abort() fired on it, logged the abort, and
-// only THEN was the mirror tried, so every slow primary produced an aborted-fetch error and the
-// whole scan waited timeout+timeout. One shared AbortController now races BOTH URLs in
-// parallel (Promise.any) with a single timer that is cleared in a finally as soon as either
-// answers: a hanging primary can no longer abort (the mirror wins first, the timer is cleared,
-// nothing is aborted), and the fleet/cost probes stop losing whole timeout windows to dead hosts.
+// OPS-PROBE-TIMEOUT-RECOVERY-1 (#6429): race both URLs through body parsing, cancel outstanding
+// requests on every exit, and retry a shared timeout once with a fresh signal. The explicit
+// deadline also bounds a fetch/body that does not settle on abort; persistent failures still log.
 function getJson(urls, tout, probe) {
   return (async function () {
-    var c = new AbortController();
-    var timerId = setTimeout(function () { c.abort(); }, tout || 15000);
-    var attempts = urls.map(function (u) {
-      return Promise.resolve().then(function () { return fetch(u, { signal: c.signal, headers: { accept: "application/json" } }); }).then(function (r) {
-        if (!r.ok) throw new Error("status " + r.status);
-        return r.json().then(function (j) {
-          if (!j) throw new Error("empty body");
-          return { ok: true, j: j, url: u };
-        });
-      }).catch(function (e) {
-        var host = "unknown endpoint";
-        try { host = new URL(u).host; } catch (_) {}
-        var name = String((e && e.name) || "Error");
-        var message = String((e && e.message) || e || "request rejected").slice(0, 160);
-        throw new Error(host + ": " + name + ": " + message);
+    var timeoutMs = tout || 15000;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var c = new AbortController();
+      var timedOut = false;
+      var timerId;
+      var deadline = new Promise(function (_, reject) {
+        timerId = setTimeout(function () {
+          timedOut = true;
+          reject(new Error("TimeoutError: exceeded " + timeoutMs + "ms"));
+          c.abort();
+        }, timeoutMs);
       });
-    });
-    try { return await Promise.any(attempts); }
-    catch (e) {
-      var reasons = e && Array.isArray(e.errors) ? e.errors : [];
-      var detail = reasons.length ? reasons.map(function (reason) { return String((reason && reason.message) || reason); }).join("; ") : String((e && e.message) || e);
-      console.error(JSON.stringify({ evt: "deploy-guard:getJson:caught", probe: probe || "unknown", error: detail.slice(0, 500) }));
-      return { ok: false, j: null, url: null };
+      var attempts = urls.map(function (u) {
+        return Promise.resolve().then(function () { return fetch(u, { signal: c.signal, headers: { accept: "application/json" } }); }).then(function (r) {
+          if (!r.ok) throw new Error("status " + r.status);
+          return r.json().then(function (j) {
+            if (!j) throw new Error("empty body");
+            return { ok: true, j: j, url: u };
+          });
+        }).catch(function (e) {
+          var host = "unknown endpoint";
+          try { host = new URL(u).host; } catch (_) {} // standards-ok: URL label fallback only; the request failure is logged below.
+          var name = String((e && e.name) || "Error");
+          var message = String((e && e.message) || e || "request rejected").slice(0, 160);
+          throw new Error(host + ": " + name + ": " + message);
+        });
+      });
+      try { return await Promise.race([Promise.any(attempts), deadline]); }
+      catch (e) {
+        if (timedOut && attempt === 0) continue;
+        var reasons = e && Array.isArray(e.errors) ? e.errors : [];
+        var detail = reasons.length ? reasons.map(function (reason) { return String((reason && reason.message) || reason); }).join("; ") : String((e && e.message) || e);
+        console.error(JSON.stringify({ evt: "deploy-guard:getJson:caught", probe: probe || "unknown", error: detail.slice(0, 500), attempts: attempt + 1 }));
+        return { ok: false, j: null, url: null };
+      }
+      finally { clearTimeout(timerId); c.abort(); }
     }
-    finally { clearTimeout(timerId); }
   })();
 }
 // DECISION (2026-09-21): the lock is backed by D1 deploy_locks (STRONGLY consistent). It was on KV,
