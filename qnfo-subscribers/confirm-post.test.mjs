@@ -140,6 +140,7 @@ const call = (env, path, init) => worker.fetch(new Request("https://qnfo-subscri
   ok(ev && ev.status === "ok" && ev.meta.kind === "digest" && ev.meta.list_unsubscribe === true && ev.meta.messageId, "digest send logged with list_unsubscribe true", t2.events);
   const dtext = t2.sends[0] && t2.sends[0].text || "";
   ok(dtext.includes("\n   https://qnfo.org/papers/p-1?utm_source=digest&utm_medium=email&utm_campaign=p-1\n"), "DIGEST-LINKS-UTM-1: every paper link in the digest carries utm_source=digest, utm_medium=email and the slug as campaign", dtext);
+  ok(dtext.includes("Know someone who should read this? Forward this issue, or send them here:\nhttps://qnfo.org/?utm_source=digest&utm_campaign=digest-forward\n\nUnsubscribe: https://qnfo.org/api/unsubscribe?token=" + TOKEN + "\n"), "the digest forward link uses the tagged qnfo.org landing page immediately before the unchanged unsubscribe link", dtext);
   ok(!/utm_[a-z]+=[^&\s]*(token|reader|example)/.test(dtext) && /Unsubscribe: https:\/\/qnfo\.org\/api\/unsubscribe\?token=abc123def456\n/.test(dtext), "the tags never carry the recipient and the unsubscribe link stays untagged", dtext);
 }
 // Digest: a binding that refuses the headers still delivers, without them, and says so.
