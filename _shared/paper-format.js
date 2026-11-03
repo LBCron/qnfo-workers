@@ -25,11 +25,11 @@ export function formatPaper(source, record) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[*_`#]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/^the /, "");
   const heading = (s) => /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(s);
   const abstractLabel = (s) => /^(?:#{1,6}[ \t]+)?(?:\d+\.?[ \t]+)?[*_]{0,2}abstract[ \t]*:?[ \t]*[*_]{0,2}[ \t]*:?[ \t]*$/i.test(s.trim());
-  const metaLabel = /(?:^|\s)(?:[*_]{1,2})?(authors?|affiliations?|contact|e-?mail|orcid|isni|url|website|publication date|date|version|doi|license|keywords|status|modified|last updated|robots|dc\.rights)(?:[*_]{1,2})?[ \t]*:(?:[*_]{1,2})?[ \t]*/gi;
+  const metaLabel = /(?:^|\s)(?:[*_]{1,2})?(authors?|affiliations?|contact|e-?mail|orcid|isni|url|website|publication date|date|version|doi|license|keywords|status|modified|last updated|robots|dc\.rights)(?:[*_]{1,2})?[ \t]*:[*_]{0,2}[ \t]*/gi;
   const blocks = text.trim().split(/\n[ \t]*\n/);
   const explicitAbstract = !!fields.abstract || blocks.some((b) => abstractLabel(b.split("\n")[0]) || /^(?:#{1,6}[ \t]+)?[*_]{0,2}abstract[*_]{0,2}[ \t]*:/i.test(b));
   const kept = [];
-  let inHeader = true, titleSeen = false, subtitle = "", abstract = "";
+  let inHeader = true, titleSeen = false, subtitle = "", abstract = "", titleFragment = "", abstractFragment = false;
   let fence = "";
   const title = String(row.title || fields.title || "").replace(/\s+/g, " ").trim();
   let resolvedTitle = title;
@@ -61,6 +61,12 @@ export function formatPaper(source, record) {
     if (inHeader && label) {
       // Old repairs inserted an Abstract before a title continuation. Only the
       // last label before actual prose survives; no fragment becomes an abstract.
+      if (abstractFragment) {
+        const fragmentIndex = kept.lastIndexOf(abstract);
+        if (fragmentIndex >= 0) kept.splice(fragmentIndex, 1);
+        abstract = "";
+        abstractFragment = false;
+      }
       pendingAbstract = !abstract;
       continue;
     }
@@ -79,12 +85,12 @@ export function formatPaper(source, record) {
       const bare = block.replace(/^#+[ \t]+/, "").replace(/^(\*{1,3})([\s\S]+)\1$/, "$2").trim();
       const n = norm(bare), tn = norm(resolvedTitle);
       if ((!abstract && !titleSeen && bh && bh[1] === "#" && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|references\b)/i.test(bare)) || (!abstract && !resolvedTitle && bh && !/^(?:\d|chapter\b|introduction\b|objective\b)/i.test(bare)) || (!abstract && n && tn && (n === tn || tn.startsWith(n + " ") || tn.endsWith(" " + n)))) {
-        if (!resolvedTitle) resolvedTitle = bare;
+        if (!resolvedTitle || (bh && bh[1] === "#" && tn && n.startsWith(tn + " "))) resolvedTitle = bare;
         titleSeen = true;
         continue;
       }
       // Before a real abstract, a non-section heading is a subtitle, not a TOC item.
-      if (!abstract && (bh || /^\*[^*\n][\s\S]*\*$/.test(block)) && blocks.slice(i + 1).some(abstractLabel) && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|objective\b)/i.test(bare)) {
+      if ((!abstract || abstractFragment) && (bh || /^\*[^*\n][\s\S]*\*$/.test(block)) && blocks.slice(i + 1).some(abstractLabel) && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|objective\b)/i.test(bare)) {
         subtitle = subtitle ? subtitle + " " + bare.replace(/\s+/g, " ") : bare.replace(/\s+/g, " ");
         continue;
       }
@@ -95,9 +101,14 @@ export function formatPaper(source, record) {
       if (inHeader) {
         if (!pendingAbstract && !abstract && !explicitAbstract && !kept.length && !/^(?:[*_>\[|`~]|[-+]\s|\d+[.)]\s)/.test(block)) pendingAbstract = true;
         if (pendingAbstract) {
-          kept.push("## Abstract");
+          if (!kept.includes("## Abstract")) kept.push("## Abstract");
           pendingAbstract = false;
           abstract = block;
+          abstractFragment = (block.trim().match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) || []).length <= 3;
+          if (abstractFragment && !titleFragment && /\b(?:of|and|or|the|to|for|with|in|by|from|as|at|on|about|into|through|between|without|than|over|under)$/i.test(resolvedTitle)) {
+            const candidate = block.trim().replace(/[.!?]+$/, "");
+            if (/^[A-Z][A-Za-z'-]*$/.test(candidate)) titleFragment = candidate;
+          }
         } else if (abstract) {
           abstract += "\n\n" + block;
         }
@@ -118,6 +129,27 @@ export function formatPaper(source, record) {
     abstract = fields.abstract;
     content = "## Abstract\n\n" + abstract + (content ? "\n\n" + content : "");
   }
+  const recordAbstract = String(row.abstract || "").trim();
+  const words = (value) => (String(value || "").match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) || []).length;
+  const fragment = titleFragment || (words(abstract) <= 3 ? abstract.trim().replace(/[.!?]+$/, "") : "");
+  if (recordAbstract && words(recordAbstract) >= 20 && words(abstract) <= 3) {
+    if (words(abstract) <= 3) abstract = recordAbstract;
+  }
+  if (fragment) {
+    if (/\b(?:of|and|or|the|to|for|with|in|by|from|as|at|on|about|into|through|between|without|than|over|under)$/i.test(resolvedTitle) && /^[A-Z][A-Za-z'-]*$/.test(fragment)) {
+      resolvedTitle = (resolvedTitle + " " + fragment).trim();
+    }
+    const abstractMatch = /^## Abstract[ \t]*\n+([\s\S]*?)(?=\n#{1,6}[ \t]+|$)/m.exec(content);
+    if (recordAbstract && words(recordAbstract) >= 20 && abstractMatch && words(abstractMatch[1]) <= 3) {
+      content = content.slice(0, abstractMatch.index) + "## Abstract\n\n" + recordAbstract + content.slice(abstractMatch.index + abstractMatch[0].length);
+      abstract = recordAbstract;
+    }
+  }
+  if (resolvedTitle) {
+    fields.title = resolvedTitle;
+    frontmatter = frontmatter.replace(/^title:[ \t]*.*$/mi, "title: " + JSON.stringify(resolvedTitle));
+  }
+  if (abstract) fields.abstract = abstract;
   const sub = String(row.subtitle || subtitle || fields.subtitle || "").trim();
   const displayBody = (resolvedTitle ? "# " + resolvedTitle + "\n\n" : "") + (sub ? "*" + sub + "*\n\n" : "") + content + "\n";
   // Retain every original YAML field and lift removed byline fields into YAML,

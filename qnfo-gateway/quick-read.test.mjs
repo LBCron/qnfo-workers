@@ -134,7 +134,7 @@ function mkEnv() {
         plainFillQueries.push(sql);
         let results = Object.values(papers).map((p) => Object.assign({}, p, { plain_rev: (plain.get(p.slug) || {}).rev || null, plain_text: (plain.get(p.slug) || {}).text || null }));
         if (/ORDER BY CASE WHEN/.test(sql)) {
-          const rank = (p) => p.plain_text && /use everyday words|we must restate|output only the plain-language sentences/i.test(p.plain_text) ? 0 : (!p.plain_rev || !p.plain_text ? 1 : 2);
+          const rank = (p) => p.plain_text && /use everyday words|we must restate|output only the plain-language sentences|sorry, but i can|i cannot|i can't|i can’t|i am unable|i'm unable|i’m unable|i am not able|i'm not able|i’m not able|i apologize, but|i'm sorry|i’m sorry|unable to comply|without the necessary details/i.test(p.plain_text) ? 0 : (!p.plain_rev || !p.plain_text ? 1 : 2);
           results.sort((a, b) => rank(a) - rank(b) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
           const limit = Number((sql.match(/\bLIMIT\s+(\d+)/i) || [])[1] || results.length);
           results = results.slice(0, limit);
@@ -527,12 +527,33 @@ const Q = "What did the controller measure about the energy cost of one solution
     const page = await call(env, "https://papers.qnfo.org/papers/" + AFFECTED_SLUG, { headers: { Accept: "text/html" } });
     const html = await page.text();
     ok(!/Use everyday words|We must restate|We must cover|Hard rules:|At most 1 sentence|Output only the plain-language sentences/i.test(html), "the public paper page never renders the live instruction-residue sample");
+    const refusal = "I\u2019m sorry, but I can\u2019t rewrite that paper without the necessary details.";
+    env._plain.set(AFFECTED_SLUG, { ...repaired, text: refusal });
+    const refusedApi = await call(env, "https://papers.qnfo.org/api/quickread/" + AFFECTED_SLUG);
+    ok((await refusedApi.json()).plain === null, "a model refusal is not served as a reader-facing summary");
+    for (const variant of ["I cannot provide a summary.", "I can’t help with this request.", "I’m unable to rewrite the paper."]) {
+      env._plain.set(AFFECTED_SLUG, { ...repaired, text: variant });
+      const variantApi = await call(env, "https://papers.qnfo.org/api/quickread/" + AFFECTED_SLUG);
+      ok((await variantApi.json()).plain === null, "common refusal wording is rejected: " + variant);
+    }
+    env._plain.set(AFFECTED_SLUG, { ...repaired, text: refusal });
+    aiOut = refusal;
+    await gw.scheduled({ cron: "0 6 * * *" }, env, { waitUntil() {} });
+    const stillRefused = await call(env, "https://papers.qnfo.org/api/quickread/" + AFFECTED_SLUG);
+    ok((await stillRefused.json()).plain === null, "a fresh refusal cannot replace or pass the summary cache gate");
+    ok(env._plainFillQueries.some((sql) => /sorry, but i can/.test(sql)), "the bounded fill query also selects cached refusals for repair");
+    aiOut = "The controller ran 42 trials on the cryostat. Each solution used 1.7 joules under load, which is the main result.";
+    await gw.scheduled({ cron: "0 6 * * *" }, env, { waitUntil() {} });
+    const recovered = await call(env, "https://papers.qnfo.org/api/quickread/" + AFFECTED_SLUG);
+    ok(/42 trials/.test(((await recovered.json()).plain || {}).text || ""), "a later valid summary replaces the hidden refusal");
   }
 }
 
 // ---- 22. PLAIN-RESIDUE-LIKE-1: D1 refuses a LIKE pattern over 50 bytes, so the residue gate SQL must not build one
 {
-  const markers = new Function("return " + src.match(/var PLAIN_PROMPT_MARKERS = (\[[^\]]*\]);/)[1])();
+  const promptMarkers = new Function("return " + src.match(/var PLAIN_PROMPT_MARKERS = (\[[^\]]*\])\.concat\(PLAIN_REFUSAL_MARKERS\);/)[1])();
+  const refusalMarkers = new Function("return " + src.match(/var PLAIN_REFUSAL_MARKERS = (\[[^\]]*\]);/)[1])();
+  const markers = promptMarkers.concat(refusalMarkers);
   ok(markers.some((m) => Buffer.byteLength("%" + m + "%") > 50), "a residue marker is longer than the D1 LIKE limit (the case this guards)");
   ok(!/" LIKE '%" \+ marker/.test(src) && /"instr\(" \+ lower \+ ",'" \+ marker/.test(src), "the residue markers are matched with instr, never LIKE");
   const likeLits = (src.match(/LIKE '[^']*'/g) || []).filter((l) => Buffer.byteLength(l.slice(6, -1)) > 50);

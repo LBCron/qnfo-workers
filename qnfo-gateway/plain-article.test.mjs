@@ -90,7 +90,7 @@ globalThis.fetch = async (u) => {
   return new Response("", { status: 404 });
 };
 const dir = mkdtempSync(join(tmpdir(), "plainart-"));
-writeFileSync(join(dir, "w.mjs"), src + "\nexport { articleParse, articleProblems, articleGround, articleLookup, articleLinks, articleBuild, articleFill, articleGet, articleRev, articleSource, articlePrompt, articleStats, articleTargetWords, ARTICLE_FILL_MAX, ARTICLE_FILL_BATCH };\n");
+writeFileSync(join(dir, "w.mjs"), src + "\nexport { articleParse, articleProblems, articleGround, articleLookup, articleLinks, articleBuild, articleFill, articleGet, articleRev, articleSource, articlePrompt, articleStats, articleTargetWords, plainHasRefusal, plainRefusalSql, ARTICLE_FILL_MAX, ARTICLE_FILL_BATCH };\n");
 const m = await import(pathToFileURL(join(dir, "w.mjs")).href);
 const gw = m.default;
 
@@ -101,6 +101,8 @@ ok(a1 && a1.sections.length === 4 && a1.sections[3].h === "What this does not sh
 ok(a1 && a1.terms.length === 2 && a1.terms[0].t === "controller" && /tells the computer/.test(a1.terms[0].m), "the words used are read as term and meaning");
 ok(a1 && a1.learn.join("|") === "energy|computer|temperature", "the topics to look up are read", a1 && a1.learn);
 ok(m.articleParse("# Only a title\n\nSome text.") === null && m.articleParse("") === null && m.articleParse("## The short version\n\nx\n\n## A\n\ny\n\n## B\n\nz\n\n## C\n\nw") === null, "a reply without a title, a short version and three sections is refused");
+ok(m.plainHasRefusal("I cannot provide a summary.") && m.plainHasRefusal("I can’t help with this request.") && m.plainHasRefusal("I’m unable to rewrite the paper."), "common model refusal variants are recognized");
+ok(m.plainRefusalSql("a.short").includes("i cannot") && m.plainRefusalSql("a.body").includes("without the necessary details"), "the cache-repair SQL searches both article fields for refusal markers");
 ok(m.articleParse("```markdown\n" + GOOD + "\n```") && m.articleParse("<think>hmm</think>" + GOOD), "a code fence or a thinking block around the reply is removed");
 ok(/\*\*/.test(GOOD) === false && m.articleParse(GOOD.replace("A control system", "**A control** system")).short.indexOf("**") < 0, "bold markers are stripped from the text");
 
@@ -160,6 +162,9 @@ ok(r.status === "failed" && /no title, short version and three sections/.test(r.
 fresh(); verifierOut = () => "";
 r = await m.articleBuild({ AI }, P);
 ok(r.status === "ok" && !/gptoss-verify/.test(r.method) && calls.writer === 1, "a verifier that does not answer fails open after the deterministic gate", r.method);
+fresh(); writerOut = () => GOOD.replace("A control system solved problems on a very cold computer.", "I’m sorry, but I cannot rewrite the paper without the necessary details.");
+r = await m.articleBuild({ AI }, P);
+ok(r.status === "failed" && /model refusal/.test(r.note), "a structured model refusal is not stored as a plain-language article", r.note);
 fresh(); writerOut = () => dense;
 r = await m.articleBuild({ AI }, P);
 ok(r.status === "failed" && /reading grade/.test(r.note), "an article above the hard grade that the repair does not lower is not stored", r.note);
@@ -171,8 +176,10 @@ ok(m.articleSource({ body_md: "x".repeat(60000) }).length < 36100 && /\[\.\.\.\]
 
 // ---- the store and the fill (an in-memory living-paper) ----
 const art = new Map();
+const articleQueries = [];
 const mkLP = (extra) => {
   const stmt = (sql) => {
+    articleQueries.push(sql);
     const st = {
       a: [], bind(...a) { st.a = a; return st; },
       async first() {
@@ -189,7 +196,7 @@ const mkLP = (extra) => {
       async all() {
         if (/FROM papers p LEFT JOIN plain_article/i.test(sql)) {
           const limit = Number((sql.match(/\bLIMIT\s+(\d+)/i) || [])[1] || 99);
-          const rows = Object.values(papers).filter((p) => { const a = art.get(p.slug); if (!a) return true; if (a.status === "ok") return a.version !== String(p.version || "") || a.body_len !== p.body_md.length; return a.attempts < 3 && Date.now() - Date.parse(a.generated_at) > 6 * 3600e3; });
+          const rows = Object.values(papers).filter((p) => { const a = art.get(p.slug); if (!a) return true; if (a.status === "ok") return a.version !== String(p.version || "") || a.body_len !== p.body_md.length || m.plainHasRefusal(a.short) || m.plainHasRefusal(a.body); return a.attempts < 3 && Date.now() - Date.parse(a.generated_at) > 6 * 3600e3; });
           rows.sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)));
           return { results: rows.slice(0, limit).map((p) => ({ slug: p.slug, attempts: (art.get(p.slug) || {}).attempts || 0 })) };
         }
@@ -255,6 +262,14 @@ ok(/class="plain-callout"/.test(paperPage) && /A control system solved problems/
 ok(/no jargon, no mathematics/.test(paperPage), "the link says what the reader gets");
 const api = await (await callPage(env, "/api/quickread/" + SLUG)).json();
 ok(api.article && api.article.title === "How Much Energy One Answer Costs" && api.article.sections.length === 4 && api.kind === "digest", "the API returns the article beside the digest");
+const refusal = "I’m sorry, but I can’t rewrite that paper without the necessary details.";
+art.set(SLUG, Object.assign({}, art.get(SLUG), { short: refusal }));
+ok((await m.articleGet(env, papers[SLUG])) === null, "a cached refusal is not returned by articleGet");
+const refusalApi = await (await callPage(env, "/api/quickread/" + SLUG)).json();
+ok(refusalApi.article === null, "the public Quick Read API does not expose a cached refusal");
+fresh();
+const repair = await m.articleFill(env);
+ok(repair.tried >= 1 && !m.plainHasRefusal(art.get(SLUG).short) && articleQueries.some((sql) => /i cannot/.test(sql) && /i''m sorry/.test(sql)), "the bounded article fill selects and repairs a cached refusal");
 const frag = await (await callPage(env, "/api/quickread/" + SLUG + "?format=html")).text();
 ok(/qa-short/.test(frag) && /qa-tech/.test(frag), "the HTML fragment carries the article and the folded digest");
 art.delete(SLUG);

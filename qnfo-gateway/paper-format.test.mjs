@@ -34,3 +34,19 @@ test("Markdown downloads contain one title/abstract and preserve custom YAML and
   assert.match(md, /Real abstract\./);
   assert.doesNotMatch(md, /Stale abstract|Old title|\*\*Contact:/);
 });
+
+test("the public page repairs a split title/abstract and never renders a cached refusal", () => {
+  const recordAbstract = "The universe is saturated with a chaotic ocean of energy that we call the electromagnetic spectrum. This spectrum stretches from the longest radio waves to the shortest gamma rays. Between these extremes lies a wide range of frequencies that carry information about the cosmos.";
+  const body = '---\ntitle: "THE ARCHITECTURE OF"\n---\n\n# THE ARCHITECTURE OF\n\n## Abstract\n\nEXPERIENCE\n\n## Deconstructing the Interface of Perception\n\n**Author:** Research Author\n\n**Version:** 1.1.0\n\n### ABSTRACT\n\nA complete abstract.\n\n### Chapter 1\n\nScientific content.\n';
+  const html = lpPaperHTML({
+    slug: "architecture-of-experience",
+    title: "THE ARCHITECTURE OF",
+    abstract: recordAbstract,
+    body_md: body,
+    _article: { short: "I\u2019m sorry, but I can\u2019t rewrite that paper without the necessary details.", minutes: 2 },
+    _plain: { text: "I\u2019m sorry, but I can\u2019t rewrite that paper without the necessary details." }
+  });
+  assert.match(html, /<h1>THE ARCHITECTURE OF EXPERIENCE<\/h1>/);
+  assert.match(html, /The universe is saturated with a chaotic ocean of energy/);
+  assert.doesNotMatch(html, /<p>EXPERIENCE<\/p>|Author:|Version:|I\u2019m sorry/);
+});

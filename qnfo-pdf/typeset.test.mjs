@@ -196,6 +196,17 @@ test("an in-body byline block is lifted into the title block and removed from th
   assert.ok(!/Author: Rowan/.test(r.bodyHtml), "the byline is not printed as a body paragraph");
 });
 
+test("the PDF uses the record title and abstract to repair a malformed revision header", () => {
+  const recordAbstract = "The universe is saturated with a chaotic ocean of energy that we call the electromagnetic spectrum. This spectrum stretches from the longest radio waves to the shortest gamma rays. Between these extremes lies a wide range of frequencies that carry information about the cosmos.";
+  const body = '---\ntitle: "THE ARCHITECTURE OF"\n---\n\n# THE ARCHITECTURE OF\n\n## Abstract\n\nEXPERIENCE\n\n## Deconstructing the Interface of Perception\n\n**Author:** Research Author\n\n**Version:** 1.1.0\n\n### ABSTRACT\n\nA complete abstract.\n\n### Chapter 1\n\nScientific content.\n';
+  const r = renderPaperHTML(body, {
+    meta: Object.assign({}, META, { title: "THE ARCHITECTURE OF", abstract: recordAbstract })
+  });
+  assert.equal(r.title, "THE ARCHITECTURE OF EXPERIENCE");
+  assert.equal(r.abstract, recordAbstract);
+  assert.doesNotMatch(r.bodyHtml, /EXPERIENCE|Author:|Version:/);
+});
+
 test("an empty trailing References heading is replaced by the generated list, never printed bare", () => {
   const r = render();
   assert.equal((r.bodyHtml.match(/>References</g) || []).length, 0, "the body keeps no stray heading");

@@ -42,6 +42,19 @@ test("front matter and inline abstract are retained without printing metadata", 
   assert.equal(inline.abstract, "This is the real abstract.");
 });
 
+test("a title continuation accidentally filed as the abstract is recovered from the record", () => {
+  const recordAbstract = "The universe is saturated with a chaotic ocean of energy that we call the electromagnetic spectrum. This spectrum stretches from the longest radio waves to the shortest gamma rays. Between these extremes lies a wide range of frequencies that carry information about the cosmos.";
+  const source = '---\ntitle: "THE ARCHITECTURE OF"\n---\n\n# THE ARCHITECTURE OF\n\n## Abstract\n\nEXPERIENCE\n\n## Deconstructing the Interface of Perception\n\n**Author:** Research Author\n\n**Version:** 1.1.0\n\n### ABSTRACT\n\nA complete abstract.\n\n### Chapter 1\n\nScientific content.\n';
+  const record = { title: "THE ARCHITECTURE OF", abstract: recordAbstract };
+  const paper = formatPaper(source, record);
+  assert.equal(paper.title, "THE ARCHITECTURE OF EXPERIENCE");
+  assert.equal(paper.abstract, recordAbstract);
+  assert.match(paper.body, /^---\ntitle: "THE ARCHITECTURE OF EXPERIENCE"/);
+  assert.match(paper.content, /^## Abstract\n\nThe universe is saturated/);
+  assert.doesNotMatch(paper.content, /^EXPERIENCE$|Author:|Version:/m);
+  assert.equal(formatPaper(paper.body, record).body, paper.body);
+});
+
 export { TITLE, ABSTRACT, BROKEN };
 
 test("bold abstract labels and title-like scientific sections retain their boundaries", () => {

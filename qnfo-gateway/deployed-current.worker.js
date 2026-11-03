@@ -26,11 +26,11 @@ function formatPaper(source, record) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[*_`#]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/^the /, "");
   const heading = (s) => /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(s);
   const abstractLabel = (s) => /^(?:#{1,6}[ \t]+)?(?:\d+\.?[ \t]+)?[*_]{0,2}abstract[ \t]*:?[ \t]*[*_]{0,2}[ \t]*:?[ \t]*$/i.test(s.trim());
-  const metaLabel = /(?:^|\s)(?:[*_]{1,2})?(authors?|affiliations?|contact|e-?mail|orcid|isni|url|website|publication date|date|version|doi|license|keywords|status|modified|last updated|robots|dc\.rights)(?:[*_]{1,2})?[ \t]*:(?:[*_]{1,2})?[ \t]*/gi;
+  const metaLabel = /(?:^|\s)(?:[*_]{1,2})?(authors?|affiliations?|contact|e-?mail|orcid|isni|url|website|publication date|date|version|doi|license|keywords|status|modified|last updated|robots|dc\.rights)(?:[*_]{1,2})?[ \t]*:[*_]{0,2}[ \t]*/gi;
   const blocks = text.trim().split(/\n[ \t]*\n/);
   const explicitAbstract = !!fields.abstract || blocks.some((b) => abstractLabel(b.split("\n")[0]) || /^(?:#{1,6}[ \t]+)?[*_]{0,2}abstract[*_]{0,2}[ \t]*:/i.test(b));
   const kept = [];
-  let inHeader = true, titleSeen = false, subtitle = "", abstract = "";
+  let inHeader = true, titleSeen = false, subtitle = "", abstract = "", titleFragment = "", abstractFragment = false;
   let fence = "";
   const title = String(row.title || fields.title || "").replace(/\s+/g, " ").trim();
   let resolvedTitle = title;
@@ -62,6 +62,12 @@ function formatPaper(source, record) {
     if (inHeader && label) {
       // Old repairs inserted an Abstract before a title continuation. Only the
       // last label before actual prose survives; no fragment becomes an abstract.
+      if (abstractFragment) {
+        const fragmentIndex = kept.lastIndexOf(abstract);
+        if (fragmentIndex >= 0) kept.splice(fragmentIndex, 1);
+        abstract = "";
+        abstractFragment = false;
+      }
       pendingAbstract = !abstract;
       continue;
     }
@@ -80,12 +86,12 @@ function formatPaper(source, record) {
       const bare = block.replace(/^#+[ \t]+/, "").replace(/^(\*{1,3})([\s\S]+)\1$/, "$2").trim();
       const n = norm(bare), tn = norm(resolvedTitle);
       if ((!abstract && !titleSeen && bh && bh[1] === "#" && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|references\b)/i.test(bare)) || (!abstract && !resolvedTitle && bh && !/^(?:\d|chapter\b|introduction\b|objective\b)/i.test(bare)) || (!abstract && n && tn && (n === tn || tn.startsWith(n + " ") || tn.endsWith(" " + n)))) {
-        if (!resolvedTitle) resolvedTitle = bare;
+        if (!resolvedTitle || (bh && bh[1] === "#" && tn && n.startsWith(tn + " "))) resolvedTitle = bare;
         titleSeen = true;
         continue;
       }
       // Before a real abstract, a non-section heading is a subtitle, not a TOC item.
-      if (!abstract && (bh || /^\*[^*\n][\s\S]*\*$/.test(block)) && blocks.slice(i + 1).some(abstractLabel) && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|objective\b)/i.test(bare)) {
+      if ((!abstract || abstractFragment) && (bh || /^\*[^*\n][\s\S]*\*$/.test(block)) && blocks.slice(i + 1).some(abstractLabel) && !/^(?:\d+[.)]?\s|chapter\b|introduction\b|objective\b)/i.test(bare)) {
         subtitle = subtitle ? subtitle + " " + bare.replace(/\s+/g, " ") : bare.replace(/\s+/g, " ");
         continue;
       }
@@ -96,9 +102,14 @@ function formatPaper(source, record) {
       if (inHeader) {
         if (!pendingAbstract && !abstract && !explicitAbstract && !kept.length && !/^(?:[*_>\[|`~]|[-+]\s|\d+[.)]\s)/.test(block)) pendingAbstract = true;
         if (pendingAbstract) {
-          kept.push("## Abstract");
+          if (!kept.includes("## Abstract")) kept.push("## Abstract");
           pendingAbstract = false;
           abstract = block;
+          abstractFragment = (block.trim().match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) || []).length <= 3;
+          if (abstractFragment && !titleFragment && /\b(?:of|and|or|the|to|for|with|in|by|from|as|at|on|about|into|through|between|without|than|over|under)$/i.test(resolvedTitle)) {
+            const candidate = block.trim().replace(/[.!?]+$/, "");
+            if (/^[A-Z][A-Za-z'-]*$/.test(candidate)) titleFragment = candidate;
+          }
         } else if (abstract) {
           abstract += "\n\n" + block;
         }
@@ -119,6 +130,27 @@ function formatPaper(source, record) {
     abstract = fields.abstract;
     content = "## Abstract\n\n" + abstract + (content ? "\n\n" + content : "");
   }
+  const recordAbstract = String(row.abstract || "").trim();
+  const words = (value) => (String(value || "").match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) || []).length;
+  const fragment = titleFragment || (words(abstract) <= 3 ? abstract.trim().replace(/[.!?]+$/, "") : "");
+  if (recordAbstract && words(recordAbstract) >= 20 && words(abstract) <= 3) {
+    if (words(abstract) <= 3) abstract = recordAbstract;
+  }
+  if (fragment) {
+    if (/\b(?:of|and|or|the|to|for|with|in|by|from|as|at|on|about|into|through|between|without|than|over|under)$/i.test(resolvedTitle) && /^[A-Z][A-Za-z'-]*$/.test(fragment)) {
+      resolvedTitle = (resolvedTitle + " " + fragment).trim();
+    }
+    const abstractMatch = /^## Abstract[ \t]*\n+([\s\S]*?)(?=\n#{1,6}[ \t]+|$)/m.exec(content);
+    if (recordAbstract && words(recordAbstract) >= 20 && abstractMatch && words(abstractMatch[1]) <= 3) {
+      content = content.slice(0, abstractMatch.index) + "## Abstract\n\n" + recordAbstract + content.slice(abstractMatch.index + abstractMatch[0].length);
+      abstract = recordAbstract;
+    }
+  }
+  if (resolvedTitle) {
+    fields.title = resolvedTitle;
+    frontmatter = frontmatter.replace(/^title:[ \t]*.*$/mi, "title: " + JSON.stringify(resolvedTitle));
+  }
+  if (abstract) fields.abstract = abstract;
   const sub = String(row.subtitle || subtitle || fields.subtitle || "").trim();
   const displayBody = (resolvedTitle ? "# " + resolvedTitle + "\n\n" : "") + (sub ? "*" + sub + "*\n\n" : "") + content + "\n";
   // Retain every original YAML field and lift removed byline fields into YAML,
@@ -132,7 +164,8 @@ function formatPaper(source, record) {
   return { title: resolvedTitle, subtitle: sub, abstract, explicitAbstract, fields, content, displayBody, body: (frontmatter ? frontmatter + "\n\n" : "") + displayBody };
 }
 // PAPER-FORMAT-2:END
-var VERSION="3.48.6"; // 3.48.0 PLAIN-STANDARD-1 (2026-10-28, pillar reach, agent_issues 1000476; minor: the plain-language summary now has a hard readability gate): plainPrompt asks for at most two figures, one everyday comparison, terms defined inline and sentences under 20 words; plainBuild regenerates once and flags a result above Flesch-Kincaid grade 9 as gated, which is never stored or shown (a gated build keeps the old row and waits 6 hours); plainFill queues stored summaries above grade 9 for regeneration, hardest first. qnfo-gateway/plain-standard.test.mjs. // 3.47.0 BP26-AI-ACT-ART50-1 + BP26-PROVENANCE-MARKING-1 (2026-10-28, pillars research and security, agent_issues 1000341 and 1000335): every paper page carries a visible AI label (AI-generated, or AI-assisted only where paper_provenance names a reviewer), JSON-LD creditText / digitalSourceType / isAIGenerated and, when the secret PROVENANCE_SIGNING_KEY is set, a signed Ed25519 sidecar at /papers/<slug>/provenance.json linked by <link rel="c2pa-manifest">, the public key at /.well-known/provenance-key.json, an hourly sweep that signs 40 unsigned papers and files each in qnfo-audit asset_provenance; the footer and the JSON-LD of qnfo.org pages say papers are written by AI. Absent secret = no sidecar, no link. qnfo-gateway/provenance.test.mjs. // 3.45.0 PAPER-PIDS-1 slice (2026-10-28, pillar research): per-paper CITATION.cff, CSL-JSON and BibTeX at /api/papers/<slug>.cff|.csl.json|.bib, built from the same open record as the JSON API and OAI-PMH (BP26-PAPER-PIDS-1, agent_issues 1000338).
+// 3.48.7 PAPER-REVISION-QUALITY-1 (2026-11-03, pillar reach): recover split revision titles and record abstracts at public rendering, and reject cached refusals from both summary surfaces.
+var VERSION="3.48.7"; // 3.48.0 PLAIN-STANDARD-1 (2026-10-28, pillar reach, agent_issues 1000476; minor: the plain-language summary now has a hard readability gate): plainPrompt asks for at most two figures, one everyday comparison, terms defined inline and sentences under 20 words; plainBuild regenerates once and flags a result above Flesch-Kincaid grade 9 as gated, which is never stored or shown (a gated build keeps the old row and waits 6 hours); plainFill queues stored summaries above grade 9 for regeneration, hardest first. qnfo-gateway/plain-standard.test.mjs. // 3.47.0 BP26-AI-ACT-ART50-1 + BP26-PROVENANCE-MARKING-1 (2026-10-28, pillars research and security, agent_issues 1000341 and 1000335): every paper page carries a visible AI label (AI-generated, or AI-assisted only where paper_provenance names a reviewer), JSON-LD creditText / digitalSourceType / isAIGenerated and, when the secret PROVENANCE_SIGNING_KEY is set, a signed Ed25519 sidecar at /papers/<slug>/provenance.json linked by <link rel="c2pa-manifest">, the public key at /.well-known/provenance-key.json, an hourly sweep that signs 40 unsigned papers and files each in qnfo-audit asset_provenance; the footer and the JSON-LD of qnfo.org pages say papers are written by AI. Absent secret = no sidecar, no link. qnfo-gateway/provenance.test.mjs. // 3.45.0 PAPER-PIDS-1 slice (2026-10-28, pillar research): per-paper CITATION.cff, CSL-JSON and BibTeX at /api/papers/<slug>.cff|.csl.json|.bib, built from the same open record as the JSON API and OAI-PMH (BP26-PAPER-PIDS-1, agent_issues 1000338).
 /* 3.46.0 PAPER-PIDS-HASH-1 (2026-10-28, pillar research, agent_issues 1000338; minor): GET /papers/<slug>/v/<version> (alias /api/papers/<slug>/v/<version>) serves that version's Markdown with X-Content-SHA256 and an immutable cache header for a superseded version; /api/papers/<slug> returns sha256 and version_url. 3.45.0 note: */
 // 3.44.2 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): the apex qnfo.org answered HTML pages with no frame protection (measured 2026-10-26: the *.qnfo.org hosts get X-Frame-Options DENY from a zone rule whose expression is the wildcard *.qnfo.org, which does not match the apex). withPagePolicy now adds X-Frame-Options DENY to every HTML response that has none, on every host, so the apex no longer depends on the zone rule; a handler's own value is kept.
 // 3.43.3 GATEWAY-DAILY-SLOT-1: the daily bundle (IndexNow submits incl. the Monday full pass, render-health sweep, Browser Run math sample) ran every hour since the hourly cron replaced the daily one on 2026-10-20 and drew http 429 from api.indexnow.org, bing.com and seznam; the hourly job now does only hourly work plus a 90-minute IndexNow delta, and seo_indexnow_engines_ok counts distinct accepting endpoints over 26 hours instead of the single newest row.
@@ -5422,7 +5455,13 @@ function lpIcon(n) {
   };
   return '<svg viewBox="0 0 20 20" aria-hidden="true">' + (I[n] || "") + "</svg>";
 }
-function lpPaperHTML(paper) { const qrHref = "/papers/" + escAttr(paper.slug) + "/quickread"; const plainHtml = (paper._article && paper._article.short) ? '<section class="plain-callout" aria-label="Plain language summary"><h2>In plain language</h2><p>' + esc(paper._article.short) + '</p><p class="pc-more"><a class="pc-link" href="' + qrHref + '">Read the plain-language version <span>(about ' + paper._article.minutes + ' min, no jargon, no mathematics)</span> &rarr;</a></p></section>' : (paper._plain && paper._plain.text) ? '<section class="plain-callout" aria-label="Plain language summary"><h2>In plain language</h2><p>' + esc(paper._plain.text) + '</p><p class="pc-more"><a class="pc-link" href="' + qrHref + '">Quick read <span>(a longer plain-language version is on its way)</span> &rarr;</a></p><p class="pc-meta">Restated for a non-expert reader.</p></section>' : "";
+function lpPaperHTML(paper) {
+  const formattedRecord = formatPaper(paper.body_md || "", paper);
+  paper = Object.assign({}, paper, { title: formattedRecord.title || paper.title, abstract: formattedRecord.abstract || paper.abstract, body_md: formattedRecord.body });
+  const qrHref = "/papers/" + escAttr(paper.slug) + "/quickread";
+  const articleSummary = paper._article && paper._article.short && !plainHasRefusal(JSON.stringify(paper._article)) ? paper._article : null;
+  const plainSummary = paper._plain && paper._plain.text && !plainHasPromptResidue(paper._plain.text) ? paper._plain : null;
+  const plainHtml = articleSummary ? '<section class="plain-callout" aria-label="Plain language summary"><h2>In plain language</h2><p>' + esc(articleSummary.short) + '</p><p class="pc-more"><a class="pc-link" href="' + qrHref + '">Read the plain-language version <span>(about ' + articleSummary.minutes + ' min, no jargon, no mathematics)</span> &rarr;</a></p></section>' : plainSummary ? '<section class="plain-callout" aria-label="Plain language summary"><h2>In plain language</h2><p>' + esc(plainSummary.text) + '</p><p class="pc-more"><a class="pc-link" href="' + qrHref + '">Quick read <span>(a longer plain-language version is on its way)</span> &rarr;</a></p><p class="pc-meta">Restated for a non-expert reader.</p></section>' : "";
   const rawBody = retiredLines(paper.body_md || "");
   const _stripped = stripFrontmatter(rawBody).trim();
   let md = _stripped ? fixMojibake(_stripped) : "";
@@ -7996,7 +8035,8 @@ var PLAIN_TARGET_GRADE = 9;
 // Measured 2026-10-26: 348 of 704 stored summaries above grade 9, 224 above 12. A gated build is retried after PLAIN_RETRY_MS, not every hour.
 var PLAIN_HARD_GRADE = 9;
 var PLAIN_RETRY_MS = 6 * 60 * 60 * 1000;
-var PLAIN_PROMPT_MARKERS = ["use everyday words", "we must restate", "we need to restate", "hard rules:", "output only the plain-language sentences", "example input:", "example output:", "cover, in this order:", "every specific number, name, date, link or doi you write", "add nothing from memory"];
+var PLAIN_REFUSAL_MARKERS = ["sorry, but i can", "sorry, i cannot", "sorry, i can't", "i cannot", "i can't", "i can\u2019t", "i am unable", "i'm unable", "i\u2019m unable", "i am not able", "i'm not able", "i\u2019m not able", "i apologize, but", "i'm sorry", "i\u2019m sorry", "unable to comply", "without the necessary details"];
+var PLAIN_PROMPT_MARKERS = ["use everyday words", "we must restate", "we need to restate", "hard rules:", "output only the plain-language sentences", "example input:", "example output:", "cover, in this order:", "every specific number, name, date, link or doi you write", "add nothing from memory"].concat(PLAIN_REFUSAL_MARKERS);
 var plainReady = false;
 var PLAIN_ALLOW = /^(?:qnfo|doi|arxiv|orcid|the|a|an|and|or|of|in|on|to|for|with|by|from|at|as|is|are|was|were|be|been|being|it|its|this|that|these|those|we|our|they|their|them|he|she|his|her|than|then|if|when|where|which|who|whom|whose|how|why|not|no|but|also|only|more|most|less|such|other|any|all|each|every|some|can|could|would|should|may|might|must|will|shall|do|does|did|have|has|had|i|you|us|me|my|your|their)$/i;
 var PLAIN_CSS = ".plain-callout{background:var(--surface,#fff);border:1px solid var(--rule,#e2e6f0);border-left:3px solid var(--teal,#0e8f8f);border-radius:0 8px 8px 0;padding:14px 22px 12px;margin:0 0 2em}.plain-callout h2{font:600 12px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--teal,#0e8f8f);margin:0 0 8px}.plain-callout p{margin:0 0 6px}.plain-callout .pc-meta{font-size:12px;color:var(--muted,#6b7280)}.plain-callout .pc-more{margin:10px 0 6px}.plain-callout .pc-link{font:600 15px var(--sans);color:var(--teal,#0e8f8f);text-decoration:none}.plain-callout .pc-link span{font-weight:400;color:var(--muted,#6b7280)}.plain-callout .pc-link:hover{text-decoration:underline}";
@@ -8004,6 +8044,8 @@ function sylCount(word) { word = word.toLowerCase().replace(/[^a-z]/g, ""); if (
 function fleschGrade(text) { var sents = String(text).split(/[.!?]+/).filter(function (s) { return s.trim().length > 0; }); var words = String(text).toLowerCase().match(/[a-z][a-z'-]*/g) || []; if (!sents.length || !words.length) return 0; var syls = 0; for (var i = 0; i < words.length; i++) syls += sylCount(words[i]); return Math.round((0.39 * (words.length / sents.length) + 11.8 * (syls / words.length) - 15.59) * 10) / 10; }
 function plainSentenceCount(text) { var matches = String(text || "").trim().match(/[.!?](?=\s|$)/g); return matches ? matches.length : 1; }
 function plainHasPromptResidue(text) { var s = String(text || "").trim(), lower = s.toLowerCase(); if (!s) return false; for (var i = 0; i < PLAIN_PROMPT_MARKERS.length; i++) if (lower.indexOf(PLAIN_PROMPT_MARKERS[i]) >= 0) return true; if (/^```|^\s*#{1,6}\s|^\s*(?:[-*+]|\d+[.)])\s/m.test(s)) return true; return plainSentenceCount(s) > PLAIN_MAX_SENT; }
+function plainHasRefusal(text) { var lower = String(text || "").toLowerCase(); return PLAIN_REFUSAL_MARKERS.some(function (marker) { return lower.indexOf(marker) >= 0; }); }
+function plainRefusalSql(column) { var lower = "lower(COALESCE(" + column + ",''))"; return "(" + PLAIN_REFUSAL_MARKERS.map(function (marker) { return "instr(" + lower + ",'" + marker.replace(/'/g, "''") + "') > 0"; }).join(" OR ") + ")"; }
 function plainResidueSql(column) {
   var text = "COALESCE(" + column + ",'')", lower = "lower(" + text + ")";
   // PLAIN-RESIDUE-LIKE-1 (3.43.2): instr, not LIKE. D1 refuses a LIKE pattern over 50 bytes ("LIKE or GLOB pattern too
@@ -8324,6 +8366,7 @@ async function articleBuild(env, paper) {
   if (p.grade > ARTICLE_GATE_GRADE + 1) return { status: "failed", note: "reading grade " + p.grade + " after one repair" };
   var g = articleGround(a, paper);
   if (g.sections.length < 3 || !g.short) return { status: "failed", note: "grounding left too little of the article" };
+  if (plainHasRefusal(JSON.stringify(g))) return { status: "failed", note: "the article contains a model refusal" };
   var topics = g.learn.slice();
   (g.terms || []).slice(0, 3).forEach(function (t) { if (topics.indexOf(t.t) < 0) topics.push(t.t); });
   var links = await articleLinks(env, topics);
@@ -8346,6 +8389,7 @@ async function articleGet(env, paper) {
     var r = await env.LIVING_PAPER.prepare("SELECT rev, status, title, short, body, terms, links, words, grade, method FROM plain_article WHERE slug = ?1").bind(paper.slug).first();
     if (!r || r.status !== "ok" || !r.body) return null;
     if (paper.body_md !== undefined && r.rev !== articleRev(paper)) return null;
+    if (plainHasRefusal(r.short) || plainHasRefusal(r.body)) return null;
     var sections = JSON.parse(r.body);
     if (!Array.isArray(sections) || !sections.length) return null;
     return { title: r.title, short: r.short, sections: sections, terms: r.terms ? JSON.parse(r.terms) : [], links: r.links ? JSON.parse(r.links) : [], words: r.words || 0, grade: r.grade || 0, minutes: Math.max(1, Math.round((r.words || 0) / ARTICLE_WPM)), method: r.method || "" };
@@ -8359,7 +8403,7 @@ async function articleFill(env, only) {
   var slugs;
   if (Array.isArray(only) && only.length) slugs = only.map(function (p) { return { slug: p.slug, attempts: 0 }; });
   else {
-    var rows = await env.LIVING_PAPER.prepare("SELECT p.slug AS slug, COALESCE(a.attempts, 0) AS attempts, CASE WHEN a.slug IS NULL THEN 0 WHEN a.status = 'ok' THEN 1 ELSE 2 END AS prio FROM papers p LEFT JOIN plain_article a ON a.slug = p.slug WHERE p.status IN " + LP_PUBLIC + " AND (a.slug IS NULL OR (a.status = 'ok' AND (a.version IS NOT COALESCE(p.version, '') OR a.body_len IS NOT LENGTH(p.body_md))) OR (a.status != 'ok' AND a.attempts < " + ARTICLE_MAX_ATTEMPTS + " AND a.generated_at < datetime('now', '-" + ARTICLE_RETRY_HOURS + " hours'))) ORDER BY prio, p.created_at DESC LIMIT " + ARTICLE_FILL_MAX).all();
+    var rows = await env.LIVING_PAPER.prepare("SELECT p.slug AS slug, COALESCE(a.attempts, 0) AS attempts, CASE WHEN a.slug IS NULL THEN 0 WHEN a.status = 'ok' THEN 1 ELSE 2 END AS prio FROM papers p LEFT JOIN plain_article a ON a.slug = p.slug WHERE p.status IN " + LP_PUBLIC + " AND (a.slug IS NULL OR (a.status = 'ok' AND (a.version IS NOT COALESCE(p.version, '') OR a.body_len IS NOT LENGTH(p.body_md) OR " + plainRefusalSql("a.short") + " OR " + plainRefusalSql("a.body") + ")) OR (a.status != 'ok' AND a.attempts < " + ARTICLE_MAX_ATTEMPTS + " AND a.generated_at < datetime('now', '-" + ARTICLE_RETRY_HOURS + " hours'))) ORDER BY prio, p.created_at DESC LIMIT " + ARTICLE_FILL_MAX).all();
     slugs = (rows && rows.results) || [];
   }
   var built = 0, tried = 0, failed = 0, t0 = Date.now();
@@ -8385,7 +8429,7 @@ async function articleStats(env) {
   try {
     if (!env.LIVING_PAPER) return null;
     await articleTable(env);
-    var r = await env.LIVING_PAPER.prepare("SELECT COUNT(*) AS public_papers, SUM(CASE WHEN a.status = 'ok' AND a.version IS COALESCE(p.version, '') AND a.body_len IS LENGTH(p.body_md) THEN 1 ELSE 0 END) AS current_ok, SUM(CASE WHEN a.status = 'failed' AND a.attempts >= " + ARTICLE_MAX_ATTEMPTS + " THEN 1 ELSE 0 END) AS failed_final, SUM(CASE WHEN a.status = 'ok' AND (a.grade > " + ARTICLE_HARD_GRADE + " OR instr(a.body, '=') > 0 OR instr(a.body, '$') > 0 OR instr(a.body, '\\\\') > 0) THEN 1 ELSE 0 END) AS hard_violations, SUM(CASE WHEN a.status = 'ok' AND a.grade <= " + ARTICLE_GATE_GRADE + " THEN 1 ELSE 0 END) AS at_gate, MIN(CASE WHEN a.status = 'ok' THEN a.generated_at END) AS first_ok, AVG(CASE WHEN a.status = 'ok' THEN a.grade END) AS mean_grade FROM papers p LEFT JOIN plain_article a ON a.slug = p.slug WHERE p.status IN " + LP_PUBLIC).first();
+    var r = await env.LIVING_PAPER.prepare("SELECT COUNT(*) AS public_papers, SUM(CASE WHEN a.status = 'ok' AND a.version IS COALESCE(p.version, '') AND a.body_len IS LENGTH(p.body_md) AND NOT " + plainRefusalSql("a.short") + " AND NOT " + plainRefusalSql("a.body") + " THEN 1 ELSE 0 END) AS current_ok, SUM(CASE WHEN a.status = 'failed' AND a.attempts >= " + ARTICLE_MAX_ATTEMPTS + " THEN 1 ELSE 0 END) AS failed_final, SUM(CASE WHEN a.status = 'ok' AND (a.grade > " + ARTICLE_HARD_GRADE + " OR instr(a.body, '=') > 0 OR instr(a.body, '$') > 0 OR instr(a.body, '\\\\') > 0 OR " + plainRefusalSql("a.short") + " OR " + plainRefusalSql("a.body") + ") THEN 1 ELSE 0 END) AS hard_violations, SUM(CASE WHEN a.status = 'ok' AND a.grade <= " + ARTICLE_GATE_GRADE + " AND NOT " + plainRefusalSql("a.short") + " AND NOT " + plainRefusalSql("a.body") + " THEN 1 ELSE 0 END) AS at_gate, MIN(CASE WHEN a.status = 'ok' THEN a.generated_at END) AS first_ok, AVG(CASE WHEN a.status = 'ok' THEN a.grade END) AS mean_grade FROM papers p LEFT JOIN plain_article a ON a.slug = p.slug WHERE p.status IN " + LP_PUBLIC).first();
     var pub = Number(r && r.public_papers || 0), ok = Number(r && r.current_ok || 0);
     var burnIn = !(r && r.first_ok) || (Date.now() - Date.parse(String(r.first_ok).replace(" ", "T") + (/Z$/.test(r.first_ok) ? "" : "Z"))) < 72 * 3600 * 1000;
     return { publicPapers: pub, current: ok, failedFinal: Number(r && r.failed_final || 0), hardViolations: Number(r && r.hard_violations || 0), atGate: Number(r && r.at_gate || 0), meanGrade: r && r.mean_grade ? Math.round(Number(r.mean_grade) * 10) / 10 : null, coveragePct: pub ? Math.round(ok / pub * 1000) / 10 : 0, burnIn: burnIn };
