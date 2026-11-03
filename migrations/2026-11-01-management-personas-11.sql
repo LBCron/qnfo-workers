@@ -14,6 +14,7 @@
 -- in breach-rank order, within the existing age and per-tick caps.
 -- Rollback: UPDATE fleet_tasks SET definition = (SELECT definition FROM bak_20261101_mp11_workflow WHERE id = 'management-personas'), version = version + 1 WHERE id = 'management-personas'
 -- APPLY-BY: ci
+-- REAPPLY-OK: replay is safe because the fleet_tasks update only matches the prior filter and becomes a no-op after success; ledger inserts are conflict-safe
 -- DB: qnfo-audit
 -- BACKUP: bak_20261101_mp11_workflow
 
@@ -61,6 +62,7 @@ WHERE id = 'management-personas'
 INSERT OR IGNORE INTO ops_config (key, value, note) VALUES
   ('personal_metric_doers', 'off', 'PERSONAL-METRIC-DOERS-1: on lets the management-personas dg-request step file doer requests for QNFO.PERSONAL off-target metric focus issues. Keep off until qnfo-agents authorises by requester (no agent_issues text for program-manager:QNFO.PERSONAL requests); see issue 5455.');
 
+-- Use INSERT OR IGNORE to avoid violating the unique constraint on capability column
 INSERT OR IGNORE INTO capability_ledger
   (capability, provenance, prerequisites, reliability, acquired_at, evidence)
 VALUES
@@ -70,7 +72,8 @@ VALUES
    '2026-11-01',
    'the dg-request step selects PERSONAL only for worst off-target metric focus reasons, only while the switch is on, and keeps existing age, cap, target, and opt-out rules');
 
-INSERT INTO decision_log
+-- Use INSERT OR IGNORE to keep decision_log idempotent
+INSERT OR IGNORE INTO decision_log
   (actor, assumption, action, evidence, outcome, blast_radius, rollback_path, capability_gain, predicted_outcome, reach_gain, surfaces_tested)
 SELECT
   'program-manager:QNFO.PERSONAL (PERSONAL-METRIC-DOERS-1)',
