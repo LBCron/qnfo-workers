@@ -26,7 +26,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bp26_producers import Collector, Result  # noqa: E402
+from bp26_producers import Result  # noqa: E402
 
 WINDOW_DAYS = 28
 OBJECTIVE = 0.995
@@ -246,9 +246,6 @@ def collect_slo(ctx):
     if total == 0:
         return [Result("postmortem_coverage", 1.0, "no incident to judge in the window: 1.0 by definition. " + note, rows)]
     return [Result("postmortem_coverage", done / float(total), note, rows)]
-
-
-COLLECTORS = [Collector("slo_postmortems", collect_slo, ["postmortem_coverage"], 50)]
 
 
 def selftest():

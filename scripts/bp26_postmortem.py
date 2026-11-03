@@ -3,10 +3,8 @@
 
 postmortem_coverage: incidents in the last 30 days with a completed postmortem within 72 hours / all incidents (target 1.0).
 
-The source this metric needs does not exist: no incident table and no postmortem table appear in migrations/ or any worker.js (the catalogue
-row itself says "incident and postmortem tables (to build)"). Nothing is invented here: the collector reports the metric as unknown (None,
-never 0) with a note naming the missing source, so the gap stays visible until the source is built. agent_issues is not an incident ledger
-and is not used as a stand-in. When the tables exist, replace collect() with a read of them.
+The hourly ledger builder in bp26_slo writes incidents from availability episodes and control-plane canary failures, then creates evidence-backed
+postmortems. This module owns the single producer registration for that metric.
 
 Offline suite: python3 scripts/bp26_postmortem.py --selftest
 """
@@ -14,23 +12,20 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bp26_producers import Collector, Result  # noqa: E402
+from bp26_producers import Collector  # noqa: E402
+from bp26_slo import collect_slo, selftest as slo_selftest  # noqa: E402
 
-NOTE = "unknown: source missing - no incident or postmortem table exists (catalogue: 'to build')"
-
-
-def collect(ctx):
-    return [Result("postmortem_coverage", None, NOTE, [])]
-
-
-COLLECTORS = [Collector("postmortem_source_missing", collect, ["postmortem_coverage"], 1440)]
+COLLECTORS = [Collector("postmortem_ledger", collect_slo, ["postmortem_coverage"], 50)]
 
 
 def selftest():
-    out = collect(None)[0]
-    ok = out.metric == "postmortem_coverage" and out.value is None and "missing" in out.note
-    print("bp26_postmortem selftest %s" % ("ok" if ok else "FAILED"))
-    return 0 if ok else 1
+    ok = len(COLLECTORS) == 1 and COLLECTORS[0].fn is collect_slo and COLLECTORS[0].metrics == ["postmortem_coverage"]
+    if not ok:
+        print("bp26_postmortem selftest FAILED")
+        return 1
+    result = slo_selftest()
+    print("bp26_postmortem selftest %s" % ("ok" if result == 0 else "FAILED"))
+    return result
 
 
 if __name__ == "__main__":
