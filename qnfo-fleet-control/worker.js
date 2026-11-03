@@ -15597,6 +15597,10 @@ async function chaosDrill(env, force) {
   try { after = (await db.prepare("SELECT last_pass, last_pass_at FROM spof_alternate_probes WHERE enabled = 1").all()).results || []; } catch (e6) { after = []; }
   var untested = chaosUntested(after, nowMs);
   try { await db.prepare("UPDATE metric_registry SET last_value = ?1, last_refreshed = ?2, state = 'MEASURED' WHERE metric = 'spof_alternates_untested_24h'").bind(String(untested), nowIso).run(); } catch (e7) { console.error(JSON.stringify({ step: "chaos-drill-metric", error: String(e7 && e7.message || e7).slice(0, 200) })); }
+  try {
+    var recurringRow = await db.prepare("SELECT COUNT(*) AS n FROM v_failure_mode_status f WHERE f.status IN ('recurring','unprobed') AND NOT EXISTS (SELECT 1 FROM remediation_verifications rv WHERE rv.failure_mode_id = f.id AND rv.owner IS NOT NULL AND rv.owner <> 'qnfo-fleet-control') AND NOT EXISTS (SELECT 1 FROM issue_assignments ia WHERE ia.failure_mode_id = f.id AND ia.owner IS NOT NULL AND ia.owner <> 'qnfo-fleet-control')").first();
+    await db.prepare("UPDATE metric_registry SET last_value = ?1, last_refreshed = ?2, state = 'MEASURED' WHERE metric = 'failure_modes_recurring'").bind(String(Number(recurringRow && recurringRow.n || 0)), nowIso).run();
+  } catch (e7b) { console.error(JSON.stringify({ step: "failure-modes-metric", error: String(e7b && e7b.message || e7b).slice(0, 200) })); }
   try { await db.prepare("INSERT OR REPLACE INTO loop_watch_state (key, value) VALUES ('chaos_drill_last', ?1)").bind(nowIso).run(); } catch (e8) { console.error(JSON.stringify({ step: "chaos-drill-state", error: String(e8 && e8.message || e8).slice(0, 200) })); }
   var summary = verdicts.map(function(v) { return v.component + "=" + (v.pass ? "pass" : "FAIL(" + String(v.observed || "").slice(0, 80) + ")"); }).join("; ");
   try {
