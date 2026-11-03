@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.13-codeagent";
+var VERSION = "2.62.14-codeagent";
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -1881,6 +1881,7 @@ var OPS_SYSTEM_PROMPT = [
   "16. KERNEL-REPLY-1 (binding, docs/DOCTRINE-KERNEL.md recognitions, 2026-10-12): a reply ends with the result. Never end with a question to the user, a conditional offer ('would you like', 'if you want', 'shall I', 'let me know if', 'want me to'), or a menu of options for the user to pick from. When evidence reveals an actionable defect and an issue write is authorized, file the issue now; never offer to file it later or defer it to a future write-capable session. For every other optional next step, decide: take it when reversible and in scope and report it done, or state in one line why it is not taken. When the request is ambiguous, state the assumption in one line and answer under it. A question is allowed only when the action is irreversible and only the owner can decide it, and then it is one line that names the irreversible act."
 ].join(String.fromCharCode(10));
 var OPS_TOOLS = [
+  // CODEMODE-SURFACE-1: ops_search + ops_execute exposed as a code-mode search+execute pair (issue #1000639)
   { name: "fleet_status", description: "Probe /health of the internal fleet services via service bindings (qnfo-lifecycle, qnfo-email, qnfo-gateway, qnfo-ai, qnfo-ai-search, qnfo-memory-mcp, qnfo-backlog-exec). Returns ok/http/version per service.", parameters: { type: "object", properties: {}, additionalProperties: false } },
   { name: "ops_issues_list", description: "List agent issues from qnfo-audit agent_issues (the ops backlog). Default: open issues, newest first.", parameters: { type: "object", properties: { status: { type: "string", enum: ["open", "closed", "all"], description: "issue status filter (default open)" }, priority: { type: "string", enum: ["high", "medium", "low"], description: "optional priority filter" }, limit: { type: "number", description: "max rows 1-50 (default 20)" } }, additionalProperties: false } },
   { name: "ops_issue_run", description: "Trigger the qnfo-backlog-exec drain on open agent_issues (safe by design: it only auto-closes health-availability rows whose re-probe PASSes; failures are escalated to alerts). confirm must be true to execute; otherwise returns the plan.", parameters: { type: "object", properties: { confirm: { type: "boolean", description: "must be true to trigger the drain" } }, additionalProperties: false } },
@@ -1906,6 +1907,33 @@ var OPS_TOOLS = [
   { name: "email_stats", description: "Email account stats: total messages, last 24h, by classification, by status.", parameters: { type: "object", properties: {}, additionalProperties: false } },
   { name: "ops_fleet_log", description: "Read the last ops_ai_log entries (this endpoint execution log, qnfo-audit). Use when the user asks what the ops endpoint has done recently.", parameters: { type: "object", properties: { limit: { type: "number", description: "1-20 (default 5)" } }, additionalProperties: false } },
   { name: "email_mark", description: "Update the status of an inbound/outbound email (received/processed/sent/replied/archived/spam/read/rejected). Requires the message id from email_check.", parameters: { type: "object", properties: { id: { type: "number", description: "message id" }, status: { type: "string", enum: ["received", "processed", "sent", "replied", "archived", "spam", "read", "rejected"], description: "new status" } }, required: ["id", "status"], additionalProperties: false } },
+  {
+    name: "ops_search",
+    description: "Keyword search over OPS_TOOLS names and descriptions. Returns an array of objects with 'name' and a one‑line snippet.",
+    args: [{ name: "query", type: "string", description: "Search term" }],
+    parameters: { type: "object", properties: { query: { type: "string", description: "Search term" } }, required: ["query"], additionalProperties: false },
+    exec: async (env, args) => {
+      const q = (args.query || "").toLowerCase();
+      const matches = OPS_TOOLS.filter(t => (t.name?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)))
+        .map(t => ({ name: t.name, snippet: t.description?.split("\n")[0] || "" }));
+      return { ok: true, result: matches };
+    }
+  },
+  {
+    name: "ops_execute",
+    description: "Execute a named OPS tool via the existing execTool path, preserving all gates and audit logging.",
+    args: [{ name: "tool", type: "string", description: "Name of the tool to execute" }, { name: "args", type: "object", description: "Arguments for the tool" }],
+    parameters: { type: "object", properties: { tool: { type: "string", description: "Name of the tool to execute" }, args: { type: "object", description: "Arguments for the tool", additionalProperties: true } }, required: ["tool"], additionalProperties: false },
+    exec: async (env, args) => {
+      const toolName = args.tool;
+      const toolArgs = args.args || {};
+      const r = await execTool(env, toolName, JSON.stringify(toolArgs), "", 20000);
+      let parsed = null;
+      try { parsed = JSON.parse(r.text); } catch (e) { parsed = r.text; }
+      return { ok: r.ok, result: parsed };
+    }
+  },
+  // End of added CODEMODE-SURFACE-1 tools
   { name: "email_respond", description: "Send a REPLY inside an existing inbound thread (reply_to_id from email_check). Requires explicit user affirmation in the latest message; replies only - never cold sends. Subject must not contain spam-trip tokens.", parameters: { type: "object", properties: { reply_to_id: { type: "number", description: "inbound message id being replied to" }, subject: { type: "string", description: "reply subject" }, body: { type: "string", description: "plain-text reply body" } }, required: ["reply_to_id", "body"], additionalProperties: false } },
   { name: "run_code", description: "Execute pure-JavaScript code directly on Cloudflare (isolated compute only: no network, filesystem, secrets, or worker bindings; math/verification/data transforms). Provide finite code that returns a value or uses console.log. Never fabricate results - if the tool errors, report the error.", parameters: { type: "object", properties: { code: { type: "string", description: "JavaScript code to execute. Use return to emit a value, or console.log() for text output." } }, required: ["code"], additionalProperties: false } },
   { name: "web_fetch", description: "Fetch a public http/https URL and return its readable text (HTML stripped). SSRF-guarded: private/internal/link-local hosts are blocked. Returns up to maxChars of text.", parameters: { type: "object", properties: { url: { type: "string", description: "full http(s) URL to fetch" }, maxChars: { type: "number", description: "max chars to return (default 8000, max 30000)" } }, required: ["url"], additionalProperties: false } },
