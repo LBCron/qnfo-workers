@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 17:45:39",
+  "audited_at": "2026-11-03 20:30:52",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -691,7 +691,7 @@
       },
       {
         "dir": "qnfo-ops",
-        "version": "2.62.12-patch-budget",
+        "version": "2.62.13-codeagent",
         "worker": "qnfo-ops"
       },
       {
@@ -1594,9 +1594,9 @@
       "worker": "qnfo-observability"
     },
     "qnfo-ops": {
-      "before": "2.62.12-patch-budget",
+      "before": "2.62.13-codeagent",
       "http": 200,
-      "live": "2.62.12-patch-budget",
+      "live": "2.62.13-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ops"
