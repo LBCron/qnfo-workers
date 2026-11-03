@@ -9380,6 +9380,14 @@ async function improvementLoopTick(env) {
     } catch (e) { console.error(JSON.stringify({ evt: "fleet-control:improvementLoopTick:caught", error: String(e && e.message) })); }
   }
   // METRIC-FIX-RELAPSED-1: install the post-close monitor at issue birth, before a later history row can show the fix relapsed.
+  // Program focus: file a task for every program_focus row with no doer so the loop keeps program focus moving (issue #1000311).
+  try {
+    var pfRes = await d1Run(env, "SELECT issue_id FROM program_focus WHERE has_doer = 0", []);
+    var pfRows = Array.isArray(pfRes) ? pfRes : ((pfRes && pfRes.results) ? pfRes.results : []);
+    for (var pfi = 0; pfi < pfRows.length; pfi++) {
+      await d1Run(env, "INSERT INTO code_tasks (owner, target, issue_id, created_at) VALUES ('qnfo-fleet-control', 'agent_issues', ?1, datetime('now')) ON CONFLICT DO NOTHING", [pfRows[pfi].issue_id]);
+    }
+  } catch (e) { console.error(JSON.stringify({ evt: "fleet-control:improvementLoopTick:caught", error: String(e && e.message) })); }
   var relapseMonitors = 0, closedForMonitor = (f.closed_issues || []).slice().sort(function(a, b) {
     return String(a.closed_at || "").localeCompare(String(b.closed_at || ""));
   });
