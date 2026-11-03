@@ -5,8 +5,8 @@
 // marked x-ops-access: public-read; only fleet_status, backlog_status and public_data are offered or executed; a model
 // that asks for ops_d1_query, ops_d1_write, shell_exec or kv_get gets a refusal and nothing runs; ipatent_activity
 // returns page views and redacted search text but never inventor names, emails, titles, disclosure text, IP addresses
-// or user agents; no paid upstream, raw relay, cache read, durable job or checkpoint is touched; the per-visitor and
-// daily caps answer 429; OPS_PUBLIC_READ=off restores the 401; a valid key still gets the full agent; async jobs still
+// or user agents; no paid upstream, raw relay, cache read, durable job or checkpoint is touched; the per-visitor cap
+// uses the atomic Durable Object counter and the daily cap answers 429; OPS_PUBLIC_READ=off restores the 401; a valid key still gets the full agent; async jobs still
 // need the key.
 // Run: node qnfo-ops/public-read.test.mjs   -> prints "N passed, 0 failed"
 import { DatabaseSync } from "node:sqlite";
@@ -108,7 +108,24 @@ function mk(opt = {}) {
     OPS_CACHE_KV: kv(kvLog), EQCACHE_KV: kv(eqLog), WAI: ai,
     DEEPSEEK_API_KEY: "ds-x", CF_API_TOKEN: "cf-x", OPS_ROUTER_AUTH_KEY: GOOD_KEY
   }, opt.env || {});
-  return { env, audit, ip, sql, kvLog, eqLog, fetches, ai };
+  const rateDb = new DatabaseSync(":memory:");
+  const rateSql = { exec(query, ...args) {
+    if (/^\s*CREATE TABLE/i.test(query)) {
+      rateDb.exec(query);
+      return { toArray() { return []; } };
+    }
+    const rows = rateDb.prepare(query).all(...args);
+    return { toArray() { return rows; } };
+  } };
+  const rateObject = new mod.AgenticOpsExec({ storage: { sql: rateSql } }, env);
+  const doCalls = [];
+  if (!Object.prototype.hasOwnProperty.call(opt.env || {}, "AGENTIC_OPS_EXEC")) {
+    env.AGENTIC_OPS_EXEC = {
+      idFromName(name) { doCalls.push(name); return name; },
+      get(id) { return { fetch(request) { doCalls.push("fetch:" + id); return rateObject.fetch(request); } }; }
+    };
+  }
+  return { env, audit, ip, sql, kvLog, eqLog, fetches, ai, rateDb, doCalls };
 }
 
 async function call(t, body, headers = {}) {
@@ -140,7 +157,8 @@ const toolResults = (t) => t.ai.seen.flatMap((s) => s.messages.filter((m) => m.r
   const row = t.audit.prepare("SELECT source FROM ops_ai_log WHERE id NOT LIKE 'seed-%' ORDER BY ts DESC LIMIT 1").get();
   ok(row && row.source === "public", "A logged to ops_ai_log with source=public");
   ok(!t.kvLog.some((k) => /opschat:/.test(k)), "A chat cache neither read nor written: " + JSON.stringify(t.kvLog));
-  ok(t.kvLog.some((k) => /^put opspub:/.test(k)), "A per-visitor counter recorded");
+  ok(t.doCalls.includes("ops-exec") && t.rateDb.prepare("SELECT COUNT(*) AS n FROM ops_public_rate_limits").get().n === 1, "A per-visitor counter recorded by the Durable Object");
+  ok(!t.kvLog.some((k) => /opspub:/.test(k)), "A KV is not used as the public counter");
 }
 
 // B. ipatent_activity: the searches and page views, never the PII.
@@ -211,6 +229,25 @@ for (const m of ["deepseek-v4-flash", "ops-frontier", "gpt-5.5", "claude-sonnet-
   ok(a.res.status === 200 && b.res.status === 200, "G first two from one visitor answered");
   ok(c.res.status === 429 && /per visitor per hour/.test(c.text), "G third from the same visitor is 429: " + c.res.status + " " + c.text.slice(0, 160));
   ok(d.res.status === 200, "G another visitor still answered");
+  ok(t.rateDb.prepare("SELECT SUM(hits) AS n FROM ops_public_rate_limits").get().n === 3, "G blocked attempts do not increment the Durable Object counter");
+}
+
+// G2. concurrent requests cannot race past the per-visitor cap.
+{
+  const t = mk({ env: { OPS_PUBLIC_PER_IP_HOUR: "2" } });
+  const results = await Promise.all(Array.from({ length: 8 }, () => call(t, Q, { "CF-Connecting-IP": "198.51.100.80" })));
+  const allowed = results.filter((x) => x.res.status === 200).length;
+  const blocked = results.filter((x) => x.res.status === 429).length;
+  ok(allowed === 2 && blocked === 6, "G2 concurrent requests stop exactly at the visitor cap: " + allowed + " allowed, " + blocked + " blocked");
+  ok(t.rateDb.prepare("SELECT SUM(hits) AS n FROM ops_public_rate_limits").get().n === 2, "G2 only allowed requests are counted");
+}
+
+// G3. a missing quota Durable Object fails closed rather than serving unmetered.
+{
+  const t = mk({ env: { AGENTIC_OPS_EXEC: null } });
+  const { res, text } = await call(t, Q, { "CF-Connecting-IP": "198.51.100.81" });
+  ok(res.status === 503 && /visitor quota unavailable/.test(text), "G3 missing Durable Object returns an availability error");
+  ok(t.ai.seen.length === 0, "G3 no model call runs without the quota counter");
 }
 
 // H. daily cap across all public visitors.
