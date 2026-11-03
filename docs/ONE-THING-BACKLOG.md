@@ -5,39 +5,32 @@ Owner request: productive activity without required typing, with Yes/No controls
 ## Architecture (fixed)
 
 - Product surface: **Focus** inside `https://me.q08.org/companion`.
-- Canonical source: `QNFO/qnfo-workers`, `personal-api/companion.js`.
+- Canonical source: `QNFO/qnfo-workers`, `personal-api/companion.js` (inlined into `personal-api/worker.js`); `deployed-current.worker.js` is the byte-identical mirror.
 - Runtime: existing `personal-api` Cloudflare Worker on the `quniverse` account.
-- State: existing D1 `tasks`, `cmp_activities`, and `cmp_activity_log` tables through existing authenticated APIs.
+- State: existing D1 `tasks`, `cmp_activities`, and `cmp_activity_log` tables through existing authenticated APIs. Timer and handoff progress are session-local; the cost checklist and preferences are browser-local only, not cross-device sync.
 - Delivery: pull request to `main`, then the existing `canonical-deploy.yml` / `qnfo-ops` deployment path.
-- Cost: no model call, new Worker, database, binding, subscription, or mirrored ticket system.
+- Cost: no model call, new Worker, database, binding, route, subscription, or mirrored ticket system.
 
-## Now — shipped in COMPANION-FOCUS-1
+## Closeout — native Focus follow-through
 
-- [x] Focus tab in the existing companion.
-- [x] 2 / 5 / 10 / 20-minute chips and low / okay / high-energy chips.
-- [x] One recommendation from existing next actions and activities.
-- [x] Yes / No / Surprise me controls.
-- [x] Ephemeral timer and three-tap checklist.
-- [x] Done records completion through existing action and activity APIs.
-- [x] One-tap Qniverse presets saved into the existing action backlog.
-- [x] No text, textarea, or select control in Focus.
+- [x] Keep Focus inside the existing companion with button/checklist controls and visible keyboard focus.
+- [x] Offer 5 / 15 / 30-minute choices. Recommendations use existing actions and activities APIs, include only next actions that fit the time and selected energy, and filter activities by active state, duration, and energy.
+- [x] Provide a local start / pause / resume / reset timer. It is optional, ephemeral, and makes no background request.
+- [x] Record completion through the existing action and activity APIs.
+- [x] Copy a one-click session handoff with the current goal, completed items, an eligible next action, and time/energy/checklist constraints. The read and clipboard write occur only after the button is pressed.
+- [x] Keep the free token/subscription checklist in this browser only. It makes no provider calls, purchases, or subscription changes.
+- [x] Keep the existing Data-tab export and delete APIs.
+- [x] Keep one-tap Qniverse presets in the existing action backlog.
 
-## Next — completed and evidence-gated dispositions
+## Explicitly rejected
 
-- [x] Remember the last-used time and energy selections on the device (stored only in device-local browser storage).
-- [x] Add a one-tap “too long” control that creates a fixed two-minute next action without AI.
-- [ ] Optional voice capture beside Focus: defer; the existing Capture flow already supports voice, and this change has no Focus-specific usage evidence or request to duplicate that control.
-- [x] Add keyboard and screen-reader regression checks for the timer and checklist (native buttons, pressed state, timer name and live semantics).
+- [x] Restore from a backup file: rejected for now because the current export spans related personal stores, while the companion has no validated, transactional, conflict-safe restore path. A file picker alone would not prevent partial or unsafe writes; no import route or UI is added.
+- [x] Duplicate voice capture beside Focus: the existing Capture flow already supports voice, and a duplicate adds no evidenced benefit.
+- [x] Rank recommendations from activity ratings: defer until Focus usage evidence supports changing recommendation order.
+- [x] Calendar-aware suggestions: not needed for this follow-through and no Focus usage evidence calls for it.
+- [x] Home-screen shortcuts: defer until usage evidence shows Focus is the main entry point.
+- [x] Standalone or localhost prototype: not deployed; it is not the canonical UI.
 
-## Later — needs evidence before implementation
+## Canonical path
 
-- [ ] Rank recommendations from existing activity ratings, without adding an LLM. **Disposition:** defer until Focus usage evidence supports changing recommendation order.
-- [ ] Add calendar-aware time suggestions using the existing Today read model. **Disposition:** deferred; not needed for this follow-up and no Focus usage evidence calls for it.
-- [ ] Add home-screen shortcuts only if Focus becomes the main entry point. **Disposition:** deferred until usage evidence shows Focus is the main entry point.
-
-## Explicit non-goals
-
-- No standalone or localhost product.
-- No second source of truth or duplicate GitHub issue storm.
-- No required free text. If words are needed, use dictation through the existing Capture flow.
-- No automatic AI usage or added recurring model spend.
+Open `https://me.q08.org/companion`, choose **Focus**, and use its time/energy choices, timer, checklist, and handoff buttons. Use **Data → Download everything** for a portable export. The standalone prototype remains undeployed. Changes ship only through a pull request and the canonical deployment workflow.
