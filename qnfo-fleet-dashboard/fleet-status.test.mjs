@@ -153,20 +153,23 @@ const seed = (db) => {
   ok(j.causes === null && j.notes.length === 2 && j.blind.length === 0, "S4 without v_breach_by_cause the document says so in notes and is not blind", { c: j.causes, n: j.notes, b: j.blind });
   ok(j.headline.state === "needs_you" && /1 item needs you/.test(j.headline.sentence), "S4 the headline names the owner's item", j.headline);
 }
-// S7 the value feeds start while the core status reads are still in flight.
+// S7 the independent status inputs start while the cached fleet-state read is still in flight.
 {
   const { env, db } = mk(); seed(db);
-  let releaseMetrics;
-  const metricsGate = new Promise((resolve) => { releaseMetrics = resolve; });
+  let releaseState;
+  const stateGate = new Promise((resolve) => { releaseState = resolve; });
+  let stateRead;
+  const stateReadStarted = new Promise((resolve) => { stateRead = resolve; });
   let valueRead;
   const valueReadStarted = new Promise((resolve) => { valueRead = resolve; });
   const prepare = env.AUDIT.prepare;
   env.AUDIT.prepare = (sql) => {
     const stmt = prepare(sql);
-    if (sql.includes("FROM v_fleet_metrics")) {
+    if (sql.includes("FROM fleet_dashboard_state")) {
       const all = stmt.all;
       stmt.all = async function() {
-        await metricsGate;
+        stateRead();
+        await stateGate;
         return all.call(stmt);
       };
     }
@@ -174,13 +177,14 @@ const seed = (db) => {
     return stmt;
   };
   const response = get(env, "/api/status");
+  await stateReadStarted;
   const overlapped = await Promise.race([
     valueReadStarted.then(() => true),
     new Promise((resolve) => setTimeout(() => resolve(false), 50))
   ]);
-  releaseMetrics();
+  releaseState();
   await response;
-  ok(overlapped, "S7 status value inputs overlap the core status reads");
+  ok(overlapped, "S7 independent status inputs overlap the cached fleet-state read");
 }
 // S4 causes + S5 pages
 {
