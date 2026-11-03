@@ -1,383 +1,231 @@
 {
  "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
- "verifier": "remediation-consumer@ff71b068b82a",
- "due": 560,
- "pass": 150,
- "fail": 393,
- "skipped": 17,
- "deferred": 15,
+ "verifier": "remediation-consumer@4e244802d000",
+ "due": 520,
+ "pass": 140,
+ "fail": 369,
+ "skipped": 11,
+ "deferred": 11,
  "contracts": [
   {
-   "class": "issue-1000825",
-   "issue_id": 1000825,
+   "class": "rt-page-fleet-api-status",
+   "issue_id": 1001434,
    "verdict": "fail",
-   "expected": "0 off-target QNFO.PERSONAL metrics are missing a doer",
-   "observed": "0 off-target metrics without a doer",
+   "expected": "ok",
+   "observed": "slow=15987ms",
    "written": true
   },
   {
-   "class": "issue-1001254",
-   "issue_id": 1001254,
+   "class": "rt-page-fleet-area-reliability",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "slow=16294ms",
+   "written": true
+  },
+  {
+   "class": "rt-page-fleet-area-platform",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "slow=16183ms",
+   "written": true
+  },
+  {
+   "class": "issue-1000784",
+   "issue_id": 1000784,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-page-fleet-area-autonomy",
+   "issue_id": 1001453,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "slow=16145ms",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4688",
+   "issue_id": null,
    "verdict": "fail",
    "expected": "0",
-   "observed": "55",
-   "written": true
-  },
-  {
-   "class": "issue-1000770",
-   "issue_id": 1000770,
-   "verdict": "pass",
-   "expected": "clear",
-   "observed": "clear",
-   "written": true
-  },
-  {
-   "class": "issue-1000965",
-   "issue_id": 1000965,
-   "verdict": "pass",
-   "expected": "none: no research_queue row parked on bibliography < 5 full-text entries",
-   "observed": "none: no research_queue row parked on bibliography < 5 full-text entries",
-   "written": true
-  },
-  {
-   "class": "belief-repo-token-writes-routes",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
    "observed": "1",
    "written": true
   },
   {
-   "class": "issue-100285",
-   "issue_id": 100285,
-   "verdict": "pass",
-   "expected": "social_engagement_rate_30d >= 0.2",
-   "observed": "social_engagement_rate_30d >= 0.2",
-   "written": true
-  },
-  {
-   "class": "issue-1001073",
-   "issue_id": 1001073,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-ops-version-line-patch-budget",
+   "class": "goal-PAPER-LEARN-4706",
    "issue_id": null,
-   "verdict": "pass",
+   "verdict": "fail",
    "expected": "0",
-   "observed": 0,
-   "written": true
-  },
-  {
-   "class": "fm-ops-codemode-task-window",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-removal-unprobeable",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-head-of-line",
+   "class": "goal-PAPER-LEARN-4707",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
+   "verdict": "fail",
+   "expected": "0",
    "observed": "1",
    "written": true
   },
   {
-   "class": "issue-1000641",
-   "issue_id": 1000641,
-   "verdict": "pass",
-   "expected": "1.00",
-   "observed": "1.00",
-   "written": true
-  },
-  {
-   "class": "fm-trigger-depth",
+   "class": "goal-PAPER-LEARN-4719",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
+   "verdict": "fail",
+   "expected": "0",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-grounding-single-source-refused",
+   "class": "goal-PAPER-LEARN-5759",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
+   "verdict": "fail",
+   "expected": "0",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-verification-deferral-unaged",
+   "class": "goal-PAPER-LEARN-5760",
    "issue_id": null,
-   "verdict": "pass",
+   "verdict": "fail",
    "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-probe-author-later-pass-free-text",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": 0,
-   "observed": 0,
-   "written": true
-  },
-  {
-   "class": "fm-issue-deletion",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-stale-hold",
+   "class": "goal-PAPER-LEARN-5761",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
+   "verdict": "fail",
+   "expected": "0",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-census-heartbeat-ages-out",
+   "class": "goal-PAPER-LEARN-5762",
    "issue_id": null,
-   "verdict": "pass",
+   "verdict": "fail",
    "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-loop-breaker-counts-excluded-tool-errors",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-migration-literal-outside-check-enum",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
+   "class": "issue-2008",
+   "issue_id": 2008,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "defect: a code-loop pull request failed a required check in the last 14 days",
    "written": true
   },
   {
-   "class": "fm-pdf-backlog-stalled",
+   "class": "goal-PAPER-LEARN-5067",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
+   "verdict": "fail",
+   "expected": "0",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-selfheal-executed-unverified",
+   "class": "goal-PAPER-LEARN-5075",
    "issue_id": null,
-   "verdict": "pass",
+   "verdict": "fail",
    "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-code-review-dead-end-at-open",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-synthetic-ask-pollution",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "issue-1001405",
-   "issue_id": 1001405,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-reopen-hits-open-twin",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-dissemination-queue-over-cadence",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-verify-zero-claims-quantitative",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-audit-frozen",
+   "class": "goal-PAPER-LEARN-5066",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
+   "verdict": "fail",
+   "expected": "0",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-cf-obs-nested-pin-stale",
+   "class": "goal-PAPER-LEARN-5068",
    "issue_id": null,
-   "verdict": "pass",
+   "verdict": "fail",
    "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-merge-not-deployed",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-revise-refs-refusal-waste",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-errata-confirm-stalled",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-personal-calendar-delivery",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": 0,
-   "observed": 0,
-   "written": true
-  },
-  {
-   "class": "fm-research-stage-stalled",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-secret-in-config",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-publish-rate-collapse",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
+   "class": "issue-1001394",
+   "issue_id": 1001394,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "errors 5/9 in 24h",
    "written": true
   },
   {
-   "class": "fm-probe-awaits-missing-heartbeat",
+   "class": "goal-PAPER-LEARN-5225",
    "issue_id": null,
-   "verdict": "pass",
+   "verdict": "fail",
    "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-tick-reopen-dup-title",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-breach-doctor-case-age",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-exact-version-probe",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-mail-draft-fabrication",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-iso-text-compare",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
-   "observed": "0",
-   "written": true
-  },
-  {
-   "class": "fm-cron-string-dispatch-drift",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-collector-without-credential",
+   "class": "goal-PAPER-LEARN-5229",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "1",
+   "verdict": "fail",
+   "expected": "0",
    "observed": "1",
    "written": true
   },
   {
-   "class": "fm-roadmap-catalogue-as-issues",
+   "class": "issue-1001145",
+   "issue_id": 1001145,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "fm-fleet-census-blind",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "2",
+   "written": true
+  },
+  {
+   "class": "issue-1001329",
+   "issue_id": 1001329,
+   "verdict": "fail",
+   "expected": "1",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5227",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-100299",
+   "issue_id": 100299,
+   "verdict": "fail",
+   "expected": "7",
+   "observed": "0 of the last 7 daily reads are 0 (latest read 484)",
+   "written": true
+  },
+  {
+   "class": "issue-1001125",
+   "issue_id": 1001125,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "fm-health-ok-but-empty",
    "issue_id": null,
    "verdict": "pass",
    "expected": "0",
@@ -385,7 +233,7 @@
    "written": true
   },
   {
-   "class": "fm-hourly-fanout-double",
+   "class": "fm-code-task-refusal-window-miss",
    "issue_id": null,
    "verdict": "pass",
    "expected": "0",
@@ -393,13 +241,156 @@
    "written": true
   },
   {
-   "class": "fm-content-pipeline-unmapped-revision-status",
+   "class": "fm-evolve-wip-planner-mismatch",
    "issue_id": null,
-   "verdict": "pass",
-   "expected": "0",
+   "verdict": "fail",
+   "expected": "1",
    "observed": "0",
    "written": true
   },
   {
-   "class": "metric-relapse-99906",
-   "issue_id": 999
+   "class": "issue-1000400",
+   "issue_id": 1000400,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "19",
+   "written": true
+  },
+  {
+   "class": "issue-1001021",
+   "issue_id": 1001021,
+   "verdict": "fail",
+   "expected": "success",
+   "observed": "failure-within-24h",
+   "written": true
+  },
+  {
+   "class": "issue-1000707",
+   "issue_id": 1000707,
+   "verdict": "fail",
+   "expected": "resumes_missing_research_portfolio=0",
+   "observed": "resumes_missing_research_portfolio=76 of 76 emitted, 0 carry any DOI",
+   "written": true
+  },
+  {
+   "class": "metric-relapse-100401",
+   "issue_id": 100401,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PRG-QNFO-RSCH-DEFECTS-0",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "open defects in QNFO.RSCH: 29",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4788",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4887",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4888",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4935",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-6076",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-6077",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5238",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5279",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5290",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1000794",
+   "issue_id": 1000794,
+   "verdict": "fail",
+   "expected": "tool_allowlist>0,human_actions>0,capability>0,agent_actions>0,analytics_events>0,ae_events>0,fleet_agent_tools>0",
+   "observed": "tool_allowlist=0,human_actions=0,capability=0,agent_actions=0,analytics_events=0,ae_events=0,fleet_agent_tools=0",
+   "written": true
+  },
+  {
+   "class": "issue-1000872",
+   "issue_id": 1000872,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "865 merge(s) cleared with no review requirement recorded in the gate (latest PR 6701)",
+   "written": true
+  },
+  {
+   "class": "issue-1001047",
+   "issue_id": 1001047,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001336",
+   "issue_id": 1001336,
+   "verdict": "fail",
+   "expected": "success",
+   "observed": "failure-within-24h",
+   "written": true
+  },
+  {
+   "class": "fm-breach-age-repair-live-do
