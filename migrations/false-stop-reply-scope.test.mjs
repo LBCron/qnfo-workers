@@ -11,6 +11,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 const sql = readFileSync(new URL("./2026-10-27-false-stop-reply-scope.sql", import.meta.url), "utf8");
+const dispositionSql = readFileSync(new URL("./2026-11-03-false-stop-disposition.sql", import.meta.url), "utf8");
 const kernel = readFileSync(new URL("./2026-10-12-20-kernel-registries.sql", import.meta.url), "utf8");
 let pass = 0, fail = 0;
 const ok = (c, m, d) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (d === undefined ? "" : " :: " + JSON.stringify(d).slice(0, 400))); } };
@@ -44,8 +45,8 @@ for (const [p, k, s] of [["if you want", "conditional-offer", "reply"], ["would 
 const hoursAgo = (h) => new Date(Date.now() - h * 36e5).toISOString().slice(0, 19) + "Z";
 const log = d.prepare("INSERT INTO ops_ai_log (id, ts, strategy, response, completion_tokens, tool_calls, source, ok) VALUES (?, ?, ?, ?, ?, ?, ?, 1)");
 const rows = {
-  "ops-1a418c26da88ce": ["agent-tools", "Verification failed, no code was waiting. If you want owner access, say so and I'll call owner_login to email a fresh code.", 200, "[]"],
-  "ops-cbe5974fdaf051": ["agent-tools", "No code is currently waiting. If you want owner access, a fresh 6-digit code has to be emailed first.", 219, "[]"],
+  "ops-1a418c26da88ce": ["agent-tools", "The request is currently waiting to be verified, so `123456` wasn't accepted. If you want owner access, a fresh 6-digit code has to be emailed first.", 200, "[]"],
+  "ops-cbe5974fdaf051": ["agent-tools", "The request is currently waiting to be verified, so `123456` wasn't accepted. If you want owner access, a fresh 6-digit code has to be emailed first.", 219, "[]"],
   "ops-2ec01565c60188": ["agent-tools", "Done, filed in persistent memory. My toolset has no write into the issue store, so if you want it as a formal agent issue, that is a one-line addition.", 507, "[]"],
   "ops-6a811b4c1aa914": ["agent-tools", "Good data. Now let me analyze the fleet. The rule says never end with a menu, so no would you like me to ending. I should state it pla", 8192, '[{"name":"public_data"}]'],
   "ops-935c733638a008": ["job-workflow", "Let me reconstruct where I am. Alternatively the task could be to fix the endpoints, or the fix is to create the record. Hmm hold on, wait. Let me re-", 8000, "[]"],
@@ -128,6 +129,45 @@ d.exec("UPDATE ops_ai_log SET ts = '2020-01-01T00:00:00Z' WHERE completion_token
 ok(probe().observed === "0", "the detector reads 0 once no such row is in the last 7 days", probe());
 ok(d.prepare("SELECT COUNT(*) AS n FROM decision_log WHERE action LIKE 'FALSE-STOP-REPLY-SCOPE-1:%'").get().n === 1, "one decision_log row");
 
+// refusal-with-reason phrases take precedence over a conditional-offer phrase, including stored hits.
+const dispositionTs = hoursAgo(1);
+const dispositionReplies = [
+  [16, "If you want them actually gone, that requires a D1 DELETE."],
+  [17, "The request is waiting to be verified. If you want owner access, a fresh code has to be emailed first."],
+  [18, "The request wasn't accepted. If you want owner access, a fresh code has to be emailed first."],
+];
+for (const [id, response] of dispositionReplies) {
+  const replyId = "ops-row-" + id;
+  log.run(replyId, dispositionTs, "agent-tools", response, 300, "[]", "public");
+  hit.run(id, dispositionTs, replyId, dispositionTs, "conditional-offer", "if you want", response);
+}
+d.exec(dispositionSql);
+const classified = d.prepare("SELECT id, disposition_phrases FROM false_stop_hits_dispositioned ORDER BY id").all();
+ok(classified.map((r) => r.id).join() === "16,17,18,21,22", "all five refusal-with-reason hits are reclassified", classified);
+const matchedDispositions = classified.map((r) => r.disposition_phrases).join(", ");
+ok(["waiting to be verified", "wasn't accepted", "has to be emailed first", "requires a d1 delete"].every((phrase) => matchedDispositions.includes(phrase)),
+  "the new refusal-with-reason phrases are recorded as the reason for reclassification", classified);
+ok(d.prepare("SELECT COUNT(*) AS n FROM false_stop_phrases WHERE scope = 'disposition' AND phrase IN ('waiting to be verified', 'wasn''t accepted', 'has to be emailed first', 'requires a d1 delete')").get().n === 4,
+  "all four refusal-with-reason phrases are seeded as dispositions");
+ok(d.prepare("SELECT id FROM false_stop_hits ORDER BY id").all().map((r) => r.id).join() === "35",
+  "disposition-bearing hits leave the active ledger while the bare offer stays");
+const remaining = d.prepare("SELECT DISTINCT reply_id FROM v_false_stop_candidates ORDER BY reply_id").all().map((r) => r.reply_id);
+ok(remaining.includes("ops-2ec01565c60188") && !remaining.includes("ops-1a418c26da88ce") &&
+  !remaining.includes("ops-cbe5974fdaf051") && !remaining.includes("ops-row-16") &&
+  !remaining.includes("ops-row-17") && !remaining.includes("ops-row-18"),
+  "the candidate view excludes offers attached to dispositions but preserves the independent bare offer", remaining);
+const beforeDispositionReapply = JSON.stringify([
+  d.prepare("SELECT id FROM false_stop_hits ORDER BY id").all(),
+  d.prepare("SELECT id FROM false_stop_hits_dispositioned ORDER BY id").all(),
+  d.prepare("SELECT phrase FROM false_stop_phrases WHERE scope = 'disposition' ORDER BY phrase").all(),
+]);
+d.exec(dispositionSql);
+ok(JSON.stringify([
+  d.prepare("SELECT id FROM false_stop_hits ORDER BY id").all(),
+  d.prepare("SELECT id FROM false_stop_hits_dispositioned ORDER BY id").all(),
+  d.prepare("SELECT phrase FROM false_stop_phrases WHERE scope = 'disposition' ORDER BY phrase").all(),
+]) === beforeDispositionReapply, "the disposition migration is idempotent");
+
 // second apply changes nothing
 const snap = () => JSON.stringify([d.prepare("SELECT id FROM false_stop_hits ORDER BY id").all(), d.prepare("SELECT COUNT(*) AS n FROM false_stop_hits_reclassified").get(),
   d.prepare("SELECT COUNT(*) AS n FROM agent_issues").get(), d.prepare("SELECT COUNT(*) AS n FROM failure_modes").get(), d.prepare("SELECT COUNT(*) AS n FROM remediation_contracts").get(),
@@ -136,17 +176,21 @@ const before2 = snap();
 d.exec(sql);
 ok(snap() === before2, "a second apply changes nothing");
 const cand2 = d.prepare("SELECT COUNT(DISTINCT reply_id) AS n FROM v_false_stop_candidates").get().n;
-ok(cand2 === 4 + 6, "the views still work after the second apply (4 earlier rows plus the 6 added rows that should be caught)", cand2);
+ok(cand2 === 8, "the views still work after the second apply (five disposition hits are excluded and eight unrelated candidates remain)", cand2);
 
 // the Rollback line puts the moved rows back
 const rb = sql.split("\n").filter((l) => /^-- Rollback:|^--\s{8,}\S/.test(l)).join("\n");
 ok(/INSERT OR IGNORE INTO false_stop_hits/.test(rb) && /UPDATE doctrine_proposals SET status = 'proposed'/.test(rb) && /DROP VIEW IF EXISTS v_agent_replies/.test(rb), "the Rollback header names each undo");
 d.exec("INSERT OR IGNORE INTO false_stop_hits (id, ts, source, reply_id, reply_ts, pattern_key, phrase, excerpt) SELECT id, ts, source, reply_id, reply_ts, pattern_key, phrase, excerpt FROM false_stop_hits_reclassified WHERE migration = 'FALSE-STOP-REPLY-SCOPE-1'");
-ok(d.prepare("SELECT COUNT(*) AS n FROM false_stop_hits").get().n === 9, "the first Rollback statement restores all nine hits");
+ok(d.prepare("SELECT id FROM false_stop_hits ORDER BY id").all().map((r) => r.id).join() === "25,27,35,37,39,40,41",
+  "the earlier rollback restores its six reclassified hits without restoring the disposition hits");
 
 // the header declares what the runner needs
 ok(/^-- APPLY-BY: ci$/m.test(sql) && /^-- DB: qnfo-audit$/m.test(sql) && /^-- BACKUP: false_stop_hits_reclassified$/m.test(sql) && /^-- Rollback: /m.test(sql), "the header carries APPLY-BY, DB, BACKUP and Rollback");
 ok(!/\bclaude\.ai\b/i.test(sql), "no claude.ai link");
+ok(/^-- APPLY-BY: ci$/m.test(dispositionSql) && /^-- DB: qnfo-audit$/m.test(dispositionSql) &&
+  /^-- BACKUP: false_stop_hits_dispositioned$/m.test(dispositionSql) && /^-- Rollback: /m.test(dispositionSql),
+  "the disposition migration declares its runner, database, backup and rollback");
 
 console.log((fail ? "FAIL " : "ok ") + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
