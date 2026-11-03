@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 07:50:55",
+  "audited_at": "2026-11-03 08:20:44",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -586,7 +586,7 @@
       },
       {
         "dir": "qnfo-ai",
-        "version": "5.42.4-codeagent",
+        "version": "5.43.0",
         "worker": "qnfo-ai"
       },
       {
@@ -606,7 +606,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.35.0-codeagent",
+        "version": "0.36.0-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -636,17 +636,17 @@
       },
       {
         "dir": "qnfo-fleet-dashboard",
-        "version": "1.80.2",
+        "version": "1.81.0",
         "worker": "qnfo-fleet-dashboard"
       },
       {
         "dir": "qnfo-gateway",
-        "version": "3.48.7",
+        "version": "3.49.0",
         "worker": "qnfo-gateway"
       },
       {
         "dir": "qnfo-github-steward",
-        "version": "0.12.1-codeagent",
+        "version": "0.12.2-codeagent",
         "worker": "qnfo-github-steward"
       },
       {
@@ -686,12 +686,12 @@
       },
       {
         "dir": "qnfo-observability",
-        "version": "1.5.7-retired-agent-ws",
+        "version": "1.5.8-retired-agent-ws",
         "worker": "qnfo-observability"
       },
       {
         "dir": "qnfo-ops",
-        "version": "2.62.10-rm1646-qwen-chat",
+        "version": "2.62.11-rm1646-qwen-chat",
         "worker": "qnfo-ops"
       },
       {
@@ -706,7 +706,7 @@
       },
       {
         "dir": "qnfo-social",
-        "version": "0.21.8-codeagent",
+        "version": "0.21.9-codeagent",
         "worker": "qnfo-social"
       },
       {
@@ -1103,9 +1103,9 @@
       "worker": "qnfo-agents"
     },
     "qnfo-ai": {
-      "before": "5.42.4-codeagent",
+      "before": "5.43.0",
       "http": 200,
-      "live": "5.42.4-codeagent",
+      "live": "5.43.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai"
@@ -1279,9 +1279,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.35.0-codeagent",
+      "before": "0.36.0-codeagent",
       "http": 200,
-      "live": "0.35.0-codeagent",
+      "live": "0.36.0-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1417,9 +1417,9 @@
       "worker": "qnfo-fleet-control"
     },
     "qnfo-fleet-dashboard": {
-      "before": "1.80.2",
+      "before": "1.81.0",
       "http": 200,
-      "live": "1.80.2",
+      "live": "1.81.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-dashboard"
@@ -1451,17 +1451,17 @@
       "worker": "qnfo-fleet-lee"
     },
     "qnfo-gateway": {
-      "before": "3.48.7",
+      "before": "3.49.0",
       "http": 200,
-      "live": "3.48.7",
+      "live": "3.49.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-gateway"
     },
     "qnfo-github-steward": {
-      "before": "0.12.1-codeagent",
+      "before": "0.12.2-codeagent",
       "http": 200,
-      "live": "0.12.1-codeagent",
+      "live": "0.12.2-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-github-steward"
@@ -1577,17 +1577,17 @@
       "worker": "qnfo-model-eval"
     },
     "qnfo-observability": {
-      "before": "1.5.7-retired-agent-ws",
+      "before": "1.5.8-retired-agent-ws",
       "http": 200,
-      "live": "1.5.7-retired-agent-ws",
+      "live": "1.5.8-retired-agent-ws",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-observability"
     },
     "qnfo-ops": {
-      "before": "2.62.10-rm1646-qwen-chat",
+      "before": "2.62.11-rm1646-qwen-chat",
       "http": 200,
-      "live": "2.62.10-rm1646-qwen-chat",
+      "live": "2.62.11-rm1646-qwen-chat",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ops"
@@ -1735,9 +1735,9 @@
       "worker": "qnfo-skills-discovery"
     },
     "qnfo-social": {
-      "before": "0.21.8-codeagent",
+      "before": "0.21.9-codeagent",
       "http": 200,
-      "live": "0.21.8-codeagent",
+      "live": "0.21.9-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-social"
