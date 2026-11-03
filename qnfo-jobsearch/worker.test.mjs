@@ -132,6 +132,8 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
   ok(T.LEDGER.ledger_verified_on === file.ledger_verified_on, "ledger date parity");
   ok(T.dedupeKey({ company: "A", title: "X  Y", location: "NL" }) === T.dedupeKey({ company: "a", title: "x y", location: "nl" }), "dedupe key normalises");
   ok(T.feedPrefix("greenhouse:anthropic") === "gh:anthropic:" && T.feedPrefix("remotive:data") === "rm:", "feed prefixes");
+  ok(["cwi", "deepmind", "tno"].every((slug) => !T.BOARDS.greenhouse.includes(slug)), "Greenhouse feeds with persistent HTTP 404s are excluded");
+  ok(["cwi", "deepmind", "tno"].every((slug) => !T.BOARDS.greenhouse.includes(slug)), "Greenhouse feeds with persistent HTTP 404s are excluded");
 
   // e-mailed-code sign-in with a stubbed qnfo-email
   const sent = [];
@@ -200,9 +202,15 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
   ok(feed && feed.consecutive_fail >= 1 && /boom/.test(feed.last_error), "feed failure recorded", feed);
   const stuck = db.prepare("SELECT finished_at, errors_json FROM jobsearch_runs WHERE finished_at IS NOT NULL AND errors_json LIKE '%did not finish%'").get();
   ok(!!stuck, "run left open for an hour is closed by the next run");
+  for (const feed of ["greenhouse:cwi", "greenhouse:deepmind", "greenhouse:tno"])
+    db.prepare("INSERT INTO jobsearch_feeds (feed, last_error, consecutive_fail) VALUES (?, 'HTTP 404', 126)").run(feed);
   const ops = (await call("/api/ops", {}, env2));
   ok(ops[1].checks.length === 8 && ops[1].checks.find((c) => c.fm === "jobsearch-auth-unavailable").ok, "ops report lists 8 checks, auth ok", ops[1].checks.filter((c) => !c.ok));
+  ok(ops[1].checks.find((c) => c.fm === "jobsearch-feed-down").ok && ops[1].feeds.filter((f) => !f.active && f.consecutive_fail === 126).length === 3, "retired failing feeds remain visible but do not degrade active feed health");
   ok(ops[1].checks.find((c) => c.fm === "jobsearch-cron-stalled").ok, "ops: cron fresh");
+  db.prepare("UPDATE jobsearch_feeds SET consecutive_fail=3 WHERE feed='greenhouse:anthropic'").run();
+  const activeFailure = (await call("/api/ops", {}, env2))[1];
+  ok(!activeFailure.checks.find((c) => c.fm === "jobsearch-feed-down").ok, "three failures on an active feed still fail the detector");
   ok(db.prepare("SELECT v FROM jobsearch_meta WHERE k='ledger_verified_on'").get().v === "2026-10-01", "ledger date recorded each run");
   ok((await call("/health", {}, env2))[1].ledger_verified_on === "2026-10-01", "health shows ledger date");
   ok(db.prepare("SELECT v FROM jobsearch_meta WHERE k='ledger_open_questions'").get().v === String(T.LEDGER.unverified_needs_owner.length), "open ledger questions recorded each run for the owner-card probe");
