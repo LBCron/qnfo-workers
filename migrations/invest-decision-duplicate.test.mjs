@@ -24,7 +24,15 @@ db.exec(`
     issue_id INTEGER PRIMARY KEY, triage_state TEXT, close_evidence TEXT, reopened_count INTEGER, owner TEXT
   );
   CREATE TABLE remediation_contracts (
-    class TEXT PRIMARY KEY, issue_id INTEGER, status TEXT, last_verdict TEXT, max_attempts INTEGER
+    class TEXT PRIMARY KEY, issue_id INTEGER, status TEXT, last_verdict TEXT, max_attempts INTEGER,
+    precondition TEXT NOT NULL DEFAULT '', action TEXT NOT NULL DEFAULT '', verify_probe TEXT NOT NULL DEFAULT '',
+    verify_transport TEXT NOT NULL DEFAULT '', escalate_to TEXT NOT NULL DEFAULT '', expected_cadence_h INTEGER DEFAULT 1,
+    module TEXT, budget_ms INTEGER DEFAULT 45000, max_items INTEGER DEFAULT 5, requires_container INTEGER DEFAULT 0
+  );
+  CREATE TABLE failure_modes (
+    fm_key TEXT PRIMARY KEY, failure_mode TEXT NOT NULL, root_cause TEXT NOT NULL, remediation TEXT NOT NULL,
+    detector TEXT NOT NULL, probe_class TEXT, first_seen TEXT NOT NULL, issue_id INTEGER,
+    trigger_condition TEXT, symptom TEXT, blast_radius TEXT
   );
   CREATE TABLE remediation_verifications (
     class TEXT, pass INTEGER, observed TEXT, verified_at TEXT, expected TEXT
@@ -56,7 +64,7 @@ db.exec(`
     (2124, 'triaged', NULL, 1, 'qnfo-fleet-control'),
     (1836, 'triaged', NULL, 0, 'qnfo-fleet-dashboard'),
     (2444, 'closed', 'fixed after verification', 0, 'qnfo-fleet-control');
-  INSERT INTO remediation_contracts VALUES
+  INSERT INTO remediation_contracts (class, issue_id, status, last_verdict, max_attempts) VALUES
     ('metric-relapse-2124', 2124, 'active', 'fail', 3),
     ('issue-1836', 1836, 'active', NULL, 3),
     ('metric-relapse-2444', 2444, 'active', NULL, 3);
@@ -73,6 +81,8 @@ assert.equal(disposition().triage_state, "closed");
 assert.match(disposition().close_evidence, /^superseded by agent_issues 1836/);
 assert.equal(contract().status, "superseded");
 assert.equal(db.prepare("SELECT status FROM remediation_contracts WHERE class = 'issue-1836'").get().status, "active");
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM failure_modes WHERE fm_key = 'migration-close-before-contract-retire'").get().n, 1);
+assert.equal(db.prepare("SELECT verify_transport FROM remediation_contracts WHERE class = 'fm-migration-close-before-contract-retire'").get().verify_transport, "d1-query");
 
 const fail = db.prepare(`
   INSERT INTO remediation_verifications (class, pass, observed, verified_at, expected)
