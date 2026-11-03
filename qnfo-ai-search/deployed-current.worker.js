@@ -29,7 +29,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.12.12-codeagent";
+var VERSION = "2.12.13-codeagent";
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
 async function callModelWithRetry(url, payload, timeoutMs = 20000) {
@@ -131,7 +131,9 @@ var QGEN_MODEL = "@cf/zai-org/glm-5.3-flash";
 // longer stops anything here: public answers are written by LEAN_MODEL (the cheapest text model in RATES), the corpus
 // feeder uploads CORPUS_SYNC_LEAN papers a tick instead of CORPUS_SYNC_PER_RUN, and golden-question generation makes at
 // most QGEN_LEAN_CALLS calls. The per-address hourly limit stays: it is abuse protection for an open endpoint, not a budget.
-var LEAN_MODEL = "@cf/qwen/qwen3.8-27b";
+// Use the cheaper metered model while capped; keep the prior model for per-request recovery.
+var LEAN_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+var LEAN_FALLBACK_MODEL = "@cf/qwen/qwen3.8-27b";
 var CORPUS_SYNC_LEAN = 2, QGEN_LEAN_CALLS = 2;
 // Cloudflare neurons per 1M tokens [in, out] (same table as qnfo-ai __AI_ATTR_RATES).
 var RATES = {
@@ -1397,12 +1399,17 @@ async function ask(request, env, ctx) {
         var start = function (m) { return deadline(env.AI.run(m, Object.assign({ messages: msgs, stream: true, max_tokens: budget(m), temperature: cfg.temperature }, NO_REASONING[m] ? { reasoning_effort: "none" } : {})), ASK_MODEL_START_MS, "the model " + m.replace(/^@cf\//, "")); };
         var out;
         try { out = await start(model); }
-        catch (e) { model = model === FALLBACK_MODEL ? FALLBACK_MODEL_2 : FALLBACK_MODEL; out = await start(model); }
+        catch (e) {
+          var fallback = adm.lean ? LEAN_FALLBACK_MODEL : (model === FALLBACK_MODEL ? FALLBACK_MODEL_2 : FALLBACK_MODEL);
+          if (fallback === model) throw e;
+          model = fallback;
+          out = await start(model);
+        }
         ev.model = model;
         var text = "", usage = null, buf = "", inThink = false, reader = out.getReader(), dec = new TextDecoder();
         for (;;) {
-          if (stopped) { try { reader.cancel(); } catch (e0) { logErr("ask reader.cancel", e0); } break; }
-          var rd = await deadline(reader.read(), ASK_MODEL_IDLE_MS, "the model stream").catch(function (e) { try { reader.cancel(); } catch (e1) { logErr("ask reader.cancel after stream error", e1); } throw e; });
+          if (stopped) { try { Promise.resolve(reader.cancel()).catch(function (e0) { logErr("ask reader.cancel", e0); }); } catch (e0) { logErr("ask reader.cancel", e0); } break; }
+          var rd = await deadline(reader.read(), ASK_MODEL_IDLE_MS, "the model stream").catch(function (e) { try { Promise.resolve(reader.cancel()).catch(function (e1) { logErr("ask reader.cancel after stream error", e1); }); } catch (e1) { logErr("ask reader.cancel after stream error", e1); } throw e; });
           if (rd.done) break;
           buf += dec.decode(rd.value, { stream: true });
           var lines = buf.split("\n");
@@ -1429,19 +1436,26 @@ async function ask(request, env, ctx) {
         var tout = Number(usage && (usage.completion_tokens || usage.output_tokens)) || Math.ceil(text.length / 3.5);
         return { text: stripThink(text), in_tok: tin, out_tok: tout, model: model };
       };
-      var gen = await runWriter(messages);
+      var gen;
+      try { gen = await runWriter(messages); }
+      catch (e) {
+        if (!adm.lean || model === LEAN_FALLBACK_MODEL || stopped) throw e;
+        logErr("lean model stream fallback", e);
+        model = LEAN_FALLBACK_MODEL;
+        gen = await runWriter(messages);
+      }
       var text = gen.text, spent = [gen];
       if (!text.trim()) {
         ev.error = "empty answer from " + model; // counts against the arm in ASK-TUNE-1
         // ASK-PLAIN-4: a visitor who got no text at all (live: the qwen challenger spent its budget thinking, 50 s, then a bare done event)
         // gets one more try on the champion's model, or on FALLBACK_MODEL when the champion was the one that came back empty.
-        var alt = conf.champion && conf.champion.model && conf.champion.model !== model ? conf.champion.model : FALLBACK_MODEL;
+        var alt = adm.lean ? LEAN_FALLBACK_MODEL : (conf.champion && conf.champion.model && conf.champion.model !== model ? conf.champion.model : FALLBACK_MODEL);
         if (alt !== model && !stopped && Date.now() - t0 < PLAIN_RETRY_BEFORE_MS) {
           model = alt;
           try {
             var gen0 = await deadline(runWriter(messages), PLAIN_RETRY_MS, "the retry on " + alt.replace(/^@cf\//, ""));
             spent.push(gen0);
-            if (gen0.text.trim()) text = gen0.text;
+            if (gen0.text.trim()) { text = gen0.text; if (adm.lean) ev.error = null; }
           } catch (e) { if (gone) throw e; logErr("empty-answer retry", e); }
         }
       }

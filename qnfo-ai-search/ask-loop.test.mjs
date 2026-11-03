@@ -170,6 +170,7 @@ await Promise.allSettled(waits.splice(0));
 const closed = sq.prepare("SELECT a.status, t.close_evidence e FROM agent_issues a JOIN issue_triage t ON t.issue_id = a.id").get();
 ok(closed && closed.status === "closed" && /back inside its warning band/.test(closed.e), "recovery closes the issue with live evidence");
 Date.now = realNow;
+
 // 7. public loop report
 const lp = (await call("/api/loop")).json();
 ok(lp.metrics.length === 9 && lp.runs.length > 0 && lp.config.champion, "GET /api/loop reports metrics, runs and config");
@@ -414,6 +415,49 @@ ok(models.includes("@cf/deepseek-ai/deepseek-v4-flash-0731"), "the judge is a di
   ok(again.v === null && again.s === "UNMEASURED", "ratings gone again: cleared again, never stale: " + JSON.stringify(again));
   const unmeasuredAll = sq.prepare("SELECT COUNT(*) n FROM metric_registry WHERE owner='qnfo-ai-search' AND state='MEASURED' AND last_value IS NULL").get().n;
   ok(unmeasuredAll === 0, "no ask metric is MEASURED without a value");
+}
+
+// A spend-capped answer uses the cheapest model with a recorded rate and
+// falls back to the previous lean model on errors or empty output.
+{
+  const LEAN_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+  const LEAN_FALLBACK_MODEL = "@cf/qwen/qwen3.8-27b";
+  await D1.prepare("INSERT INTO ai_spend_ledger (day, provider, caller, model, usd) VALUES (?1, 'workers-ai', 'cap-test', 'cap-test', 60.01)").bind(new Date().toISOString().slice(0, 10)).run();
+  const realRun = AI.run;
+  const failedModels = [];
+  AI.run = async (model, input) => {
+    failedModels.push(model);
+    if (model === LEAN_MODEL) throw new Error("model temporarily unavailable");
+    return realRun(model, input);
+  };
+  const failedModelAnswer = await call("/api/ask", { query: "What does the capped model retry answer?" }, "6.6.6.6");
+  ok(failedModels[0] === LEAN_MODEL && failedModels[1] === LEAN_FALLBACK_MODEL, "a spend-capped answer selects the priced lean model and retries the previous lean model after a model error", failedModels);
+  ok(sse(failedModelAnswer.text, "done").length === 1 && sse(failedModelAnswer.text, "error").length === 0, "the previous lean model completes an answer after the selected model fails");
+
+  const streamModels = [];
+  AI.run = async (model, input) => {
+    streamModels.push(model);
+    if (model === LEAN_MODEL) return new ReadableStream({ start(c) { c.error(new Error("model stream interrupted")); } });
+    return realRun(model, input);
+  };
+  const streamFailedAnswer = await call("/api/ask", { query: "What does the capped model stream retry answer?" }, "6.6.6.8");
+  ok(streamModels[0] === LEAN_MODEL && streamModels[1] === LEAN_FALLBACK_MODEL, "a capped-model stream failure retries with the previous lean model", streamModels);
+  ok(sse(streamFailedAnswer.text, "done").length === 1 && sse(streamFailedAnswer.text, "error").length === 0, "the previous lean model completes after a stream failure");
+
+  const emptyModels = [];
+  AI.run = async (model, input) => {
+    emptyModels.push(model);
+    if (model === LEAN_MODEL) return new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("data: [DONE]\n\n")); c.close(); } });
+    return realRun(model, input);
+  };
+  const emptyModelAnswer = await call("/api/ask", { query: "What does the capped model empty retry answer?" }, "6.6.6.7");
+  const emptyEvent = sq.prepare("SELECT error FROM ask_events ORDER BY rowid DESC LIMIT 1").get();
+  ok(emptyModels[0] === LEAN_MODEL && emptyModels[1] === LEAN_FALLBACK_MODEL, "an empty capped-model reply falls back to the previous lean model", emptyModels);
+  ok(sse(emptyModelAnswer.text, "done").length === 1 && emptyEvent.error === null, "a successful empty-reply fallback is recorded as a completed, error-free answer");
+  const source = readFileSync(join(here, "worker.js"), "utf8");
+  const rates = source.slice(source.indexOf("var RATES ="), source.indexOf("var NEURON_USD"));
+  ok(/"@cf\/qwen\/qwen3-30b-a3b-fp8": \[4625, 30475\]/.test(rates), "the selected lean model has an explicit, lower neuron rate");
+  AI.run = realRun;
 }
 console.log(passed + " passed, " + failed + " failed");
 process.exit(failed ? 1 : 0);
