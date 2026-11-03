@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 08:59:25",
+  "audited_at": "2026-11-03 09:30:55",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -11,7 +11,13 @@
     "cron_only": [],
     "cron_only_count": 0,
     "drift": [],
-    "live_err": [],
+    "live_err": [
+      {
+        "dir": "q08-signal-engine",
+        "err": "ERR:The read operation timed out",
+        "worker": "q08-signal-engine"
+      }
+    ],
     "multi_version": [],
     "multi_version_count": 0,
     "name_resolution": true,
@@ -547,7 +553,7 @@
     "retired_present": [],
     "retired_present_count": 0,
     "scope": "all",
-    "sync": 36,
+    "sync": 35,
     "sync_workers": [
       {
         "dir": "idea-hub",
@@ -575,13 +581,8 @@
         "worker": "q08-mind"
       },
       {
-        "dir": "q08-signal-engine",
-        "version": "0.41.5-codeagent",
-        "worker": "q08-signal-engine"
-      },
-      {
         "dir": "qnfo-agents",
-        "version": "0.3.1",
+        "version": "0.4.0",
         "worker": "qnfo-agents"
       },
       {
@@ -606,7 +607,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.36.0-codeagent",
+        "version": "0.37.0-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -641,7 +642,7 @@
       },
       {
         "dir": "qnfo-gateway",
-        "version": "3.49.0",
+        "version": "3.50.0",
         "worker": "qnfo-gateway"
       },
       {
@@ -1060,11 +1061,11 @@
       "worker": "q08-mind"
     },
     "q08-signal-engine": {
-      "before": "0.41.5-codeagent",
-      "http": 200,
-      "live": "0.41.5-codeagent",
-      "match": 1,
-      "note": "SYNC",
+      "before": null,
+      "http": 0,
+      "live": null,
+      "match": 0,
+      "note": "LIVE_ERR",
       "worker": "q08-signal-engine"
     },
     "qnfo-agent-orchestrator": {
@@ -1095,9 +1096,9 @@
       "worker": "qnfo-agent-ws"
     },
     "qnfo-agents": {
-      "before": "0.3.1",
+      "before": "0.4.0",
       "http": 200,
-      "live": "0.3.1",
+      "live": "0.4.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-agents"
@@ -1279,9 +1280,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.36.0-codeagent",
+      "before": "0.37.0-codeagent",
       "http": 200,
-      "live": "0.36.0-codeagent",
+      "live": "0.37.0-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1451,9 +1452,9 @@
       "worker": "qnfo-fleet-lee"
     },
     "qnfo-gateway": {
-      "before": "3.49.0",
+      "before": "3.50.0",
       "http": 200,
-      "live": "3.49.0",
+      "live": "3.50.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-gateway"
