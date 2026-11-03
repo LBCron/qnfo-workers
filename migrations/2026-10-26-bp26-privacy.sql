@@ -97,11 +97,41 @@ BEGIN
   UPDATE emails SET body_text = NULL, body_html = NULL, headers_json = NULL
     WHERE substr(received_at,1,10) < date('now','-30 days')
       AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE email_reply_queue SET draft_text = NULL, draft_proposed = NULL
+    WHERE substr(created_at,1,10) < date('now','-90 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE email_parse_failures SET content_hint = NULL
+    WHERE substr(created_at,1,10) < date('now','-90 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE subscribers SET email = NULL, ip_hash = NULL, user_agent = NULL
+    WHERE status = 'pending' AND substr(created_at,1,10) < date('now','-30 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE subscribers SET email = NULL, ip_hash = NULL, user_agent = NULL, unsub_token = NULL
+    WHERE status = 'unsubscribed' AND substr(COALESCE(updated_at, created_at),1,10) < date('now','-30 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE mcp_log SET args = NULL, result = NULL
+    WHERE substr(ts,1,10) < date('now','-90 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE handoffs SET summary = NULL, pending_work = NULL, next_action = NULL
+    WHERE session_id LIKE 'email-%' AND substr(timestamp,1,10) < date('now','-180 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
   UPDATE email_raw_archive SET raw_text = NULL
     WHERE substr(created_at,1,10) < date('now','-30 days')
       AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE email_commands SET command_text = NULL, result = NULL
+    WHERE substr(created_at,1,10) < date('now','-180 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE emails SET headers_json = NULL
+    WHERE substr(received_at,1,10) < date('now','-365 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
   UPDATE email_loop_quarantine SET body_text = NULL
     WHERE substr(COALESCE(quarantined_at, received_at),1,10) < date('now','-30 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE email_calendar_delivery SET recipient = NULL
+    WHERE status IN ('sent','skipped','superseded') AND substr(due_at,1,10) < date('now','-90 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE contact_ledger SET email = NULL, name = NULL, affiliation = NULL
+    WHERE COALESCE(suppress,0) = 0 AND substr(COALESCE(last_contact, first_contact, ''),1,10) <> '' AND substr(COALESCE(last_contact, first_contact),1,10) < date('now','-1095 days')
       AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
   UPDATE retention_policy SET past_retention = (SELECT COUNT(*) FROM emails WHERE substr(received_at,1,10) < date('now','-30 days') AND (COALESCE(body_text,'') <> '' OR COALESCE(body_html,'') <> '')), checked_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
     WHERE policy_key = 'emails_bodies_30d' AND measured_by = 'd1-trigger' AND (checked_at IS NULL OR checked_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-50 minutes'));
