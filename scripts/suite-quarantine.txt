@@ -14,3 +14,39 @@
 #   - Name the issue that fixes the suite; the entry is a loan, not a decision to leave the suite red.
 #   - Nothing here at birth: the full set was 527 of 527 on 2026-10-19.
 qnfo-fleet-control/trigger-recovery.test.mjs | 2026-11-08 | #5702 | PR #5700 fixes this fixture's close-evidence cleanup
+migrations/bp26-privacy.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+migrations/breach-issue-age-repairs.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+migrations/il-one-meaning.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+migrations/learner-anchor-repair.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+migrations/metric-trigger-autoclose-hit-guard.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+migrations/rem-a4-first-pass-close-2.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+migrations/rem-a5-ops-200-only-issue.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+migrations/rem-a7-q08-3.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+personal-api/companion-reading.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+personal-api/companion-travel.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+personal-companion/wellbeing.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-code-orchestrator/claim-at-run.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-code-orchestrator/claim-backoff.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-code-orchestrator/edit-repair-hints.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-code-orchestrator/folded-target-at-read.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/agent-tracing.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/breach-doctor-run.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/breach-doctor.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/ensure-live-path.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/gh-webhook.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/live-check-grace.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/pool-bound-sources.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/portfolio-archive.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/portfolio.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/probe-author-sink.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/probe-author.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/remediation-budget-metric.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-control/state-retired.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-fleet-dashboard/fleet-value.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-gateway/plain-standard.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-jobsearch/worker.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-ops/ds-402-breaker.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+qnfo-research-exec/grounding.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+scripts/bp26-producers.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+scripts/close-channel-guard.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
+scripts/cron-grid.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
