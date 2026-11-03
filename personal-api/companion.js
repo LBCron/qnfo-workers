@@ -85,7 +85,7 @@
 //  29. Focus reuses actions, the activity bank and activity logging. Time/energy chips, Yes/No/Surprise me, a timer and
 //      fixed Qniverse backlog presets need no typing or model call; D1 remains authoritative and the timer is ephemeral.
 
-export const COMPANION_VERSION = "1.15.0";
+export const COMPANION_VERSION = "1.16.0";
 export const TZ = "Europe/Amsterdam";
 export const CONTEXTS = [
   { name: "@home", hint: "chores, cooking, things in the flat" },
@@ -96,7 +96,7 @@ export const CONTEXTS = [
   { name: "@anywhere", hint: "thinking, reading, small things" }
 ];
 export const ENERGY = ["low", "medium", "high"];
-export const NUDGE_KINDS = ["cmp-checkin", "cmp-care", "cmp-reflect", "cmp-next", "cmp-review", "cmp-anchor", "cmp-presence", "cmp-measure", "cmp-connect", "cmp-week", "cmp-after"];
+export const NUDGE_KINDS = ["cmp-agenda", "cmp-deadline", "cmp-discovery", "cmp-checkin", "cmp-care", "cmp-reflect", "cmp-next", "cmp-review", "cmp-anchor", "cmp-presence", "cmp-measure", "cmp-connect", "cmp-week", "cmp-after"];
 // The e-mail ladder's asks are pushed to the phone too, so the two senders read as one companion.
 export const LADDER_KINDS = ["checkin", "micro", "body", "contact", "care", "presence"];
 
@@ -928,14 +928,14 @@ export function planNudge(st) {
   const mk = (kind, text, minutes, dueMin, reason, extra) => Object.assign({ kind, ask: text, minutes, due_at: new Date(nowMs + dueMin * 60000).toISOString(), reason }, extra || {});
 
   // Risk words in the last day get one quiet, caring touch even above the cap or a pause (never inside quiet hours).
-  if ((st.crisisLevel24h || 0) >= 1 && !kindsToday.has("cmp-care") && !retired.has("cmp-care")) {
+  if ((st.crisisLevel24h || 0) >= (cfg.wellbeing_prompts === true ? 1 : 2) && !kindsToday.has("cmp-care") && !retired.has("cmp-care")) {
     return mk("cmp-care", pickLru((st.crisisLevel24h || 0) >= 2 ? TEXTS.followup : TEXTS.care, recentAsks), 0, 360, "risk-words-24h");
   }
   if (isPaused(cfg, nowMs)) return { skip: "paused" };
   if (todays.length >= Number(cfg.max_per_day)) return { skip: "daily-cap" };
   const lastSent = (st.recent || []).map((r) => new Date(r.sent_at || r.ts).getTime()).filter(Number.isFinite).sort((a, b) => b - a)[0];
   if (lastSent && nowMs - lastSent < Number(cfg.min_gap_min) * 60000) return { skip: "min-gap" };
-  if ((st.unansweredStreak || 0) >= Number(cfg.max_unanswered)) {
+  if (cfg.wellbeing_prompts === true && (st.unansweredStreak || 0) >= Number(cfg.max_unanswered)) {
     if (kindsToday.has("presence") || kindsToday.has("cmp-presence")) return { skip: "presence-already-sent" };
     return mk("cmp-presence", TEXTS.presence[0], 0, 360, "unanswered-streak=" + st.unansweredStreak);
   }
@@ -944,6 +944,19 @@ export function planNudge(st) {
   const events = st.events || [];
   const busy = events.find((e) => !e.allDay && e.startMs <= nowMs && nowMs < e.endMs);
   if (busy) return { skip: "during-event" };
+  // Wellness prompts are opt-in. Missing logs never justify a question or filler notification.
+  if (cfg.wellbeing_prompts !== true) {
+    const upcoming = events.filter((e) => !e.allDay && e.startMs > nowMs && e.startMs - nowMs <= 120 * 60000).sort((a, b) => a.startMs - b.startMs)[0];
+    if (upcoming && !kindsToday.has("cmp-agenda")) {
+      const time = new Intl.DateTimeFormat("en-GB", { timeZone: st.tz || TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(upcoming.startMs));
+      return mk("cmp-agenda", upcoming.title + " at " + time + (upcoming.where ? " — " + upcoming.where : "") + ".", 0, Math.ceil((upcoming.startMs - nowMs) / 60000), "upcoming-calendar-event");
+    }
+    const due = (st.nextActions || []).filter((a) => a.due && String(a.due).slice(0, 10) <= st.day).sort((a, b) => String(a.due).localeCompare(String(b.due)))[0];
+    if (due && !kindsToday.has("cmp-deadline")) return mk("cmp-deadline", "Due " + String(due.due).slice(0, 10) + ": " + due.title + ".", due.minutes || 0, 240, "task-deadline", { action_id: due.id });
+    const rec = (st.recommendations || []).find((r) => r.start && String(r.start).slice(0, 10) >= st.day && !recentAsks.some((a) => a.includes(r.title + " — " + r.start)));
+    if (rec && h >= 10 && h < 19 && !kindsToday.has("cmp-discovery")) return mk("cmp-discovery", rec.title + " — " + rec.start + (rec.where ? " · " + rec.where : "") + ". " + rec.why + " Not booked.", 0, 240, "personal-event-match");
+    return { skip: "nothing-useful" };
+  }
   const lightDay = events.length >= LIGHT_DAY_EVENTS;
   const noMood = mood.today === null || mood.today === undefined;
   // Morning: make the check-in reach the phone (the e-mail ladder may already have asked; this is the same ask).
@@ -1275,7 +1288,7 @@ export function normalizeEvents(rows, day, tz) {
     const key = title.slice(0, 60).toLowerCase() + "|" + (allDay ? day : startMs);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ title, startMs: allDay ? null : startMs, endMs: allDay ? null : endMs, allDay, social, heavy });
+    out.push({ title, startMs: allDay ? null : startMs, endMs: allDay ? null : endMs, allDay, where: s(r.where, 80), social, heavy });
   }
   return out.sort((a, b) => (a.startMs === null ? -1 : a.startMs) - (b.startMs === null ? -1 : b.startMs));
 }
@@ -1297,7 +1310,7 @@ export async function loadEvents(env, deps, day, tz) {
       try {
         const r = await Promise.race([deps.calendar(env, day, day), new Promise((res) => setTimeout(() => res(null), Number(deps.calendarTimeoutMs) || 3000))]);
         if (r && r.ok && Array.isArray(r.events)) {
-          cal = r.events.filter((e) => e && !e.all_day && e.calendar !== "suggestion" && e.source !== "personal-radar").map((e) => ({ title: e.title, category: e.domain || "", start: e.dtstart, end: e.dtend, allDay: false, tag: e.domain || e.tag || "" }));
+          cal = r.events.filter((e) => e && e.status !== "cancelled" && !e.all_day && e.calendar !== "suggestion" && e.source !== "personal-radar").map((e) => ({ title: e.title, where: e.location, category: e.domain || "", start: e.dtstart, end: e.dtend, allDay: false, tag: e.domain || e.tag || "" }));
           _evCache = { key, at: Date.now(), events: cal };
         }
       } catch (e) { cal = null; }
@@ -1506,10 +1519,11 @@ export async function gatherState(env, at, deps) {
       try { if ((await weekLookback(env, now, wk)).enough) weekReady = wk; } catch (e) { weekReady = null; }
     }
   }
-  const [bank, helps, who5, social, events, lastMood] = await Promise.all([
+  const [bank, helps, who5, social, events, lastMood, recommendations] = await Promise.all([
     activityBank(env), whatHelps(env, 90).catch(() => null), who5Status(env, cfg, now).catch(() => ({ due: false })), daysSinceSocial(env, now).catch(() => null),
     loadEvents(env, deps, lp.day, tz).catch(() => []),
-    one(db, "SELECT MAX(ts) AS t FROM (SELECT ts FROM cmp_mood WHERE day = ? UNION ALL SELECT ts FROM wellbeing_checkins WHERE day = ? AND mood IS NOT NULL)", lp.day, lp.day).catch(() => null)
+    one(db, "SELECT MAX(ts) AS t FROM (SELECT ts FROM cmp_mood WHERE day = ? UNION ALL SELECT ts FROM wellbeing_checkins WHERE day = ? AND mood IS NOT NULL)", lp.day, lp.day).catch(() => null),
+    deps && deps.recommendations ? deps.recommendations(env, lp.day, addDays(lp.day, 7)).catch(() => []) : []
   ]);
   return {
     activityBank: bank, helps, who5Due: !!who5.due, who5: who5.read || null, daysSinceSocial: social, paused: isPaused(cfg, Date.parse(now)),
@@ -1518,7 +1532,7 @@ export async function gatherState(env, at, deps) {
     lastUserIso: lastUser.sort().pop() || null, actionsDoneToday: done ? Number(done.n) : 0, nextActions: next,
     dueCards: due ? Number(due.n) : 0, pushReady: !!(subs && subs.n > 0), crisisLevel24h,
     receptive: receptiveHours(answerRows.map((r) => r.ts ? Math.floor(localParts(r.ts, tz).hour) : NaN)),
-    tz, away: eff.away, events, lastMoodIso: lastMood && lastMood.t ? lastMood.t : null
+    tz, away: eff.away, events, recommendations, lastMoodIso: lastMood && lastMood.t ? lastMood.t : null
   };
 }
 async function recentUserTexts(env, sinceIso) {
@@ -1772,7 +1786,7 @@ export async function processInbox(env, deps, limit) {
 export function pushPayloadFor(row) {
   const ask = ["micro", "body", "contact", "care", "cmp-next", "cmp-anchor", "cmp-review", "cmp-connect"].includes(row.kind);
   return {
-    title: row.kind === "cmp-care" || row.kind === "presence" || row.kind === "cmp-presence" ? "Here with you" : row.kind === "checkin" || row.kind === "cmp-checkin" ? "How's it landing?" : row.kind === "cmp-reflect" ? "Before the day closes" : row.kind === "cmp-measure" ? "Two-weekly check" : row.kind === "cmp-connect" ? "Someone to hear from" : row.kind === "cmp-week" ? "Your week" : row.kind === "cmp-after" ? "How did it go?" : "One small thing",
+    title: row.kind === "cmp-agenda" ? "Coming up" : row.kind === "cmp-deadline" ? "Due today" : row.kind === "cmp-discovery" ? "Worth a look" : row.kind === "cmp-care" || row.kind === "presence" || row.kind === "cmp-presence" ? "Here with you" : row.kind === "checkin" || row.kind === "cmp-checkin" ? "How's it landing?" : row.kind === "cmp-reflect" ? "Before the day closes" : row.kind === "cmp-measure" ? "Two-weekly check" : row.kind === "cmp-connect" ? "Someone to hear from" : row.kind === "cmp-week" ? "Your week" : row.kind === "cmp-after" ? "How did it go?" : "One small thing",
     body: String(row.ask || "").slice(0, 300), tag: "cmp-" + row.id, id: row.id, kind: row.kind,
     url: row.kind === "cmp-week" ? "/companion#week" : row.kind === "checkin" || row.kind === "cmp-checkin" || row.kind === "cmp-after" ? "/companion#mood" : "/companion#n=" + row.id, ask
   };
@@ -1793,7 +1807,7 @@ export async function companionTick(env, deps, opts) {
   if (o.prune || (lh >= 4 && lh < 4.25)) { try { out.pruned = await pruneMedia(env, cfg0.media_retention_days, now); } catch (e) { out.pruned = { error: String(e && e.message || e).slice(0, 160) }; } }
   // 1. The e-mail ladder's fresh asks also reach the phone, once each (not while he has paused reach-outs).
   // RED-TEAM-1: and never inside quiet hours; a ladder row sent at night waits, and the 45-minute window drops it.
-  if (deps.keys && deps.pushed && !isPaused(cfg0, Date.parse(now)) && !inQuiet(lhHere, Number(cfg0.quiet_start), Number(cfg0.quiet_end))) {
+  if (cfg0.wellbeing_prompts === true && deps.keys && deps.pushed && !isPaused(cfg0, Date.parse(now)) && !inQuiet(lhHere, Number(cfg0.quiet_start), Number(cfg0.quiet_end))) {
     const fresh = await all(env.PERSONAL, "SELECT * FROM companion_nudges WHERE kind IN (" + LADDER_KINDS.map(() => "?").join(",") + ") AND state = 'sent' AND sent_at >= ? ORDER BY id LIMIT 3", ...LADDER_KINDS, new Date(Date.parse(now) - 45 * 60000).toISOString()).catch(() => []);
     out.mirrored = 0;
     for (const r of fresh) {
@@ -1831,26 +1845,8 @@ export async function companionTick(env, deps, opts) {
 // today ... actual events ... to-do items ... things in your email ... a personal dashboard"): the Today tab showed counts, not the day.
 // agenda() gives it the day itself: today's events, the next week, radar ideas (never booked), recent mail from the index, and one
 // question to carry. Every part degrades to a plain statement of what is not connected, never to an empty card.
-const TODAY_PROMPTS = [
-  "What would make today feel a little lighter, even by 5%?",
-  "Who would be glad to hear from you today?",
-  "What is one small thing you could finish before lunch?",
-  "What did you enjoy the last time you felt like yourself?",
-  "What would you tell a friend who felt the way you do this morning?",
-  "Where could you be outside today, even for ten minutes?",
-  "What is one thing you are looking forward to, however small?",
-  "What have you already done this week that you have not given yourself credit for?",
-  "What is one thing you could stop carrying today?",
-  "Which part of today is yours to choose?",
-  "What does your body need right now: water, food, movement, rest?",
-  "What is something you are curious about at the moment?",
-  "What is one kind thing you could do for someone else today?",
-  "If today went just okay, what would okay look like?"
-];
 export async function agenda(env, deps, st) {
   const out = { calendar: { state: "unknown", note: null }, today: [], soon: [], radar: [], mail: { items: [], note: null }, prompt: null };
-  const dayNo = Math.floor(Date.parse(st.day + "T00:00:00Z") / 864e5);
-  out.prompt = TODAY_PROMPTS[((dayNo % TODAY_PROMPTS.length) + TODAY_PROMPTS.length) % TODAY_PROMPTS.length];
   const to = new Date(Date.parse(st.day + "T00:00:00Z") + 7 * 864e5).toISOString().slice(0, 10);
   try {
     if (deps && typeof deps.calendar === "function") {
@@ -1860,7 +1856,10 @@ export async function agenda(env, deps, st) {
         const shape = (e) => ({ title: s(e.title, 120), start: e.dtstart || null, end: e.dtend || null, all_day: !!e.all_day, where: e.location ? s(e.location, 80) : null, source: e.source || null, cal: e.calendar_name || (e.source === "calendar-api" || e.calendar === "twin-store" ? "Qniverse" : null) });
         for (const e of r.events || []) {
           if (!e || !e.title) continue;
-          if (e.calendar === "suggestion" || e.source === "personal-radar") { if (out.radar.length < 4) out.radar.push(shape(e)); continue; }
+          if (e.calendar === "suggestion" || e.source === "personal-radar") {
+            if (!deps.recommendations && out.radar.length < 4) out.radar.push(shape(e));
+            continue;
+          }
           if (String(e.dtstart || "").slice(0, 10) === st.day) out.today.push(shape(e));
           else if (out.soon.length < 8) out.soon.push(shape(e));
         }
@@ -1868,6 +1867,7 @@ export async function agenda(env, deps, st) {
       } else out.calendar = { state: "unreachable", note: "The calendar did not answer in time." };
     }
   } catch (e) { out.calendar = { state: "unreachable", note: "The calendar could not be read." }; }
+  if (deps && deps.recommendations) out.radar = (st.recommendations || []).slice(0, 4);
   try {
     const m = await all(env.PERSONAL, "SELECT sender, subject, received_at, category FROM email_index WHERE received_at >= ? ORDER BY received_at DESC LIMIT 6", new Date(Date.now() - 3 * 864e5).toISOString());
     out.mail.items = m.map((x) => ({ from: s(x.sender, 60), subject: s(x.subject, 100), at: x.received_at, category: x.category || null }));
@@ -1889,19 +1889,19 @@ export async function today(env, deps) {
   ]);
   let weather = null;
   if (deps && deps.weather) { try { const w = await deps.weather(env); if (w && w.ok) weather = w; } catch (e) { /* offline */ } }
-  const suggestion = st.mood.today !== null && st.mood.today <= 2 ? null : chooseAction(st.nextActions, energyFor(st.mood));
+  const suggestion = chooseAction(st.nextActions, "high");
   let week = null;
   const wk = weekWindow({ day: st.day, hour: st.hour, dow: st.dow });
-  if (wk && st.cfg.week_seen !== wk) { try { const w = await weekLookback(env, st.nowIso, wk); if (w.enough) week = { week: w.week, title: w.title, lines: w.lines }; } catch (e) { week = null; } }
+  if (st.cfg.wellbeing_prompts === true && wk && st.cfg.week_seen !== wk) { try { const w = await weekLookback(env, st.nowIso, wk); if (w.enough) week = { week: w.week, title: w.title, lines: w.lines }; } catch (e) { week = null; } }
   return {
     day: st.day, greeting: greet, hour: Math.round(st.hour * 100) / 100, mood: st.mood, sleep, weather, week, travel: st.away, events_today: st.events.length, light_day: st.events.length >= LIGHT_DAY_EVENTS, busy_now: st.events.some((e) => !e.allDay && e.startMs <= Date.parse(st.nowIso) && Date.parse(st.nowIso) < e.endMs),
-    low_day: (st.mood.today !== null && st.mood.today <= 2) || st.crisisLevel24h >= 1,
+    low_day: st.crisisLevel24h >= 2,
     reading: readingLane(st.mood, st.crisisLevel24h >= 1),
     one_thing: suggestion, next_actions: st.nextActions.slice(0, 12), actions_done_today: st.actionsDoneToday,
-    due_cards: st.dueCards, open_nudges: open, inbox_unprocessed: inbox ? Number(inbox.n) : 0, last_journal: lastJournal,
+    due_cards: st.dueCards, open_nudges: open.filter((n) => st.cfg.wellbeing_prompts === true || ["cmp-agenda", "cmp-deadline", "cmp-discovery", "cmp-care"].includes(n.kind)), inbox_unprocessed: inbox ? Number(inbox.n) : 0, last_journal: lastJournal,
     projects, push_ready: st.pushReady, nudges_today: st.todays.length, cap: st.cfg.max_per_day,
-    paused_until: st.paused ? st.cfg.pause_until : null, who5_due: st.who5Due, who5: st.who5,
-    support_hint: st.who5 && st.who5.hint && (st.who5.level === "low" || st.who5.level === "watch") ? st.who5.hint : null,
+    paused_until: st.paused ? st.cfg.pause_until : null, who5_due: st.cfg.wellbeing_prompts === true && st.who5Due, who5: st.who5,
+    support_hint: st.cfg.wellbeing_prompts === true && st.who5 && st.who5.hint && (st.who5.level === "low" || st.who5.level === "watch") ? st.who5.hint : null,
     what_helps: ((st.helps && st.helps.activities) || []).filter((a) => a.n >= 2 && a.score >= 3.5).slice(0, 3),
     safety_plan_filled: normalizeSafetyPlan(st.cfg.safety_plan).filled,
     // Rule 25: the start-here list reads these.
@@ -2021,14 +2021,14 @@ export async function deleteData(env, a) {
 export const PERSONA = [
   "COMPANION MODE. You are Rowan's companion: an active partner in their days, not a reminder app and not a therapist.",
   "Rowan has not said which pronouns they use: in your own words call them Rowan or you, and they/them if you must; never he or she.",
-  "Voice: warm, plain, brief. Two to five short sentences unless they ask for more. Ask at most one question.",
-  "Notice how they are before what they should do. If they are low, slow down: acknowledge it, offer presence or one tiny kind step (water, air, food, a person), never a list.",
+  "Voice: direct, factual, brief. Lead with useful information: relevant events, deadlines, practical options, sources, dates, places and why they match known interests.",
+  "Never solicit mood, energy, feelings, journaling, self-ratings or feel-good reflections. Do not append a wellness question to an unrelated answer. Missing mood logs are not a problem.",
   "When they don't know what to do with themselves, give the day a shape: one concrete thing for the next 20-60 minutes, picked from their own next actions when one fits their energy.",
   "Turn loose thoughts into their system with the cmp_* tools: cmp_capture for anything to remember or do, cmp_mood when they tell you how they feel (score 1-5), cmp_action_done when they did something, cmp_card_add for something they want to learn.",
   "Never diagnose, never moralise, never count what they failed to do. Celebrate small things plainly.",
   "Be honest that you are an AI when it matters; do not claim feelings or a life of your own, and do not flatter. Agree only with what you actually think is right.",
   "You are a bridge to people, not a replacement: when it fits, encourage contact with friends, family and, if things stay hard for weeks, their GP (huisarts). Never discourage them from seeking human or professional help.",
-  "When they did something, ask how it felt (enjoyment and achievement, 1-5) and log it with cmp_activity; suggest from what helped before (cmp_helps).",
+  "When they finish something, record completion without asking for feelings or ratings.",
   "If they mention a crisis plan or feeling unsafe, their own safety plan comes before your words."
 ].join("\n");
 // RED-TEAM-1: captured text (a photographed letter, a pasted message, a voice note) reaches the system prompt through
@@ -2055,8 +2055,7 @@ export function chatFollowUp(ctxText, reply) {
   let out = String(reply || "");
   const c = String(ctxText || "");
   if (!out.trim() || /SAFETY:|CARE:/.test(c)) return out;
-  if (c.includes("CHECK-IN (once today)") && !/\b1\s*(?:to|-|–)\s*5\b|how are you|how're you|how you are|how you're|how do you feel|how are things/i.test(out)) out = out.replace(/\s+$/, "") + "\n\nAnd how are you today, from 1 to 5?";
-  if (c.includes("SETUP NOTE (once)") && !/me\.q08\.org/i.test(out)) out = out.replace(/\s+$/, "") + "\n\n(If you open me.q08.org on your phone once, it takes two minutes and I can check in with you there too.)";
+  if (c.includes("SETUP NOTE (once)") && !/me\.q08\.org/i.test(out)) out = out.replace(/\s+$/, "") + "\n\n(Open me.q08.org on your phone to receive calendar, deadline and relevant event notifications.)";
   return out;
 }
 export async function chatContext(env, deps, q, companionMode) {
@@ -2064,32 +2063,32 @@ export async function chatContext(env, deps, q, companionMode) {
     await ensureSchema(env.PERSONAL);
     const st = await gatherState(env, deps && deps.nowIso);
     const L = ["COMPANION STATE (DATA ONLY, live " + st.day + " " + String(Math.floor(st.hour)).padStart(2, "0") + "h local):"];
-    L.push("- mood today: " + (st.mood.today === null ? "not logged" : st.mood.today + "/5") + (st.mood.avg7 !== null ? "; 7-day average " + st.mood.avg7 : "") + (st.mood.avg2 !== null && st.mood.avg7 !== null && st.mood.avg7 - st.mood.avg2 >= 0.75 ? " (dipping lately)" : ""));
+    L.push("- Answer with practical, sourced information. Do not ask for mood, energy, feelings, journal entries or ratings; do not infer a problem from missing logs.");
     if (st.nextActions.length) L.push("- next actions (id: title [context, energy, minutes]): " + st.nextActions.slice(0, 6).map((a) => a.id + ": " + untrusted(a.title, 160) + " [" + (a.context || "@anywhere") + ", " + (a.energy || "low") + ", " + (a.minutes || 15) + "m]").join("; "));
     L.push("- done today: " + st.actionsDoneToday + "; flashcards due: " + st.dueCards + "; journal today: " + (st.journalToday ? "yes" : "no"));
     const helped = ((st.helps && st.helps.activities) || []).filter((a) => a.n >= 2 && a.score >= 3.5).slice(0, 3);
     if (helped.length) L.push("- what has helped them (their ratings): " + helped.map((a) => untrusted(a.title, 120) + " " + a.score + "/5").join("; "));
     if (st.who5 && st.who5.last !== undefined) L.push("- WHO-5 well-being (0-100, two-weekly): " + st.who5.last + (st.who5.prev !== null && st.who5.prev !== undefined ? " (before: " + st.who5.prev + ")" : ""));
-    if (st.who5 && (st.who5.level === "low" || st.who5.level === "watch")) L.push("- CARE NOTE: their well-being score has been low; when it fits naturally, gently mention that talking to their GP (huisarts) or someone they trust could help. Once per conversation at most.");
+    if (st.cfg.wellbeing_prompts === true && st.who5 && (st.who5.level === "low" || st.who5.level === "watch")) L.push("- CARE NOTE: their well-being score has been low; when it fits naturally, gently mention that talking to their GP (huisarts) or someone they trust could help. Once per conversation at most.");
     if (st.paused) L.push("- they have paused reach-outs until " + st.cfg.pause_until + "; respect it, do not suggest turning them back on.");
-    const openN = st.todays.filter((r) => (r.state === "sent" || r.state === "shown") && r.kind !== "crisis");
+    const openN = st.todays.filter((r) => (r.state === "sent" || r.state === "shown") && (st.cfg.wellbeing_prompts === true ? r.kind !== "crisis" : ["cmp-agenda", "cmp-deadline", "cmp-discovery"].includes(r.kind)));
     if (openN.length) L.push("- open nudge(s): " + openN.map((r) => "#" + r.id + " " + untrusted(r.ask, 200)).join(" | "));
     // Rule 26: the chat he already uses carries the companion (on 2026-10-20 no phone had ever been set up for notes).
     const putCfg = (k, v) => env.PERSONAL.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(k, JSON.stringify(v), nowIso()).run();
     const sig0 = crisisSignal(q);
     // COMPANION-CHECKIN-DELIVER-1: a short numeric answer to today's check-in is saved here, not left to the model (2026-10-20..26: asked, never logged).
-    const ans = st.mood.today === null && st.cfg.chat_checkin_day === st.day && sig0.level === 0 ? checkInAnswer(q) : null;
+    const ans = st.cfg.wellbeing_prompts === true && st.mood.today === null && st.cfg.chat_checkin_day === st.day && sig0.level === 0 ? checkInAnswer(q) : null;
     if (ans) {
       const r = await recordMood(env, deps, { score: ans.score, note: ans.note || undefined, tags: "chat" }).catch(() => null);
       if (r && r.ok) { st.mood.today = ans.score; L.push("- LOGGED just now: they answered today's check-in with " + ans.score + "/5 and it is saved. Thank them in a few warm words and respond to how they feel; do not call cmp_mood again."); }
     }
-    if (!st.paused && st.mood.today === null && st.hour >= 8 && st.hour < 22 && st.cfg.chat_checkin_day !== st.day && sig0.level === 0 && (st.crisisLevel24h || 0) < 2) {
+    if (st.cfg.wellbeing_prompts === true && !st.paused && st.mood.today === null && st.hour >= 8 && st.hour < 22 && st.cfg.chat_checkin_day !== st.day && sig0.level === 0 && (st.crisisLevel24h || 0) < 2) {
       L.push("- CHECK-IN (once today): their mood is not logged yet. First answer what they asked in full. Then end with one short, warm line asking how they are today, 1 to 5. When they answer with a number or a clear feeling, log it with cmp_mood. Leave it out if they are upset, rushed, or it would feel out of place.");
       await putCfg("chat_checkin_day", st.day);
     }
     const hintAge = st.cfg.chat_setup_hint_day ? (Date.parse(st.day + "T12:00:00Z") - Date.parse(String(st.cfg.chat_setup_hint_day) + "T12:00:00Z")) / 864e5 : Infinity;
     if (!companionMode && !st.pushReady && !st.paused && hintAge >= 3 && st.hour >= 8 && st.hour < 22 && sig0.level === 0) {
-      L.push("- SETUP NOTE (once): their companion cannot send them its gentle check-ins yet, because no phone is set up for them. If it fits naturally at the end, say in one sentence that opening me.q08.org on their phone takes two minutes and lets it check in with them there. Do not press or repeat it.");
+      L.push("- SETUP NOTE (once): no phone is set up for calendar, deadline and relevant event notifications. Briefly mention me.q08.org only if useful. Do not press or repeat it.");
       await putCfg("chat_setup_hint_day", st.day);
     }
     if (companionMode && q) {
@@ -2456,10 +2455,10 @@ table{width:100%;border-collapse:collapse;font-size:.92rem}td,th{text-align:left
 <p><a class="go" href="/companion">Open my companion</a></p>
 
 <div class="card"><h2>What you asked for</h2><ul>
-<li>A partner for your days and your well-being, not a reminder app: it notices how you are and helps you do one good thing next.</li>
+<li>A practical personal dashboard: your calendar, deadlines, weather and events matching your interests and current location.</li>
 <li>It reaches out a little, at good moments, and never at night. You can pause it any time.</li>
 <li>One address to remember: <b>me.q08.org</b>. No keys or passwords: a code arrives by e-mail once, and the device stays signed in for six months.</li>
-<li>No more companion e-mail. It reaches you through gentle notifications on your phone and in the chat you already use.</li>
+<li>No mood logging, feelings surveys or motivational check-ins. Notifications carry useful information, or stay silent.</li>
 <li>Nothing stale: old reminders stop coming back.</li>
 <li>Real answers when you ask: what's on in Amsterdam tonight, your travel plans, your own notes.</li>
 <li>Your words stay private, on your own system. You can see, download or delete everything.</li>
@@ -2474,13 +2473,13 @@ table{width:100%;border-collapse:collapse;font-size:.92rem}td,th{text-align:left
 
 <div class="card"><h2>A normal day</h2><table>
 <tr><th>When</th><th>What happens</th><th>What you do</th></tr>
-<tr><td>Morning</td><td>"How are you today?"</td><td>Two taps: mood, then energy. That's it.</td></tr>
-<tr><td>Midday, if the day has no shape</td><td>One small thing, picked from what has helped you before and what fits your energy</td><td>"Did it" or "Not today". Both are fine.</td></tr>
-<tr><td>Evening</td><td>One line for the day, if you want</td><td>A sentence, or nothing</td></tr>
-<tr><td>Sunday evening</td><td>Your week: how it went, what helped, one idea for next week</td><td>Read it. Nothing to do.</td></tr>
-<tr><td>When you want to read</td><td>"Something to read": one pick from <a href="https://mind.q08.org/">mind.q08.org</a>, gentler on heavy days</td><td>Read it, or don't</td></tr>
+<tr><td>Morning</td><td>Your day</td><td>Calendar, weather, deadlines and relevant events. No mood check-in required.</td></tr>
+<tr><td>Before an appointment</td><td>Its title, local start time and location when known</td><td>Open your agenda</td></tr>
+<tr><td>When something is due</td><td>The task and its deadline</td><td>Complete it when ready</td></tr>
+<tr><td>When there is a relevant event</td><td>Date, venue, source link and why it matches your interests. Suggestions are never bookings.</td><td>Check the event details</td></tr>
+<tr><td>When you want to read</td><td>A pick from <a href="https://mind.q08.org/">mind.q08.org</a></td><td>Open the source</td></tr>
 <tr><td>Any time</td><td><b>Talk</b>: ask anything, think out loud, plan, find what's on</td><td>Whatever you need</td></tr></table>
-<p class="mute">At most three notes a day, never between 22:00 and 07:30, never during a calendar appointment, and fewer on busy days. Low day? It offers care, never tasks. Three unanswered notes in a row and it goes quiet except for "I'm here".</p></div>
+<p class="mute">At most three notes a day, never between 22:00 and 07:30 and never during a calendar appointment. No useful information means no notification. Explicit crisis messages still receive safety support.</p></div>
 
 <div class="card"><h2>You're in control</h2><ul>
 <li><b>Pause</b>: 4 hours, a day or three days, from Today.</li>
@@ -2493,7 +2492,7 @@ table{width:100%;border-collapse:collapse;font-size:.92rem}td,th{text-align:left
 <p>Write it to the companion in your own words, in English or Dutch. It answers with your safety plan and the lines that are always there for you: <b>113</b> (call or chat at 113.nl, day and night), <b>0800-0113</b> (free), and <b>112</b> in an emergency. It is an AI and will say so; it will always point you to people too.</p></div>
 
 <div class="card"><h2>Why it works this way</h2><ul>
-<li><b>Doing, then noticing how it felt</b> is one of the best-supported ways to lift a low mood (behavioural activation). So it asks how things felt and suggests what helped you before.</li>
+<li><b>Relevance before volume</b>: event suggestions use your existing personal interests, dislikes and current location or stay, rather than a generic list.</li>
 <li><b>Few, well-timed nudges</b> beat many. It learns which kinds land, drops the ones that don't, and tries them again later.</li>
 <li><b>A safety plan in your own words</b> helps more than a phone number alone.</li>
 <li><b>A two-weekly well-being check</b> (WHO-5, one minute) shows the trend that daily taps miss, and suggests your GP if it stays low. It never diagnoses.</li>
@@ -2596,7 +2595,7 @@ function moodCard(t){var m=el('div',{cls:'card',id:'mood-card'});m.appendChild(e
  var note=el('input',{placeholder:'a word or a line (optional)',style:'margin-top:8px'});m.appendChild(note);var out=el('div');
  m.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{cls:'p',text:'Log',onclick:function(){if(!pick.mood){say(out,'Pick a number first.');return}api('/companion/api/mood',{json:{score:pick.mood,energy:pick.energy,tags:Object.keys(pick.tags).filter(function(k){return pick.tags[k]}),note:note.value}}).then(function(r){out.innerHTML='';say(out,r.reply||r.error);if(r.crisis)say(out,r.crisis,true);if(!r.queued)setTimeout(load,1800)})}})]));m.appendChild(out);return m}
 function renderToday(t){$('login').classList.add('hide');var v=$('v-today');v.innerHTML='';v.appendChild(el('h1',{text:t.greeting+', Rowan.'}));
- if(t.travel)v.appendChild(el('div',{cls:'mute',text:'Times follow you: '+t.travel.place+' ('+t.travel.tz.replace('_',' ')+'). Quiet hours and check-ins run on local time.',style:'margin:-6px 0 12px'}));
+ if(t.travel)v.appendChild(el('div',{cls:'mute',text:'Times follow you: '+t.travel.place+' ('+t.travel.tz.replace('_',' ')+'). Quiet hours and notifications run on local time.',style:'margin:-6px 0 12px'}));
  if(t.stale_reminders)v.appendChild(el('div',{cls:'card'},[el('div',{text:t.stale_reminders+(t.stale_reminders===1?' old reminder is':' old reminders are')+' past '+(t.stale_reminders===1?'its':'their')+' date. I stopped bringing '+(t.stale_reminders===1?'it':'them')+' up.'}),el('div',{cls:'row',style:'margin-top:8px'},[el('button',{text:'Tidy them on Do',onclick:function(){go('do')}})])]));
  if(t.crisis_lines)v.appendChild(el('div',{cls:'warn',style:'margin:0 0 12px'},[t.crisis_lines]));
  var startShown=startHere(v,t);
@@ -2606,10 +2605,9 @@ function renderToday(t){$('login').classList.add('hide');var v=$('v-today');v.in
  if(t.support_hint)v.appendChild(el('div',{cls:'card'},[el('div',{text:t.support_hint})]));
  if(t.who5_due){var wc=el('div',{cls:'card'},[el('h2',{text:'Two-weekly check'}),el('div',{cls:'mute',text:'Five questions about the last two weeks (WHO-5). About a minute, whenever you like.'})]);wc.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{cls:'p',text:'Start',onclick:function(){who5Form(wc)}})]));v.appendChild(wc)}
  (t.open_nudges||[]).forEach(function(n){if(n.kind==='cmp-week')return;var c=el('div',{cls:'card'},[el('div',{text:n.ask})]);if(['checkin','cmp-checkin','cmp-after','presence','cmp-presence','cmp-measure'].indexOf(n.kind)<0){c.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{cls:'p',text:'Did it',onclick:function(){answer(n.id,'done',c,['cmp-next','cmp-anchor','cmp-connect','micro','body','contact'].indexOf(n.kind)>=0?{nudge_id:n.id}:null)}}),el('button',{text:'Not today',onclick:function(){answer(n.id,'declined',c)}})]))}v.appendChild(c)});
- v.appendChild(moodCard(t));
  renderAgenda(v,t);
  if(!t.push_ready&&!startShown)v.appendChild(el('div',{cls:'card'},[el('div',{text:'Let me reach you here: a few gentle notifications a day at most, never at night.'}),el('div',{cls:'row',style:'margin-top:8px'},[el('button',{cls:'p',text:'Turn on notifications',onclick:enablePush})])]));
- if(t.one_thing){var o=el('div',{cls:'card'},[el('h2',{text:'One thing, if you want it'}),el('div',{text:t.one_thing.title+' ('+(t.one_thing.minutes||15)+' min, '+(t.one_thing.context||'@anywhere')+')'})]);o.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{cls:'p',text:'Done',onclick:function(){api('/companion/api/actions/done',{json:{id:t.one_thing.id}}).then(function(r){o.innerHTML='';say(o,r.reply||r.error);if(r.ok)rateBox(o,{action_id:t.one_thing.id})})}})]));v.appendChild(o)}
+ if(t.one_thing){var o=el('div',{cls:'card'},[el('h2',{text:'Next action'}),el('div',{text:t.one_thing.title+' ('+(t.one_thing.minutes||15)+' min, '+(t.one_thing.context||'@anywhere')+')'})]);o.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{cls:'p',text:'Done',onclick:function(){api('/companion/api/actions/done',{json:{id:t.one_thing.id}}).then(function(r){o.innerHTML='';say(o,r.reply||r.error)})}})]));v.appendChild(o)}
  if(t.reading){v.appendChild(el('div',{cls:'card'},[el('h2',{text:'Something to read'}),el('div',{cls:'mute',text:t.reading.why}),el('div',{cls:'row',style:'margin-top:8px'},[el('a',{href:t.reading.url,text:'Open today\u2019s pick'}),el('a',{href:'https://mind.q08.org/',text:'The whole list'})])]))}
  var info=[];if(t.sleep)info.push('Quiet overnight '+t.sleep.from+' to '+t.sleep.to+' (about '+t.sleep.hours+' h, from message times).');if(t.weather&&t.weather.weather)info.push('Weather: '+(typeof t.weather.weather==='string'?t.weather.weather:(t.weather.weather.summary||JSON.stringify(t.weather.weather))).slice(0,140));
  if(t.mood&&t.mood.avg7)info.push('Mood this week: '+t.mood.avg7+' on average.');if((t.what_helps||[]).length)info.push('What has helped you: '+t.what_helps.map(function(a){return a.title}).join('; ')+'.');if(t.light_day)info.push('A full day ('+t.events_today+' things on). I will keep nudges few and small.');function pl(n,w){return n+' '+w+(n===1?'':'s')}info.push(t.actions_done_today+' done today. '+pl(t.due_cards,'card')+' ready. '+pl(t.next_actions.length,'next action')+'.');
@@ -2626,7 +2624,7 @@ function renderAgenda(v,t){var a=t.agenda;if(!a)return;
  v.appendChild(dc);
  if((t.next_actions||[]).length){var nc=el('div',{cls:'card'},[el('h2',{text:'To do'})]);t.next_actions.slice(0,5).forEach(function(x){var row=el('div',{cls:'item'},[el('div',{cls:'grow',text:x.title+(x.minutes?' ('+x.minutes+' min)':'')}),el('button',{text:'Done',onclick:function(){api('/companion/api/actions/done',{json:{id:x.id}}).then(function(){row.remove()}).catch(warn)}})]);nc.appendChild(row)});nc.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{text:'All next actions',onclick:function(){go('do')}})]));v.appendChild(nc)}
  if(a.soon.length){var sc=el('div',{cls:'card'},[el('h2',{text:'Coming up this week'})]);a.soon.forEach(function(e){sc.appendChild(evRow(e,true))});v.appendChild(sc)}
- if(a.radar.length){var rc=el('div',{cls:'card'},[el('h2',{text:'Worth a look'}),el('div',{cls:'mute',text:'Ideas only. None of these are booked.'})]);a.radar.forEach(function(e){rc.appendChild(evRow(e,true))});v.appendChild(rc)}
+ if(a.radar.length){var rc=el('div',{cls:'card'},[el('h2',{text:'Worth a look'}),el('div',{cls:'mute',text:'Ideas only. None of these are booked.'})]);a.radar.forEach(function(e){rc.appendChild(evRow(e,true));if(e.why)rc.appendChild(el('div',{cls:'mute',text:e.why}));if(e.url&&/^https?:\\/\\//i.test(e.url))rc.appendChild(el('a',{href:e.url,text:'Event details',rel:'noreferrer'}))});v.appendChild(rc)}
  var mc=el('div',{cls:'card'},[el('h2',{text:'In your inbox'})]);
  if(a.mail.items.length)a.mail.items.forEach(function(m){mc.appendChild(el('div',{style:'margin:6px 0'},[el('div',{text:m.subject||'(no subject)'}),el('div',{cls:'mute',text:m.from})]))});
  else mc.appendChild(el('div',{cls:'mute',text:a.mail.note||'Nothing new.'}));
@@ -2728,7 +2726,6 @@ function startHere(v,t){var hidden=false;try{hidden=localStorage.getItem('cmp-st
  var steps=[{done:true,text:'Signed in on this device'},
   {done:isHome(),text:'Put me on your home screen',hint:/iPhone|iPad/.test(navigator.userAgent)?'In Safari: Share, then Add to Home Screen. Then open me from that icon.':'In your browser menu: Add to Home screen. Then open me from that icon.'},
   {done:!!t.push_ready,text:'Turn on notifications',btn:'Turn on',fn:enablePush,hint:'A few gentle notes a day at most, never at night. A test note arrives straight away.'},
-  {done:!!t.mood_ever,text:'Tell me how you are today',btn:'Do it',fn:function(){var m=$('mood-card');if(m)m.scrollIntoView({behavior:'smooth'})}},
   {done:!!t.safety_plan_filled,text:'Write your safety plan (optional, two minutes)',btn:'Open',fn:function(){go('data');setTimeout(function(){var p=$('plan');if(p)p.scrollIntoView()},400)}}];
  var left=steps.filter(function(x){return !x.done}).length;if(!left||hidden)return false;
  var c=el('div',{cls:'card',id:'start'},[el('h2',{text:'Start here: '+(steps.length-left)+' of '+steps.length+' done'})]);

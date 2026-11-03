@@ -31,7 +31,7 @@ const nowMs = Date.parse(NOW);
 const min = (n) => nowMs + n * 60000;
 const ev = (from, to, extra) => Object.assign({ title: "Event", startMs: min(from), endMs: min(to), allDay: false, social: false, heavy: false }, extra || {});
 const base = (over) => Object.assign({
-  nowIso: NOW, hour: 14, cfg: {}, todays: [], recent: [], unansweredStreak: 0, retired: new Set(),
+  nowIso: NOW, hour: 14, cfg: { wellbeing_prompts: true }, todays: [], recent: [], unansweredStreak: 0, retired: new Set(),
   mood: { today: 3, energy_today: null, avg7: 3, avg2: 3 }, checkinSentToday: false, journalToday: true, lastUserIso: null,
   actionsDoneToday: 1, nextActions: [{ id: "t1", title: "Pay the invoice", energy: "low", minutes: 10, context: "@computer", ts: "a" }],
   dueCards: 0, pushReady: true, crisisLevel24h: 0, receptive: null, activityBank: [], helps: null, daysSinceSocial: 0, events: []
@@ -176,7 +176,7 @@ console.log("\n[the tick and Today use it]");
   const during = await C.companionTick(env, {}, { nowIso: NOW, dryRun: true });
   ok("a tick during the dentist plans nothing", during.plan.skip === "during-event", during.plan);
   const after = await C.companionTick(env, {}, { nowIso: "2026-10-14T12:45:00.000Z", dryRun: true });
-  ok("a tick 15 minutes after it plans the short check-in", after.plan.kind === "cmp-after", after.plan);
+  ok("a tick after an appointment does not ask how it felt", after.plan.skip === "nothing-useful", after.plan);
   const st = await C.gatherState(env, NOW);
   ok("state carries the events and the last mood time", st.events.length === 1 && st.events[0].heavy === true && st.lastMoodIso === null);
   await C.recordMood(env, null, { score: 3 });

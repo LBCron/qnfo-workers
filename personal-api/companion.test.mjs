@@ -84,7 +84,7 @@ ok("fixed text names real lines when none configured", /113/.test(C.crisisText({
 ok("configured lines win", /Ana \(06-1\)/.test(C.crisisText({ backstop_name: "Ana", backstop_contact: "06-1", crisis_lines: [{ label: "Line X", number: "999" }] })) && /Line X 999/.test(C.crisisText({ crisis_lines: [{ label: "Line X", number: "999" }] })));
 
 console.log("\n[planner]");
-const base = (o) => Object.assign({ nowIso: "2026-10-19T12:00:00.000Z", hour: 14, cfg: {}, todays: [], recent: [], unansweredStreak: 0, retired: new Set(), mood: { today: 3, avg7: 3, avg2: 3 }, journalToday: false, lastUserIso: null, actionsDoneToday: 1, nextActions: [], dueCards: 0, crisisLevel24h: 0, receptive: null, pushReady: true }, o);
+const base = (o) => Object.assign({ nowIso: "2026-10-19T12:00:00.000Z", hour: 14, cfg: { wellbeing_prompts: true }, todays: [], recent: [], unansweredStreak: 0, retired: new Set(), mood: { today: 3, avg7: 3, avg2: 3 }, journalToday: false, lastUserIso: null, actionsDoneToday: 1, nextActions: [], dueCards: 0, crisisLevel24h: 0, receptive: null, pushReady: true }, o);
 ok("rule 1: quiet hours", C.planNudge(base({ hour: 23 })).skip === "quiet-hours");
 ok("rule 1: shared daily cap (e-mail ladder rows count)", C.planNudge(base({ todays: [{ kind: "micro" }, { kind: "body" }, { kind: "checkin" }] })).skip === "daily-cap");
 ok("rule 1: shared minimum gap", C.planNudge(base({ recent: [{ kind: "micro", sent_at: "2026-10-19T11:00:00.000Z" }] })).skip === "min-gap");
@@ -200,6 +200,7 @@ const tk = await C.companionTick(env, Object.assign({}, deps, { keys, pushed: st
 const sentRow = tk.sent && raw.prepare("SELECT * FROM companion_nudges WHERE id = ?").get(tk.sent.id);
 ok("a nudge is planned, pushed and recorded in the shared ledger", sentRow && sentRow.state === "sent" && pushes.length === 1 && pushes[0].o.headers["Content-Encoding"] === "aes128gcm", { plan: tk.plan, row: sentRow });
 raw.prepare("INSERT INTO companion_nudges (ts, day, kind, ladder_step, ask, state, sent_at) VALUES (?, ?, 'micro', 1, 'Drink a glass of water.', 'sent', ?)").run(C.nowIso(), C.dayKey(C.nowIso()), C.nowIso());
+raw.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES ('wellbeing_prompts', 'true', 'test')").run();
 const before = pushes.length;
 const setQuiet = (a, b) => { for (const [k, v] of [["quiet_start", a], ["quiet_end", b]]) raw.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES (?, ?, '') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(k, JSON.stringify(v)); };
 setQuiet(0, 23.99);
@@ -302,8 +303,8 @@ ok("not on a low day", C.planNudge(base({ who5Due: true, mood: { today: 2 } })).
 
 console.log("\n[best practice: control, exploration, connection, privacy]");
 ok("pause silences reach-outs", C.planNudge(base({ cfg: { pause_until: "2026-10-20T00:00:00.000Z" }, nextActions: acts })).skip === "paused");
-ok("an expired pause does nothing", C.planNudge(base({ cfg: { pause_until: "2026-10-18T00:00:00.000Z" }, nextActions: acts })).kind === "cmp-next");
-ok("risk words still get one care touch while paused", C.planNudge(base({ cfg: { pause_until: "2026-10-20T00:00:00.000Z" }, crisisLevel24h: 1 })).kind === "cmp-care");
+ok("an expired pause does nothing", C.planNudge(base({ cfg: { wellbeing_prompts: true, pause_until: "2026-10-18T00:00:00.000Z" }, nextActions: acts })).kind === "cmp-next");
+ok("risk words still get one care touch while paused", C.planNudge(base({ cfg: { pause_until: "2026-10-20T00:00:00.000Z" }, crisisLevel24h: 2 })).kind === "cmp-care");
 const ps = await C.setPause(env, 24);
 ok("pause is stored and read back", ps.ok && C.isPaused(await C.loadCfg(env), Date.now()));
 await C.setPause(env, 0);
@@ -500,6 +501,7 @@ console.log("\n[your week (COMPANION-WEEK-1)]");
   const lb = await C.weekLookback(wenv, sun);
   ok("week: built from mood taps, check-in replies, rated activities and done actions", lb.ok && lb.week === "2026-10-19" && lb.enough && lb.mood_days.length === 3 && /walk by the canal/.test(lb.lines.join(" ")) && /1 thing off your list/.test(lb.lines.join(" ")) && /same as the week before|higher|lower/.test(lb.lines[0]), lb);
   wdb.prepare("INSERT INTO cmp_push_subs (endpoint, p256dh, auth, created_at) VALUES ('https://push.example/x', 'k', 'a', ?)").run(sun);
+  wdb.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES ('wellbeing_prompts', 'true', 'test')").run();
   const st = await C.gatherState(wenv, sun);
   ok("week: Sunday evening marks the week ready for one push", st.weekReady === "2026-10-19", st.weekReady);
   const plan = C.planNudge(Object.assign({}, st, { lastUserIso: null }));

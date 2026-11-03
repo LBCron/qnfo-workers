@@ -11,7 +11,13 @@ import {
   DEFAULT_CONFIG, LADDER, whatHelped, unansweredStreak, tzOffsetMinutes,
   safetyPlanBlock, weeklyReviewText
 } from "./wellbeing.js";
-import { handleWellbeing, wellbeingTick, vaultNoteDays, ensureWellbeing, briefCheckinLines, noteCheckinInBrief, cfg, weeklyReview } from "./wellbeing-wire.js";
+import { handleWellbeing, wellbeingTick, vaultNoteDays, ensureWellbeing as ensureBase, briefCheckinLines, noteCheckinInBrief, cfg, weeklyReview } from "./wellbeing-wire.js";
+
+// Legacy wellness behavior requires an explicit opt-in; practical-notifications.test.mjs covers the default.
+async function ensureWellbeing(db) {
+  await ensureBase(db);
+  await db.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES ('wellbeing_prompts', 'true', 'test') ON CONFLICT(key) DO UPDATE SET value = 'true'").run();
+}
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra) => {

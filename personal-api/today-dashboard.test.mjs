@@ -29,7 +29,7 @@ ok("a later event is in soon", a.soon.length === 1 && a.soon[0].title === "Walk 
 ok("a radar idea is only in radar, never in the day", a.radar.length === 1 && a.radar[0].title === "Jazz night" && !a.today.concat(a.soon).some((e) => e.title === "Jazz night"));
 ok("the calendar state is passed through", a.calendar.state === "ics", a.calendar);
 ok("recent mail is listed", a.mail.items.length === 1 && a.mail.items[0].subject === "Hello" && a.mail.note === null, a.mail);
-ok("there is a question to carry and it is stable for the day", typeof a.prompt === "string" && a.prompt.length > 10 && (await C.agenda(env([]), {}, st)).prompt === a.prompt);
+ok("there is no unsolicited reflection question", a.prompt === null && (await C.agenda(env([]), {}, st)).prompt === null);
 
 // 3. nothing connected: honest statements, no throw
 const none = await C.agenda(env([]), { calendar: async () => null }, st);

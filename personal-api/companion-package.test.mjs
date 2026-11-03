@@ -43,8 +43,8 @@ console.log("\n[start here (rule 25)]");
   ok("today: the first mood tick shows up", (await C.today(env, {})).mood_ever === true);
   raw.prepare("DELETE FROM cmp_mood").run();
   const page = C.PAGE_HTML;
-  ok("page: Start here lists home screen, notifications, first check-in and safety plan, links the guide and can be hidden",
-    page.includes("function startHere") && ["Put me on your home screen", "Turn on notifications", "Tell me how you are today", "Write your safety plan", "/companion/guide", "cmp-start-hidden"].every((x) => page.includes(x)));
+  ok("page: Start here offers setup without a mood check-in",
+    page.includes("function startHere") && ["Put me on your home screen", "Turn on notifications", "Write your safety plan", "/companion/guide", "cmp-start-hidden"].every((x) => page.includes(x)) && !page.includes("Tell me how you are today"));
   ok("page: the old notifications card stays away while Start here shows", page.includes("if(!t.push_ready&&!startShown)"));
   const script = page.match(/<script>([\s\S]*?)<\/script>/)[1];
   let parsed = true; try { new Function(script); } catch (e) { parsed = false; }
@@ -55,13 +55,13 @@ console.log("\n[the chat he already uses (rule 26)]");
 {
   const morning = "2026-10-21T08:30:00Z"; // 10:30 in Amsterdam
   let c = await C.chatContext(env, deps(morning), "what's on tonight?", false);
-  ok("chat: asks once how he is when no mood is logged", /CHECK-IN \(once today\)/.test(c) && /cmp_mood/.test(c), c);
+  ok("chat: no mood question when no mood is logged", !/CHECK-IN \(once today\)/.test(c), c);
   ok("chat: mentions me.q08.org while no phone is set up", /SETUP NOTE/.test(c) && /me\.q08\.org/.test(c));
-  ok("chat: both are remembered for the day", cfg("chat_checkin_day") === "2026-10-21" && cfg("chat_setup_hint_day") === "2026-10-21");
+  ok("chat: only the setup note is remembered", cfg("chat_checkin_day") === null && cfg("chat_setup_hint_day") === "2026-10-21");
   c = await C.chatContext(env, deps("2026-10-21T10:00:00Z"), "and tomorrow?", false);
   ok("chat: not asked twice the same day", !/CHECK-IN/.test(c) && !/SETUP NOTE/.test(c), c);
   c = await C.chatContext(env, deps("2026-10-22T08:30:00Z"), "hi", false);
-  ok("chat: asked again the next day, setup note waits three days", /CHECK-IN/.test(c) && !/SETUP NOTE/.test(c));
+  ok("chat: still no mood question the next day, setup note waits three days", !/CHECK-IN/.test(c) && !/SETUP NOTE/.test(c));
   c = await C.chatContext(env, deps("2026-10-24T08:30:00Z"), "hi", false);
   ok("chat: setup note again after three days", /SETUP NOTE/.test(c));
   c = await C.chatContext(env, deps("2026-10-25T08:30:00Z"), "hi", true);
@@ -77,7 +77,7 @@ console.log("\n[the chat he already uses (rule 26)]");
   raw.prepare("INSERT INTO cmp_push_subs (endpoint, p256dh, auth, created_at) VALUES ('https://push.example/x', 'k', 'a', '2026-10-28T00:00:00Z')").run();
   raw.prepare("DELETE FROM wellbeing_config WHERE key = 'chat_setup_hint_day'").run();
   c = await C.chatContext(env, deps("2026-10-29T08:30:00Z"), "hi", false);
-  ok("chat: no setup note once a phone is set up", !/SETUP NOTE/.test(c) && /CHECK-IN/.test(c));
+  ok("chat: no setup note or check-in once a phone is set up", !/SETUP NOTE/.test(c) && !/CHECK-IN/.test(c));
   raw.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES ('pause_until', ?, ?)").run(JSON.stringify("2099-01-01T00:00:00Z"), "x");
   raw.prepare("DELETE FROM wellbeing_config WHERE key = 'chat_checkin_day'").run();
   c = await C.chatContext(env, deps("2026-10-30T08:30:00Z"), "hi", false);
@@ -88,7 +88,7 @@ console.log("\n[the check-in actually reaches him (COMPANION-CHECKIN-DELIVER-1)]
 {
   const ctxC = "COMPANION STATE\n- CHECK-IN (once today): ...";
   const ctxS = "COMPANION STATE\n- SETUP NOTE (once): ...";
-  ok("follow-up: adds the check-in question the model left out", /how are you today, from 1 to 5\?$/.test(C.chatFollowUp(ctxC, "Tonight: jazz at the Bimhuis.")));
+  ok("follow-up: never appends a mood question, even with stale context", C.chatFollowUp(ctxC, "Tonight: jazz at the Bimhuis.") === "Tonight: jazz at the Bimhuis.");
   ok("follow-up: leaves a reply that already asks alone", C.chatFollowUp(ctxC, "Done. How are you feeling today, 1 to 5?") === "Done. How are you feeling today, 1 to 5?");
   ok("follow-up: adds the me.q08.org note the model left out", /me\.q08\.org on your phone/.test(C.chatFollowUp(ctxS, "Hi Rowan.")));
   ok("follow-up: nothing added beside a SAFETY or CARE answer", C.chatFollowUp(ctxC + "\nCARE: they sound worn down", "I'm here.") === "I'm here." && C.chatFollowUp(ctxS + "\nSAFETY: x", "I'm here.") === "I'm here.");
@@ -99,11 +99,11 @@ console.log("\n[the check-in actually reaches him (COMPANION-CHECKIN-DELIVER-1)]
   raw.prepare("DELETE FROM cmp_mood").run();
   raw.prepare("DELETE FROM wellbeing_config").run();
   let c = await C.chatContext(env, deps("2026-11-02T08:30:00Z"), "hi", false);
-  ok("chat: asks first", /CHECK-IN/.test(c) && cfg("chat_checkin_day") === "2026-11-02");
+  ok("chat: does not initiate a check-in", !/CHECK-IN/.test(c) && cfg("chat_checkin_day") === null);
   const n0 = raw.prepare("SELECT COUNT(*) AS n FROM cmp_mood").get().n;
   c = await C.chatContext(env, deps("2026-11-02T08:31:00Z"), "4", false);
   const row = raw.prepare("SELECT score, source FROM cmp_mood ORDER BY ts DESC LIMIT 1").get();
-  ok("chat: his '4' after the ask is saved as today's mood", raw.prepare("SELECT COUNT(*) AS n FROM cmp_mood").get().n === n0 + 1 && row.score === 4 && /LOGGED just now/.test(c) && !/CHECK-IN/.test(c), { row, c });
+  ok("chat: a number is not silently saved as a mood", raw.prepare("SELECT COUNT(*) AS n FROM cmp_mood").get().n === n0 && !row && !/LOGGED just now|CHECK-IN/.test(c), { row, c });
   raw.prepare("DELETE FROM cmp_mood").run();
   raw.prepare("DELETE FROM wellbeing_config").run();
   c = await C.chatContext(env, deps("2026-11-03T08:30:00Z"), "3", false);

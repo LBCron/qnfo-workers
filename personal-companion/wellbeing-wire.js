@@ -218,6 +218,7 @@ export function nudgeMail(n, c, tok) {
 // brief when the brief goes out; the standalone path remains as the fallback for days with no brief.
 export async function briefCheckinLines(env, nowIso) {
   const c = await cfg(env);
+  if (c.wellbeing_prompts !== true) return [];
   const day = WB.dayKey(nowIso || new Date().toISOString(), c.tz);
   const seen = await env.PERSONAL.prepare(
     "SELECT 1 AS x FROM companion_nudges WHERE day = ? AND kind = 'checkin' LIMIT 1"
@@ -229,6 +230,7 @@ export async function briefCheckinLines(env, nowIso) {
 
 export async function noteCheckinInBrief(env, nowIso) {
   const c = await cfg(env);
+  if (c.wellbeing_prompts !== true) return false;
   const now = nowIso || new Date().toISOString();
   const day = WB.dayKey(now, c.tz);
   try {
@@ -253,6 +255,7 @@ export async function wellbeingTick(env, deps = {}) {
 
   const c = await cfg(env);
   const out = { now, expired: await WB.expireStale(env.PERSONAL, now) };
+  if (c.wellbeing_prompts !== true) return { ...out, skipped: "practical-notifications-only" };
   const pack = await context(env, now, c);
   out.drift = pack.drift;
   // RED-TEAM-1 (personal-api 4.12.0): the pause he sets on /companion silences this ladder too (one budget of
