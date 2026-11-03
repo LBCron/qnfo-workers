@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { handleOAuthBroker, refreshOAuthBrokerTokens } from "./oauth-broker.mjs";
+
+const inlineCheck = execFileSync(process.execPath, [
+  fileURLToPath(new URL("../scripts/inline-oauth-broker.mjs", import.meta.url)),
+  "--check"
+], { encoding: "utf8" });
+assert.match(inlineCheck, /2 worker entries match/);
 
 class MemoryD1 {
   records = new Map();

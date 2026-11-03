@@ -17,7 +17,10 @@ ok(ctx.__f(b64) === sample, "base64 of UTF-8 (wrapped like the GitHub API) decod
 ok(Buffer.from(ctx.__f(b64), "utf8").equals(Buffer.from(sample, "utf8")), "re-encoding for the upload gives the original bytes (no double encoding)");
 ok(ctx.__f(Buffer.from("plain ascii", "utf8").toString("base64")) === "plain ascii", "ASCII is unchanged");
 // every GitHub-content decode in the deploy path goes through the helper
-const raw = (src.replace(/^\s*\/\/.*$/gm, "").match(/atob\(/g) || []).length;
-ok(raw === 1, "atob is used only inside b64Utf8 (found " + raw + ")");
+const oauthStart = src.indexOf("// SINGLE-MODULE-INLINE-1: oauth-broker.mjs");
+const oauthEnd = src.indexOf("// end inline qnfo-ops/oauth-broker.mjs", oauthStart);
+const deploySrc = oauthStart >= 0 && oauthEnd >= 0 ? src.slice(0, oauthStart) + src.slice(src.indexOf("\n", oauthEnd) + 1) : src;
+const raw = (deploySrc.replace(/^\s*\/\/.*$/gm, "").match(/atob\(/g) || []).length;
+ok(oauthStart >= 0 && oauthEnd >= 0 && raw === 1, "the deploy path uses atob only inside b64Utf8 (found " + raw + ")");
 console.log(fails + " failure(s)");
 process.exit(fails ? 1 : 0);
