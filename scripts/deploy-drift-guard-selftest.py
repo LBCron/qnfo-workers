@@ -114,6 +114,21 @@ try:
 finally:
     g.urllib.request.urlopen = real_urlopen
 
+lee, _, _ = g.unmanaged_scripts(
+    {"qnfo-fleet-lee"}, set(), lambda w: (200, None), lambda w: False)
+check("fleet-lee remains on its custom domain with workers.dev intentionally disabled",
+      lee,
+      [{"worker": "qnfo-fleet-lee", "http": 200, "version": None,
+        "workers_dev_enabled": False, "workers_dev_expected": False, "route_drift": False}])
+lee, _, _ = g.unmanaged_scripts(
+    {"qnfo-fleet-lee"}, set(), lambda w: (200, None), lambda w: True)
+check("an enabled fleet-lee workers.dev route is reported as route drift",
+      lee[0]["route_drift"], True)
+lee, _, _ = g.unmanaged_scripts(
+    {"qnfo-fleet-lee"}, set(), lambda w: (200, None), lambda w: None)
+check("an unreadable fleet-lee subdomain setting remains unknown, not drift",
+      (lee[0]["workers_dev_enabled"], lee[0]["route_drift"]), (None, False))
+
 many = {"w%02d" % i for i in range(g.UNMANAGED_MAX + 5)}
 rep, tomb, trunc = g.unmanaged_scripts(many, set(), lambda w: (200, None))
 check("the probe set is capped and says so", (len(rep), trunc), (g.UNMANAGED_MAX, True))

@@ -127,6 +127,8 @@ API_CONTENT = ("https://api.cloudflare.com/client/v4/accounts/{acct}"
                "/workers/scripts/{worker}/content")
 API_SCRIPTS = ("https://api.cloudflare.com/client/v4/accounts/{acct}"
                "/workers/scripts")
+API_SUBDOMAIN = ("https://api.cloudflare.com/client/v4/accounts/{acct}"
+                 "/workers/scripts/{worker}/subdomain")
 WRANGLER_NAME = re.compile(r'^\s*name\s*=\s*"([^"]+)"', re.M)
 WRANGLER_JSON = ("wrangler.json", "wrangler.jsonc")
 
@@ -497,6 +499,7 @@ UNMANAGED_HEALTH_URLS = {
     # This Worker is intentionally exposed on lee.qnfo.org; its workers.dev health URL is unavailable.
     "qnfo-fleet-lee": "https://lee.qnfo.org/api/health",
 }
+UNMANAGED_WORKERS_DEV_EXPECTED = {"qnfo-fleet-lee": False}
 
 
 def health_probe(worker):
@@ -517,7 +520,25 @@ def health_probe(worker):
         return code, None
 
 
-def unmanaged_scripts(deployed, repo_workers, probe=health_probe):
+def workers_dev_enabled(worker, acct, token):
+    """Read whether a known unmanaged worker's workers.dev route is enabled."""
+    if not (acct and token):
+        return None
+    url = API_SUBDOMAIN.format(acct=acct, worker=worker)
+    try:
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + token,
+            "User-Agent": "qnfo-deploy-drift-guard",
+        })
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            body = json.load(r)
+        enabled = (body.get("result") or {}).get("enabled")
+        return enabled if isinstance(enabled, bool) else None
+    except Exception:
+        return None
+
+
+def unmanaged_scripts(deployed, repo_workers, probe=health_probe, workers_dev_probe=None):
     """Deployed scripts with no repo directory, probed: (reported, tombstones, truncated).
 
     `deployed` is None when the CF script list was unreadable; that is "unknown", never "nothing", so nothing is reported.
@@ -536,7 +557,16 @@ def unmanaged_scripts(deployed, repo_workers, probe=health_probe):
         if http == 410:
             tombstones += 1
             continue
-        reported.append({"worker": w, "http": http, "version": version})
+        item = {"worker": w, "http": http, "version": version}
+        if w in UNMANAGED_WORKERS_DEV_EXPECTED:
+            actual = workers_dev_probe(w) if workers_dev_probe else None
+            expected = UNMANAGED_WORKERS_DEV_EXPECTED[w]
+            item.update({
+                "workers_dev_enabled": actual,
+                "workers_dev_expected": expected,
+                "route_drift": actual is not None and actual != expected,
+            })
+        reported.append(item)
     return reported, tombstones, truncated
 
 
@@ -672,7 +702,11 @@ def main():
             if live_text is not None and _sha(live_text) != _sha(rtext):
                 content_drift.append((d, worker, _sha(rtext)[:12], _sha(live_text)[:12], rpath))
 
-    unmanaged, unmanaged_tombstones, unmanaged_truncated = unmanaged_scripts(deployed, repo_workers) if scan_all else ([], 0, False)
+    unmanaged, unmanaged_tombstones, unmanaged_truncated = (
+        unmanaged_scripts(deployed, repo_workers, workers_dev_probe=lambda w: workers_dev_enabled(w, acct, token))
+        if scan_all else ([], 0, False)
+    )
+    unmanaged_route_drift = [u for u in unmanaged if u.get("route_drift")]
 
     if want_json:
         print(json.dumps({
@@ -710,6 +744,7 @@ def main():
             "unmanaged_workers": unmanaged,
             "unmanaged_tombstones": unmanaged_tombstones,
             "unmanaged_truncated": unmanaged_truncated,
+            "unmanaged_route_drift": unmanaged_route_drift,
             "content_checked": bool(want_content and content_ok),
         }, sort_keys=True))
     else:
@@ -732,7 +767,13 @@ def main():
         for d, w, e in live_err:
             print(f"LIVE_ERR {w} (dir {d}): {e}")
         for u in unmanaged:
-            print(f"UNMANAGED {u['worker']}: http={u['http']} version={u['version']} (live in the account, no repo directory)")
+            route = (f" workers_dev={u['workers_dev_enabled']} expected={u['workers_dev_expected']}"
+                     if "workers_dev_enabled" in u else "")
+            print(f"UNMANAGED {u['worker']}: http={u['http']} version={u['version']}{route} "
+                  f"(live in the account, no repo directory)")
+        for u in unmanaged_route_drift:
+            print(f"UNMANAGED_ROUTE_DRIFT {u['worker']}: workers.dev enabled={u['workers_dev_enabled']} "
+                  f"expected={u['workers_dev_expected']}")
         for d, w, m in retired_present:
             print(f"RETIRED_PRESENT {w} (dir {d}): {m} marker but the script exists in the account")
         tag = "all" if scan_all else "narrative"
@@ -749,7 +790,8 @@ def main():
 
     if want_ahead:
         return 0
-    problems = len(drift) + len(content_drift) + len(no_repo_ver) + len(no_live_ver) + len(live_err)
+    problems = (len(drift) + len(content_drift) + len(no_repo_ver) + len(no_live_ver) +
+                len(live_err) + len(unmanaged_route_drift))
     return 1 if problems else 0
 
 
