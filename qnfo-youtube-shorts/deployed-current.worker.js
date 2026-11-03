@@ -1,10 +1,11 @@
-var VERSION = "0.3.0-retention"; /* 0.3.0 YT-6 (2026-10-28, pillar reach; minor: a data product; agent_issues 1000597): views and average view duration of each uploaded Short are read hourly from the YouTube Data and Analytics APIs into youtube_videos (views, avg_view_duration_s) and metric youtube_avg_view_duration_s; without the extra owner consent (human_actions yt-analytics-consent) the read is refused, recorded as youtube.retention_scope and nothing is written. */ /* 0.2.1 HEALTH-CONTRACT-1 (2026-10-28, pillar autonomy; patch; agent_issues 2852): /health declares capabilities[] and limitations[], so capability_contract_conformance counts this worker. */ /* 0.2.0 YT-QUALITY-1 (2026-10-28, pillar reach; minor: new capabilities): the Shorts stop looking alike and sounding flat. Voice: Workers AI Deepgram Aura 2 (more natural than melotts, which stays as the per-sentence fallback). Director: four new templates (bignum, flow, compare, list) beside the old ones, rules for speech-written narration (contractions, short sentences, pitch-bearing punctuation, no spoken URL) and for variety (at least four kinds, never one kind three times). Render image: scene fitted to a safe width so nothing leaves the frame, five themes (palette plus animated background) chosen per paper, captions measured in the real font and chunked at phrases in the Shorts safe zone, loudness-normalised audio, an AI-generated mp4 comment tag and provenance.json (BP26-AI-ACT-ART50-1). Closing line no longer speaks a URL. Sources: scripts/youtube_poc (YT-POC-3/4), docs/YOUTUBE-PIPELINE.md. */ /* prior: 0.1.5 */ /* 0.1.5 YT-MANIM-PIN-1 (2026-10-27, pillar reach; patch): the render image pins manim 0.22.0, the version the scene was tested on; 0.18.1 has no Scene.time and the first container render failed with that AttributeError (visible since 0.1.4 returns the Manim stderr). */ /* prior: 0.1.4 */ /* 0.1.4 YT-RENDER-ERR-1 (2026-10-27, pillar reach; patch): the render container returns the Manim stderr tail when Manim fails (the first live render failed with only a traceback of the wrapper). */ /* prior: 0.1.3 */ /* 0.1.3 YT-DIRECTOR-1 (2026-10-27, pillar reach; patch): the director takes the first reply that holds a beats array from qnfo-ai, then Workers AI kimi, then gpt-oss, and a failure note quotes each reply (the first live run failed with "no JSON in model reply" from one model). */ /* prior: 0.1.2 */ /* 0.1.2 YT-EXPORTS-1 (2026-10-27, pillar reach; patch): wrangler.toml declares RenderContainer in `exports` instead of `migrations`, so a deploy after a secrets write through the script API is accepted and re-attaches the container (the pilot incident 1485 class). */ /* prior: 0.1.1 */ /* 0.1.1 YT-RUN-SYNC-1 (2026-10-27, pillar reach; patch): POST /run did its pass inside ctx.waitUntil, which a fetch handler loses 30 s after the response, so a manual run died at the director; it now awaits one bounded pass (budget_s, default 80, under the edge 100 s limit) and returns the row states. */ /* prior: 0.1.0 */ /* 0.1.0 YT-SERVER-1 (2026-10-27, pillar reach; minor: a new worker): the plain-language paper to YouTube Short pipeline runs on Cloudflare only. One hourly tick takes the newest plain_article (living-paper, status ok) with no youtube_videos row (cap 2 videos a week), an LLM director writes the beats, a second model family and a number check drop any beat the article does not support, Workers AI TTS speaks each sentence, a Cloudflare Container renders 1080x1920 with Manim, word-timed captions and the visible AI-narration tag into R2, and videos.insert uploads it (public by default, owner directive 2026-10-27) with containsSyntheticMedia. */
+var VERSION = "0.4.0-oauth"; /* #5479, pillar reach: authenticated re-consent and code exchange with the stored OAuth client. */ /* 0.3.0 YT-6 (2026-10-28, pillar reach; minor: a data product; agent_issues 1000597): views and average view duration of each uploaded Short are read hourly from the YouTube Data and Analytics APIs into youtube_videos (views, avg_view_duration_s) and metric youtube_avg_view_duration_s; without the extra owner consent (human_actions yt-analytics-consent) the read is refused, recorded as youtube.retention_scope and nothing is written. */ /* 0.2.1 HEALTH-CONTRACT-1 (2026-10-28, pillar autonomy; patch; agent_issues 2852): /health declares capabilities[] and limitations[], so capability_contract_conformance counts this worker. */ /* 0.2.0 YT-QUALITY-1 (2026-10-28, pillar reach; minor: new capabilities): the Shorts stop looking alike and sounding flat. Voice: Workers AI Deepgram Aura 2 (more natural than melotts, which stays as the per-sentence fallback). Director: four new templates (bignum, flow, compare, list) beside the old ones, rules for speech-written narration (contractions, short sentences, pitch-bearing punctuation, no spoken URL) and for variety (at least four kinds, never one kind three times). Render image: scene fitted to a safe width so nothing leaves the frame, five themes (palette plus animated background) chosen per paper, captions measured in the real font and chunked at phrases in the Shorts safe zone, loudness-normalised audio, an AI-generated mp4 comment tag and provenance.json (BP26-AI-ACT-ART50-1). Closing line no longer speaks a URL. Sources: scripts/youtube_poc (YT-POC-3/4), docs/YOUTUBE-PIPELINE.md. */ /* prior: 0.1.5 */ /* 0.1.5 YT-MANIM-PIN-1 (2026-10-27, pillar reach; patch): the render image pins manim 0.22.0, the version the scene was tested on; 0.18.1 has no Scene.time and the first container render failed with that AttributeError (visible since 0.1.4 returns the Manim stderr). */ /* prior: 0.1.4 */ /* 0.1.4 YT-RENDER-ERR-1 (2026-10-27, pillar reach; patch): the render container returns the Manim stderr tail when Manim fails (the first live render failed with only a traceback of the wrapper). */ /* prior: 0.1.3 */ /* 0.1.3 YT-DIRECTOR-1 (2026-10-27, pillar reach; patch): the director takes the first reply that holds a beats array from qnfo-ai, then Workers AI kimi, then gpt-oss, and a failure note quotes each reply (the first live run failed with "no JSON in model reply" from one model). */ /* prior: 0.1.2 */ /* 0.1.2 YT-EXPORTS-1 (2026-10-27, pillar reach; patch): wrangler.toml declares RenderContainer in `exports` instead of `migrations`, so a deploy after a secrets write through the script API is accepted and re-attaches the container (the pilot incident 1485 class). */ /* prior: 0.1.1 */ /* 0.1.1 YT-RUN-SYNC-1 (2026-10-27, pillar reach; patch): POST /run did its pass inside ctx.waitUntil, which a fetch handler loses 30 s after the response, so a manual run died at the director; it now awaits one bounded pass (budget_s, default 80, under the edge 100 s limit) and returns the row states. */ /* prior: 0.1.0 */ /* 0.1.0 YT-SERVER-1 (2026-10-27, pillar reach; minor: a new worker): the plain-language paper to YouTube Short pipeline runs on Cloudflare only. One hourly tick takes the newest plain_article (living-paper, status ok) with no youtube_videos row (cap 2 videos a week), an LLM director writes the beats, a second model family and a number check drop any beat the article does not support, Workers AI TTS speaks each sentence, a Cloudflare Container renders 1080x1920 with Manim, word-timed captions and the visible AI-narration tag into R2, and videos.insert uploads it (public by default, owner directive 2026-10-27) with containsSyntheticMedia. */
 // Owner directive 2026-10-27: "all of this needs to run 100% server-side on Cloudflare Quniverse". docs/YOUTUBE-PIPELINE.md has the design.
 // State machine per paper (D1 qnfo-audit.youtube_videos.state): queued -> directed -> audio -> rendering -> rendered -> uploaded;
 // terminal: rejected (director left too few supported beats), failed (4 attempts), uploaded. Every tick resumes an unfinished row before
 // it starts a new paper, so a slow render or a missing credential never loses work (state and artifacts live in D1 and R2).
 // Secrets (wrangler secret put, under the deploy-guard secret lock): YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN, YT_RUN_TOKEN.
 var WORKER = "qnfo-youtube-shorts";
+var YT_SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/yt-analytics.readonly"];
 var CRON_TABLE = ["0 * * * *"]; // CRON-SINGLE-TRIGGER-1: one hourly trigger; every entry runs once in the hour it fires
 var WEEKLY_CAP = 2;
 var MAX_ATTEMPTS = 4;
@@ -319,6 +320,66 @@ async function stagePoll(env, row, deadline) {
   }
   return false; // still rendering: the next tick resumes polling
 }
+function oauthJson(data, status) {
+  var response = json(data, status);
+  response.headers.set("cache-control", "no-store");
+  response.headers.set("referrer-policy", "no-referrer");
+  return response;
+}
+function base64Url(bytes) {
+  return b64FromBytes(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function oauthMac(env, text) {
+  var key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.YT_RUN_TOKEN), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return base64Url(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(text))));
+}
+async function handleOAuth(request, env, path) {
+  if (!env.YT_RUN_TOKEN || !safeEqual(request.headers.get("x-run-token") || "", env.YT_RUN_TOKEN)) return oauthJson({ ok: false, error: "unauthorized" }, 401);
+  if (request.method !== "POST") return oauthJson({ ok: false, error: "POST required" }, 405);
+  if (!env.YT_CLIENT_ID || !env.YT_CLIENT_SECRET) return oauthJson({ ok: false, error: "OAuth client not configured" }, 503);
+  var body;
+  try {
+    var text = await request.text();
+    if (text.length > 8192) return oauthJson({ ok: false, error: "request too large" }, 413);
+    body = JSON.parse(text);
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("object required");
+  } catch (_) { return oauthJson({ ok: false, error: "invalid JSON" }, 400); }
+  if (path === "/oauth/consent") {
+    var redirect;
+    try {
+      redirect = new URL(body.redirect_uri || "http://localhost:8765/");
+      // The existing Google client is a Desktop app; only a loopback redirect is supported.
+      if (redirect.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(redirect.hostname) || redirect.username || redirect.password || redirect.pathname !== "/" || redirect.search || redirect.hash) throw new Error("loopback required");
+    } catch (_) { return oauthJson({ ok: false, error: "redirect_uri must be an HTTP loopback root URL" }, 400); }
+    var payload = btoa(JSON.stringify({ redirect_uri: redirect.href, expires: Date.now() + 600000, nonce: base64Url(crypto.getRandomValues(new Uint8Array(32))) }));
+    var state = payload + "." + await oauthMac(env, payload);
+    var verifier = await oauthMac(env, "pkce:" + state);
+    var challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+    var consent = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    consent.search = new URLSearchParams({ client_id: env.YT_CLIENT_ID, redirect_uri: redirect.href, response_type: "code", scope: YT_SCOPES.join(" "), access_type: "offline", prompt: "consent", state: state, code_challenge: challenge, code_challenge_method: "S256" }).toString();
+    return oauthJson({ ok: true, url: consent.href, state: state, expires_in: 600 });
+  }
+  var grant;
+  try {
+    if (typeof body.code !== "string" || !body.code.trim() || typeof body.state !== "string") throw new Error("code and state required");
+    var parts = body.state.split(".");
+    if (parts.length !== 2 || !safeEqual(parts[1], await oauthMac(env, parts[0]))) throw new Error("invalid state");
+    grant = JSON.parse(atob(parts[0]));
+    if (!Number.isFinite(grant.expires) || grant.expires <= Date.now()) throw new Error("expired state");
+  } catch (_) { return oauthJson({ ok: false, error: "invalid or expired consent state; code and returned state required" }, 400); }
+  try {
+    var r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: env.YT_CLIENT_ID, client_secret: env.YT_CLIENT_SECRET, code: body.code, redirect_uri: grant.redirect_uri, grant_type: "authorization_code", code_verifier: await oauthMac(env, "pkce:" + body.state) }).toString() });
+    var token = await r.json().catch(function () { return {}; });
+    if (!r.ok || !token.access_token) return oauthJson({ ok: false, error: "Google code exchange failed", upstream_status: r.status }, 502);
+    var scopes = typeof token.scope === "string" ? token.scope.split(/\s+/) : [];
+    var missing = YT_SCOPES.filter(function (scope) { return !scopes.includes(scope); });
+    if (missing.length) return oauthJson({ ok: false, error: "Google consent did not grant all required scopes", missing_scopes: missing }, 403);
+    if (typeof token.refresh_token !== "string" || !token.refresh_token) return oauthJson({ ok: false, error: "Google returned no refresh token; repeat offline consent" }, 409);
+    // Only the authenticated operator receives the new token; installation still requires the secret-lock lease.
+    return oauthJson({ ok: true, refresh_token: token.refresh_token, scopes: scopes, install: "Acquire the deploy-guard secret-lock lease, put YT_REFRESH_TOKEN on qnfo-youtube-shorts, release the lease, then verify numeric views via /status." });
+  } catch (_) { return oauthJson({ ok: false, error: "Google code exchange unavailable" }, 502); }
+}
 async function accessToken(env) {
   var r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: env.YT_CLIENT_ID, client_secret: env.YT_CLIENT_SECRET, refresh_token: env.YT_REFRESH_TOKEN, grant_type: "refresh_token" }).toString() });
@@ -554,9 +615,10 @@ var worker_default = {
   async fetch(request, env, ctx) {
     var url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true, worker: WORKER, version: VERSION,
-      capabilities: ["paper-to-short-video", "tts-voice-over", "container-render", "youtube-upload", "retention-read", "status-report"],
+      capabilities: ["paper-to-short-video", "tts-voice-over", "container-render", "youtube-upload", "retention-read", "status-report", "oauth-reconsent"],
       limitations: ["POST /run needs the x-run-token header (YT_RUN_TOKEN); /health and /status are open", "rendering runs in a container, one unfinished row is resumed per tick", "uploads at the configured privacy status through the YouTube Data API, so it is bound by that API quota", "a paper whose script has too few supported beats is rejected, and a row failing 4 attempts is terminal", "views and average view duration are read only once the OAuth grant also carries youtube.readonly and yt-analytics.readonly (owner consent); until then they stay NULL"] });
     if (url.pathname === "/status") return json(await status(env));
+    if (url.pathname === "/oauth/consent" || url.pathname === "/oauth/exchange") return handleOAuth(request, env, url.pathname);
     if (url.pathname === "/run" && request.method === "POST") {
       var tok = request.headers.get("x-run-token") || "";
       if (!env.YT_RUN_TOKEN || !safeEqual(tok, env.YT_RUN_TOKEN)) return json({ ok: false, error: "unauthorized" }, 401);

@@ -104,6 +104,39 @@ Owner feedback: text bleeds off screen, the voice is robotic, every video has th
   few seconds, captions in the safe zone, native 9:16, a second hook at the end instead of "subscribe", edit AI drafts before publishing.
 - Gap: render is slow (about 9 min for 64 s; `always_redraw` text and updater backgrounds). Content clusters in the upper half; vertical centring is next.
 
+## Analytics re-consent helper (#5479)
+
+`qnfo-youtube-shorts` 0.4.0 adds two authenticated POST endpoints. Both require
+the existing `x-run-token` (`YT_RUN_TOKEN`); neither exposes `YT_CLIENT_SECRET`.
+They use the OAuth client already stored in Worker secrets, so no local client
+JSON or Google console credential retrieval is needed.
+
+1. POST `/oauth/consent` with `{}` (or `{"redirect_uri":"http://localhost:8765/"}`).
+   The Desktop app client requires an HTTP loopback root redirect; its port may
+   be changed. The response contains `url` and `state`, valid for 10 minutes.
+   The URL requests `youtube.upload`, `youtube.readonly`, and
+   `yt-analytics.readonly`, with `access_type=offline`, `prompt=consent`, and PKCE.
+2. Google account consent remains **IDENTITY-BOUND**: the helper does not sign in
+   or consent as the owner. After consent, collect `code` and `state` from the
+   loopback redirect. Check that the returned state matches the consent response.
+3. POST `/oauth/exchange` with `{"code":"<code>","state":"<returned state>"}`.
+   The Worker validates the signed, expiring state, exchanges the code with the
+   stored client secret and matching PKCE verifier, and checks every required
+   scope and the presence of a refresh token. Partial consent is not success.
+4. The authenticated, `no-store` response contains the new `refresh_token`.
+   Keep it out of logs and git. Installation is deliberately separate:
+   acquire the deploy-guard secret-lock lease for `qnfo-youtube-shorts`, put
+   `YT_REFRESH_TOKEN` using the existing authorized secret installer, release the
+   lease, and re-probe. No secret write is performed by these endpoints.
+5. After canonical deployment and the hourly retention read, verify `/status`
+   contains numeric `views` for `rhJc9xSP4fs` or `oQhsQVYanU8`. A successful code
+   exchange or a merged PR alone does not close #5479.
+
+Regression checks: `node --test qnfo-youtube-shorts/*.test.mjs`.
+The existing uploader, analytics read, and cron are unchanged. Reverting the
+Worker change and its mirror removes the helper; it does not revoke a Google
+grant or revert a separately installed secret.
+
 ## Survey 2026-10-28: GitHub video-generator topic (stars, licence, last push read from the GitHub API today; fit is judgement from READMEs, code not audited)
 | Project | Stars / licence / push | Fit |
 |---|---|---|
