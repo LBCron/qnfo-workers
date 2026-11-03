@@ -80,6 +80,7 @@ const ANCHOR = "export function quota(plan) {";
 const MIG = "-- APPLY-BY: ci\n-- DB: qnfo-audit\n-- Rollback: UPDATE ops_config SET value = '10' WHERE key = 'fx_free_quota';\nINSERT INTO ops_config (key, value) VALUES ('fx_free_quota', '25') ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
 const B_WORKER = block("  return 10;", "  return 25;");
 const B_TEST = block("if (quota('free') !== 10) { console.log('FAIL free is 10'); fail++; }", "if (quota('free') !== 25) { console.log('FAIL free is 25'); fail++; }");
+const TEST_ANCHOR = "if (quota('free') !== 10) { console.log('FAIL free is 10'); fail++; }";
 const B_MIG = "<<<<<<< SEARCH\n=======\n" + MIG + "\n>>>>>>> REPLACE";
 const REPLY = "FILE: " + P + "\n" + B_WORKER + "\nFILE: " + T + "\n" + B_TEST + "\nFILE: " + M + "\n" + B_MIG + "\n";
 const task = (extras) => ({ repo: "qnfo-workers", path: P, goal: GOAL, anchor: ANCHOR, extras });
@@ -134,6 +135,23 @@ ok(atLeast(mod.__version, "0.12.0"), "the worker is 0.12.0 or later", mod.__vers
   const pr = calls[0].prompt;
   ok(pr.indexOf("FILE PATH: " + P) >= 0 && pr.indexOf("FILE PATH: " + T) >= 0 && pr.indexOf("FILE PATH: " + M + " (NEW: this file does not exist yet)") >= 0 && pr.indexOf("if (quota('free') !== 10)") >= 0 && /each group of blocks preceded by one line that names the file/.test(calls[0].sys), "B6 the model saw every file, the new one marked NEW, and the FILE: rule", pr.slice(0, 200));
   ok(cx.x.length === 2 && cx.x[1].new === true && cx.x[0].edits.length === 1, "B7 the companions' bases and edits stay on the task for a rebase or a repair round", cx.x.map((x) => ({ p: x.path, n: !!x.new, e: (x.edits || []).length })));
+}
+
+// ===== B2. large companions get a bounded window from the unique-anchor locator =====
+{
+  serve();
+  const bigTest = TEST_SRC + "\n" + "/* large companion padding */\n".repeat(5000);
+  FILES[T] = bigTest;
+  const reply = "FILE: " + P + "\n" + B_WORKER + "\nFILE: " + T + "\n" + B_TEST + "\n";
+  const { env, calls } = envWith([TEST_ANCHOR, reply]);
+  const bigTask = Object.assign(task([{ path: T }]), { goal: GOAL + ' Update the "quota" assertion.' });
+  await post(env, bigTask);
+  await tick(env);
+  const t = row(env), cx = JSON.parse(t.ctx), a = applyPatch(cx.patch || "");
+  ok(bigTest.length > 48000, "B2a the companion fixture exceeds the rejected 48,000-character threshold", bigTest.length);
+  ok(t.status === "ready_to_publish" && calls.length === 2 && cx.extras[0].anchor === TEST_ANCHOR && cx.x[0].anchor === TEST_ANCHOR, "B2b a missing companion anchor is located once and persisted for retries", { status: t.status, error: t.last_error, anchor: cx.extras[0].anchor });
+  ok(calls[0] && calls[0].prompt.includes("FILE EXCERPTS from " + T) && calls[1] && calls[1].prompt.includes("FILE PATH: " + T) && calls[1].prompt.includes(TEST_ANCHOR), "B2c the locator reads the companion path and the proposal receives its anchor window", { calls: calls.length });
+  ok(a.ok && a.test.includes("FAIL free is 25") && a.test.length === bigTest.length, "B2d the bounded multi-file patch updates the oversized companion without rewriting its padding", { ok: a.ok, err: a.err, size: a.test && a.test.length });
 }
 
 // ===== C. failures the next rung reads =====
