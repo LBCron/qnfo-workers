@@ -44,6 +44,7 @@ calls = [];
 let parsed = await ai.__export.evModelJson({}, "model", "system", "prompt");
 check(parsed && parsed.confidence === 0.8 && calls.length === 2, "an empty length-limited reply is re-asked once and the second object is parsed");
 check(calls[0][4].max_tokens === 2500 && calls[1][4].max_tokens === 6000 && JSON.stringify(calls[0][4].messages) === JSON.stringify(calls[1][4].messages), "a length-limited retry raises only its token budget and reuses the original messages");
+check(calls[1][4].messages.length === 3 && /empty/i.test(calls[1][4].messages[2].content) && /json/i.test(calls[1][4].messages[2].content), "an empty reply explains why no JSON parse error can be supplied");
 check(ai.__export.getReasked() === true && ai.__export.getLastRaw() === "", "a successful retry is recorded without retaining a failure note");
 check(/model: model, reasked: EV_REASKED/.test(src), "the proposal records whether its model reply needed a retry");
 
@@ -52,6 +53,15 @@ calls = [];
 parsed = await ai.__export.evModelJson({}, "model", "system", "prompt");
 check(parsed && calls.length === 2 && calls[1][4].max_tokens === 2500, "an unparseable non-empty reply is re-asked once at the normal token budget");
 check(calls[1][4].messages.length === 3 && calls[1][4].messages[2].content.includes("not JSON from the first reply"), "the retry includes the parse failure excerpt in a follow-up message");
+
+const malformed = '{"anchor": }';
+let expectedParseError = "";
+try { JSON.parse(malformed); } catch (error) { expectedParseError = error.message; }
+replies = [reply(malformed, "length"), reply(valid)];
+calls = [];
+parsed = await ai.__export.evModelJson({}, "model", "system", "prompt");
+check(parsed && calls.length === 2 && calls[1][4].max_tokens === 6000, "a malformed length-limited JSON object is re-asked once with the larger token budget");
+check(calls[1][4].messages.length === 3 && calls[1][4].messages[2].content.includes(expectedParseError), "the retry includes the JSON parser's diagnostic even when the first reply was truncated");
 
 replies = [reply("", ""), reply(valid)];
 calls = [];
