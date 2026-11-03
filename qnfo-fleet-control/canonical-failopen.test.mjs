@@ -32,14 +32,16 @@ ok(cronLine, "crons declared");
 const crons = JSON.parse(cronLine);
 ok(crons.length === 2, "two triggers declared");
 ok(crons.indexOf("*/10 * * * *") >= 0, "the fast trigger is */10 (144 fires/day, exactly at the cap)");
-ok(crons.indexOf("0 * * * *") >= 0, "the hourly trigger is KEPT (the 0708e81d regression deleted it)");
+ok(crons.indexOf("5 * * * *") >= 0, "the hourly trigger is KEPT and offset to :05");
+ok(crons.indexOf("0 * * * *") < 0, "the hourly D1 fan-out no longer overlaps the 10-minute tick at :00");
 ok(crons.indexOf("*/5 * * * *") < 0, "no */5 trigger (288 fires/day would breach CRON-MANDATE-1)");
 const perDay = (c) => {
   const m = /^\*\/(\d+) \* \* \* \*$/.exec(c);
-  return m ? 1440 / Number(m[1]) : c === "0 * * * *" ? 24 : 0;
+  return m ? 1440 / Number(m[1]) : c === "5 * * * *" ? 24 : 0;
 };
 ok(crons.every((c) => perDay(c) <= 144), "every trigger is within the 144/day cap");
 ok(crons.every((c) => { const m = /^\*\/(\d+)/.exec(c); return !m || Number(m[1]) >= 10; }), "no trigger fires more often than every 10 minutes");
+ok(/const cron = \["5 \* \* \* \*"/.test(src), "the offset hourly event is routed to its own fan-out, not the fast slot");
 
 // --- 3. the grid math that rules out */15, shown as a real computation ---
 const onTwenty = (mins) => mins.filter((m) => m % 20 < 5);

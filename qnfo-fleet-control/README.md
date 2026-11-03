@@ -141,7 +141,7 @@ drifted text is left alone. Tests: `portfolio.test.mjs` (scrub section).
 
 ## CODE-TASK-MERGE-RUNNER-1 (0.4.86, 2026-10-02, pillar autonomy, agent_issues 1726)
 
-The hourly cron (`0 * * * *`) runs `codeMergeTick`: it opens and merges the code loop's pull requests
+The hourly cron (`5 * * * *`) runs `codeMergeTick`: it opens and merges the code loop's pull requests
 (qnfo-code-orchestrator + `scripts/code-task-publish.py`, table `code_tasks`), so no person sits between a verified patch
 and main. It reuses EVOLVE-PR-1's GitHub token, squash merge pinned to the tested head (`evMergePr`), deploy ledger
 (`evDeployRow`), live check (`evLiveCheck`) and revert pipeline (a revert is an evolve `revert` candidate that `evAdvance`

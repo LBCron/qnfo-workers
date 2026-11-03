@@ -48,8 +48,9 @@ head_sampling_rate = 0.1
 # whereas a */15 tick would be true only at :00 and would silently drop the :20 and :40 steps.
 # The 0708e81d debloat was reverted (0276c347) because it went further and deleted the HOURLY trigger, which is the only
 # path into scheduledOnce's hourly fan-out (pollObservability, reassertObservability, refreshOwnedMetrics, codeMergeTick,
-# branchHygieneTick, publicationPreflight, workerCensusIfStale, usageSnapshotIfStale). Both triggers stay; the fast one halves.
-crons = ["*/10 * * * *", "0 * * * *"]
+# branchHygieneTick, publicationPreflight, workerCensusIfStale, usageSnapshotIfStale). The hourly trigger is offset to :05
+# so this D1-heavy fan-out does not start alongside the 10-minute tick at :00.
+crons = ["*/10 * * * *", "5 * * * *"]
 
 [ai]
 binding = "AI"

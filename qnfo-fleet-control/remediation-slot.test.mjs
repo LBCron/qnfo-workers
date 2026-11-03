@@ -24,8 +24,8 @@ const sched = src.slice(src.indexOf("async scheduledOnce(event, env, ctx) {\n   
 const twenty = sched.slice(0, sched.indexOf('if (cron === "0 3 * * *")'));
 // REMEDIATION-2X-1 (0.26.2): the slot is the 10-minute cron, and the remediation tick is not gated to the 20-minute grid.
 check(/if \(cron === "\*\/10 \* \* \* \*"\)/.test(twenty), "the slot is the 10-minute cron");
-// CRON-DISPATCH-ELIMINATION-1: a cron that is not a declared slow schedule (a stale */20 trigger) maps to the fast slot
-check(/const cron = \["0 \* \* \* \*", "0 3 \* \* \*", "0 4 1 \* \*", "30 3 \* \* 1"\]\.indexOf\(event\.cron\) < 0 \? "\*\/10 \* \* \* \*" : event\.cron;/.test(sched), "an undeclared cron is the fast slot");
+// CRON-DISPATCH-ELIMINATION-1: 5 * * * * is the hourly allowlist entry; a stale */20 trigger maps to the fast slot
+check(/const cron = \["5 \* \* \* \*", "0 3 \* \* \*", "0 4 1 \* \*", "30 3 \* \* 1"\]\.indexOf\(event\.cron\) < 0 \? "\*\/10 \* \* \* \*" : event\.cron;/.test(sched), "an undeclared cron is the fast slot");
 check(/\n\s+ctx\.waitUntil\(remediationContractsTick\(env, \{ budgetMs: 25000 \}\)/.test(twenty), "the remediation tick runs in every 10-minute slot (not behind onTwentyGrid)");
 check(/\n\s+ctx\.waitUntil\(codeMergeTick\(env, mergeSlot \? \{\} : \{ openOnly: true \}\)/.test(twenty) && /var mergeSlot = true;/.test(twenty), "code-loop merges run on every 10-minute tick (PR-LANE-FAST-1; minute 30 and hourly before)");
 check(/\n\s+ctx\.waitUntil\(branchHygieneTick\(env, \{ laneOnly: true \}\)/.test(twenty), "the stale-PR lane runs in every 10-minute slot");
