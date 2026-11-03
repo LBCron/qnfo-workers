@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.14-codeagent";
+var VERSION = "2.62.15-codeagent";
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -6764,6 +6764,21 @@ async function logToolEvent(env, name, args, res, ms) {
     await logAuditTrail(env, name, args, res);
   } catch (e) {
   }
+  // Insert run event if runId present
+  try {
+    const runId = args && args.runId;
+    if (runId) {
+      const argsJson = JSON.stringify(args);
+      const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(argsJson));
+      const args_sha = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      const okFlag = Boolean(res?.ok);
+      const bytesOut = res?.bytes_out ?? 0;
+      const detail = JSON.stringify(res?.detail ?? {});
+      await env.QNFO_AUDIT.prepare("INSERT INTO ops_run_events (run_id, ts, kind, tool, ok, bytes_out, detail, args_sha) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
+        .bind(runId, iso(), "tool", name, okFlag ? 1 : 0, bytesOut, detail, args_sha).run();
+    }
+  } catch (_) {
+  }
 }
 __name(logToolEvent, "logToolEvent");
 __name2(logToolEvent, "logToolEvent");
@@ -6848,6 +6863,26 @@ __name222(logOps, "logOps");
 __name2222(logOps, "logOps");
 __name22222(logOps, "logOps");
 __name222222(logOps, "logOps");
+ // TRACE-FOLD-1: utility to fold run state from events
+ function foldRunState(events) {
+   const tools_used = [];
+   const errors = [];
+   let last_error = null;
+   let bytes_out_total = 0;
+   const open_items = [];
+   for (const ev of events || []) {
+     if (ev && ev.tool && !tools_used.includes(ev.tool)) tools_used.push(ev.tool);
+     if (!ev.ok) {
+       errors.push(ev);
+       if (!last_error || (ev.ts && last_error.ts && ev.ts > last_error.ts)) {
+         last_error = ev;
+       }
+     }
+     if (typeof ev.bytes_out === 'number') bytes_out_total += ev.bytes_out;
+     if (ev.kind === 'open' || ev.ok == null) open_items.push(ev);
+   }
+   return { tools_used, errors, last_error, bytes_out_total, open_items };
+ }
 async function callWorkersAI(env, messages, maxTokens, tools, opts) {
   const o = opts || {};
   const msgs = truncateToContext(messages, CODE_MODEL_CTX - Math.max(maxTokens || 0, 0) - 8192);
