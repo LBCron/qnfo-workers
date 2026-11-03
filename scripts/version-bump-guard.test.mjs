@@ -1,4 +1,4 @@
-// scripts/version-bump-guard.test.mjs -- PR-GUARD-FIXES-1 (agent_issues 100295, charter pillar autonomy). Offline suite for two defects of the
+// scripts/version-bump-guard.test.mjs -- PR-GUARD-FIXES-1 (agent_issues 100295, charter pillar autonomy). Offline regression suite for the
 // version-bump guard:
 //   1. VERSION-RE-ANCHOR-1: scripts/version-bump-guard.py read the first `var VERSION = "..."` anywhere in a bundle, comments included.
 //      qnfo-model-eval/worker.js line 50 quoted the form in a comment, so the guard read the placeholder "..." on both sides of two real bumps
@@ -67,6 +67,8 @@ const quoted = (ver, body, decl) => "// A requires the literal `var VERSION = \"
   ok(r.code === 1 && /NO VERSION CONSTANT/.test(r.out), "a VERSION that exists only inside a comment is no VERSION constant", r); }
 { const r = guard(repo({ [W]: "var VERSION = \"1.2.0\";\nx\n" }, { [W]: "var VERSION = \"1.2.0\";\nx\n", "docs/readme.md": "hi\n" }));
   ok(r.code === 0 && /nothing to check/.test(r.out), "a range with no changed bundle has nothing to check", r); }
+{ const r = guard(repo({ [W]: "var VERSION = \"1.2.0\";\nx" }, { [W]: "var VERSION = \"1.2.0\";\nx\n" }));
+  ok(r.code === 0 && /PASS: 0 changed worker bundle/.test(r.out), "adding one optional terminal LF is not a worker bundle change", r); }
 
 // Every worker bundle and mirror on this repository reads as before: the anchor must not blind the guard to a real declaration.
 { const py = [

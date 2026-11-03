@@ -28,8 +28,8 @@ WHAT IT DOES
   For every worker entry bundle that CHANGED between two refs, extract the VERSION constant on
   both sides. If the bundle bytes changed but VERSION did not, exit 1 and name the worker.
 
-  Formatting-only changes are reported too, deliberately: the deployer cannot distinguish a
-  whitespace edit from a real fix either, so neither can this guard.
+  Formatting-only changes are reported too, deliberately, except for adding or removing one
+  optional final LF: it cannot change the deployed JavaScript and is not a worker fix.
 
   VERSION-AHEAD-1 (2026-10-02, WORK-CLAIM-1): when both sides carry a numeric core
   ("<v?>1.18.5-suffix"), the new core must be STRICTLY AHEAD of the base's. A changed string is
@@ -175,8 +175,8 @@ def main(argv):
             print("FAIL-CLOSED: cannot read %s at %s: %s" % (path, head, new))
             return 3
 
-        if old == new:
-            continue  # bytes unchanged (e.g. rename-only diff) - not this guard's business
+        if old == new or old.removesuffix("\n") == new.removesuffix("\n"):
+            continue  # identical bytes or an optional final LF change - not a worker code change
 
         checked += 1
         v_old, v_new = version_of(old), version_of(new)
