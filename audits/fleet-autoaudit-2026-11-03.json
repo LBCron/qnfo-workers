@@ -1,17 +1,8 @@
 {
-  "audited_at": "2026-11-03 16:25:31",
+  "audited_at": "2026-11-03 17:11:53",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
-    "_drift_confirm": {
-      "first_pass": [
-        "qnfo-fleet-control"
-      ],
-      "refreshed": true,
-      "second_pass": [
-        "qnfo-fleet-control"
-      ]
-    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -19,14 +10,7 @@
     "content_drift": [],
     "cron_only": [],
     "cron_only_count": 0,
-    "drift": [
-      {
-        "dir": "qnfo-fleet-control",
-        "live": "0.61.3-codeagent",
-        "repo": "0.61.2-codeagent",
-        "worker": "qnfo-fleet-control"
-      }
-    ],
+    "drift": [],
     "live_err": [],
     "multi_version": [],
     "multi_version_count": 0,
@@ -563,7 +547,7 @@
     "retired_present": [],
     "retired_present_count": 0,
     "scope": "all",
-    "sync": 35,
+    "sync": 36,
     "sync_workers": [
       {
         "dir": "idea-hub",
@@ -646,8 +630,13 @@
         "worker": "qnfo-evolve"
       },
       {
+        "dir": "qnfo-fleet-control",
+        "version": "0.61.3-codeagent",
+        "worker": "qnfo-fleet-control"
+      },
+      {
         "dir": "qnfo-fleet-dashboard",
-        "version": "1.81.2",
+        "version": "1.81.3",
         "worker": "qnfo-fleet-dashboard"
       },
       {
@@ -1429,17 +1418,17 @@
       "worker": "qnfo-fleet-calibrator"
     },
     "qnfo-fleet-control": {
-      "before": "0.61.2-codeagent",
+      "before": "0.61.3-codeagent",
       "http": 200,
       "live": "0.61.3-codeagent",
-      "match": 0,
-      "note": "DRIFT",
+      "match": 1,
+      "note": "SYNC",
       "worker": "qnfo-fleet-control"
     },
     "qnfo-fleet-dashboard": {
-      "before": "1.81.2",
+      "before": "1.81.3",
       "http": 200,
-      "live": "1.81.2",
+      "live": "1.81.3",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-dashboard"
