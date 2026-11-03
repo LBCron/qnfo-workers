@@ -37,6 +37,13 @@ const writes = (db) => db.sql.filter((q) => /^\s*(INSERT|UPDATE|DELETE|REPLACE|D
 }
 {
   const db = mkDb();
+  const r = await mod.__member.fetch(new Request("https://backlog.internal/sla-gap"), { AUDIT: db }, {});
+  const j = await r.json();
+  ok(r.status === 200 && j.ok === true && j.sla_gap.counts.open === 3 && j.sla_gap.counts.no_doer === 7 && j.sla_gap.counts.no_owner === 3 && j.sla_gap.counts.no_next_action === 3 && j.sla_gap.counts.sla_breached === 3, "the qnfo-backlog-exec member directly serves all SLA-gap counts", j);
+  ok(writes(db).length === 0, "the member route writes nothing", writes(db));
+}
+{
+  const db = mkDb();
   const r = await mod.default.fetch(new Request("https://qnfo-lifecycle.q08.workers.dev/backlog/sla-gap", { method: "POST" }), { QNFO_AUDIT: db }, {});
   ok(r.status !== 200 || db.sql.length === 0, "a POST to /backlog/sla-gap does not reach the member's read path", r.status);
 }
