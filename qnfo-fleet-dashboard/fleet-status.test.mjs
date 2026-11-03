@@ -11,6 +11,7 @@
 // Run: node qnfo-fleet-dashboard/fleet-status.test.mjs   -> prints "N passed, 0 failed"
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -170,6 +171,40 @@ const seed = (db) => {
   ok(/Your queue/.test(classic) && /fetch\('\/\?frag=1'/.test(classic), "S5 /classic is the old overview and its poll still asks /?frag=1");
   const frag = await get(env, "/?frag=1");
   ok(frag.status === 200 && !/<html/.test(await frag.text()), "S5 /?frag=1 still serves the old fragment");
+}
+// Public homepage reads reuse the bounded edge entry, while authenticated renders remain private and bypass it.
+{
+  const previousCaches = globalThis.caches;
+  const entries = new Map();
+  let matches = 0, puts = 0, ttl = null;
+  globalThis.caches = { default: {
+    async match(request) {
+      matches++;
+      const cached = entries.get(request.url);
+      return cached ? cached.clone() : undefined;
+    },
+    async put(request, response, options) {
+      puts++;
+      ttl = options && options.expirationTtl;
+      entries.set(request.url, response.clone());
+    }
+  } };
+  try {
+    const { env } = mk();
+    const first = await get(env, "/");
+    const second = await get(env, "/");
+    ok(first.headers.get("Cache-Control") === "public, max-age=60" && puts === 1 && ttl === 60, "S5 a public homepage response is cached for 60 seconds");
+    ok(matches === 2 && /fleet-status\/v1/.test(await second.text()), "S5 the next public homepage request reuses the cached response");
+    const token = "test-owner-token-with-enough-length";
+    env.OWNER_TOKEN = token;
+    const digest = createHash("sha256").update(token).digest("hex");
+    const ownerPage = await get(env, "/", { Cookie: "fleet_owner=" + digest });
+    ok(ownerPage.headers.get("Cache-Control") === "private, no-store" && matches === 2 && puts === 1, "S5 an authenticated homepage bypasses the public cache and remains private");
+    ok(/data-vact="fix"/.test(await ownerPage.text()), "S5 an authenticated homepage still renders owner actions");
+  } finally {
+    if (previousCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = previousCaches;
+  }
 }
 // S6
 {

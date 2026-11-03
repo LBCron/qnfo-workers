@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.81.0";
+var VERSION = "1.81.1";
 // 1.81.0 DASHBOARD-FIX-IT-1 (issue #1000784, pillar autonomy; minor): every visible breach card exposes its one-tap fleet handoff, and parked code/issue-loop cards can be re-audited through their owning loop with evidence-only closure.
 // 1.80.2 LOOP-HEARTBEAT-CRON-FALLBACK-1 (issue #1001283, pillar core; patch): non-quarter-hour dashboard heartbeats also queue a stale issue-loop sync from saved state, recovering when full refreshes time out.
 // 1.80.1 ATTENTION-EFFICACY-SAMPLE-1 (issue #2467, pillar reach; patch): sparse 7-day windows are unmeasured, not flat efficacy results.
@@ -3488,10 +3488,26 @@ if (path === "/health") {
     return rtRead(request, url, await fleetStatusData(env, ctx), { schema: "fleet-status/v1" });
   }
   if ((path === "/" || path === "") && url.searchParams.get("frag") !== "1" && (request.method === "GET" || request.method === "HEAD")) {
+    const publicPageCache = request.method === "GET" && !owner.authed && typeof caches !== "undefined" ? caches.default : null;
+    if (publicPageCache) {
+      try {
+        const cached = await publicPageCache.match(request);
+        if (cached) return cached;
+      } catch (e) {
+      }
+    }
     const sd = await fleetStatusData(env, ctx);
     // DASH-OWNER-ACTIONS-1 (1.70.0): the owner's decision block is read per request for the signed-in owner and never enters sd, which is cached and public.
     const sdec = owner && owner.authed ? await statusOwnerDecisions(env, sd) : null;
-    return new Response(statusPageHtml(sd, rtDigest(sd), !!(owner && owner.authed), sdec), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    const response = new Response(statusPageHtml(sd, rtDigest(sd), !!(owner && owner.authed), sdec), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": owner.authed ? RT_CACHE_PRIVATE : "public, max-age=60" } });
+    if (publicPageCache) {
+      try {
+        ctx.waitUntil(publicPageCache.put(request, response.clone(), { expirationTtl: 60 }).catch(function() {
+        }));
+      } catch (e) {
+      }
+    }
+    return response;
   }
   if (path === "/" || path === "" || path === "/classic" || path === "/classic/") {
     const frag = url.searchParams.get("frag") === "1";
