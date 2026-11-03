@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 09:30:55",
+  "audited_at": "2026-11-03 10:09:09",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -11,13 +11,7 @@
     "cron_only": [],
     "cron_only_count": 0,
     "drift": [],
-    "live_err": [
-      {
-        "dir": "q08-signal-engine",
-        "err": "ERR:The read operation timed out",
-        "worker": "q08-signal-engine"
-      }
-    ],
+    "live_err": [],
     "multi_version": [],
     "multi_version_count": 0,
     "name_resolution": true,
@@ -553,7 +547,7 @@
     "retired_present": [],
     "retired_present_count": 0,
     "scope": "all",
-    "sync": 35,
+    "sync": 36,
     "sync_workers": [
       {
         "dir": "idea-hub",
@@ -579,6 +573,11 @@
         "dir": "q08-mind",
         "version": "2.2.1",
         "worker": "q08-mind"
+      },
+      {
+        "dir": "q08-signal-engine",
+        "version": "0.42.0-codeagent",
+        "worker": "q08-signal-engine"
       },
       {
         "dir": "qnfo-agents",
@@ -667,7 +666,7 @@
       },
       {
         "dir": "qnfo-jobsearch",
-        "version": "1.4.1-codeagent",
+        "version": "1.4.2",
         "worker": "qnfo-jobsearch"
       },
       {
@@ -677,7 +676,7 @@
       },
       {
         "dir": "qnfo-memory-mcp",
-        "version": "2.7.0",
+        "version": "2.7.1",
         "worker": "qnfo-memory-mcp"
       },
       {
@@ -712,7 +711,7 @@
       },
       {
         "dir": "qnfo-subscribers",
-        "version": "1.5.4-codeagent",
+        "version": "1.5.5-codeagent",
         "worker": "qnfo-subscribers"
       },
       {
@@ -1061,11 +1060,11 @@
       "worker": "q08-mind"
     },
     "q08-signal-engine": {
-      "before": null,
-      "http": 0,
-      "live": null,
-      "match": 0,
-      "note": "LIVE_ERR",
+      "before": "0.42.0-codeagent",
+      "http": 200,
+      "live": "0.42.0-codeagent",
+      "match": 1,
+      "note": "SYNC",
       "worker": "q08-signal-engine"
     },
     "qnfo-agent-orchestrator": {
@@ -1528,9 +1527,9 @@
       "worker": "qnfo-ipatent"
     },
     "qnfo-jobsearch": {
-      "before": "1.4.1-codeagent",
+      "before": "1.4.2",
       "http": 200,
-      "live": "1.4.1-codeagent",
+      "live": "1.4.2",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-jobsearch"
@@ -1553,9 +1552,9 @@
       "worker": "qnfo-lifecycle"
     },
     "qnfo-memory-mcp": {
-      "before": "2.7.0",
+      "before": "2.7.1",
       "http": 200,
-      "live": "2.7.0",
+      "live": "2.7.1",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-memory-mcp"
@@ -1744,9 +1743,9 @@
       "worker": "qnfo-social"
     },
     "qnfo-subscribers": {
-      "before": "1.5.4-codeagent",
+      "before": "1.5.5-codeagent",
       "http": 200,
-      "live": "1.5.4-codeagent",
+      "live": "1.5.5-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-subscribers"
