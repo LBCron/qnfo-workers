@@ -154,7 +154,7 @@ for wf_name in cr.DISPATCHABLE:
     check(re.search(r"^  workflow_dispatch:", wf_text, re.M) is not None, "%s exists and declares workflow_dispatch, so `gh workflow run` can start it (repair() runs that command with check=False, a workflow without the trigger would fail silently)" % wf_name)
 
 
-def drive(in_place, base_branch="main"):
+def drive(in_place, base_branch="main", delta="1\t1\tscripts/fix.py\n"):
     """Run repair() for one PR with git, GitHub and checks stubbed."""
     calls, git_calls, trace = [], [], {}
     pr = {"number": 5, "state": "open", "title": "fix x", "body": "", "head": {"sha": "abcdef1234567", "ref": "fix/x"}, "base": {"ref": base_branch}}
@@ -171,9 +171,13 @@ def drive(in_place, base_branch="main"):
 
     def fake_sh(args, cwd=None, check=True, timeout=900, env=None):
         calls.append(list(args))
+        if args[:2] == ["git", "push"]:
+            trace["pushed"] = True
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
     def fake_git(args, cwd=None, check=True):
         git_calls.append(list(args))
+        if args[:2] == ["diff", "--numstat"]:
+            return delta
         return "0123456789abcdef\n"
     def fake_reapply(head, base, branch, cwd=None, message=None, in_place=False):
         trace["reapply_base"] = base
@@ -209,9 +213,21 @@ check([c[3] for c in runs] == cr.DISPATCHABLE and "mirror-guard.yml" in [c[3] fo
 check(all(c[c.index("--ref") + 1] == "fix/x" for c in runs), "in place: each dispatch targets the pull request's own branch", runs)
 res, runs, trace, git_calls = drive(False, "release/next")
 check(res.get("outcome") == "replaced", "a replacement pull request is opened and the old one superseded", res)
+_, delivery_body = cr.replacement_text({"number": 5, "title": "Fix", "body": "Refs #7"}, [], [("suites", True)])
+check("Definition of done (CODE-CHANGE-REQUIRED-1)" in delivery_body and "Refs #7" in delivery_body,
+      "replacement PRs preserve linkage and require code changes in their DoD")
+check(cr.numstat_has_code_changes("1\t0\tscripts/fix.py\n") and not cr.numstat_has_code_changes("1\t0\tdocs/report.md\n"),
+      "conflict repair uses the publisher's shared implementation-diff guard")
 check(trace.get("replacement_base") == "release/next", "a replacement pull request preserves the original base branch", trace)
 check([c[3] for c in runs] == cr.DISPATCHABLE and "mirror-guard.yml" in [c[3] for c in runs], "replacement: every DISPATCHABLE workflow, mirror-guard.yml included, is dispatched", runs)
 check(all(c[c.index("--ref") + 1] == "repair/pr-5-abcdef1" for c in runs), "replacement: each dispatch targets the repair branch", runs)
+for in_place in (True, False):
+    for delta in ("", "1\t0\tdocs/report.md\n", "0\t0\tscripts/fix.py\n"):
+        res, runs, trace, git_calls = drive(in_place, delta=delta)
+        check(res.get("outcome") == "no-code-change" and not runs
+              and not trace.get("replacement_base") and not trace.get("pushed")
+              and not any(c[0] == "push" for c in git_calls),
+              "empty, investigation-only and zero-line repair diffs never push or open a PR", res)
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "conflict_repair.py"), encoding="utf-8").read()
 check("starts no pull_request workflow" not in src and "starts none by itself" not in src, "the comments no longer say a GITHUB_TOKEN push starts no pull_request workflow (it starts runs that never get a job)")
 

@@ -41,6 +41,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from code_delivery import numstat_has_code_changes  # noqa: E402
 REPO = os.environ.get("GITHUB_REPOSITORY") or "QNFO/qnfo-workers"
 DB_ID = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
 VERSION_LINE = re.compile(r'^(var VERSION ?= ?)"([^"\n]*)"(;?.*)$', re.M)  # group 1 keeps the file's own spacing (qnfo-gateway writes var VERSION="x")
@@ -409,6 +410,7 @@ def replacement_text(pr, bumped, checks):
     if bumped:
         body += "VERSION raised above the base branch and the open pull requests: " + "; ".join("%s %s -> %s" % b for b in bumped) + ".\n\n"
     body += "Checked on the runner before the push: " + "; ".join("%s %s" % (k, "ok" if v else "FAILED") for k, v in checks) + ".\n\n"
+    body += "## Definition of done (CODE-CHANGE-REQUIRED-1)\n\nImplement the issue's remedy in code, an applied migration or executable configuration in this PR; link the issue, identify implementation paths, run regression checks and verify the outcome after canonical deployment. No empty, documentation-only or investigation-only PR satisfies this contract.\n\n"
     body += "Supersedes #%d, which is closed with this number.\n\n---\nOriginal description:\n\n%s\n" % (pr["number"], str(pr.get("body") or "")[:6000])
     return title, body
 
@@ -768,6 +770,11 @@ def repair(number, push=False, keep_branch=False, in_place=False):
         checks = run_checks(r["workers"], base_ref)
         res["checks"] = checks
         res["sha"] = git(["rev-parse", "HEAD"]).strip()
+        if not numstat_has_code_changes(git(["diff", "--numstat", base_ref, "HEAD"])):
+            res["outcome"] = "no-code-change"
+            res["why"] = "CODE-CHANGE-REQUIRED-1: no implementation diff; no replacement PR or push"
+            ledger(number, head_sha, "warn", res["why"], dict(meta, outcome=res["outcome"]))
+            return res
         if not all(v for _, v in checks):
             res["outcome"] = "checks-failed"
             ledger(number, head_sha, "warn", "CONFLICT-REPAIR-DOER-1 PR %d re-applied but not pushed, failed: %s" % (number, ", ".join(k for k, v in checks if not v)), dict(meta, outcome="checks-failed"))

@@ -7,7 +7,7 @@
 //           the agent: events `assigned` and `review_requested` appear within a second of `copilot_work_finished`); with ORG_TOKEN (the fleet user
 //           credential, handed to this script only off a pull_request_target run) the same removal runs for the Copilot pull requests and the issues of
 //           every other repository of the organization, found by search: ASSIGN-COPILOT-ISSUES-1 starts sessions in all of them. It also closes a Copilot
-//           draft in another repository whose session finished 30 minutes ago and changed no file (no lane merges there; qnfo-workers has BH-EMPTY-DRAFT-1);
+//           finished no-code pull request in another repository, whether draft or ready;
 //        2. once the agent has finished (the last copilot_work_* event is copilot_work_finished): approves the approval-gated pull_request runs of
 //           its head so that the checks the merge lane waits for actually run (a Copilot push starts runs that stay `action_required` until a person
 //           clicks "Approve and run workflows": 268 such runs and 19 zero-job failed runs measured on 2026-10-30, so the lane never saw a green check
@@ -25,10 +25,9 @@
 //           version-bump-guard, workflow-lint), all path-filtered and none reads a secret, so the push adds no exposure beyond the pull_request runs
 //           step 2 already approves. A kick is pinned to the head sha and never repeated for it: the new head's runs are the owner's, not Copilot's,
 //           so the next sweep finds nothing gated.
-//        4. EMPTY-FINISHED-DRAFT-1 (2026-11-01): a draft whose session finished (copilot_work_finished) emptyAfterMin (30) minutes ago and changed no file is commented and closed here
-//           too, by the rule the organization pass applies to other repositories. The merge lane's BH-EMPTY-DRAFT-1 waits 6 hours for an idle empty draft because a session that has only
-//           just opened its pull request looks the same; this script knows the session is over. Measured 2026-11-01 11:00-12:15Z: #5523, #5640 and #5652 (three of about twenty
-//           sessions) finished empty, and each held one of the 12 open-Copilot-pull-request slots of the assignment sweep, whose capacity is that limit minus the open ones.
+//        4. CODE-CHANGE-REQUIRED-1 (2026-11-03) supersedes EMPTY-FINISHED-DRAFT-1: a finished no-code PR is commented and closed on this pass,
+//           whether draft or ready. Actual files decide, not changed_files or an idle timer. Its issue stays open for implementation.
+//           Issue dispatch and PR creation carry a mandatory code-change DoD; existing PRs receive it as a comment without firing an edited-body workflow.
 // WHY    The approval gate is a security control, so it is relaxed only where it protects nothing: a run is approved only when the pull request
 //        changes none of the paths a workflow executes with more than read access or that configure the build (DENY_PATHS: .github/, scripts/,
 //        wrangler and package manifests, shell scripts, Dockerfiles, yaml). Workflow definitions run from the base branch, deploy-gate strips the
@@ -49,9 +48,10 @@
 //        OWNER_LOGINS=rwnq8 (comma separated) names the people who are never reviewer or assignee.
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { hasCodeChanges, withCodeDeliveryDoD } from "./code-delivery.mjs";
 
 const API = "https://api.github.com";
-export const DEFAULTS = { max: 30, pages: 3, owners: ["rwnq8"], pauseMs: 250, orgMax: 50, emptyMax: 10, emptyAfterMin: 30, kickMax: 8 };
+export const DEFAULTS = { max: 30, pages: 3, owners: ["rwnq8"], pauseMs: 250, orgMax: 50, emptyMax: 10, kickMax: 8 };
 export const isCopilotAuthor = (login) => /^(copilot|copilot-swe-agent)(\[bot\])?$/i.test(String(login || ""));
 
 // Paths whose change can alter what CI executes with a secret or write access, or that steer the build. A pull request touching one is never
@@ -143,7 +143,6 @@ export async function run(opts, deps) {
   const o = Object.assign({}, DEFAULTS, opts || {});
   const d = Object.assign({ fetchImpl: fetch, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) }, deps || {});
   const dry = o.mode === "dry";
-  const now = d.now === undefined ? Date.now() : d.now;
   const owners = (o.owners || []).map((x) => String(x).toLowerCase());
   const isOwner = (login) => owners.includes(String(login || "").toLowerCase());
   const sum = {
@@ -207,25 +206,31 @@ export async function run(opts, deps) {
     const state = workState(ev.items);
     if (state !== "finished") { skip("agent-" + state); continue; }
 
-    // EMPTY-FINISHED-DRAFT-1 (header, step 4): a draft whose session finished and changed no file is closed after emptyAfterMin; the files listing confirms it because
-    // changed_files can read 0 while GitHub is still computing. It is neither approved nor kicked, and the issue it answered stays open for the assignment sweep.
+    // CODE-CHANGE-REQUIRED-1: inspect actual files, not changed_files, and never close an active session's placeholder.
     const fin = finishedAt(ev.items);
-    if (pr.draft && Number(pr.changed_files) === 0 && fin) {
-      if (now - Date.parse(fin) < o.emptyAfterMin * 60000) { skip("empty-draft-recent"); continue; }
-      const fl = await listAll(api, "/repos/" + repo + "/pulls/" + n + "/files", null, 1);
-      if (!fl.error && !fl.items.length) {
+    const files = await listAll(api, "/repos/" + repo + "/pulls/" + n + "/files", null, 3);
+    if (files.error) { fail("files " + n, { status: files.error.http, message: files.error.message }); continue; }
+    if (files.items.length >= 300) { sum.approval_withheld.push({ pr: n, reason: "300 or more changed files" }); continue; }
+    if (!hasCodeChanges(files.items)) {
         if (sum.empty_drafts_closed.filter((x) => x.repo === repo).length >= o.emptyMax) { skip("empty-over-cap"); continue; }
         const entry = { repo, number: n, finished_at: fin };
         if (dry) { sum.empty_drafts_closed.push(Object.assign(entry, { dry: true })); continue; }
-        const text = "Closed by COPILOT-PR-LIFECYCLE-1 (EMPTY-FINISHED-DRAFT-1): the Copilot session finished at " + fin + " and changed no file, so this draft carries nothing to review or merge and only holds "
-          + "one of the open-pull-request slots of the assignment sweep (the merge lane waits 6 hours, BH-EMPTY-DRAFT-1). The issue stays open and assigned; the sweep may start one more session for it (ASSIGN-COPILOT-ISSUES-1).";
+        const fresh = await api.req("GET", "/repos/" + repo + "/pulls/" + n);
+        if (fresh.status !== 200 || !fresh.body) { fail("recheck no-code PR " + n, fresh); continue; }
+        if (fresh.body.state === "closed" || fresh.body.head.sha !== pr.head.sha) { skip("head-changed"); continue; }
+        const freshEvents = await listAll(api, "/repos/" + repo + "/issues/" + n + "/events", null, 2);
+        if (freshEvents.error) { fail("recheck no-code events " + n, { status: freshEvents.error.http, message: freshEvents.error.message }); continue; }
+        if (workState(freshEvents.items) !== "finished") { skip("agent-resumed"); continue; }
+        const text = "Closed by COPILOT-PR-LIFECYCLE-1 (CODE-CHANGE-REQUIRED-1; replaces EMPTY-FINISHED-DRAFT-1): the Copilot session finished without an implementation change. "
+          + "Every PR definition of done requires code changes; empty, documentation-only and investigation-only PRs are not deliverables. The linked issue stays open for an implementation, not another investigation-only PR.";
         const c = await api.req("POST", "/repos/" + repo + "/issues/" + n + "/comments", { body: text });
+        if (!okStatus(c.status)) { fail("explain no-code PR " + n, c); continue; }
         const x = await api.req("PATCH", "/repos/" + repo + "/pulls/" + n, { state: "closed" });
         if (okStatus(c.status) && okStatus(x.status)) sum.empty_drafts_closed.push(entry);
         else fail("close empty draft " + repo + "#" + n, okStatus(x.status) ? c : x);
         continue;
-      }
     }
+    if (!await noteDeliveryDoD(api, repo, n, pr.body, sum, dry)) continue;
 
     if (o.approve === false) continue;
     const sha = pr.head.sha;
@@ -234,11 +239,6 @@ export async function run(opts, deps) {
     const gated = runs.body.workflow_runs.filter((r) => r.status === "completed" && r.conclusion === "action_required" && r.event === "pull_request"
       && r.head_sha === sha && r.head_repository && r.head_repository.full_name === repo && isCopilotAuthor(r.actor && r.actor.login));
     if (!gated.length) continue;
-    const files = await listAll(api, "/repos/" + repo + "/pulls/" + n + "/files", null, 3);
-    if (files.error) { fail("files " + n, { status: files.error.http, message: files.error.message }); continue; }
-    if (files.items.length >= 300) { sum.approval_withheld.push({ pr: n, reason: "300 or more changed files" }); continue; }
-    // An empty pull request (a finished session that changed nothing) has no check to run; a push would also restart the idle time BH-EMPTY-DRAFT-1 waits for before closing it.
-    if (!files.items.length) { skip("no-changed-files"); continue; }
     const denied = deniedPaths(files.items);
     if (denied.length) {
       sum.approval_withheld.push({ pr: n, paths: denied.slice(0, 20) });
@@ -305,13 +305,11 @@ async function orgPass(o, d, sum, dry) {
   sum.calls_org = api.calls.length;
 }
 
-// A Copilot draft in another repository whose session finished 30 minutes ago and changed no file carries nothing to review or merge (no merge lane exists
-// there, and qnfo-workers has its own hygiene tick, BH-EMPTY-DRAFT-1). It is commented and closed; the issue stays open and is never assigned again.
+// Finished no-code PRs are not deliverables, whether draft or ready; active sessions are left alone.
 async function closeEmptyDrafts(o, d, sum, api, org, dry) {
-  const q = "org:" + org + " is:pr is:open draft:true author:app/copilot-swe-agent -repo:" + o.repo;
+  const q = "org:" + org + " is:pr is:open author:app/copilot-swe-agent -repo:" + o.repo;
   const r = await api.req("GET", "/search/issues?per_page=100&q=" + encodeURIComponent(q));
   if (r.status !== 200 || !r.body || !Array.isArray(r.body.items)) { sum.errors.push({ where: "org search empty-draft", http: r.status, message: r.message }); return; }
-  const now = d.now === undefined ? Date.now() : d.now;
   let closed = 0;
   for (const it of r.body.items) {
     if (closed >= o.emptyMax) { sum.skipped["empty-over-cap"] = (sum.skipped["empty-over-cap"] || 0) + 1; continue; }
@@ -320,22 +318,48 @@ async function closeEmptyDrafts(o, d, sum, api, org, dry) {
     const slug = m[1], n = it.number;
     const g = await api.req("GET", "/repos/" + slug + "/pulls/" + n);
     if (g.status !== 200 || !g.body) { sum.errors.push({ where: "empty-draft pull " + slug + "#" + n, http: g.status, message: g.message }); continue; }
-    if (!g.body.draft || Number(g.body.changed_files) !== 0) { sum.skipped["draft-has-changes"] = (sum.skipped["draft-has-changes"] || 0) + 1; continue; }
     const ev = await listAll(api, "/repos/" + slug + "/issues/" + n + "/events", null, 2);
     if (ev.error) { sum.errors.push({ where: "empty-draft events " + slug + "#" + n, http: ev.error.http, message: ev.error.message }); continue; }
     const at = finishedAt(ev.items);
-    if (!at) { sum.skipped["empty-draft-session-" + workState(ev.items)] = (sum.skipped["empty-draft-session-" + workState(ev.items)] || 0) + 1; continue; }
-    if (now - Date.parse(at) < o.emptyAfterMin * 60000) { sum.skipped["empty-draft-recent"] = (sum.skipped["empty-draft-recent"] || 0) + 1; continue; }
+    if (workState(ev.items) !== "finished") { sum.skipped["empty-draft-session-" + workState(ev.items)] = (sum.skipped["empty-draft-session-" + workState(ev.items)] || 0) + 1; continue; }
+    const files = await listAll(api, "/repos/" + slug + "/pulls/" + n + "/files", null, 3);
+    if (files.error) { sum.errors.push({ where: "no-code files " + slug + "#" + n, http: files.error.http, message: files.error.message }); continue; }
+    if (files.items.length >= 300) { sum.skipped["files-over-cap"] = (sum.skipped["files-over-cap"] || 0) + 1; continue; }
+    if (hasCodeChanges(files.items)) {
+      await noteDeliveryDoD(api, slug, n, g.body.body, sum, dry);
+      sum.skipped["draft-has-changes"] = (sum.skipped["draft-has-changes"] || 0) + 1;
+      continue;
+    }
     const entry = { repo: slug, number: n, finished_at: at };
     if (dry) { sum.empty_drafts_closed.push(Object.assign(entry, { dry: true })); closed++; continue; }
-    const body = "Closed by COPILOT-PR-LIFECYCLE-1: the Copilot session finished at " + at + " and changed no file, so this draft carries nothing to review or merge. The issue stays open; "
-      + "an issue Copilot ever had is not assigned again (ASSIGN-COPILOT-ISSUES-1), and a machine signal labelled no-auto is never assigned.";
+    const fresh = await api.req("GET", "/repos/" + slug + "/pulls/" + n);
+    if (fresh.status !== 200 || !fresh.body) { sum.errors.push({ where: "recheck no-code PR " + slug + "#" + n, http: fresh.status, message: fresh.message }); continue; }
+    if (fresh.body.state === "closed" || (fresh.body.head && fresh.body.head.sha) !== (g.body.head && g.body.head.sha)) {
+      sum.skipped["head-changed"] = (sum.skipped["head-changed"] || 0) + 1; continue;
+    }
+    const freshEvents = await listAll(api, "/repos/" + slug + "/issues/" + n + "/events", null, 2);
+    if (freshEvents.error) { sum.errors.push({ where: "recheck no-code events " + slug + "#" + n, http: freshEvents.error.http, message: freshEvents.error.message }); continue; }
+    if (workState(freshEvents.items) !== "finished") { sum.skipped["agent-resumed"] = (sum.skipped["agent-resumed"] || 0) + 1; continue; }
+    const body = "Closed by COPILOT-PR-LIFECYCLE-1 (CODE-CHANGE-REQUIRED-1): the finished session delivered no code change. "
+      + "An empty, documentation-only or investigation-only PR fails the mandatory code-change definition of done. The issue stays open for implementation.";
     const c = await api.req("POST", "/repos/" + slug + "/issues/" + n + "/comments", { body });
+    if (!okStatus(c.status)) { sum.errors.push({ where: "explain no-code PR " + slug + "#" + n, http: c.status, message: c.message }); continue; }
     const x = await api.req("PATCH", "/repos/" + slug + "/pulls/" + n, { state: "closed" });
     if (okStatus(c.status) && okStatus(x.status)) { sum.empty_drafts_closed.push(entry); closed++; }
     else sum.errors.push({ where: "close empty draft " + slug + "#" + n, http: okStatus(x.status) ? c.status : x.status, message: okStatus(x.status) ? c.message : x.message });
     if (o.pauseMs) await d.sleep(o.pauseMs);
   }
+}
+
+async function noteDeliveryDoD(api, repo, n, body, sum, dry) {
+  const contract = withCodeDeliveryDoD("");
+  if (withCodeDeliveryDoD(body) === String(body || "") || dry) return true;
+  const have = await listAll(api, "/repos/" + repo + "/issues/" + n + "/comments", null, 2);
+  if (have.error) { sum.errors.push({ where: "code-delivery comments " + n, http: have.error.http, message: have.error.message }); return false; }
+  if (have.items.some((c) => String(c.body || "").includes(contract.trim()))) return true;
+  const response = await api.req("POST", "/repos/" + repo + "/issues/" + n + "/comments", { body: contract.trim() });
+  if (!okStatus(response.status)) { sum.errors.push({ where: "code-delivery DoD " + n, http: response.status, message: response.message }); return false; }
+  return true;
 }
 
 // One comment per head commit names the files that kept the checks from being approved.
@@ -353,7 +377,7 @@ async function noteWithheld(api, repo, n, sha, denied, sum) {
 
 function summaryMarkdown(s) {
   const rows = [["copilot pull requests", s.copilot_prs], ["owner reviewer requests removed", s.reviewers_removed.length], ["owner assignments removed", s.assignees_removed.length + s.issue_assignees_removed.length],
-    ["owner removed across the organization", (s.org_removed || []).length], ["empty finished drafts closed", (s.empty_drafts_closed || []).length], ["gated runs approved", s.approved.length], ["checks started by a branch update", (s.kicked || []).length], ["approval withheld", s.approval_withheld.length], ["errors", s.errors.length]];
+    ["owner removed across the organization", (s.org_removed || []).length], ["finished no-code PRs closed", (s.empty_drafts_closed || []).length], ["gated runs approved", s.approved.length], ["checks started by a branch update", (s.kicked || []).length], ["approval withheld", s.approval_withheld.length], ["errors", s.errors.length]];
   const skipped = Object.keys(s.skipped).sort().map((k) => "- " + k + ": " + s.skipped[k]).join("\n");
   return "### Copilot pull request lifecycle (" + s.mode + ", status " + s.status + ")\n\n" + rows.map((r) => "- " + r[0] + ": " + r[1]).join("\n") + (skipped ? "\n\nSkipped\n" + skipped : "") + "\n";
 }

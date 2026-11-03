@@ -535,6 +535,13 @@ because each one was broken at least once; the linked issue holds the evidence.
 - A new trigger on `papers` must not run an FTS5 statement for an update that leaves `title` and `abstract` alone (PAPERS-FTS-DRIFT-1: it corrupted `papers_fts`).
 
 ## Issues and evidence
+- CODE-CHANGE-REQUIRED-1 (owner directive 2026-11-03): every filed issue and subsequent PR requires an implementation
+  code change, an applied migration or executable configuration, an issue link, changed implementation paths,
+  regression checks and outcome verification in its definition of done. Investigation-only, empty and documentation-only
+  PRs are not deliverables; naming another PR or a documentation exemption does not satisfy this PR's own code requirement.
+  If the implementation already exists, record evidence on the issue rather than opening a no-change PR.
+  The publisher checks before pushing, the fleet checks before opening and merging, and the Copilot lifecycle closes
+  finished no-code PRs while leaving their issues open. Active session placeholders are never treated as finished work.
 - Open work lives in D1 `qnfo-audit.agent_issues`. Close an issue only with evidence in `issue_triage.close_evidence`
   (a live measurement, not "deployed").
 - A close names its channel (CLOSE-CHANNEL-PROBE-2, agent_issues 100419). `agent_issues.close_channel` says which path closed an issue (a fix, a probe, a sweep, a session); a session that closes by SQL

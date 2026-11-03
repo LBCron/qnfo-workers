@@ -46,6 +46,7 @@
 //        [--mode live|dry] [--no-agent-sync]; ISSUE_REPO=QNFO/x ISSUE_NUMBER=7 (set by the `issues` trigger) puts that one issue first in the run.
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { CODE_DELIVERY_DOD, withCodeDeliveryDoD } from "./code-delivery.mjs";
 
 const API = "https://api.github.com";
 export const ORG = "QNFO";
@@ -71,7 +72,8 @@ export const CREDITS_RE = /sufficient GitHub AI Credits/i;
 export const PRIORITY_LABEL = "ci-watchdog";
 
 // Static text only: nothing from the issue is copied into it.
-export const INSTRUCTIONS = "Resolve this issue with code changes in a pull request, not with a plan or a report. Reference the issue in the pull request, run the repository's tests and linters, and mark the pull request ready for review when the work is complete. Never hand the work back to a person and never assign the issue to a user. If the work-claim service (qnfo-deploy-guard) cannot be reached from this sandbox because of the cloud-agent firewall, that is an environment limit and not a refusal: read the open pull requests and copilot/ branches through the GitHub API for the paths you will change, skip any file another open pull request changes, write 'work-claim: unreachable (<verbatim error>)' in the pull request body (CLAUDE.md, CLAIM-UNREACHABLE-FALLBACK-1), and continue. An explicit acquired:false answer from the service, a live secret lease and a HOLD: comment are still binding.";
+export const INSTRUCTIONS = "Resolve this issue with code changes in a pull request, not with a plan or a report. Reference the issue in the pull request, run the repository's tests and linters, and mark the pull request ready for review when the work is complete. Never hand the work back to a person and never assign the issue to a user. If the work-claim service (qnfo-deploy-guard) cannot be reached from this sandbox because of the cloud-agent firewall, that is an environment limit and not a refusal: read the open pull requests and copilot/ branches through the GitHub API for the paths you will change, skip any file another open pull request changes, write 'work-claim: unreachable (<verbatim error>)' in the pull request body (CLAUDE.md, CLAIM-UNREACHABLE-FALLBACK-1), and continue. An explicit acquired:false answer from the service, a live secret lease and a HOLD: comment are still binding."
+  + "\n\nDo not open or finish an investigation-only PR. Implement and test first; include this mandatory definition of done in every PR:\n\n" + CODE_DELIVERY_DOD;
 
 export const isCopilot = (login) => /^(copilot|copilot-swe-agent)(\[bot\])?$/i.test(String(login || ""));
 export const mirrorId = (title) => { const m = /^\[#(\d+)\]/.exec(String(title || "")); return m ? Number(m[1]) : null; };
@@ -370,6 +372,19 @@ export async function run(opts, deps) {
       if (given.length - sf.all > o.maxRedrives) { skip("redrive-exhausted", n); continue; }
       if (sf.other > o.maxOtherFailures) { skip("start-failures-exhausted", n); continue; }
       refused0 = sf.all;
+    }
+    const issue = await api.req("GET", "/repos/" + slug + "/issues/" + n.number);
+    if (issue.status !== 200 || !issue.body) {
+      sum.errors.push({ where: "code-delivery issue " + slug + "#" + n.number, http: issue.status, message: issue.message });
+      continue;
+    }
+    const deliveryBody = withCodeDeliveryDoD(issue.body.body);
+    if (!dry && deliveryBody !== String(issue.body.body || "")) {
+      const update = await api.req("PATCH", "/repos/" + slug + "/issues/" + n.number, { body: deliveryBody });
+      if (update.status < 200 || update.status >= 300) {
+        sum.errors.push({ where: "code-delivery DoD " + slug + "#" + n.number, http: update.status, message: update.message });
+        continue;
+      }
     }
     attempts++;
     if (hasCopilot) redrives++;

@@ -76,7 +76,14 @@ function fakeGh(cfg) {
     }
     if (m && method === "DELETE") return cfg.deleteStatus ? reply(cfg.deleteStatus, { message: "nope" }) : reply(200, {});
     m = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(path);
-    if (m) { const f = (cfg.single || {})[m[1] + "#" + m[2]]; return f ? reply(200, f) : reply(404, { message: "Not Found" }); }
+    if (m) {
+      const f = (cfg.single || {})[m[1] + "#" + m[2]] || (cfg.issues || []).concat(cfg.stalled || []).find((i) => i.repository_url === "https://api.github.com/repos/" + m[1] && i.number === Number(m[2]));
+      if (method === "PATCH" && f) {
+        if (cfg.issuePatchStatus) return reply(cfg.issuePatchStatus, { message: "Issue body write refused" });
+        Object.assign(f, JSON.parse(init.body));
+      }
+      return f ? reply(200, f) : reply(404, { message: "Not Found" });
+    }
     m = /^\/repos\/(QNFO\/[^/]+)\/contents\/(.+)$/.exec(path);
     if (m) {
       const k = m[1] + "|" + m[2];
@@ -112,11 +119,19 @@ ok(!/\$\{|\{\{/.test(INSTRUCTIONS) && INSTRUCTIONS.length < 2000 && /work-claim/
 let { s, g } = await go({ issues: [item(11)] });
 ok(s.status === "ok" && s.assigned === 1 && posts(g).length === 1, "one trusted new issue is assigned", s);
 const p = posts(g)[0];
+const deliveryWrite = g.log.find((c) => c.method === "PATCH" && c.path.endsWith("/issues/11"));
+ok(deliveryWrite && /Definition of done \(CODE-CHANGE-REQUIRED-1\)/.test(deliveryWrite.body.body)
+  && /CODE-CHANGE-REQUIRED-1/.test(INSTRUCTIONS), "issue dispatch persists a code-change DoD and instructs the agent to include it in the PR");
 ok(p && p.path === "/repos/QNFO/qnfo-ops/issues/11/assignees" && JSON.stringify(p.body.assignees) === JSON.stringify([COPILOT_BOT]), "the call goes to the assignees endpoint with copilot-swe-agent[bot] only", p);
 ok(p && p.body.agent_assignment.custom_agent === AGENT && AGENT === "quniverse" && p.body.agent_assignment.target_repo === "QNFO/qnfo-ops" && p.body.agent_assignment.base_branch === "main" && p.body.agent_assignment.custom_instructions === INSTRUCTIONS, "agent_assignment names the Quniverse agent, this repository and its default branch", p && p.body);
 const searchCall = g.log.find((c) => c.path === "/search/issues" && !/is:pr|assignee:/.test(c.search));
 const q = decodeURIComponent(searchCall.search);
 ok(/q=org:QNFO is:issue is:open archived:false created:>=2026-10-29T09:00:00Z/.test(q), "the search is every open, non-archived issue of the organization created inside the window", q);
+{
+  const refused = await go({ issues: [item(12)], issuePatchStatus: 403 });
+  ok(posts(refused.g).length === 0 && refused.s.errors.some((e) => e.http === 403 && /code-delivery DoD/.test(e.where)),
+    "a refused DoD write is explicit and does not dispatch an issue without the contract");
+}
 ok(g.log.filter((c) => c.path !== "LOCKS").every((c) => c.auth === "Bearer SECRET-TOKEN-123") && !JSON.stringify(s).includes("SECRET-TOKEN-123") && !g.log.some((c) => c.path.includes("SECRET")), "the credential is sent as a bearer token and appears in no summary and no path");
 ({ s, g } = await go({ issues: [item(12, { repository_url: "https://api.github.com/repos/QNFO/qnfo-skills" })], repos: {} }));
 ok(posts(g)[0] && posts(g)[0].body.agent_assignment.base_branch === "master" && posts(g)[0].body.agent_assignment.target_repo === "QNFO/qnfo-skills", "the default branch of the issue's own repository is used (master here)", posts(g)[0] && posts(g)[0].body);

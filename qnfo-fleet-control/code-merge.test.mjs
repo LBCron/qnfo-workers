@@ -280,12 +280,12 @@ ok(act(task(), g({ pr: prJson({ state: "closed" }) })).status === "closed", "a P
 const docT = task({ path: "docs/x.md", ctx: JSON.stringify({ patch: WHOLE }) });
 const docG = g({ pr: prJson({ body: "Implemented in: #400" }), files: [{ filename: "docs/x.md", status: "modified" }], checks: green("h1", ["gate", "mirror-guard", "comparator"]), integrity: { ok: true } });
 ok(act(docT, { ...docG, pr: prJson() }).action === "refuse", "documentation without implementing evidence stays incomplete");
-ok(act(docT, docG).action === "merge" && act(docT, docG).kind === "doc", "a doc merges on gate, mirror-guard and comparator");
+ok(act(docT, docG).action === "refuse" && /CODE-CHANGE-REQUIRED-1/.test(act(docT, docG).why), "another PR cannot exempt a documentation-only diff");
 const scrT = task({ path: "scripts/cf_ops_actions.py", ctx: JSON.stringify({ patch: WHOLE }) });
 const scrG = g({ files: [{ filename: "scripts/cf_ops_actions.py", status: "modified" }], checks: green("h1", ["gate", "mirror-guard", "comparator"]), integrity: { ok: true } });
 ok(act(scrT, scrG).action === "merge" && act(scrT, scrG).kind === "script", "SCOPE-SCRIPTS-1: a fleet script merges on gate, mirror-guard and comparator");
 ok(act(task({ path: "scripts/deploy_gate.py", ctx: JSON.stringify({ patch: WHOLE }) }), g({ files: [{ filename: "scripts/deploy_gate.py", status: "modified" }], checks: green("h1", ["gate", "mirror-guard", "comparator"]), integrity: { ok: true } })).action === "refuse", "a CI gate script never merges on its own");
-ok(act(task({ status: "pr_open", path: "docs/x.md", ctx: JSON.stringify({ proposal: "x\n" }) }), docG).action === "merge", "a code-agent pr_open row with a stored proposal can merge");
+ok(act(task({ status: "pr_open", path: "scripts/cf_ops_actions.py", ctx: JSON.stringify({ proposal: "x\n" }) }), scrG).action === "merge", "a code-agent implementation pr_open row with a stored proposal can merge");
 ok(act(task({ status: "pr_open", ctx: JSON.stringify({ proposal: "x" }) }), g({ integrity: { ok: true, revertible: false, revert_why: "a code-agent pull request stores no patch to invert" } })).action === "refuse", "a code-agent worker.js PR is refused (no patch to revert)");
 // ---- opening a pushed branch (status branch_pushed): cmOpenDecide
 const pushedT = (over) => task(Object.assign({ status: "branch_pushed", pr_url: "https://github.com/QNFO/qnfo-workers/compare/main..." + BRANCH + "?expand=1" }, over || {}));
@@ -497,30 +497,30 @@ ok(!r.disabled && gh.calls.length > 0, "kill switch 'on' resumes the runner");
 freshDb(); freshGh();
 for (const [i, id] of ["ct_doc000000001", "ct_doc000000002"].entries()) {
   const num = 410 + i, br = "codeagent-" + id.slice(3, 15);
-  db.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, branch, pr_url, created_at, updated_at) VALUES (?, 'qnfo-workers', 'docs/x.md', 'doc', 'published', 'done', 0, ?, ?, ?, ?, ?)").run(id, JSON.stringify({ patch: WHOLE }), br, "https://github.com/QNFO/qnfo-workers/pull/" + num, ago(5), ago(5 - i));
+  db.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, branch, pr_url, created_at, updated_at) VALUES (?, 'qnfo-workers', 'scripts/x.py', 'code', 'published', 'done', 0, ?, ?, ?, ?, ?)").run(id, JSON.stringify({ patch: WHOLE.split("docs/x.md").join("scripts/x.py") }), br, "https://github.com/QNFO/qnfo-workers/pull/" + num, ago(5), ago(5 - i));
   gh.pulls[num] = prJson({ number: num, body: "Implemented in: #400", head: { ref: br, sha: "d" + i, repo: { full_name: "QNFO/qnfo-workers" } } });
-  gh.files[num] = [{ filename: "docs/x.md", status: "modified" }];
+  gh.files[num] = [{ filename: "scripts/x.py", status: "modified" }];
   gh.checks["d" + i] = green("d" + i, ["gate", "mirror-guard", "comparator"]);
-  gh.contents["base0:docs/x.md"] = "one\ntwo\n"; gh.contents["d" + i + ":docs/x.md"] = "one\ntwo\nthree\n";
+  gh.contents["base0:scripts/x.py"] = "one\ntwo\n"; gh.contents["d" + i + ":scripts/x.py"] = "one\ntwo\nthree\n";
 }
 r = J(await W.codeMergeTick(env, { now: NOW }));
 const d1 = one("SELECT * FROM code_tasks WHERE id = 'ct_doc000000001'"), d2 = one("SELECT * FROM code_tasks WHERE id = 'ct_doc000000002'");
-ok(gh.merges.length === 1 && d1.status === "merged" && d1.merge_state === "verified" && d1.merged_by === "qnfo-fleet-control", "a green doc PR merges and needs no deploy verification", d1);
+ok(gh.merges.length === 1 && d1.status === "merged" && d1.merge_state === "verified" && d1.merged_by === "qnfo-fleet-control", "a green implementation script PR merges and needs no worker deployment", d1);
 ok(d2.status === "published" && d2.green_since === new Date(NOW).toISOString() && /one merge per tick/.test(d2.merge_note), "one merge per tick: the second green PR waits with green_since recorded", d2);
 r = J(await W.codeMergeTick(env, { now: NOW + 36e5 }));
 ok(gh.merges.length === 2 && one("SELECT status FROM code_tasks WHERE id = 'ct_doc000000002'").status === "merged", "the next tick merges it");
 
-// MERGE-THROUGHPUT-1: the limit is an ops_config dial (clamped 1..5); both green doc PRs merge in one tick when it is 2
+// MERGE-THROUGHPUT-1: the limit is an ops_config dial (clamped 1..5); both green implementation PRs merge in one tick when it is 2
 {
   freshDb(); freshGh();
   db.prepare("INSERT INTO ops_config (key, value) VALUES ('code_merge_max_merges_per_tick', '2')").run();
   for (const [i, id] of ["ct_doc000000003", "ct_doc000000004"].entries()) {
     const num = 420 + i, br = "codeagent-" + id.slice(3, 15);
-    db.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, branch, pr_url, created_at, updated_at) VALUES (?, 'qnfo-workers', ?, 'doc', 'published', 'done', 0, ?, ?, ?, ?, ?)").run(id, "docs/y" + i + ".md", JSON.stringify({ patch: WHOLE.split("docs/x.md").join("docs/y" + i + ".md") }), br, "https://github.com/QNFO/qnfo-workers/pull/" + num, "2026-10-02T00:00:00Z", "2026-10-02T00:00:00Z");
+    db.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, branch, pr_url, created_at, updated_at) VALUES (?, 'qnfo-workers', ?, 'code', 'published', 'done', 0, ?, ?, ?, ?, ?)").run(id, "scripts/y" + i + ".py", JSON.stringify({ patch: WHOLE.split("docs/x.md").join("scripts/y" + i + ".py") }), br, "https://github.com/QNFO/qnfo-workers/pull/" + num, "2026-10-02T00:00:00Z", "2026-10-02T00:00:00Z");
     gh.pulls[num] = prJson({ number: num, body: "Implemented in: #400", head: { ref: br, sha: "e" + i, repo: { full_name: "QNFO/qnfo-workers" } } });
-    gh.files[num] = [{ filename: "docs/y" + i + ".md", status: "modified" }];
+    gh.files[num] = [{ filename: "scripts/y" + i + ".py", status: "modified" }];
     gh.checks["e" + i] = green("e" + i, ["gate", "mirror-guard", "comparator"]);
-    gh.contents["base0:docs/y" + i + ".md"] = "one\ntwo\n"; gh.contents["e" + i + ":docs/y" + i + ".md"] = "one\ntwo\nthree\n";
+    gh.contents["base0:scripts/y" + i + ".py"] = "one\ntwo\n"; gh.contents["e" + i + ":scripts/y" + i + ".py"] = "one\ntwo\nthree\n";
   }
   const r2 = J(await W.codeMergeTick(env, { now: NOW }));
   ok(gh.merges.length === 2, "merge dial 2: two green PRs on different files merge in one tick", { merges: gh.merges.length, r: r2.decided });

@@ -43,6 +43,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from code_delivery import implementation_path, numstat_has_code_changes
 
 AUDIT_DB = os.environ.get("AUDIT_D1_ID", "35e2e573-92f3-46ac-83c6-22f6429fc5e5")
 REPO_NAME = "qnfo-workers"
@@ -715,6 +716,8 @@ def publish_one(task, repo_dir, base, pr, delegate=False):
         allowed = {path} | ({mirror} if mirror else set()) | extra
         if path not in files or not files <= allowed:
             return "publish_failed", None, "patch touches files other than the task path: " + ",".join(sorted(files))[:150], None
+        if not any(implementation_path(f) for f in files):
+            return "publish_failed", None, "CODE-CHANGE-REQUIRED-1: documentation-only patch; implement the issue's remedy before publishing", None
 
         have = pr.existing(branch)  # idempotency: a crashed earlier run may already have opened the PR
         if have:
@@ -773,12 +776,16 @@ def publish_one(task, repo_dir, base, pr, delegate=False):
             git(repo_dir, "checkout", "-q", "--detach", "origin/" + base)
             return "syntax_retry", None, bad, None
         git(repo_dir, "add", "--", *sorted(files))
+        delta = git(repo_dir, "diff", "--cached", "--numstat").stdout
+        if not numstat_has_code_changes(delta):
+            return "publish_failed", None, "CODE-CHANGE-REQUIRED-1: staged diff has no code changes; no PR will be opened", None
         git(repo_dir, "commit", "-q", "-m", "code-task " + task["id"] + ": " + str(task.get("goal") or "")[:60])
         git(repo_dir, "push", "origin", "refs/heads/" + branch + ":refs/heads/" + branch)
         if delegate:
             return "branch_pushed", compare_url(base, branch), None, note
         body = ("Opened by code-task-publish from verified code-task `" + task["id"] + "`.\n\nGoal: " + str(task.get("goal") or "")[:500] +
-                "\n\nThe patch passed the orchestrator's deterministic verifier. Review and merge it on GitHub (or close it); this workflow never merges.")
+                "\n\nThe patch passed the orchestrator's deterministic verifier. Review and merge it on GitHub (or close it); this workflow never merges."
+                "\n\n## Definition of done (CODE-CHANGE-REQUIRED-1)\n\nImplement the issue's remedy in code, an applied migration or executable configuration in this PR; link the issue, identify the implementation paths, run regression checks and verify the outcome after canonical deployment. No empty, documentation-only or investigation-only PR satisfies this contract.")
         try:
             url = pr.create(branch, base, "code-task: " + str(task.get("goal") or "")[:70], body)
         except RuntimeError as e:
@@ -999,6 +1006,7 @@ def reconcile_outcomes(store, pr, log=print):
 class FakePR:
     def __init__(self, refuse=False):
         self.by_branch, self.created, self.refuse = {}, [], refuse
+        self.bodies = []
 
     def existing(self, branch):
         return self.by_branch.get(branch)
@@ -1009,6 +1017,7 @@ class FakePR:
         url = f"https://github.com/QNFO/{REPO_NAME}/pull/{len(self.created) + 1}"
         self.by_branch[branch] = url
         self.created.append(branch)
+        self.bodies.append(body)
         return url
 
     def state(self, url):
@@ -1092,6 +1101,24 @@ def selftest():
     check("patch applies: branch on the remote carries the change", shown.stdout == "def f():\n    return 2\n", shown.stderr)
     main_show = subprocess.run(["git", "--git-dir", remote, "show", "main:scripts/x.py"], capture_output=True, text=True)
     check("main is untouched (never merged)", main_show.stdout == "def f():\n    return 1\n")
+    check("published PR DoD requires a code change", len(pr.bodies) == 1 and "Definition of done (CODE-CHANGE-REQUIRED-1)" in pr.bodies[0])
+
+    for tid, patch, path in [
+        ("ct_nocode00001", good.replace("+    return 2", "+    return 1"), "scripts/x.py"),
+        ("ct_docsonly001", "diff --git a/docs/report.md b/docs/report.md\n--- /dev/null\n+++ b/docs/report.md\n@@ -0,0 +1 @@\n+Investigation only\n", "docs/report.md"),
+        ("ct_reportjson1", "diff --git a/report.json b/report.json\n--- /dev/null\n+++ b/report.json\n@@ -0,0 +1 @@\n+{}\n", "report.json"),
+    ]:
+        remote, work, store = fixture()
+        _sh(work, "git", "fetch", "-q", "origin", "main")
+        pr = FakePR()
+        add(store, tid, patch, path=path)
+        result = publish_all(store, work, "main", pr, quiet)
+        failed_task = row(store, tid)
+        check("no-code publication refused: " + tid,
+              result["failed"] == 1 and failed_task["status"] == "publish_failed"
+              and "CODE-CHANGE-REQUIRED-1" in failed_task["last_error"] and not pr.created, failed_task)
+        pushed = subprocess.run(["git", "--git-dir", remote, "branch", "--list", failed_task["branch"]], capture_output=True, text=True)
+        check("no-code task pushes no branch: " + tid, pushed.stdout.strip() == "")
 
     # 3. patch fails to apply and parks no edits to rebuild from -> superseded with the reason and one re-proposed successor (STALE-PUBLISH-REPROPOSE-1,
     #    agent_issues 2380: ct_im100458 and ct_revnoop20261024a ended publish_failed here with their goals intact), no PR, no push

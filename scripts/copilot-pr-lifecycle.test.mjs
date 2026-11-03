@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run, deniedPaths, workState, linkedIssues, isCopilotAuthor, DENY_PATHS } from "./copilot-pr-lifecycle.mjs";
+import { CODE_DELIVERY_DOD } from "./code-delivery.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -21,7 +22,7 @@ const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m 
 const REPO = "QNFO/qnfo-workers";
 const user = (login) => ({ login });
 const pr = (n, over) => Object.assign({
-  number: n, user: user("Copilot"), draft: true, changed_files: 2, body: "", node_id: "PR_" + n, requested_reviewers: [], assignees: [],
+  number: n, user: user("Copilot"), draft: true, changed_files: 2, body: CODE_DELIVERY_DOD, node_id: "PR_" + n, requested_reviewers: [], assignees: [],
   head: { sha: "sha" + n, ref: "copilot/x-" + n, repo: { full_name: REPO } }
 }, over || {});
 const FINISHED = [{ event: "copilot_work_started" }, { event: "copilot_work_finished" }, { event: "review_requested" }];
@@ -29,6 +30,7 @@ const gatedRun = (id, sha, over) => Object.assign({ id, name: "wf" + id, status:
 
 function fakeGh(cfg) {
   const log = [];
+  const pullReads = {}, eventReads = {};
   const fetchImpl = async (url, init) => {
     const u = new URL(url), method = init.method || "GET", path = decodeURIComponent(u.pathname);
     log.push({ method, path, search: u.search, body: init.body ? JSON.parse(init.body) : undefined, auth: init.headers.Authorization });
@@ -36,12 +38,23 @@ function fakeGh(cfg) {
     if (cfg.networkDown) throw new Error("getaddrinfo ENOTFOUND api.github.com");
     let m;
     if (method === "GET" && path === "/repos/" + REPO + "/pulls") return cfg.listStatus ? reply(cfg.listStatus, { message: "Bad credentials" }) : reply(200, (cfg.prs || []).map((p) => ({ number: p.number, user: p.user })));
-    if ((m = /^\/repos\/QNFO\/qnfo-workers\/pulls\/(\d+)$/.exec(path)) && method === "GET") { const p = (cfg.prs || []).find((x) => x.number === Number(m[1])); return p ? reply(200, p) : reply(404, { message: "Not Found" }); }
+    if ((m = /^\/repos\/QNFO\/qnfo-workers\/pulls\/(\d+)$/.exec(path)) && method === "GET") {
+      const p = (cfg.prs || []).find((x) => x.number === Number(m[1]));
+      pullReads[m[1]] = (pullReads[m[1]] || 0) + 1;
+      const head = cfg.freshHead && cfg.freshHead[m[1]];
+      return p ? reply(200, head && pullReads[m[1]] > 1 ? Object.assign({}, p, { head: Object.assign({}, p.head, { sha: head }) }) : p) : reply(404, { message: "Not Found" });
+    }
     if ((m = /^\/repos\/[^/]+\/[^/]+\/pulls\/(\d+)\/requested_reviewers$/.exec(path)) && method === "DELETE") return reply(cfg.reviewerDeleteStatus || 200, {});
     if ((m = /^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)\/assignees$/.exec(path)) && method === "DELETE") return reply(200, {});
-    if ((m = /^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)\/events$/.exec(path))) return reply(200, (cfg.events || {})[m[1]] || []);
+    if ((m = /^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)\/events$/.exec(path))) {
+      eventReads[m[1]] = (eventReads[m[1]] || 0) + 1;
+      return reply(200, eventReads[m[1]] > 1 && cfg.resumedEvents ? cfg.resumedEvents : (cfg.events || {})[m[1]] || []);
+    }
     if ((m = /^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/.exec(path))) {
-      if (method === "POST") { (cfg.comments = cfg.comments || {})[m[1]] = ((cfg.comments || {})[m[1]] || []).concat([{ body: JSON.parse(init.body).body }]); return reply(201, {}); }
+      if (method === "POST") {
+        if (cfg.commentStatus) return reply(cfg.commentStatus, { message: "Comment write refused" });
+        (cfg.comments = cfg.comments || {})[m[1]] = ((cfg.comments || {})[m[1]] || []).concat([{ body: JSON.parse(init.body).body }]); return reply(201, {});
+      }
       return reply(200, (cfg.comments || {})[m[1]] || []);
     }
     if ((m = /^\/repos\/[^/]+\/[^/]+\/issues\/(\d+)$/.exec(path)) && method === "GET") { const i = (cfg.issues || {})[m[1]]; return i ? reply(200, i) : reply(404, { message: "Not Found" }); }
@@ -51,12 +64,17 @@ function fakeGh(cfg) {
     if (path === "/search/issues") {
       const q = u.searchParams.get("q") || "";
       if (cfg.searchStatus) return reply(cfg.searchStatus, { message: "Validation Failed" });
-      if (/draft:true/.test(q)) return reply(200, { items: ((cfg.search || {}).emptyDraft || []).map((x) => ({ number: x.number, repository_url: "https://api.github.com/repos/" + x.repo })) });
+      if (/-repo:/.test(q)) return reply(200, { items: ((cfg.search || {}).emptyDraft || []).map((x) => ({ number: x.number, repository_url: "https://api.github.com/repos/" + x.repo })) });
       const kind = /review-requested:/.test(q) ? "reviewer" : /is:issue/.test(q) ? "issueAssignee" : "prAssignee";
       return reply(200, { items: ((cfg.search || {})[kind] || []).map((x) => ({ number: x.number, repository_url: "https://api.github.com/repos/" + x.repo })) });
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)$/.exec(path)) && m[1] !== REPO && method === "GET") { const p = (cfg.otherPrs || {})[m[1] + "#" + m[2]]; return p ? reply(200, p) : reply(404, { message: "Not Found" }); }
-    if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)$/.exec(path)) && method === "PATCH") return reply(cfg.patchStatus || 200, {});
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)$/.exec(path)) && method === "PATCH") {
+      if (cfg.patchStatus) return reply(cfg.patchStatus, { message: "Pull request write refused" });
+      const p = m[1] === REPO ? (cfg.prs || []).find((x) => x.number === Number(m[2])) : (cfg.otherPrs || {})[m[1] + "#" + m[2]];
+      if (p) Object.assign(p, JSON.parse(init.body));
+      return reply(200, {});
+    }
     if ((m = /^\/repos\/QNFO\/qnfo-workers\/pulls\/(\d+)\/update-branch$/.exec(path)) && method === "PUT") return (cfg.kickStatus && cfg.kickStatus[m[1]]) ? reply(cfg.kickStatus[m[1]], { message: "There are no new commits on the base branch." }) : reply(202, { message: "Updating pull request branch." });
     return reply(404, { message: "unexpected " + method + " " + path });
   };
@@ -92,7 +110,7 @@ ok(JSON.stringify(linkedIssues("Fixes #12\n\ncloses #5, Resolved: #9 and fixes #
     events: { 1: FINISHED, 2: [{ event: "copilot_work_started" }], 3: FINISHED, 5: FINISHED, 6: FINISHED },
     issues: { 100: { number: 100, assignees: [user("rwnq8")] } },
     runs: { sha1: [gatedRun(11, "sha1"), gatedRun(12, "sha1"), gatedRun(13, "sha1", { conclusion: "success" }), gatedRun(14, "sha1", { event: "workflow_run" }), gatedRun(15, "sha1", { head_repository: { full_name: "someone/fork" } }), gatedRun(16, "sha1", { actor: user("rwnq8") })], sha3: [gatedRun(31, "sha3")], sha5: [] },
-    files: { 1: [f("qnfo-x/worker.js"), f("qnfo-x/x.test.mjs"), f("migrations/2026-10-30-a.sql")], 3: [f("docs/A.md"), f(".github/agents/evil.agent.md")] }
+    files: { 1: [f("qnfo-x/worker.js"), f("qnfo-x/x.test.mjs"), f("migrations/2026-10-30-a.sql")], 3: [f("qnfo-x/worker.js"), f(".github/agents/evil.agent.md")] }
   });
   const s = await run(base, { fetchImpl: g.fetchImpl, sleep: async () => {} });
   const w = writes(g.log);
@@ -120,7 +138,7 @@ ok(JSON.stringify(linkedIssues("Fixes #12\n\ncloses #5, Resolved: #9 and fixes #
 
 // --- one pull request by number, dry mode, approve off, cap
 {
-  const cfg = { prs: [pr(1, { requested_reviewers: [user("rwnq8")], assignees: [user("rwnq8")], body: "Fixes #100" }), pr(2, { requested_reviewers: [user("rwnq8")] })], events: { 1: FINISHED, 2: FINISHED }, issues: { 100: { number: 100, assignees: [user("rwnq8")] } }, runs: { sha1: [gatedRun(11, "sha1")], sha2: [gatedRun(21, "sha2")] }, files: { 1: [f("docs/A.md")], 2: [f("docs/B.md")] } };
+  const cfg = { prs: [pr(1, { requested_reviewers: [user("rwnq8")], assignees: [user("rwnq8")], body: "Fixes #100\n\n" + CODE_DELIVERY_DOD }), pr(2, { requested_reviewers: [user("rwnq8")] })], events: { 1: FINISHED, 2: FINISHED }, issues: { 100: { number: 100, assignees: [user("rwnq8")] } }, runs: { sha1: [gatedRun(11, "sha1")], sha2: [gatedRun(21, "sha2")] }, files: { 1: [f("qnfo-x/worker.js")], 2: [f("qnfo-y/worker.js")] } };
   const g = fakeGh(cfg);
   const s = await run(Object.assign({}, base, { pr: 2 }), { fetchImpl: g.fetchImpl, sleep: async () => {} });
   ok(s.considered === 1 && s.approved.length === 1 && s.approved[0].pr === 2, "a target pull request limits the sweep to it", s);
@@ -137,7 +155,7 @@ ok(JSON.stringify(linkedIssues("Fixes #12\n\ncloses #5, Resolved: #9 and fixes #
 
 // --- refusals and failures never throw
 {
-  const g = fakeGh({ prs: [pr(1, { requested_reviewers: [user("rwnq8")] }), pr(2)], events: { 1: FINISHED, 2: FINISHED }, runs: { sha1: [gatedRun(11, "sha1"), gatedRun(12, "sha1")], sha2: [gatedRun(21, "sha2")] }, files: { 1: [f("docs/A.md")], 2: [f("docs/B.md")] }, approveStatus: { 11: 403 } });
+  const g = fakeGh({ prs: [pr(1, { requested_reviewers: [user("rwnq8")] }), pr(2)], events: { 1: FINISHED, 2: FINISHED }, runs: { sha1: [gatedRun(11, "sha1"), gatedRun(12, "sha1")], sha2: [gatedRun(21, "sha2")] }, files: { 1: [f("qnfo-x/worker.js")], 2: [f("qnfo-y/worker.js")] }, approveStatus: { 11: 403 } });
   const s = await run(base, { fetchImpl: g.fetchImpl, sleep: async () => {} });
   ok(s.status === "partial" && s.errors.length === 1 && s.errors[0].http === 403 && /not accessible/.test(s.errors[0].message), "a refused approval is recorded as GitHub said it", s.errors);
   ok(!writes(g.log).some((c) => c.path.endsWith("/runs/12/approve")), "a refused approval stops that pull request's other runs");
@@ -194,29 +212,30 @@ ok(JSON.stringify(linkedIssues("Fixes #12\n\ncloses #5, Resolved: #9 and fixes #
 {
   const NOW = Date.parse("2026-10-30T10:00:00Z");
   const done = (min, extra) => [{ event: "copilot_work_started", created_at: "2026-10-30T08:00:00Z" }, { event: "copilot_work_finished", created_at: new Date(NOW - min * 60000).toISOString() }].concat(extra || []);
-  const draft = (files) => ({ draft: true, changed_files: files });
+  const draft = (files) => ({ draft: true, changed_files: files, body: CODE_DELIVERY_DOD });
   const cfg = () => ({
     prs: [],
     search: { emptyDraft: [{ repo: "QNFO/qnfo-fleet-issues", number: 107 }, { repo: "QNFO/qnfo-fleet-issues", number: 108 }, { repo: "QNFO/qnfo-fleet-issues", number: 109 }, { repo: "QNFO/qnfo-fleet-issues", number: 110 }, { repo: "QNFO/qnfo-setup-bootstrap", number: 4 }] },
     otherPrs: { "QNFO/qnfo-fleet-issues#107": draft(0), "QNFO/qnfo-fleet-issues#108": draft(0), "QNFO/qnfo-fleet-issues#109": draft(2), "QNFO/qnfo-fleet-issues#110": draft(0), "QNFO/qnfo-setup-bootstrap#4": draft(0) },
-    events: { 107: done(45), 108: done(5), 109: done(90), 110: [{ event: "copilot_work_started", created_at: "2026-10-30T09:50:00Z" }], 4: done(120) }
+    events: { 107: done(45), 108: done(5), 109: done(90), 110: [{ event: "copilot_work_started", created_at: "2026-10-30T09:50:00Z" }], 4: done(120) },
+    files: { 109: [f("qnfo-x/worker.js")] }
   });
   const g = fakeGh(cfg());
   const s = await run(Object.assign({}, base, { orgToken: "ORG" }), { fetchImpl: g.fetchImpl, sleep: async () => {}, now: NOW });
   const closed = s.empty_drafts_closed.map((x) => x.repo + "#" + x.number).sort().join();
-  ok(closed === "QNFO/qnfo-fleet-issues#107,QNFO/qnfo-setup-bootstrap#4", "only an empty draft whose session finished 30 minutes ago is closed", closed);
-  ok(s.skipped["empty-draft-recent"] === 1 && s.skipped["draft-has-changes"] === 1 && s.skipped["empty-draft-session-working"] === 1, "a recent finish, a draft with files and a running session are left alone", s.skipped);
+  ok(closed === "QNFO/qnfo-fleet-issues#107,QNFO/qnfo-fleet-issues#108,QNFO/qnfo-setup-bootstrap#4", "finished no-code PRs close without a 30-minute delay", closed);
+  ok(s.skipped["draft-has-changes"] === 1 && s.skipped["empty-draft-session-working"] === 1, "an implementation diff and a running session are left alone", s.skipped);
   const patches = g.log.filter((c) => c.method === "PATCH");
-  ok(patches.length === 2 && patches.every((c) => JSON.stringify(c.body) === '{"state":"closed"}' && c.auth === "Bearer ORG"), "the close is a state change with the fleet user credential", patches);
+  ok(patches.length === 3 && patches.every((c) => JSON.stringify(c.body) === '{"state":"closed"}' && c.auth === "Bearer ORG"), "the close is a state change with the fleet user credential", patches);
   const cm = g.log.filter((c) => c.method === "POST" && c.path.endsWith("/comments"));
-  ok(cm.length === 2 && /changed no file/.test(cm[0].body.body) && /not assigned again/.test(cm[0].body.body), "each close explains itself and says the issue stays open");
+  ok(cm.length === 3 && /CODE-CHANGE-REQUIRED-1/.test(cm[0].body.body) && /issue stays open/.test(cm[0].body.body), "each close explains itself and says the issue stays open");
   const draftSearch = g.log.filter((c) => c.path === "/search/issues");
-  const dq = decodeURIComponent((draftSearch.find((c) => /draft:true/.test(decodeURIComponent(c.search))) || { search: "" }).search);
-  ok(/is:pr is:open draft:true author:app\/copilot-swe-agent -repo:QNFO\/qnfo-workers/.test(dq), "the draft search is Copilot's open drafts and excludes qnfo-workers (BH-EMPTY-DRAFT-1 owns that repository)", dq);
+  const dq = decodeURIComponent((draftSearch.find((c) => /-repo:/.test(decodeURIComponent(c.search))) || { search: "" }).search);
+  ok(/is:pr is:open author:app\/copilot-swe-agent -repo:QNFO\/qnfo-workers/.test(dq), "the no-code search includes ready PRs and excludes this repository's separate pass", dq);
   ok(draftSearch.length === 4, "the draft search is the fourth organization query", draftSearch.length);
   const gd = fakeGh(cfg());
   const sd = await run(Object.assign({}, base, { orgToken: "ORG", mode: "dry" }), { fetchImpl: gd.fetchImpl, sleep: async () => {}, now: NOW });
-  ok(writes(gd.log).length === 0 && sd.empty_drafts_closed.length === 2 && sd.empty_drafts_closed.every((x) => x.dry), "dry mode lists the empty drafts and sends no write");
+  ok(writes(gd.log).length === 0 && sd.empty_drafts_closed.length === 3 && sd.empty_drafts_closed.every((x) => x.dry), "dry mode lists the empty drafts and sends no write");
   const gc = fakeGh(cfg());
   const sc = await run(Object.assign({}, base, { orgToken: "ORG", emptyMax: 1 }), { fetchImpl: gc.fetchImpl, sleep: async () => {}, now: NOW });
   ok(sc.empty_drafts_closed.length === 1 && sc.skipped["empty-over-cap"] >= 1, "the empty-draft cap defers the rest", sc.skipped);
@@ -299,7 +318,7 @@ ok(JSON.stringify(linkedIssues("Fixes #12\n\ncloses #5, Resolved: #9 and fixes #
   // A finished session that changed nothing has no check to run: it is neither approved nor kicked, and the pull request that did change files still is.
   const gm = mk({ files: { 1: [], 2: [f("qnfo-x/worker.js")] } });
   const sm = await run(withOrg, { fetchImpl: gm.fetchImpl, sleep: async () => {} });
-  ok(sm.skipped["no-changed-files"] === 1 && sm.kicked.length === 1 && sm.kicked[0].pr === 2 && puts(gm.log).length === 1 && approves(gm.log).length === 1 && !approves(gm.log).some((c) => /\/runs\/1[12]\/approve$/.test(c.path)), "an empty pull request is neither approved nor kicked", { skipped: sm.skipped, kicked: sm.kicked, approves: approves(gm.log).map((c) => c.path) });
+  ok(sm.empty_drafts_closed.length === 1 && sm.kicked.length === 1 && sm.kicked[0].pr === 2 && puts(gm.log).length === 1 && approves(gm.log).length === 1 && !approves(gm.log).some((c) => /\/runs\/1[12]\/approve$/.test(c.path)), "an empty pull request is closed, neither approved nor kicked", { skipped: sm.skipped, kicked: sm.kicked, approves: approves(gm.log).map((c) => c.path) });
 }
 
 // --- EMPTY-FINISHED-DRAFT-1: a draft whose session finished 30 minutes ago and changed no file is closed in this repository too
@@ -327,22 +346,31 @@ ok(JSON.stringify(linkedIssues("Fixes #12\n\ncloses #5, Resolved: #9 and fixes #
 
   const gr = mk({ events: { 1: sessionFinished(10) } });
   const sr = await go(gr);
-  ok(writes(gr.log).length === 0 && sr.skipped["empty-draft-recent"] === 1 && sr.empty_drafts_closed.length === 0, "a session that finished 10 minutes ago is left for now, and not approved or kicked", sr.skipped);
+  ok(sr.empty_drafts_closed.length === 1 && !gr.log.some((c) => /\/approve$/.test(c.path)), "a newly finished no-code PR closes immediately", sr.skipped);
   const gl = mk({ files: { 1: [f("docs/A.md")] } });
   const sl = await go(gl, { orgToken: "ORG" });
-  ok(patches(gl.log).length === 0 && sl.empty_drafts_closed.length === 0, "changed_files 0 with files listed (GitHub still computing) is not closed", sl.empty_drafts_closed);
+  ok(sl.empty_drafts_closed.length === 1, "documentation-only changes do not satisfy code delivery", sl.empty_drafts_closed);
   const gh = mk({ prs: [pr(1, { changed_files: 0, draft: false })] });
   const sh = await go(gh);
-  ok(patches(gh.log).length === 0 && sh.empty_drafts_closed.length === 0, "a pull request that is ready for review is never closed");
+  ok(sh.empty_drafts_closed.length === 1, "a ready-for-review no-code PR is closed too");
   const gf = mk({ prs: [pr(1, { changed_files: 2 })], files: { 1: [f("docs/A.md")] } });
   const sf = await go(gf);
-  ok(patches(gf.log).length === 0 && sf.empty_drafts_closed.length === 0, "a draft that changed files is never closed");
+  ok(sf.empty_drafts_closed.length === 1, "changed_files alone is not implementation evidence");
   const gw = mk({ events: { 1: [{ event: "copilot_work_started", created_at: "2026-11-01T11:00:00Z" }] } });
   const sw = await go(gw);
   ok(patches(gw.log).length === 0 && sw.skipped["agent-working"] === 1, "a session that is still running is never closed");
+  const resumed = mk({ resumedEvents: sessionFinished(45).concat([{ event: "copilot_work_started" }]) });
+  const resumedResult = await go(resumed);
+  ok(patches(resumed.log).length === 0 && resumedResult.skipped["agent-resumed"] === 1, "a session that resumes during cleanup is not closed");
+  const changedHead = mk({ freshHead: { 1: "new-head" } });
+  const changedResult = await go(changedHead);
+  ok(patches(changedHead.log).length === 0 && changedResult.skipped["head-changed"] === 1, "a concurrent push is not closed using the old diff");
+  const commentRefused = mk({ commentStatus: 403 });
+  const commentResult = await go(commentRefused);
+  ok(patches(commentRefused.log).length === 0 && commentResult.errors.some((e) => e.http === 403), "a failed explanation is surfaced and prevents silent closure");
   const gu = mk({ events: { 1: [{ event: "copilot_work_started" }, { event: "copilot_work_finished" }] } });
   const su = await go(gu);
-  ok(patches(gu.log).length === 0 && su.empty_drafts_closed.length === 0, "a finish time that cannot be read closes nothing");
+  ok(su.empty_drafts_closed.length === 1, "a finished event proves completion without needing an idle timestamp");
   const gd = mk();
   const sd = await go(gd, { mode: "dry" });
   ok(writes(gd.log).length === 0 && sd.empty_drafts_closed.length === 1 && sd.empty_drafts_closed[0].dry === true, "a dry run names the draft and sends no write", sd.empty_drafts_closed);
