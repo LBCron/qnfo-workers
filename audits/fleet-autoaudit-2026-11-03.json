@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 10:59:07",
+  "audited_at": "2026-11-03 11:32:35",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -730,16 +730,25 @@
         "worker": "radar-hub"
       }
     ],
-    "unmanaged_route_drift": [],
+    "unmanaged_route_drift": [
+      {
+        "http": 200,
+        "route_drift": true,
+        "version": null,
+        "worker": "qnfo-fleet-lee",
+        "workers_dev_enabled": true,
+        "workers_dev_expected": false
+      }
+    ],
     "unmanaged_tombstones": 1,
     "unmanaged_truncated": false,
     "unmanaged_workers": [
       {
         "http": 200,
-        "route_drift": false,
+        "route_drift": true,
         "version": null,
         "worker": "qnfo-fleet-lee",
-        "workers_dev_enabled": false,
+        "workers_dev_enabled": true,
         "workers_dev_expected": false
       },
       {
