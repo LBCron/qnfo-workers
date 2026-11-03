@@ -3,6 +3,7 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 
 // worker.js
 import { WorkflowEntrypoint, DurableObject, tracing } from "cloudflare:workers";
+import { handleOAuthBroker, refreshOAuthBrokerTokens } from "./oauth-broker.mjs";
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
 var __defProp22 = Object.defineProperty;
@@ -9711,7 +9712,7 @@ async function ownerRestRoutes(request, env, path, method) {
 // DEPLOY-DRIFT-CF-1 (2.47.0): service-binding callers (ctx.props.caller) trusted on POST /ops/deploy and nowhere else.
 var OPS_INTERNAL_DEPLOY_CALLERS = ["qnfo-fleet-control"];
 // TOOL-BRIDGE-1 (2.55.0): the owner console (fleet.qnfo.org/cmd) reaches the full ops tool surface through
-// its service binding (props.caller). Scoped to the tool catalogue, a tool call, chat and the agent DO; the
+// its service binding (props.caller). Scoped to the tool catalogue, a tool call, chat, the agent DO and OAuth broker routes; the
 // deploy route keeps its own allowlist above. The console enforces the owner session and a fresh code for
 // mutating tools before it calls here.
 var OPS_TOOL_CALL_CALLERS = ["qnfo-fleet-dashboard"];
@@ -9741,6 +9742,15 @@ var worker_default = {
     }
     const path = pathRaw.length > 1 ? pathRaw.replace(/\/+$/, "") : pathRaw;
     if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+    if (path.startsWith("/oauth/")) {
+      const brokerResponse = await handleOAuthBroker(request, env, {
+        path,
+        method,
+        authorized: await authOk(request.headers.get("Authorization"), env),
+        caller: ctx && ctx.props && typeof ctx.props.caller === "string" ? ctx.props.caller : ""
+      });
+      if (brokerResponse) return brokerResponse;
+    }
     if (path === "/obs-summary" && method === "GET") {
       const o = { ok: true, worker: WORKER, version: VERSION, generatedAt: iso() };
       try {
@@ -10263,6 +10273,13 @@ var worker_default = {
     } catch (e) {
       hbOk = false;
       console.log("schema index refresh failed:", e && e.message || e);
+    }
+    try {
+      const _oauth = await refreshOAuthBrokerTokens(env);
+      if (_oauth.failed) { hbOk = false; console.log("oauth token refresh failed:", _oauth.failed); }
+    } catch {
+      hbOk = false;
+      console.log("oauth token refresh failed");
     }
     try {
       if (env.QNFO_AUDIT) {
