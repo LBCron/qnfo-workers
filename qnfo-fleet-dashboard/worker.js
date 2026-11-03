@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.81.1";
+var VERSION = "1.81.2";
+// 1.81.2 FLEET-STATUS-READ-PARALLEL-1 (issue #1001434, pillar core; patch): overlap the independent value feeds with core status reads to reduce cold /api/status latency without changing its cache or response.
 // 1.81.0 DASHBOARD-FIX-IT-1 (issue #1000784, pillar autonomy; minor): every visible breach card exposes its one-tap fleet handoff, and parked code/issue-loop cards can be re-audited through their owning loop with evidence-only closure.
 // 1.80.2 LOOP-HEARTBEAT-CRON-FALLBACK-1 (issue #1001283, pillar core; patch): non-quarter-hour dashboard heartbeats also queue a stale issue-loop sync from saved state, recovering when full refreshes time out.
 // 1.80.1 ATTENTION-EFFICACY-SAMPLE-1 (issue #2467, pillar reach; patch): sparse 7-day windows are unmeasured, not flat efficacy results.
@@ -3022,15 +3023,15 @@ async function fleetStatusData(env, ctx) {
     try { return await d1all(A, sql); } catch (e) { blind.push(name); return null; }
   };
   const st = await currentState(env, ctx, 5 * 6e4);
-  const [human, metrics, act, qual, progs, causes] = await Promise.all([
+  const [human, metrics, act, qual, progs, causes, vin] = await Promise.all([
     humanView(env, st, ctx),
     safe("metrics (v_fleet_metrics)", "SELECT metric, title, operator, threshold, value, breach, priority, kind, measured_at, program_code, good, value_7d_ago FROM v_fleet_metrics"),
     safe("activity ledgers", STATUS_ACTIVITY_SQL),
     d1all(A, "SELECT * FROM v_output_quality_headline").catch(function() { return null; }),
     safe("programs", "SELECT program_code, name FROM programs"),
-    d1all(A, "SELECT cause_key, title, plain, lever, doer, needs_owner, breaches, metrics FROM v_breach_by_cause").catch(function() { return null; })
+    d1all(A, "SELECT cause_key, title, plain, lever, doer, needs_owner, breaches, metrics FROM v_breach_by_cause").catch(function() { return null; }),
+    statusValueInputs(env, now).catch(function() { return null; })
   ]);
-  const vin = await statusValueInputs(env, now).catch(function() { return null; });
   const doc = fleetStatusModel({ human: human, metrics: metrics, activity: act && act[0] || null, quality: qual && qual[0] || null, programs: progs, causes: causes, blind: blind, value_inputs: vin, now: now });
   if (metrics) STATUS_CACHE = { at: now, env: env, v: doc };
   return doc;
