@@ -4,8 +4,8 @@
 // include real blocks with one rewritten line (4 of 5, 5 of 6, 10 of 11 lines equal). This suite replays that shape on the real
 // applyEdits through the task loop and proves: a SEARCH of 6 lines with one reworded line applies to the one block it was aimed at,
 // keeps the file's own text for every line the REPLACE leaves identical (also a reworded one between two changed lines), and is audited with the score and the hashes of both texts;
-// an ambiguous SEARCH (two equally near blocks), a weak one (half its lines invented), a short one (2 lines) and a file over the
-// large-file window are refused exactly as before; the exact, indentation, fuzzy and window-relocate paths never reach it.
+// an ambiguous SEARCH (two equally near blocks), a weak one (half its lines invented) and a short one (2 lines) are refused
+// exactly as before; large-file tasks recover only inside their stored window; exact, indentation, fuzzy and window-relocate paths never reach it.
 // Run: node --no-warnings qnfo-code-orchestrator/search-nearest.test.mjs   (exit 0 = all passed)
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -193,19 +193,43 @@ ok(atLeast(h.version, "0.19.0") && h.capabilities.indexOf("search-nearest") >= 0
   ok(cx.relocated === 1 && events(env, "code-task.window-relocated").length === 1 && events(env, "code-task.edit-nearest").length === 0, "the relocation runs first and no nearest event is written", { relocated: cx.relocated, nearest: events(env, "code-task.edit-nearest").length });
 }
 
-// ===== 8. a file over the large-file window is refused (the window is all the task holds) =====
+// ===== 8. large-file recovery stays inside the stored window and parks exact, replayable edits =====
 {
   const filler = [];
   for (let i = 0; i < 12000; i++) filler.push("function bulk" + i + "(env) { return env && env.FLAG_" + i + " ? " + i + " : 0; } // keeps the file over the large window");
   const BIGL = ['var VERSION = "1.0.0-fixture";', filler.join("\n"), HEAD, BODY, "}", "export default { async fetch() { return new Response('ok'); } };", ""].join("\n");
-  FILES["fx-near-big/worker.js"] = BIGL; FILES["fx-near-big/deployed-current.worker.js"] = BIGL;
-  const { env } = envWith([block(SEARCH_INVENTED, REPLACE_INVENTED)]);
-  const c = await addTask(env, "return the id", "fx-near-big/worker.js");
-  await tick(env);
-  const large = ctxOf(row(env, c.id)).large === true;
-  const r = await runTask(env, c.id);
   ok(BIGL.length > 900000, "fixture: the file is over the large-file bound", BIGL.length);
-  ok(large && events(env, "code-task.edit-nearest").length === 0 && r.status !== "ready_to_publish", "a large-file task is never repaired by the nearest path", { large, status: r.status, last_error: r.last_error });
+  for (const moved of [false, true]) {
+    FILES["fx-near-big/worker.js"] = BIGL; FILES["fx-near-big/deployed-current.worker.js"] = BIGL;
+    const { env, calls } = envWith([block(SEARCH_INVENTED, REPLACE_INVENTED)]);
+    const c = await addTask(env, "return the id", "fx-near-big/worker.js");
+    await tick(env);
+    const initial = ctxOf(row(env, c.id));
+    const current = moved ? "// lines added on main\n" + BIGL : BIGL;
+    FILES["fx-near-big/worker.js"] = current; FILES["fx-near-big/deployed-current.worker.js"] = current;
+    const r = await runTask(env, c.id), cx = ctxOf(r);
+    ok(initial.large === true && initial.win.ws > 0 && r.status === "ready_to_publish" && Number(r.attempts) === 0 && calls.length === 1,
+      "a large-file near SEARCH recovers without a failed attempt (moved=" + moved + ")", { status: r.status, attempts: r.attempts, last_error: r.last_error });
+    ok(cx.base == null && r.ctx.length < 60000 && (!moved || cx.moved >= 1), "large-file recovery keeps bounded storage and follows a moved window", { size: r.ctx.length, moved: cx.moved });
+    const eds = cx.edits || [];
+    ok(eds.length === 1 && eds[0].search === BODY && eds[0].replace === REPLACE_INVENTED.replace(B3_INVENTED, B3),
+      "large-file edits retain the file's own SEARCH and unchanged lines", eds);
+    ok(eds.length === 1 && current.split(eds[0].search).length === 2 && String(cx.patch || "").includes("+  return { ok: true, status: label, rank: rank, id: id };") && !String(cx.patch || "").includes(B3_INVENTED),
+      "the parked patch carries the change and its SEARCH replays exactly against current main");
+    const ev = events(env, "code-task.edit-nearest"), meta = ev[0] ? JSON.parse(ev[0].meta || "{}") : {};
+    ok(ev.length === 1 && meta.at === current.indexOf(BODY) && meta.search_sha256 === sha(SEARCH_INVENTED) && meta.window_sha256 === sha(BODY),
+      "large-file recovery audits absolute offsets and both hashes", meta);
+  }
+  const ambiguous = BIGL.replace(BODY + "\n}", BODY + "\n}\nasync function planRowTwin(env, id) {\n" + BODY + "\n}");
+  const outsideAnchor = "function outsideAnchor() { return 1; }";
+  for (const [label, content, anchor] of [["ambiguous", ambiguous, HEAD], ["outside", outsideAnchor + "\n" + BIGL, outsideAnchor]]) {
+    FILES["fx-near-big/worker.js"] = content; FILES["fx-near-big/deployed-current.worker.js"] = content;
+    const { env } = envWith([block(SEARCH_INVENTED, REPLACE_INVENTED)]);
+    const c = await addTask(env, "return the id", "fx-near-big/worker.js", anchor);
+    const r = await runTask(env, c.id);
+    ok(Number(r.attempts) >= 1 && /occurs 0 times in the shown content/.test(firstFail(env)) && events(env, "code-task.edit-nearest").length === 0 && r.status !== "ready_to_publish",
+      "large-file recovery refuses a near SEARCH that is " + label, { status: r.status, error: r.last_error });
+  }
 }
 
 console.log("search-nearest.test: " + pass + " passed, " + fail + " failed");

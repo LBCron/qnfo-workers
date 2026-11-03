@@ -2579,7 +2579,7 @@ async function stepTask(env, task) {
         // the window applies to that block, but only when the result is the same text once the edits are written as the file's own
         // (so verify, commit and the publisher's rebuild apply it exactly); otherwise the refusal below stands, byte for byte.
         let nearestEdits = null;
-        if (!built.ok && !multi && !ctx.large && /occurs 0 times in the shown content/.test(String(built.error))) {
+        if (!built.ok && !multi && /occurs 0 times in the shown content/.test(String(built.error))) {
           const nb2 = buildProposal(ctx, task.path, base, { nearest: true });
           if (nb2.ok && nb2.nearests.length && nb2.resolved) {
             const na = applyEdits(base, win, ctx.edits, { nearest: true }), nr = applyEdits(base, win, nb2.resolved);
