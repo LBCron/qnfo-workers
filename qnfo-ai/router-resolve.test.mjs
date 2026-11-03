@@ -13,8 +13,8 @@ sb.timingSafeEqual = (a, b) => { const x = new Uint8Array(a), y = new Uint8Array
 // Stub: each model key answers per sb.__turns[wa] = { ms, content, throws }.
 sb.runModelTurn = (env, sp) => new Promise((res, rej) => { const t = sb.__turns[sp.wa || sp.api] || { ms: 1, content: "x" }; setTimeout(() => t.throws ? rej(new Error(t.throws)) : res({ content: t.content, toolCalls: null, provider: "stub" }), t.ms); });
 vm.createContext(sb);
-vm.runInContext(cut("var MODELS = {", "var MAX_OUT = {") + cut("var ENSEMBLE = {", "var json = ") + cut("// ---- ROUTER-HARDEN-BEGIN", "// ---- ROUTER-HARDEN-END") +
-  "\n;__x = { MODELS, ENSEMBLE, ENSEMBLE_POOL, rid, bearerMatches, resolveModel, noteUnknownModel, reasoningEffortFor, sessionAffinityId, dsTwinSpec, dsUnfunded, turnBudgetMs, hedgeDelayMs, pickHedge, runTurnBudgeted, SECOND_PATH, MODEL_CHANNELS, channelDiversity, channelOf, channelOverlap, ensembleMembers, ensembleReviewerFor, ensembleValidatorFor, UNKNOWN_MODEL_DEFAULT, HEDGE_ORDER };", sb);
+vm.runInContext(cut("var MODELS = {", "var MAX_OUT = {") + cut("var MAX_OUT = {", "var DEFAULT_MAX_OUT") + cut("var ENSEMBLE = {", "var json = ") + cut("// ---- ROUTER-HARDEN-BEGIN", "// ---- ROUTER-HARDEN-END") +
+  "\n;__x = { MODELS, MAX_OUT, ENSEMBLE, ENSEMBLE_POOL, rid, bearerMatches, resolveModel, noteUnknownModel, reasoningEffortFor, sessionAffinityId, dsTwinSpec, dsUnfunded, turnBudgetMs, hedgeDelayMs, pickHedge, runTurnBudgeted, SECOND_PATH, MODEL_CHANNELS, channelDiversity, channelOf, channelOverlap, ensembleMembers, ensembleReviewerFor, ensembleValidatorFor, UNKNOWN_MODEL_DEFAULT, HEDGE_ORDER, chatRoute };", sb);
 const X = sb.__x;
 
 // ---- version (a minimum, never an exact pin) ----
@@ -26,6 +26,13 @@ ok(X.resolveModel("glm-5.3-flash").how === "exact", "a MODELS key resolves exact
 ok(X.resolveModel("kimi-k2.6").id === "kimi-k2.6" && X.resolveModel("kimi-k2.6").how === "exact", "the fast tier id is routable by name");
 const rwa = X.resolveModel("@cf/zai-org/glm-5.3-flash");
 ok(rwa.id === "glm-5.3-flash" && rwa.how === "workers-ai-id", "a Workers AI id resolves to its MODELS key", rwa);
+const glm47 = X.resolveModel("@cf/zai-org/glm-4.7-flash");
+ok(glm47.id === "glm-4.7-flash" && glm47.how === "workers-ai-id", "GLM-4.7 Flash is routable by its Workers AI id", glm47);
+ok(X.MODELS[glm47.id].ctx === 131072 && X.MAX_OUT[X.MODELS[glm47.id].wa] === 8192 && X.MODELS[glm47.id].tools, "GLM-4.7 Flash advertises its supported chat limits and tools");
+ok(X.channelOf(glm47.id).declared && X.channelOf(glm47.id).lineage === "glm", "GLM-4.7 Flash is classified in the existing GLM lineage");
+ok(X.chatRoute(glm47.id) === "dynamic/value", "GLM-4.7 Flash selects the lower-cost chat route");
+const rates = JSON.parse("{" + /var __AI_ATTR_RATES = \{([^\n]*)\};/.exec(src)[1] + "}");
+ok(rates["@cf/zai-org/glm-4.7-flash"] && Math.abs(rates["@cf/zai-org/glm-4.7-flash"][0] / rates["@cf/zai-org/glm-5.3-flash"][0] - 0.4) < 0.01, "GLM-4.7 Flash cost attribution reflects the 40% input-price evaluation");
 ok(X.resolveModel("workers-ai/@cf/openai/gpt-oss-120b").id === "gpt-oss-120b", "a workers-ai/ prefixed id resolves");
 ok(X.resolveModel(" GLM-5.3-Flash ").how === "normalized", "case and whitespace are normalised, and named so");
 ok(X.resolveModel("deepseek-chat").how === "alias" && X.resolveModel("deepseek-chat").id === "deepseek-v4-flash", "an alias resolves by name");
