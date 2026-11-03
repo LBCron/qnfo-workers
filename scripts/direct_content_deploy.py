@@ -2,8 +2,8 @@
 """DEPLOY-SECOND-PATH-1 (2026-10-09, pillar core; agent_issues 2178, doctrine section 10 SPOF).
 
 WHAT  The second deploy path for canonical-deploy.yml. When qnfo-ops /ops/deploy is unreachable (connection error or a
-      5xx; scripts/canonical_deploy.py exits 3 and lists the workers in its fallback file), this uploads the same worker.js
-      straight to Cloudflare with the repository token through the code-only endpoint
+      5xx; scripts/canonical_deploy.py exits 3 and lists the workers in its fallback file), this uploads worker.js and its
+      statically imported local modules straight to Cloudflare with the repository token through the code-only endpoint
       PUT /accounts/{account}/workers/scripts/{name}/content, which replaces the script's code and keeps its bindings,
       settings, secrets and schedules as they are live. It never creates a worker (an absent script is skipped, as
       WORKER-RESURRECTION-GUARD-1 does), never deploys a container worker (its config is script-level), and writes a
@@ -21,6 +21,7 @@ WHY   Every canonical deploy, canary reverts included, went through qnfo-ops; a 
 import argparse
 import json
 import os
+import posixpath
 import re
 import sys
 import time
@@ -59,18 +60,58 @@ def cf(method, path, token, body=None, headers=None, timeout=60):
 
 
 def is_module(src):
-    return bool(re.search(r"^\s*export\s+default\b|^\s*export\s*\{", src, re.M))
+    return bool(re.search(r"^\s*(?:import|export)\b", src, re.M))
 
 
-def multipart(src, module):
+IMPORT_RE = re.compile(r"""(?m)^\s*(?:import\s+(?:[^;\n]*?\s+from\s+)?|export\s+[^;\n]*?\s+from\s*)["']([^"']+)["']""")
+DYNAMIC_IMPORT_RE = re.compile(r"""\bimport\s*\(\s*["']([^"']+)["']\s*\)""")
+MODULE_TYPES = {".js": "application/javascript+module", ".mjs": "application/javascript+module",
+                ".json": "application/json", ".txt": "text/plain"}
+
+
+def collect_modules(path, src, read=None):
+    """Collect the local source modules imported by a Worker, in stable dependency order."""
+    read = read or read_file
+    root = os.path.abspath(os.getcwd())
+    worker_dir = os.path.dirname(path) or "."
+    seen = set()
+    modules = []
+
+    def visit(parent, text):
+        refs = IMPORT_RE.findall(text) + DYNAMIC_IMPORT_RE.findall(text)
+        for ref in refs:
+            if not ref.startswith(("./", "../")):
+                continue
+            target = os.path.normpath(os.path.join(os.path.dirname(parent), ref))
+            absolute = os.path.abspath(target)
+            if os.path.commonpath((root, absolute)) != root:
+                raise ValueError("relative module import escapes the repository: " + ref)
+            name = posixpath.relpath(target.replace("\\", "/"), worker_dir.replace("\\", "/"))
+            if name in seen:
+                continue
+            suffix = os.path.splitext(name)[1].lower()
+            if suffix not in MODULE_TYPES or not re.fullmatch(r"[A-Za-z0-9._/-]+", name):
+                raise ValueError("unsupported relative module import: " + ref)
+            seen.add(name)
+            content = read(target)
+            modules.append((name, content, MODULE_TYPES[suffix]))
+            visit(target, content)
+
+    visit(path, src)
+    return modules
+
+
+def multipart(src, module, modules=None):
     boundary = "----qnfo" + uuid.uuid4().hex
     meta = {"main_module": "worker.js"} if module else {"body_part": "worker.js"}
-    ctype = "application/javascript+module" if module else "application/javascript"
-    parts = [
-        "--" + boundary, 'Content-Disposition: form-data; name="metadata"', "Content-Type: application/json", "", json.dumps(meta),
-        "--" + boundary, 'Content-Disposition: form-data; name="worker.js"; filename="worker.js"', "Content-Type: " + ctype, "", src,
-        "--" + boundary + "--", "",
-    ]
+    main_type = "application/javascript+module" if module else "application/javascript"
+    parts = ["--" + boundary, 'Content-Disposition: form-data; name="metadata"',
+             "Content-Type: application/json", "", json.dumps(meta)]
+    for name, content, content_type in [("worker.js", src, main_type)] + (modules or []):
+        parts.extend(["--" + boundary,
+                      'Content-Disposition: form-data; name="%s"; filename="%s"' % (name, name),
+                      "Content-Type: " + content_type, "", content])
+    parts.extend(["--" + boundary + "--", ""])
     return "\r\n".join(parts).encode("utf-8"), "multipart/form-data; boundary=" + boundary
 
 
@@ -134,7 +175,7 @@ def deploy_one(acct, token, worker, path, call=cf, read=None):
     if st == 404:
         return {"worker": worker, "ok": True, "skipped": "absent from the account; never created here (WORKER-RESURRECTION-GUARD-1)"}
     src = read(path)
-    body, ctype = multipart(src, is_module(src))
+    body, ctype = multipart(src, is_module(src), collect_modules(path, src, read))
     st, j = call("PUT", "/accounts/%s/workers/scripts/%s/content" % (acct, urllib.parse.quote(worker)), token, body, {"Content-Type": ctype}, 120)
     ok = 200 <= st < 300 and bool(j.get("success", True))
     return {"worker": worker, "ok": ok, "http": st, "version": version_of(src),
@@ -200,7 +241,11 @@ def main(argv=None, call=cf, read=None):
 def selftest():
     calls = []
     files = {"w/wrangler.toml": 'name = "w"', "w/worker.js": 'var VERSION = "1.2.3";\nexport default { fetch() {} };\n',
-             "c/wrangler.toml": "[[containers]]\n", "c/worker.js": "x"}
+             "c/wrangler.toml": "[[containers]]\n", "c/worker.js": "x",
+             "m/wrangler.toml": 'name = "m"',
+             "m/worker.js": 'var VERSION = "1.2.3";\nimport { handle } from "./oauth-broker.mjs";\nexport default { fetch() { return handle(); } };\n',
+             "m/oauth-broker.mjs": 'import { token } from "./oauth-shared.js";\nexport function handle() { return token; }\n',
+             "m/oauth-shared.js": 'export const token = "ok";\n'}
 
     def read(p):
         if p not in files:
@@ -208,7 +253,7 @@ def selftest():
         return files[p]
 
     def call(method, path, token, body=None, headers=None, timeout=60):
-        calls.append((method, path, body if "/query" in path else None))
+        calls.append((method, path, body if method == "PUT" or "/query" in path else None))
         if path.endswith("/absent/settings"):
             return 404, {}
         if "d1/database?name" in path:
@@ -222,15 +267,35 @@ def selftest():
 
     os.environ["CLOUDFLARE_ACCOUNT_ID"], os.environ["CLOUDFLARE_API_TOKEN"] = "acct", "tok"
     assert main(["--worker", "w", "--path", "w/worker.js", "--drill"], call, read) == 0
-    assert ("PUT", "/accounts/acct/workers/scripts/w/content", None) in calls
+    upload = next(c[2] for c in calls if c[0] == "PUT")
+    assert b'name="worker.js"; filename="worker.js"' in upload and b'name="oauth-broker.mjs"; filename="oauth-broker.mjs"' not in upload
     q = [json.loads(b) for m, p, b in calls if p.endswith("/query")]
     assert len(q) == 3, calls  # deployment_history, cloud_ops_events, spof_registry
     assert "INTO deployment_history" in q[0]["sql"] and q[0]["params"][2:4] == ["deploy-direct", "1.2.3"] and q[0]["params"][6] == "success", q[0]
     calls.clear()
+    assert main(["--worker", "m", "--path", "m/worker.js"], call, read) == 0
+    upload = next(c[2] for c in calls if c[0] == "PUT")
+    assert b'name="oauth-broker.mjs"; filename="oauth-broker.mjs"' in upload
+    assert b'name="oauth-shared.js"; filename="oauth-shared.js"' in upload
+    assert b'export function handle() { return token; }' in upload
+    assert b'export const token = "ok";' in upload
+    assert b"Content-Type: application/javascript+module" in upload
+    try:
+        collect_modules("m/worker.js", 'import "../../outside.mjs";', read)
+        raise AssertionError("an import escaping the repository was accepted")
+    except ValueError as exc:
+        assert "escapes the repository" in str(exc)
+    try:
+        collect_modules("m/worker.js", 'import "./not-a-module.css";', read)
+        raise AssertionError("an unsupported module type was accepted")
+    except ValueError as exc:
+        assert "unsupported relative module import" in str(exc)
+    calls.clear()
     assert main(["--worker", "absent", "--path", "w/worker.js"], call, read) == 0 and not any(c[0] == "PUT" or "/query" in c[1] for c in calls)
     calls.clear()
     assert main(["--worker", "c", "--path", "c/worker.js"], call, read) == 0 and not any(c[0] == "PUT" or "/query" in c[1] for c in calls)
-    assert not is_module("addEventListener('fetch', e => {})") and is_module("export default {}")
+    assert not is_module("addEventListener('fetch', e => {})")
+    assert is_module("export default {}") and is_module('import "./oauth-broker.mjs";')
     print("direct_content_deploy selftest ok")
 
 
