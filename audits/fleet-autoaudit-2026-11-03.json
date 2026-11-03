@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 01:07:02",
+  "audited_at": "2026-11-03 02:19:12",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -646,7 +646,7 @@
       },
       {
         "dir": "qnfo-github-steward",
-        "version": "0.11.0",
+        "version": "0.11.1-codeagent",
         "worker": "qnfo-github-steward"
       },
       {
@@ -1455,9 +1455,9 @@
       "worker": "qnfo-gateway"
     },
     "qnfo-github-steward": {
-      "before": "0.11.0",
+      "before": "0.11.1-codeagent",
       "http": 200,
-      "live": "0.11.0",
+      "live": "0.11.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-github-steward"
