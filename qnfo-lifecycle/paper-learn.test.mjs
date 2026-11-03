@@ -13,14 +13,17 @@ const P = W.__paperLearn;
 let passed = 0, failed = 0;
 const ok = (c, l, x) => { if (c) passed++; else { failed++; console.error("FAIL " + l + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 400) : "")); } };
 
-function d1(db) {
+function d1(db, faults = {}) {
   const stmt = (sql, args) => ({
     bind: (...a) => stmt(sql, a),
     async run() { const r = db.prepare(sql).run(...(args || [])); return { meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } }; },
     async all() { return { results: db.prepare(sql).all(...(args || [])) }; },
     async first() { return db.prepare(sql).get(...(args || [])) || null; },
   });
-  return { prepare: (sql) => stmt(sql, []), async batch(list) { const out = []; for (const s of list) out.push(await s.run()); return out; } };
+  return { prepare: (sql) => stmt(sql, []), async batch(list) {
+    if (faults.batch > 0) { faults.batch--; throw new Error("D1_ERROR: D1 DB is overloaded. Requests queued for too long."); }
+    const out = []; for (const s of list) out.push(await s.run()); return out;
+  } };
 }
 
 ok(P && typeof P.tick === "function" && typeof P.status === "function", "the loop is exposed on the default export (__paperLearn)");
@@ -73,7 +76,8 @@ const AI = { async run(model, opts) {
   if (step === "garbage") return { response: "I could not read it." };
   return { response: "Here you go:\n" + JSON.stringify(step || { learnings: [], errors: [] }) };
 } };
-const env = { LIVING_PAPER: d1(living), QNFO_AUDIT: d1(audit), AI };
+const auditFaults = { batch: 0 };
+const env = { LIVING_PAPER: d1(living), QNFO_AUDIT: d1(audit, auditFaults), AI };
 
 const strong = { learnings: [
   { claim: "Steady spending at the budget beats duty cycling when output is concave", section: "4.4", kind: "derived", support: "Section 4.4", fleet_lever: "budget steering", application: "keep cheap models running", applicability: "direct", confidence: 0.9 },
@@ -121,8 +125,10 @@ ok(r.read.length === 0 && audit.prepare("SELECT attempts FROM paper_learn_state 
 
 // A new version is read again; the open-issue dedupe holds.
 living.prepare("UPDATE papers SET version = '1.1.0', updated_at = ? WHERE slug = 'p-new'").run(ago(1));
+auditFaults.batch = 1;
 r = await P.tick(env);
 ok(r.read.length === 1 && r.read[0].version === "1.1.0", "a revised version is read again", r.read);
+ok(auditFaults.batch === 0 && audit.prepare("SELECT COUNT(*) AS n FROM paper_learnings WHERE slug = 'p-new' AND version = '1.1.0'").get().n === 4, "a transient D1 batch overload retries the write and stores the learning set once");
 ok(audit.prepare("SELECT COUNT(*) AS n FROM agent_issues").get().n === 1, "the open follow-up issue is not filed twice");
 ok(audit.prepare("SELECT COUNT(*) AS n FROM internal_errata").get().n === 2, "the new version's confirmed error is a new errata row");
 
