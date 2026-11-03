@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.12-patch-budget";
+var VERSION = "2.62.13-codeagent";
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -10165,6 +10165,13 @@ async function ownerRestRoutes(request, env, path, method) {
     let parsed = null; try { parsed = JSON.parse(r.text); } catch (e) { parsed = r.text; }
     return { ok: r.ok, result: parsed };
   };
+  async function auditSurfaceSize(env2, text) {
+    try {
+      if (!env2.QNFO_AUDIT) return;
+      await env2.QNFO_AUDIT.prepare("CREATE TABLE IF NOT EXISTS cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, job TEXT, size INTEGER)").run();
+      await env2.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, job, size) VALUES (?1, ?2, ?3, ?4, ?5)").bind(randId("coe-"), iso(), "ops-surface-size", "qnfo-ops", String(text).length).run();
+    } catch (e) { console.error(JSON.stringify({ step: "audit-surface-size", error: String(e && e.message || e).slice(0, 160) })); }
+  }
   if (path === "/v1/ideas" && method === "POST") { let b = {}; try { b = await request.json(); } catch (e) { return json({ error: "invalid JSON body" }, 400); } return json(await ideaSubmit(env, b)); }
   if (path === "/v1/queue" && method === "GET") { const u = new URL(request.url); const a = {}; u.searchParams.forEach(function(v, k) { a[k] = v; }); return json(await queueRead(env, a)); }
   if (path === "/v1/tools" && method === "GET") return json({ object: "list", data: opsRestToolList(true).map(function(t) { return { type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }; }) });
@@ -10177,8 +10184,54 @@ async function ownerRestRoutes(request, env, path, method) {
     if (m.id === undefined && String(m.method || "").startsWith("notifications/")) return new Response(null, { status: 202, headers: CORS_HEADERS });
     if (m.method === "initialize") return json({ jsonrpc: "2.0", id, result: { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "qnfo-ops", version: VERSION } } });
     if (m.method === "ping") return json({ jsonrpc: "2.0", id, result: {} });
-    if (m.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: opsRestToolList(true).map(function(t) { return { name: t.name, description: t.description, inputSchema: t.parameters }; }) } });
-    if (m.method === "tools/call") { const p = m.params || {}; const r = await run(String(p.name || ""), p.arguments || {}); return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r.result) }], isError: !r.ok } }); }
+    if (m.method === "tools/list") {
+      const urlParams = new URL(request.url).searchParams;
+      const codemode = urlParams.get("surface") === "codemode" || (m.params && m.params.surface === "codemode");
+      let respBody;
+      if (codemode) {
+        // CODEMODE-SURFACE-1: opt-in MCP search/execute surface
+        respBody = { jsonrpc: "2.0", id, result: { tools: [
+          { name: "ops_search", description: "Search the ops tool catalogue by keyword, returning matching tool names and their first description line.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+          { name: "ops_execute", description: "Execute a named ops tool with arguments. The name must exist in the catalogue; recursive calls are rejected.", inputSchema: { type: "object", properties: { name: { type: "string" }, args: { type: "object" } }, required: ["name"] } }
+        ] } };
+      } else {
+        respBody = { jsonrpc: "2.0", id, result: { tools: opsRestToolList(true).map(function(t) { return { name: t.name, description: t.description, inputSchema: t.parameters }; }) } };
+      }
+      await auditSurfaceSize(env, JSON.stringify(respBody));
+      return json(respBody);
+    }
+    if (m.method === "tools/call") {
+      const p = m.params || {};
+      const nm = String(p.name || "");
+      if (nm === "ops_search" || nm === "ops_execute") {
+        let r;
+        if (nm === "ops_search") {
+          const q = String((p.arguments || {}).query || "").toLowerCase();
+          const hits = [];
+          if (q) {
+            for (const t of opsRestToolList(true)) {
+              const desc = String(t.description || "");
+              const firstLine = desc.split("\n")[0] || desc;
+              if (t.name.toLowerCase().indexOf(q) >= 0 || desc.toLowerCase().indexOf(q) >= 0) hits.push({ name: t.name, description: firstLine });
+            }
+          }
+          r = { ok: true, result: hits };
+        } else {
+          const target = String((p.arguments || {}).name || "");
+          const args = (p.arguments || {}).args || {};
+          let found = false;
+          for (const t of opsRestToolList(true)) if (t.name === target) { found = true; break; }
+          if (!found) r = { ok: false, result: { error: "tool not found: " + target } };
+          else if (target === "ops_execute") r = { ok: false, result: { error: "recursive ops_execute is not allowed" } };
+          else r = await run(target, args);
+        }
+        const respBody = { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r.result) }], isError: !r.ok } };
+        await auditSurfaceSize(env, JSON.stringify(respBody));
+        return json(respBody);
+      }
+      const r = await run(nm, p.arguments || {});
+      return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r.result) }], isError: !r.ok } });
+    }
     return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } });
   }
   return json({ error: "method not allowed" }, 405);
