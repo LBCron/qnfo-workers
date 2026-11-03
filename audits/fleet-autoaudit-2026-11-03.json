@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-03 06:59:34",
+  "audited_at": "2026-11-03 07:50:55",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -671,7 +671,7 @@
       },
       {
         "dir": "qnfo-lifecycle",
-        "version": "1.17.3-codeagent",
+        "version": "1.17.4-codeagent",
         "worker": "qnfo-lifecycle"
       },
       {
@@ -1544,9 +1544,9 @@
       "worker": "qnfo-kaizen"
     },
     "qnfo-lifecycle": {
-      "before": "1.17.3-codeagent",
+      "before": "1.17.4-codeagent",
       "http": 200,
-      "live": "1.17.3-codeagent",
+      "live": "1.17.4-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-lifecycle"
