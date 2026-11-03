@@ -11,6 +11,12 @@ const w = (await import(pathToFileURL(join(here, "worker.js")).href)).default;
 const FG = await import(pathToFileURL(join(here, "..", "scripts", "fleet_graph.mjs")).href);
 
 const db = new DatabaseSync(":memory:");
+const likeDb = new DatabaseSync(":memory:");
+db.function("like", (pattern, value) => {
+  if (Buffer.byteLength(pattern, "utf8") > 50) throw new Error("LIKE or GLOB pattern too complex");
+  return likeDb.prepare("SELECT ? LIKE ? AS matched").get(value, pattern).matched;
+});
+assert.throws(() => db.prepare("SELECT 'x' LIKE ?").get("x".repeat(51)), /pattern too complex/, "fixture enforces D1's 50-byte pattern limit");
 for (const s of FG.SCHEMA_SQL) db.exec(s);
 const g = new FG.Graph("code");
 g.node("worker:alpha", "worker", "alpha", { worker: "alpha", attrs: { version: "1.0.0" } });
@@ -95,6 +101,52 @@ assert.equal(bad.status, 404, "no raw SQL route");
 assert.ok(sqlSeen.length > 10 && sqlSeen.every((s) => /^\s*(SELECT|WITH)\b/i.test(s)), "the worker issued only reads");
 const res = await get("/fleet-graph/resource?id=d1:qnfo-audit");
 assert.ok(res.body.workers.alpha && res.body.workers.alpha.includes("binds"), "resource view groups binders by worker");
+for (const name of ["x".repeat(49), "x".repeat(50), "x".repeat(300), "é".repeat(30), "literal_%", "quote' OR 1=1 --"]) {
+  const addNode = (id, kind, label, scope = "code") => db.prepare("INSERT INTO fg_node (id, scope, kind, name, attrs, source, h, updated_at) VALUES (?, ?, ?, ?, '{}', 'test', 'test', ?)").run(id, scope, kind, label, now);
+  addNode("worker:" + name, "worker", name);
+  addNode("worker:prefix-" + name, "worker", name + "-suffix");
+  addNode("worker:contains-" + name, "worker", "other");
+  const find = await get("/fleet-graph/find?query=" + encodeURIComponent(name) + "&kind=worker&limit=3");
+  assert.equal(find.status, 200, JSON.stringify(find.body));
+  assert.deepEqual(find.body.results.map((x) => x.id), ["worker:" + name, "worker:prefix-" + name, "worker:contains-" + name], "exact, name-prefix, then ID-substring ranking");
+  const rpcFind = await mcp("fleet_graph_find", { query: name, kind: "worker", limit: 3 });
+  assert.equal(JSON.parse(rpcFind.body.result.content[0].text).results[0].id, "worker:" + name, "MCP uses the same long-query-safe lookup");
+}
+const caseFind = await get("/fleet-graph/find?query=ALP");
+assert.equal(caseFind.body.results[0].id, "worker:alpha", "prefix matching remains ASCII case-insensitive");
+const wildcardFind = await get("/fleet-graph/find?query=literalZx");
+assert.equal(wildcardFind.body.count, 0, "wildcards in stored names do not expand");
+const percentFind = await get("/fleet-graph/find?query=%25&kind=worker");
+assert.deepEqual(percentFind.body.results.map((x) => x.id).sort(), ["worker:contains-literal_%", "worker:literal_%", "worker:prefix-literal_%"].sort(), "caller wildcards are literal, not a match-all");
+
+const longWorker = "worker_" + "w".repeat(60);
+const longDb = "db_" + "d".repeat(60);
+db.prepare("INSERT INTO fg_node (id, scope, kind, name, worker, attrs, source, h, updated_at) VALUES (?, 'code', 'worker', ?, ?, '{}', 'test', 'test', ?)").run("worker:" + longWorker, longWorker, longWorker, now);
+db.prepare("INSERT INTO fg_node (id, scope, kind, name, attrs, source, h, updated_at) VALUES (?, 'live', 'd1', ?, '{}', 'test', 'test', ?)").run("d1:" + longDb, longDb, now);
+for (const [prefix, kind] of [["d1t:", "d1_table"], ["d1v:", "d1_view"], ["d1trg:", "d1_trigger"]]) {
+  db.prepare("INSERT INTO fg_node (id, scope, kind, name, attrs, source, h, updated_at) VALUES (?, 'live', ?, 'item', '{}', 'test', 'test', ?)").run(prefix + longDb + ".item", kind, now);
+}
+for (const [src, rel, dst] of [
+  ["worker:" + longWorker, "has_binding", "binding:" + longWorker + ".DB"],
+  ["binding:" + longWorker + ".DB", "binds", "d1:" + longDb],
+  ["fn:" + longWorker + "#run", "reads", "d1t:" + longDb + ".item"],
+  ["fn:" + longWorker + "#run", "http_calls", "worker:alpha"]
+]) db.prepare("INSERT INTO fg_edge (src, rel, dst, scope, confidence, source, h, updated_at) VALUES (?, ?, ?, 'code', 'OBSERVED', 'test', 'test', ?)").run(src, rel, dst, now);
+for (const subject of [longWorker + ".DB", longWorker + ":drift"]) {
+  db.prepare("INSERT INTO fg_finding (id, kind, subject, severity, detail, h, first_seen, last_seen) VALUES (?, 'binding-drift', ?, 'warn', 'test', 'test', ?, ?)").run(subject, subject, now, now);
+}
+const longWorkerView = await get("/fleet-graph/worker?worker=" + encodeURIComponent(longWorker));
+assert.equal(longWorkerView.status, 200, JSON.stringify(longWorkerView.body));
+assert.equal(longWorkerView.body.bindings.declared[0].resource, "d1:" + longDb);
+assert.equal(longWorkerView.body.d1_tables[0].table_id, "d1t:" + longDb + ".item");
+assert.equal(longWorkerView.body.calls_out[0].dst, "worker:alpha");
+assert.equal(longWorkerView.body.findings.length, 2);
+const longResource = await get("/fleet-graph/resource?id=" + encodeURIComponent("d1:" + longDb));
+assert.equal(longResource.status, 200, JSON.stringify(longResource.body));
+assert.deepEqual(longResource.body.contains.map((x) => x.kind).sort(), ["d1_table", "d1_trigger", "d1_view"]);
+const longFindings = await get("/fleet-graph/findings?kind=binding-drift&severity=warn&subject=" + encodeURIComponent(longWorker.toUpperCase()));
+assert.equal(longFindings.status, 200, JSON.stringify(longFindings.body));
+assert.equal(longFindings.body.count, 2, "long finding subjects remain case-insensitive substrings");
 // graph not built yet -> 503 with a clear message, not a stack
 const empty = new DatabaseSync(":memory:");
 const r0 = await w.fetch(new Request("https://m.test/fleet-graph/freshness"), { MCP_TOKEN: "x", GRAPH_DB: { prepare: (s) => ({ bind() { return this; }, all: async () => { empty.prepare(s); return { results: [] }; }, first: async () => null }) } });
