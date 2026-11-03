@@ -1145,7 +1145,7 @@ __name(secretEq, "secretEq");
 // 0.52.0 BREACH-DOCTOR-1 (2026-10-26, agent_issues 1000266, pillar autonomy; minor: a decision the worker now takes on its own): breachDoctorTick on every */10 tick diagnoses each unowned open issue older than 120 minutes (breach_doctor_min_age_min, SLA-120M-1; family, cause_class, enum facts), applies the validated per-issue playbook action (CODE-MERGE-REFUSED-1 and CODE-LOOP-EXHAUSTED-1 first), verifies it twice, and writes breach_diagnoses, breach_diagnosis_events and decision_log; ops_config breach_doctor = off stops it before any write. Playbooks are data (migrations/2026-10-26-breach-doctor.sql), a new one runs in measure for 30 minutes, a rule with 2 failures in 24 hours demotes itself, and free text never reaches an issue, a probe or a task. The generic playbook-gap row is seeded in measure and files no issue (a gap issue carries no anchor the code loop can edit); the self issue after 3 failed cases is the only issue the doctor files by itself, and migrations/2026-10-26-breach-doctor-trust.sql makes the planner read its BREACH-DOCTOR-1: title as trusted. No model call, no D1 trigger. breach-doctor.test.mjs.
 // 0.47.0 REMEDIATION-OVER-BUDGET-METRIC-1 (2026-10-25, pillar autonomy): refreshes the over-budget metric from the exact RED-DRAIN eligibility set instead of lifetime probe counts.
 // ADVISOR-AGENT-TRACING-1 (pillar autonomy): metadata-only turn and model spans for the folded advisor.
-var VERSION = "0.61.2-codeagent"; /* 0.59.29 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work citation collection stays unmeasured while the only verified identifiers use the retired prefix. */ /* 0.59.23 BREACH-DOCTOR-DECISION-LEDGER-1: append decision_log records for file-issue and owner-card actions. */ /* 0.59.13 WORKER-HEALTH-TOMBSTONE-EXCLUSION-1 (#100123, charter pillar core; patch): retired TOMBSTONE_ audit rows no longer count as live health failures; unmanaged workers without /health remain visible. */ /* 0.59.11 MERGE-INTEGRATION-1: preserves verification-deferral escalation and doctor pending-lease handling. */ /* 0.59.10 DOCTOR-PENDING-LEASE-1 (#5890 / 1000552, autonomy; patch): pending applied doctor actions wait up to 120 minutes from applied_at instead of failing after the initial 30-minute lease. */ /* 0.59.9 EVOLVE-PROPOSAL-REASK-1 (#3272, charter pillar autonomy; patch): unusable proposal replies receive one corrective retry and record whether it recovered. */ /* 0.59.8 MODEL-GEMMA-CHAT-1 (#3250, charter pillar cost; patch): advisor proposals prefer Gemma with glm-5.3-flash fallback on errors or empty replies; independent review is unchanged. */ /* 0.59.7 prior */ /* 0.59.6 METRIC-TRIGGER-CLOSE-CONTRACT-1: metric-trigger recovery defers closing an issue while its remediation contract still fails. */ /* 0.59.5 prior */ /* 0.59.4 VERIFIED-CORE-RETIREMENT-1 (#1753, charter pillar core; patch): retirement needs a complete 30-day GraphQL usage snapshot and a live service-consumer scan; unknown evidence never falls back to worker_invocations. */ /* 0.59.2 METRIC-REGRESSION-1 (#100495), IMPROVEMENT-FULL-DAY-WINDOWS-1 (#100572): excludes loop-derived metrics from aggregate counts, applies a >=3 absolute count-change floor with prior mean >=1, and evaluates complete UTC-day windows. prior 0.59.1 */ /* 0.59.1 IL-TRIGGER-AWARE-1 (2026-10-30, charter pillar autonomy; patch): improvement regressions use an enabled trigger predicate when available, while clear-trigger trends remain early warnings. */ /* 0.59.0 BH-EMPTY-DRAFT-1 (2026-10-30, pillar autonomy; minor: a close decision the hourly hygiene tick now takes on its own): a draft pull request idle 6 hours whose fresh GitHub read says changed_files 0 is archived (refs/archive/<ref>), commented (the linked issue is NOT resolved) and closed, at most 10 reads a tick, logged as branch_hygiene_log close-empty-draft-pr; ops_config empty_draft_pr_close=off stops it without a deploy. Cause: 67 empty session drafts accumulated because the lane merges drafts but cannot merge an empty one and CYCLE-TIME-1 skips drafts. prior 0.58.1 */ /* 0.58.0 DOCS-ONLY-INCOMPLETE-1 (2026-10-29, pillar autonomy; minor: a merge decision it now takes on its own): the stale-PR lane (bhMergeDecide) and the code loop (cmDecide) refuse a pull request whose every file is documentation, with the reason to implement it in code; exempt: lane-regenerated docs and a body naming "Implemented in: #n" or "docs-exempt: reason"; ops_config docs_only_incomplete=off restores it for the lane. prior 0.57.0 */ /* 0.57.0 0.57.0 WFI-GREEN-STREAK-1 (2026-10-29, pillar autonomy, agent_issues 1000747 and 1000558; minor: a close decision the intake now takes on a stricter rule): workflowFailureIntake closed a WORKFLOW-FAILED-1 issue on a single green main run, so a flapping workflow (deploy-gate: 9 failures in 24 hours) was closed, failed again, and the issue_refile_reopen trigger reopened it (24 reopens in 7 days). It now closes only when the latest decided run succeeded and no main run of the workflow failed in the previous 24 hours (every failing run in the 100-run window is recorded in workflow_failures; a waiting issue is listed in green_wait), and wfiProbe reads the same definition (failure-within-24h). workflow-failure-intake.test.mjs covers the streak. prior 0.56.5 */ /* 0.56.2 IL-CLOSE-VS-PROBE-2 (2026-10-26, pillar autonomy, agent_issues 100355 and 100392; patch). objectiveConstraintsTick closed a constraint issue that meets its target without reading the contract of that issue: issue 2446 (unmanaged_direct_spend_share 0.4989 against 0.5) still carried a contract whose last read was a fail, so the UPDATE aborted on close-while-contract-fails every hour and logged one console.error. It now asks closeBlockedByContract first (the helper PR 3342 added for improvementLoopTick), keeps the issue open, counts close_deferred in the tick result and in the state_json of the run row, and warns once with the issue id. qnfo-fleet-control/objective-constraints-close-guard.test.mjs (36 checks) runs the real tick against the live triggers and fails on 0.56.1. prior 0.56.1 */ /* 0.56.1 STATE-RETIRED-1 (2026-10-26, pillar reliability, agent_issues 1000154 FLEET-HEALTH-RETIRED-410; patch): the hourly fleet state snapshot counted the retired repository-root stub qnfo-workers (HTTP 410 with a RETIRED notice; Workers Builds recreates it on every push, so it cannot be deleted) as down on every snapshot since 2026-10-25, a permanent failure floor that hid any real new failure. An HTTP 410 answer with a retired, decommissioned or tombstone marker (or a service_registry row in state retired that does not answer 200) is now a third state, retired: workers_retired and retired_list join the summary, workers_down and down_list list only real failures, version_unknown skips it, a heartbeat row cannot turn it back into up or down, and its worker_live_audit row carries a TOMBSTONE_410 note instead of being omitted. HEALTH-AUDIT-COVERAGE-1 (agent_issues 1000157): the state pass wrote worker_live_audit with a plain INSERT on a table keyed by worker, which failed on the first worker that already had a row on every pass (live_audit_write_error in every snapshot), so the one registry worker without a row, qnfo-workers, was never audited; a worker with no row now gets one (INSERT OR IGNORE, the sweep keeps its richer notes) and a retired worker is upserted. prior 0.56.0-fleet-hygiene */ /* 0.56.0 WFI-RETIRED-1, PROBE-AUTHOR-SINK-GUARD-1, BH-MERGED-SUCCESSOR-1 (2026-10-26, pillar autonomy and security, agent_issues 1000327, 1000421, 1000018; minor: three decisions the worker now takes on its own). (a) WFI-RETIRED-1: workflowFailureIntake reads the repository workflow list; a workflow that is no longer active or disabled_manually is retired (its workflow_main_state row is kept with conclusion retired, no WORKFLOW-FAILED-1 issue is filed for it, and its open issue is closed with close_evidence after its contract is set to superseded); an unreadable or partial list retires nothing. (b) PROBE-AUTHOR-SINK-GUARD-1: for a contract whose module is probe-author-1 a later pass whose expected or observed is not one short token (1 to 64 characters of letters, digits and _ . : + -) is a probe-error with the reason free-text-value and no value is written, closing the later-pass sink that the 0.54.0 hardening left (the birth dry run was the only gated pass); scripts/remediation_consumer.py carries the same guard. (c) BH-MERGED-SUCCESSOR-1: a code-agent pull request (codeagent- or evolve/ head) whose [issue #N] tag a merged pull request also carries is closed on the hourly hygiene tick (tip archived first, comment naming the successor) instead of waiting for an idle clock that the conflict repair comments keep resetting. prior 0.55.4-codeagent */ /* 0.55.3 CRON-GRID-TICK-SYNTAX-1 (2026-10-26): the 0.55.2 version note wrote a star-slash pair inside this block comment, which ended the comment early; the deploy refused the script (CF 10021, Unexpected identifier at worker.js:1111) and the live worker stayed on 0.55.1. Note rewritten without the pair; scripts/cron-grid-tick-declared.test.mjs now also parses every scanned worker.js. prior 0.55.2-cron-grid-tick */ /* 0.55.2 CRON-GRID-TICK-DECLARED-1 (2026-10-26, pillar autonomy, agent_issues 1000269 CHARTER-TICK-STALE-1 and 2679 loop-heartbeats): 0.45.4 halved the declared fast trigger from every 5 minutes to every 10 minutes but left CRON_GRID_CFG.tick at the 5-minute expression, and cronGridRun evaluates its daily, weekly and monthly jobs only on an event whose cron equals that tick, so from 2026-10-25 09:15Z (the last 5-minute-tick row in cron_fire_log) the 0 3 * * * bundle (charter tick, disposeRetired, danglingBindingsCensus, costImpactGuard, activitySnapshotDaily, calibrator), the weekly 30 3 * * 1 job and the monthly 0 4 1 * * job never ran; the charter snapshot was 37 h old on 2026-10-26. The tick is now the 10-minute expression with tickMin 10 and lagMin 5, so each job slot falls in exactly one tick window (03:00 runs on the 03:10 tick); the first 10-minute tick after the deploy also retries the missed daily run because its last ok row is older than period plus 30 minutes. scripts/cron-grid-tick-declared.test.mjs fails any worker whose grid tick is not a declared trigger or whose job slot is covered by no tick or by two. prior 0.55.1-codeagent */ /* 0.51.0 MERGE-STREAMLINE-1 (2026-10-26, pillar autonomy; owner directive: "DEPLOY GATE REPEATEDLY FAILS. GET RID OF IT! IT'S HOLDING UP PR MERGES."; minor: a decision the lane and the code-loop runner now take on their own): the deploy-gate job `gate` is no longer a required check (EVOLVE_REQUIRED), so a merge waits for guard, mirror-guard and comparator (seconds) and not for the 3 minute gate run; the gate still runs on every PR as advice and strict on main, and canary plus auto-revert stay the safety net. prior 0.50.0-workflows-merge */ /* 0.50.0 prior */ /* 0.50.0 OWNER-AUTO-APPROVE-ALL-1 (2026-10-26, pillar autonomy; minor: a decision the lane now takes on its own): the owner answered "Yes, auto-approve all" to the two items listed as waiting on them, so the stale-PR lane merges a pull request that changes .github/ through every other gate unchanged (required checks green, clean, quiet window, no hold or WIP, canary and revert), recorded in the merge message; ops_config stale_pr_merge_workflows = off restores the refusal (PR-MERGE-SLA-GROUPS-1 then classes it as waits_on session again). The code loop's own merge scope (cmScope) still denies .github/workflows/**: that was not asked. prior 0.49.3-pr-sla-groups */ /* 0.49.3 PR-MERGE-SLA-GROUPS-1 (2026-10-26): a hold phrase inside a fenced block or an inline code span no longer holds a pull request (a body that documents the rule held itself 14 minutes); pr_sla_state.waits_on records 'hold' or 'session' (a .github/ or settings change a session merges by hand) when the lane refuses for that reason, and v_pr_merge_sla counts them as held_over_10m and session_over_10m apart from pr_open_over_10m, which counts only what the fleet itself should have merged. prior 0.49.2-probe-author-binding */ /* 0.49.2 PROBE-AUTHOR-BINDING-1 (2026-10-26, pillar autonomy, agent_issues PROBE-NEEDED-1): the probe author (rtAuthorLivePathProbe, PROBE-AUTHOR-LIVEPATH-1) never ran: remediation.probe-authored holds 0 events ever against 77 PROBE-NEEDED-1 filings in 7 days. It read the model from env["qnfo-ai"], a binding this worker does not have (the Workers AI binding is AI), read the reply only as response/result although the model answers choices[0].message.content, and wrote decision_log rows with columns the table lacks (ts, decision, reason). It now calls aiRunAttr on env.AI with one plain retry when reasoning_effort is refused, reads the reply through cmReviewReply, writes decision_log with its real columns, and records every reject as one remediation.probe-author-reject event per issue per hour instead of a console line nobody reads. probe-author.test.mjs (21 checks) fails 13 on 0.49.1. */ /* 0.49.1 PR-MERGE-SLA-10M-1 review: the body phrases "draft until", "stays a draft", "keep it a draft" and "not ready for review/merge" hold a pull request like "do not merge" does (a session that keeps its pull request as a draft on purpose says so there; the lane now merges drafts). PR-AGE-RECONCILE-1 (2026-10-26): pr_sla_state resolves a pull request that left the open list (merged by the code-loop runner, a person or a session) with one read each, at most 8 a tick; before this its row stayed open and counted as past 10 minutes for up to 30 minutes after it merged, so pr_open_over_10m read 2 with one held pull request and one that had merged. prior 0.49.0-pr-merge-sla */ /* 0.49.0 PR-MERGE-SLA-10M-1 (2026-10-26, pillar autonomy; owner directive 2026-10-26: every pull request merges within 10 minutes of opening; minor: a route and a decision the lane now takes on its own): (a) POST /gh/poke runs the merge lane and the code-loop runner at once, with no secret, debounced to one run a minute (the signed /gh/webhook has never received a delivery: its secret and the GitHub registration are owner-only steps, and CRON-MANDATE-1 forbids a faster cron); .github/workflows/lane-poke.yml sends it; (b) the stale-PR lane merges a draft that is green, quiet and free of hold and WIP markers by marking it ready (GraphQL) and deciding it once more, switch ops_config stale_pr_merge_drafts, because the harness opens every session pull request as a draft; (c) the quiet window defaults to 3 minutes with a floor of 1 (was 20 and 10); (d) every pull request into main is recorded in pr_sla_state, graded by v_pr_merge_sla and the metric pr_open_over_10m. */ /* 0.48.1 MERGE-VERSION-AHEAD-1 (2026-10-26, ci-watchdog #4319): cmIntegrity compares the pull request head's VERSION with main's now; one that is not strictly ahead (another merge took the version) is stale and is rebuilt on current main with a fresh bump instead of merging with a repeated VERSION. prior 0.48.0-deployed-unblock */ /* MERGE-DEPLOYED-UNBLOCK-1 (2026-10-26, session fix for the 2026-10-25 audit freeze): the merge runner no longer lets a runner merge in merge_state 'deployed' hold its worker forever. It holds it for CM_DEPLOYED_BUSY_MIN (5) minutes, and after CM_LIVE_AUDIT_WAIT_MIN (30) minutes with no worker_live_audit row newer than the deploy it becomes 'unverifiable' (an error event, never a revert on a missing probe); the deferral message names the task that holds the worker. Four tasks sat 'deployed' for nine hours and five green qnfo-research-exec pull requests were deferred until they aged out. MERGEABLE-POLL-LONGER-1: the mergeability poll waits 25 s (6 reads, 5 s apart) instead of 6 s. prior 0.47.0-remediation-budget-metric */ /* MERGE-SCOPE-DATA-SURFACES-1 (agent_issues 100617, owner directive CODE-LOOP-SCOPE-LIFT-1): cmScope() now auto-merges a migration SQL file and a mind data or config file, the two surfaces the loop is asked to remediate but could never merge; a GitHub workflow file stays denied and a spurious workers prefix is refused with the corrected path. prior 0.45.1-codeagent */ /* 0.45.0-no-registrar NO-REGISTRAR-1 (2026-10-21, owner directive: the closed deposit registrar is fully deprecated and not named in any code): the profile scrub keeps only a dead-prefix line filter; literal registrar text pairs removed. prior 0.44.5-close-channel */ // 0.44.5 CLOSE-CHANNEL-REQUIRED-1 (agent_issues 100419): the ten fleet-control close sites that wrote no close_channel name themselves (auto:fleet-control/<tick>); PR-ISSUE-LINK-1 also reads the RED-DRAIN-1 "-- issue #N" goal form. // 0.44.4 PR-ISSUE-LINK-1: a fleet PR references its GitHub issue (Refs #N from gh_issue_links).
+var VERSION = "0.61.3-codeagent"; /* 0.59.29 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work citation collection stays unmeasured while the only verified identifiers use the retired prefix. */ /* 0.59.23 BREACH-DOCTOR-DECISION-LEDGER-1: append decision_log records for file-issue and owner-card actions. */ /* 0.59.13 WORKER-HEALTH-TOMBSTONE-EXCLUSION-1 (#100123, charter pillar core; patch): retired TOMBSTONE_ audit rows no longer count as live health failures; unmanaged workers without /health remain visible. */ /* 0.59.11 MERGE-INTEGRATION-1: preserves verification-deferral escalation and doctor pending-lease handling. */ /* 0.59.10 DOCTOR-PENDING-LEASE-1 (#5890 / 1000552, autonomy; patch): pending applied doctor actions wait up to 120 minutes from applied_at instead of failing after the initial 30-minute lease. */ /* 0.59.9 EVOLVE-PROPOSAL-REASK-1 (#3272, charter pillar autonomy; patch): unusable proposal replies receive one corrective retry and record whether it recovered. */ /* 0.59.8 MODEL-GEMMA-CHAT-1 (#3250, charter pillar cost; patch): advisor proposals prefer Gemma with glm-5.3-flash fallback on errors or empty replies; independent review is unchanged. */ /* 0.59.7 prior */ /* 0.59.6 METRIC-TRIGGER-CLOSE-CONTRACT-1: metric-trigger recovery defers closing an issue while its remediation contract still fails. */ /* 0.59.5 prior */ /* 0.59.4 VERIFIED-CORE-RETIREMENT-1 (#1753, charter pillar core; patch): retirement needs a complete 30-day GraphQL usage snapshot and a live service-consumer scan; unknown evidence never falls back to worker_invocations. */ /* 0.59.2 METRIC-REGRESSION-1 (#100495), IMPROVEMENT-FULL-DAY-WINDOWS-1 (#100572): excludes loop-derived metrics from aggregate counts, applies a >=3 absolute count-change floor with prior mean >=1, and evaluates complete UTC-day windows. prior 0.59.1 */ /* 0.59.1 IL-TRIGGER-AWARE-1 (2026-10-30, charter pillar autonomy; patch): improvement regressions use an enabled trigger predicate when available, while clear-trigger trends remain early warnings. */ /* 0.59.0 BH-EMPTY-DRAFT-1 (2026-10-30, pillar autonomy; minor: a close decision the hourly hygiene tick now takes on its own): a draft pull request idle 6 hours whose fresh GitHub read says changed_files 0 is archived (refs/archive/<ref>), commented (the linked issue is NOT resolved) and closed, at most 10 reads a tick, logged as branch_hygiene_log close-empty-draft-pr; ops_config empty_draft_pr_close=off stops it without a deploy. Cause: 67 empty session drafts accumulated because the lane merges drafts but cannot merge an empty one and CYCLE-TIME-1 skips drafts. prior 0.58.1 */ /* 0.58.0 DOCS-ONLY-INCOMPLETE-1 (2026-10-29, pillar autonomy; minor: a merge decision it now takes on its own): the stale-PR lane (bhMergeDecide) and the code loop (cmDecide) refuse a pull request whose every file is documentation, with the reason to implement it in code; exempt: lane-regenerated docs and a body naming "Implemented in: #n" or "docs-exempt: reason"; ops_config docs_only_incomplete=off restores it for the lane. prior 0.57.0 */ /* 0.57.0 0.57.0 WFI-GREEN-STREAK-1 (2026-10-29, pillar autonomy, agent_issues 1000747 and 1000558; minor: a close decision the intake now takes on a stricter rule): workflowFailureIntake closed a WORKFLOW-FAILED-1 issue on a single green main run, so a flapping workflow (deploy-gate: 9 failures in 24 hours) was closed, failed again, and the issue_refile_reopen trigger reopened it (24 reopens in 7 days). It now closes only when the latest decided run succeeded and no main run of the workflow failed in the previous 24 hours (every failing run in the 100-run window is recorded in workflow_failures; a waiting issue is listed in green_wait), and wfiProbe reads the same definition (failure-within-24h). workflow-failure-intake.test.mjs covers the streak. prior 0.56.5 */ /* 0.56.2 IL-CLOSE-VS-PROBE-2 (2026-10-26, pillar autonomy, agent_issues 100355 and 100392; patch). objectiveConstraintsTick closed a constraint issue that meets its target without reading the contract of that issue: issue 2446 (unmanaged_direct_spend_share 0.4989 against 0.5) still carried a contract whose last read was a fail, so the UPDATE aborted on close-while-contract-fails every hour and logged one console.error. It now asks closeBlockedByContract first (the helper PR 3342 added for improvementLoopTick), keeps the issue open, counts close_deferred in the tick result and in the state_json of the run row, and warns once with the issue id. qnfo-fleet-control/objective-constraints-close-guard.test.mjs (36 checks) runs the real tick against the live triggers and fails on 0.56.1. prior 0.56.1 */ /* 0.56.1 STATE-RETIRED-1 (2026-10-26, pillar reliability, agent_issues 1000154 FLEET-HEALTH-RETIRED-410; patch): the hourly fleet state snapshot counted the retired repository-root stub qnfo-workers (HTTP 410 with a RETIRED notice; Workers Builds recreates it on every push, so it cannot be deleted) as down on every snapshot since 2026-10-25, a permanent failure floor that hid any real new failure. An HTTP 410 answer with a retired, decommissioned or tombstone marker (or a service_registry row in state retired that does not answer 200) is now a third state, retired: workers_retired and retired_list join the summary, workers_down and down_list list only real failures, version_unknown skips it, a heartbeat row cannot turn it back into up or down, and its worker_live_audit row carries a TOMBSTONE_410 note instead of being omitted. HEALTH-AUDIT-COVERAGE-1 (agent_issues 1000157): the state pass wrote worker_live_audit with a plain INSERT on a table keyed by worker, which failed on the first worker that already had a row on every pass (live_audit_write_error in every snapshot), so the one registry worker without a row, qnfo-workers, was never audited; a worker with no row now gets one (INSERT OR IGNORE, the sweep keeps its richer notes) and a retired worker is upserted. prior 0.56.0-fleet-hygiene */ /* 0.56.0 WFI-RETIRED-1, PROBE-AUTHOR-SINK-GUARD-1, BH-MERGED-SUCCESSOR-1 (2026-10-26, pillar autonomy and security, agent_issues 1000327, 1000421, 1000018; minor: three decisions the worker now takes on its own). (a) WFI-RETIRED-1: workflowFailureIntake reads the repository workflow list; a workflow that is no longer active or disabled_manually is retired (its workflow_main_state row is kept with conclusion retired, no WORKFLOW-FAILED-1 issue is filed for it, and its open issue is closed with close_evidence after its contract is set to superseded); an unreadable or partial list retires nothing. (b) PROBE-AUTHOR-SINK-GUARD-1: for a contract whose module is probe-author-1 a later pass whose expected or observed is not one short token (1 to 64 characters of letters, digits and _ . : + -) is a probe-error with the reason free-text-value and no value is written, closing the later-pass sink that the 0.54.0 hardening left (the birth dry run was the only gated pass); scripts/remediation_consumer.py carries the same guard. (c) BH-MERGED-SUCCESSOR-1: a code-agent pull request (codeagent- or evolve/ head) whose [issue #N] tag a merged pull request also carries is closed on the hourly hygiene tick (tip archived first, comment naming the successor) instead of waiting for an idle clock that the conflict repair comments keep resetting. prior 0.55.4-codeagent */ /* 0.55.3 CRON-GRID-TICK-SYNTAX-1 (2026-10-26): the 0.55.2 version note wrote a star-slash pair inside this block comment, which ended the comment early; the deploy refused the script (CF 10021, Unexpected identifier at worker.js:1111) and the live worker stayed on 0.55.1. Note rewritten without the pair; scripts/cron-grid-tick-declared.test.mjs now also parses every scanned worker.js. prior 0.55.2-cron-grid-tick */ /* 0.55.2 CRON-GRID-TICK-DECLARED-1 (2026-10-26, pillar autonomy, agent_issues 1000269 CHARTER-TICK-STALE-1 and 2679 loop-heartbeats): 0.45.4 halved the declared fast trigger from every 5 minutes to every 10 minutes but left CRON_GRID_CFG.tick at the 5-minute expression, and cronGridRun evaluates its daily, weekly and monthly jobs only on an event whose cron equals that tick, so from 2026-10-25 09:15Z (the last 5-minute-tick row in cron_fire_log) the 0 3 * * * bundle (charter tick, disposeRetired, danglingBindingsCensus, costImpactGuard, activitySnapshotDaily, calibrator), the weekly 30 3 * * 1 job and the monthly 0 4 1 * * job never ran; the charter snapshot was 37 h old on 2026-10-26. The tick is now the 10-minute expression with tickMin 10 and lagMin 5, so each job slot falls in exactly one tick window (03:00 runs on the 03:10 tick); the first 10-minute tick after the deploy also retries the missed daily run because its last ok row is older than period plus 30 minutes. scripts/cron-grid-tick-declared.test.mjs fails any worker whose grid tick is not a declared trigger or whose job slot is covered by no tick or by two. prior 0.55.1-codeagent */ /* 0.51.0 MERGE-STREAMLINE-1 (2026-10-26, pillar autonomy; owner directive: "DEPLOY GATE REPEATEDLY FAILS. GET RID OF IT! IT'S HOLDING UP PR MERGES."; minor: a decision the lane and the code-loop runner now take on their own): the deploy-gate job `gate` is no longer a required check (EVOLVE_REQUIRED), so a merge waits for guard, mirror-guard and comparator (seconds) and not for the 3 minute gate run; the gate still runs on every PR as advice and strict on main, and canary plus auto-revert stay the safety net. prior 0.50.0-workflows-merge */ /* 0.50.0 prior */ /* 0.50.0 OWNER-AUTO-APPROVE-ALL-1 (2026-10-26, pillar autonomy; minor: a decision the lane now takes on its own): the owner answered "Yes, auto-approve all" to the two items listed as waiting on them, so the stale-PR lane merges a pull request that changes .github/ through every other gate unchanged (required checks green, clean, quiet window, no hold or WIP, canary and revert), recorded in the merge message; ops_config stale_pr_merge_workflows = off restores the refusal (PR-MERGE-SLA-GROUPS-1 then classes it as waits_on session again). The code loop's own merge scope (cmScope) still denies .github/workflows/**: that was not asked. prior 0.49.3-pr-sla-groups */ /* 0.49.3 PR-MERGE-SLA-GROUPS-1 (2026-10-26): a hold phrase inside a fenced block or an inline code span no longer holds a pull request (a body that documents the rule held itself 14 minutes); pr_sla_state.waits_on records 'hold' or 'session' (a .github/ or settings change a session merges by hand) when the lane refuses for that reason, and v_pr_merge_sla counts them as held_over_10m and session_over_10m apart from pr_open_over_10m, which counts only what the fleet itself should have merged. prior 0.49.2-probe-author-binding */ /* 0.49.2 PROBE-AUTHOR-BINDING-1 (2026-10-26, pillar autonomy, agent_issues PROBE-NEEDED-1): the probe author (rtAuthorLivePathProbe, PROBE-AUTHOR-LIVEPATH-1) never ran: remediation.probe-authored holds 0 events ever against 77 PROBE-NEEDED-1 filings in 7 days. It read the model from env["qnfo-ai"], a binding this worker does not have (the Workers AI binding is AI), read the reply only as response/result although the model answers choices[0].message.content, and wrote decision_log rows with columns the table lacks (ts, decision, reason). It now calls aiRunAttr on env.AI with one plain retry when reasoning_effort is refused, reads the reply through cmReviewReply, writes decision_log with its real columns, and records every reject as one remediation.probe-author-reject event per issue per hour instead of a console line nobody reads. probe-author.test.mjs (21 checks) fails 13 on 0.49.1. */ /* 0.49.1 PR-MERGE-SLA-10M-1 review: the body phrases "draft until", "stays a draft", "keep it a draft" and "not ready for review/merge" hold a pull request like "do not merge" does (a session that keeps its pull request as a draft on purpose says so there; the lane now merges drafts). PR-AGE-RECONCILE-1 (2026-10-26): pr_sla_state resolves a pull request that left the open list (merged by the code-loop runner, a person or a session) with one read each, at most 8 a tick; before this its row stayed open and counted as past 10 minutes for up to 30 minutes after it merged, so pr_open_over_10m read 2 with one held pull request and one that had merged. prior 0.49.0-pr-merge-sla */ /* 0.49.0 PR-MERGE-SLA-10M-1 (2026-10-26, pillar autonomy; owner directive 2026-10-26: every pull request merges within 10 minutes of opening; minor: a route and a decision the lane now takes on its own): (a) POST /gh/poke runs the merge lane and the code-loop runner at once, with no secret, debounced to one run a minute (the signed /gh/webhook has never received a delivery: its secret and the GitHub registration are owner-only steps, and CRON-MANDATE-1 forbids a faster cron); .github/workflows/lane-poke.yml sends it; (b) the stale-PR lane merges a draft that is green, quiet and free of hold and WIP markers by marking it ready (GraphQL) and deciding it once more, switch ops_config stale_pr_merge_drafts, because the harness opens every session pull request as a draft; (c) the quiet window defaults to 3 minutes with a floor of 1 (was 20 and 10); (d) every pull request into main is recorded in pr_sla_state, graded by v_pr_merge_sla and the metric pr_open_over_10m. */ /* 0.48.1 MERGE-VERSION-AHEAD-1 (2026-10-26, ci-watchdog #4319): cmIntegrity compares the pull request head's VERSION with main's now; one that is not strictly ahead (another merge took the version) is stale and is rebuilt on current main with a fresh bump instead of merging with a repeated VERSION. prior 0.48.0-deployed-unblock */ /* MERGE-DEPLOYED-UNBLOCK-1 (2026-10-26, session fix for the 2026-10-25 audit freeze): the merge runner no longer lets a runner merge in merge_state 'deployed' hold its worker forever. It holds it for CM_DEPLOYED_BUSY_MIN (5) minutes, and after CM_LIVE_AUDIT_WAIT_MIN (30) minutes with no worker_live_audit row newer than the deploy it becomes 'unverifiable' (an error event, never a revert on a missing probe); the deferral message names the task that holds the worker. Four tasks sat 'deployed' for nine hours and five green qnfo-research-exec pull requests were deferred until they aged out. MERGEABLE-POLL-LONGER-1: the mergeability poll waits 25 s (6 reads, 5 s apart) instead of 6 s. prior 0.47.0-remediation-budget-metric */ /* MERGE-SCOPE-DATA-SURFACES-1 (agent_issues 100617, owner directive CODE-LOOP-SCOPE-LIFT-1): cmScope() now auto-merges a migration SQL file and a mind data or config file, the two surfaces the loop is asked to remediate but could never merge; a GitHub workflow file stays denied and a spurious workers prefix is refused with the corrected path. prior 0.45.1-codeagent */ /* 0.45.0-no-registrar NO-REGISTRAR-1 (2026-10-21, owner directive: the closed deposit registrar is fully deprecated and not named in any code): the profile scrub keeps only a dead-prefix line filter; literal registrar text pairs removed. prior 0.44.5-close-channel */ // 0.44.5 CLOSE-CHANNEL-REQUIRED-1 (agent_issues 100419): the ten fleet-control close sites that wrote no close_channel name themselves (auto:fleet-control/<tick>); PR-ISSUE-LINK-1 also reads the RED-DRAIN-1 "-- issue #N" goal form. // 0.44.4 PR-ISSUE-LINK-1: a fleet PR references its GitHub issue (Refs #N from gh_issue_links).
 /* 0.44.1 DEFERRAL-MEASURED-1 (2026-10-20, agent_issues 2954, 100245, 100246, pillar autonomy; patch): the remediation tick reads a measured pending (a number against a bound: "pending: ... reads 0.5058 (target <= 0.5)") as a verdict, as the consumer and the D1 relapse trigger already did, instead of deferring it for ever (rtIsMeasuredPending). deferral-measured.test.mjs. */ /* 0.42.0 DEPLOY-ALL-MERGES-1 (2026-10-20, owner directive "The system shall always deploy all merges automatically."; pillar core; minor: a decision the loop now takes on its own): DEPLOY-DRIFT-CF-1 measured and redeployed only the workers qnfo-ops /ops/deploy may take, so a merge to a control-plane worker (qnfo-fleet-control, qnfo-ops, qnfo-deploy-guard, qnfo-ai, qnfo-gateway, qnfo-observability) or a container worker (qnfo-code-orchestrator, qnfo-containers-pilot) whose canonical run was cancelled, skipped or failed stayed behind main with nothing to notice it (8 rows read "skip" in deploy_drift_cf at 05:30Z). Those workers are now targets too: main ahead of live for 45 minutes, no active run of the owning workflow and the live script confirmed behind, the tick dispatches canonical-deploy.yml with workers=<name> (canary and automatic revert on the runner) or the container worker's own workflow, at most 2 a tick and once per main VERSION an hour (ddcRunner, ddcDispatchPending). Metric merges_undeployed_over_60m (migrations/2026-10-20-deploy-all-merges.sql). deploy-drift-cf.test.mjs 14. */ /* 0.41.2 EXTERNAL-HTTPS-MASTODON-HOST-1 (2026-10-19, agent_issues 2925 INTEG-MASTODON-VERIFY-1; pillar autonomy; patch): RT_HTTP_HOSTS gains mstdn.science, the public Mastodon instance whose unauthenticated account lookup (GET /api/v1/accounts/lookup) qnfo-social already reads (MASTODON-PUBLIC-STATS-1), so the issue closing probe, which was parked probe-not-machine-executable on "host not allowed", can run. The rest of rtHttpSpec is unchanged: https only, GET or HEAD, no credentials, no redirect followed, 10 s, 1 MB; a host not on the list is still refused. */ /* 0.41.1 POOL-BOUND-SOURCES-1 (issue 100213, human_actions 107; patch): POOL-BOUND-1 parks notebook extractions (idea_proposals name owner-corpus) like any generated row and never parks a row an owner directive queued directly (source idea, chat, operator-prime). 0.41.0 REOPEN-LIVE-PATH-3 (issue 100271): the remediation tick files one deduped PROBE-NEEDED-1 issue per open issue left without a live contract. 0.40.1 VERSION-LINE-NOTES-1 (2026-10-19, agent_issues 100243, pillar autonomy; patch, a comment moved): the release notes of every earlier version rode on this line (178 notes, about 200,000 chars), so a version bump of this worker was an 820,000-char patch (worker and mirror, removed and added): 12 code tasks ended on the publisher size cap on 2026-10-19 and three issues were exhausted for three days. They are in git history (git log -S '<release tag>' -- qnfo-fleet-control/worker.js); the changelog is built from the deploy ledger and commits, and the guards read only the quoted version string. A new note goes on this line and stays short. */
 /* 0.44.0 GH-WEBHOOK-INTAKE-1 and GH-APP-FLEET-2 (2026-10-20, pillar autonomy; agent_issues 2582 and 2596; minor: two new routes). POST /gh/webhook receives pull_request, check_suite and push events for QNFO/qnfo-workers, verifies X-Hub-Signature-256 against GH_WEBHOOK_SECRET (503 and nothing accepted while it is unset), records each delivery once (cloud_ops_events kind gh-webhook, id gh-webhook-<delivery>) and runs the merge lane at once for a check_suite that completed with success or a pull request opened, reopened or ready, debounced to one run a minute; the 10-minute poll stays as the second path. POST /gh-app/token is the internal broker for the other GitHub-token workers: a service binding whose props.caller is a listed fleet worker gets the cached installation token (never the personal one, never logged); GET /gh-app reports broker service-binding. Registering the webhook on GitHub and converting each worker are the filed follow-ups. */
 /* 0.43.0 WORKFLOW-FAILURE-INTAKE-1 (2026-10-20, agent_issues 100295, pillar autonomy; minor: a new loop step): each 10-minute tick reads the newest workflow runs on main, keeps every workflow's latest decided conclusion in workflow_main_state, records a failing run with its failed job and step in workflow_failures, files one WORKFLOW-FAILED-1: <workflow> issue with a d1-query probe, and closes it with close_evidence when a later main run succeeds; ops_config workflow_failure_intake = off stops it. */
@@ -2917,6 +2917,8 @@ var EVOLVE_REQUIRED = ["guard", "mirror-guard", "comparator"];
 // SCORER-HOST-DENY-1 (0.4.133): qnfo-observability hosts the folded qnfo-autonomy-scorer (SCORER-FOLD-1), so it is denied too.
 var EVOLVE_DENY = ["qnfo-fleet-control", "qnfo-ops", "qnfo-deploy-guard", "qnfo-containers-pilot", "qnfo-gateway", "qnfo-ai", "qnfo-autonomy-scorer", "qnfo-observability"];
 var EVOLVE_OPEN_STATES = ["pr-open", "merged", "deployed"];
+// EVOLVE-PARSE-GATE-1 (issue 100317): true only when a candidate's JSON came from the single re-ask, not from the first reply.
+let EV_REASKED = false;
 // EVOLVE-GUARDRAILS-2 (2026-10-01, from the first live cycle, candidate 115 / PR 180): the loop picked agent_issue 1091
 // (a publication HOLD, category 'publication') and added a guard that called markError(), which re-queues the row for
 // full re-research; neither model saw markError's body. (1) Only code-defect categories are targeted. (2) The reviewer
@@ -3078,7 +3080,6 @@ function evParseJson(t) {
 // ---- EVOLVE-JSON-1:END
 // The head of the last model reply that gave no object, so a model-skip row says what came back.
 var EV_LAST_RAW = "";
-var EV_REASKED = false;
 async function evModelJson(env, model, system, user) {
   EV_LAST_RAW = "";
   EV_REASKED = false;
@@ -3088,18 +3089,22 @@ async function evModelJson(env, model, system, user) {
   var msg = r && r.choices && r.choices[0] && r.choices[0].message || {};
   var why = r && r.choices && r.choices[0] && r.choices[0].finish_reason || "";
   if (!p && !t && msg.reasoning_content) p = evParseJson(msg.reasoning_content);
+  // EVOLVE-PARSE-GATE-1 (issue 100317): the first reply did not yield a JSON object (empty reply, truncation, or a
+  // parse error), so the model is re-asked exactly once. This whole branch is the single re-ask; nothing in it runs
+  // when the first reply already parsed.
   if (!p) {
-    var retryMessages = messages;
-    var retryTokens = 2500;
-    if (why === "length" || !t) retryTokens = 6000;
-    else retryMessages = messages.concat([{ role: "user", content: "Your previous reply was not a JSON object (" + t.replace(/\s+/g, " ").slice(0, 160) + "). Reply with only the JSON object." }]);
-    r = await aiRunAttr(env, "qnfo-fleet-control", "patch-gen", model, { messages: retryMessages, max_tokens: retryTokens, temperature: 0.1 });
+    var reaskMessages = messages;
+    var reaskTokens = 2500;
+    if (!t || why === "length") reaskTokens = 6000;
+    else reaskMessages = messages.concat([{ role: "user", content: "Your previous reply was not a JSON object (" + t.replace(/\s+/g, " ").slice(0, 160) + "). Reply with only the JSON object." }]);
+    r = await aiRunAttr(env, "qnfo-fleet-control", "patch-gen", model, { messages: reaskMessages, max_tokens: reaskTokens, temperature: 0.1 });
     t = evAiText(r);
-    p = evParseJson(t);
     msg = r && r.choices && r.choices[0] && r.choices[0].message || {};
     why = r && r.choices && r.choices[0] && r.choices[0].finish_reason || "";
+    p = evParseJson(t);
     if (!p && !t && msg.reasoning_content) p = evParseJson(msg.reasoning_content);
-    if (p) EV_REASKED = true;
+    // Only a successful parse of the re-asked reply marks the candidate as re-asked.
+    if (p) { EV_REASKED = true; p.reasked = true; }
     else EV_LAST_RAW = (t ? "reply " + t.length + " chars" : "empty reply") + (why ? ", finish " + why : "") + (t ? ": " + t.replace(/\s+/g, " ").slice(0, 160) : "");
   }
   return p;
@@ -4602,6 +4607,22 @@ async function cmRequeueStale(env, cx, t, pr, num, why) {
   var n = await env.AUDIT.prepare("SELECT COUNT(*) AS n FROM code_tasks WHERE goal = ?1").bind(t.goal).first();
   if (n && Number(n.n) > CM_REQUEUE_MAX) return null;
   var anchor = null;
+// Ensure all logs are JSON‑encoded for observability
+if (!globalThis.__logWrapped) {
+  const _origLog = console.log;
+  console.log = (...args) => {
+    try {
+      _origLog(JSON.stringify({ evt: "log", message: args.map(a => String(a)).join(" ") }));
+    } catch (e) {
+      _origLog(JSON.stringify({ evt: "log_error", error: String(e) }));
+    }
+  };
+  const _origInfo = console.info;
+  console.info = console.log;
+  const _origWarn = console.warn;
+  console.warn = console.log;
+  globalThis.__logWrapped = true;
+}
   try { anchor = JSON.parse(t.ctx || "{}").anchor || null; } catch (e) { console.error(JSON.stringify({ evt: "fleet-control:cmRequeueStale:caught", error: String(e && e.message) })); }
   var id = cmTaskId();
   await env.AUDIT.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, ctx, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'queued', 'read', 0, ?5, ?6, ?6)")
@@ -7464,6 +7485,90 @@ function pfDays(iso, nowMs) {
   var t = Date.parse(iso || "");
   return isNaN(t) ? null : Math.floor((nowMs - t) / 86400000);
 }
+var PF_STANDARD_FLAGS = ["no-security-policy", "actions-unpinned", "no-dependabot", "stale-license-ref", "committed-credential", "fork-pure-mirror", "fork-actions-enabled", "codeql-setup-failed"];
+function pfUnpinnedUses(workflows) {
+  var count = 0;
+  (workflows || []).forEach(function(f) {
+    if (!f || f.type !== "blob" || !/\.(?:ya?ml)$/i.test(String(f.name || ""))) return;
+    String(f.text || "").split(/\r?\n/).forEach(function(line) {
+      var m = line.match(/^\s*uses\s*:\s*['"]?([^\s'"#]+)/i);
+      if (m && !/@[a-f0-9]{40}$/i.test(m[1])) count++;
+    });
+  });
+  return count;
+}
+function pfLicenseVersion(text) {
+  var m = String(text || "").match(/(?:QNFO\s+(?:Unified\s+)?License(?:\s+Agreement)?|QNFO-ULA|LicenseRef-QNFO-ULA)[^\n]{0,100}?\bv(?:ersion\s*)?(\d+(?:\.\d+)+)\b/i);
+  return m ? m[1] : null;
+}
+function pfVersionIsOlder(a, b) {
+  if (!a || !b) return false;
+  var av = String(a).split(".").map(Number), bv = String(b).split(".").map(Number);
+  for (var i = 0; i < Math.max(av.length, bv.length); i++) {
+    var x = av[i] || 0, y = bv[i] || 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+function pfStaleLicenseRef(readme, currentVersion) {
+  var re = /(?:QNFO\s+(?:Unified\s+)?License(?:\s+Agreement)?|QNFO-ULA|LicenseRef-QNFO-ULA)[^\n]{0,100}?\bv(?:ersion\s*)?(\d+(?:\.\d+)+)\b/gi, m;
+  while ((m = re.exec(String(readme || "")))) if (pfVersionIsOlder(m[1], currentVersion)) return true;
+  return false;
+}
+function pfCredentialMatchCount(texts) {
+  var found = {};
+  (texts || []).forEach(function(text) {
+    var s = String(text || ""), patterns = [/gh[pousr]_[A-Za-z0-9]{20,}/g, /github_pat_[A-Za-z0-9_]{20,}/g, /AKIA[0-9A-Z]{16}/g, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g];
+    patterns.forEach(function(re) { var m; while ((m = re.exec(s))) found[m[0]] = true; });
+  });
+  return Object.keys(found).length;
+}
+function pfCodeqlSetupFailed(state, runs) {
+  if (state !== "FAILURE") return false;
+  var codeql = (runs || []).filter(function(r) {
+    var label = [r && r.name, r && r.workflow_name, r && r.workflow_path].join(" ").toLowerCase();
+    return label.indexOf("codeql") >= 0;
+  }).sort(function(a, b) { return String(b.completed_at || b.started_at || "").localeCompare(String(a.completed_at || a.started_at || "")); });
+  return !!(codeql.length && String(codeql[0].conclusion || "").toUpperCase() !== "SUCCESS" && String(codeql[0].conclusion || "").toUpperCase() !== "SKIPPED");
+}
+function pfStandards(r, tier) {
+  var d = r && r.standard_data;
+  if (!d || d.available !== true || r.visibility === "private" || r.private === true) return null;
+  var flags = [], counts = {};
+  if (tier === "fork") {
+    if (d.fork_pure_mirror === true) flags.push("fork-pure-mirror");
+    if (d.actions_enabled === true) flags.push("fork-actions-enabled");
+  } else if (tier !== "archived" && tier !== "client-config") {
+    if (d.security_policy_enabled === false) flags.push("no-security-policy");
+    counts["actions-unpinned"] = pfUnpinnedUses(d.workflow_files);
+    if (counts["actions-unpinned"] > 0) flags.push("actions-unpinned");
+    if (d.has_root_workflows === true && d.has_dependabot !== true) flags.push("no-dependabot");
+    if (pfStaleLicenseRef(d.readme, d.license_version)) flags.push("stale-license-ref");
+    counts["committed-credential"] = Math.max(Number(d.secret_alert_count || 0), pfCredentialMatchCount([d.readme].concat((d.workflow_files || []).map(function(f) { return f.text || ""; }))));
+    if (counts["committed-credential"] > 0) flags.push("committed-credential");
+    if (pfCodeqlSetupFailed(d.status_check_state, d.codeql_runs)) flags.push("codeql-setup-failed");
+  }
+  return { flags: flags, counts: counts };
+}
+function pfStandardsSummary(rows) {
+  var counts = {}, unknown = 0, repositories = 0;
+  PF_STANDARD_FLAGS.forEach(function(f) { counts[f] = 0; });
+  (rows || []).forEach(function(r) {
+    if (r.visibility !== "public" || r.tier === "archived" || r.tier === "client-config") return;
+    repositories++;
+    if (!r.standards) { unknown++; return; }
+    r.standards.flags.forEach(function(f) {
+      if (f === "actions-unpinned" || f === "committed-credential") counts[f] += Number(r.standards.counts[f] || 0);
+      else counts[f]++;
+    });
+  });
+  return { available: unknown === 0, repositories: repositories, counts: unknown ? null : counts };
+}
+function pfPureMirrorCandidates(ev) {
+  return (ev && ev.rows || []).filter(function(r) {
+    return r.visibility === "public" && r.fork && r.standards && r.standards.flags.indexOf("fork-pure-mirror") >= 0;
+  }).map(function(r) { return r.name; });
+}
 function pfHygiene(r, tier, nowMs) {
   var flags = [];
   if (tier === "archived" || tier === "fork") return flags;
@@ -7501,7 +7606,7 @@ function pfEvaluate(repos, wbsRows, nowIso) {
       archived: !!r.archived, fork: !!r.fork, description: r.description || "", license: r.license || null, topics: r.topics || [],
       homepage: r.homepage || null, language: r.language || null, pushed_at: r.pushed_at || null, has_pages: !!r.has_pages,
       open_issues: Number(r.open_issues_count || r.open_issues || 0), stars: Number(r.stargazers_count || r.stars || 0),
-      wbs: wbsOf(r), flags: pfHygiene(r, tier, nowMs), days_since_push: pfDays(r.pushed_at, nowMs)
+      wbs: wbsOf(r), flags: pfHygiene(r, tier, nowMs), standards: pfStandards(r, tier), days_since_push: pfDays(r.pushed_at, nowMs)
     };
   });
   rows.sort(function(a, b) { return PF_TIER_ORDER.indexOf(a.tier) - PF_TIER_ORDER.indexOf(b.tier) || String(b.pushed_at || "").localeCompare(String(a.pushed_at || "")); });
@@ -7522,7 +7627,8 @@ function pfEvaluate(repos, wbsRows, nowIso) {
     ts: nowIso || new Date().toISOString(), total: rows.length, private_count: priv, tiers: tiers, pillars: pillars, rows: rows,
     graded: graded.length, hygiene_score: graded.length ? Math.round(100 * clean / graded.length) / 100 : null,
     dormant: dormant.map(function(r) { return r.name; }), unlinked_research: unlinked.map(function(r) { return r.name; }),
-    archive_candidates: candidates.map(function(r) { return r.name; }), wbs_linked: Object.keys(linkedWbs).length, wbs_total: (wbsRows || []).length
+    archive_candidates: candidates.map(function(r) { return r.name; }), wbs_linked: Object.keys(linkedWbs).length, wbs_total: (wbsRows || []).length,
+    standards: pfStandardsSummary(rows)
   };
 }
 function pfCell(s) { return String(s === null || s === void 0 ? "" : s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " "); }
@@ -7551,6 +7657,15 @@ function pfRenderBody(ev) {
   L.push("| Dormant graded repositories (no push for " + PF_DORMANT_DAYS + "+ days) | " + ev.dormant.length + " |");
   L.push("| Research repositories with no WBS program code | " + ev.unlinked_research.length + " |");
   L.push("| WBS codes linked to a repository | " + ev.wbs_linked + " of " + ev.wbs_total + " in program_registry |");
+  L.push("");
+  L.push("### Standards (reported separately; not included in the hygiene score)");
+  L.push("");
+  if (!ev.standards || !ev.standards.available) L.push("Standards data unavailable; counts are not reported as zero.");
+  else {
+    L.push("| Flag | Count |");
+    L.push("|---|---:|");
+    PF_STANDARD_FLAGS.forEach(function(f) { L.push("| " + f + " | " + Number(ev.standards.counts[f] || 0) + " |"); });
+  }
   L.push("");
   L.push("### Tiers");
   L.push("");
@@ -7673,6 +7788,76 @@ async function pfSchema(env) {
 function pfGh(env) {
   return { "Authorization": "Bearer " + env.GITHUB_TOKEN, "User-Agent": "qnfo-fleet-control/portfolio", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
 }
+var PF_GRAPHQL_PAGE_SIZE = 20;
+var PF_STANDARDS_QUERY = "query PortfolioStandards($after: String, $first: Int!) {" +
+  " organization(login: \"QNFO\") {" +
+  "  repositories(first: $first, after: $after, privacy: PUBLIC, isArchived: false, orderBy: {field: NAME, direction: ASC}) {" +
+  "   pageInfo { hasNextPage endCursor } nodes {" +
+  "    name isFork isSecurityPolicyEnabled hasActionsEnabled" +
+  "    defaultBranchRef { target { ... on Commit { oid statusCheckRollup { state checkRuns(first: 100, orderBy: {field: STARTED_AT, direction: DESC}) { nodes { name conclusion startedAt completedAt workflowRun { workflow { name path } } } } } } } }" +
+  "    parent { defaultBranchRef { target { ... on Commit { oid } } } }" +
+  "    readme: object(expression: \"HEAD:README.md\") { ... on Blob { text } }" +
+  "    github: object(expression: \"HEAD:.github\") { ... on Tree { entries { name type } } }" +
+  "    workflows: object(expression: \"HEAD:.github/workflows\") { ... on Tree { entries { name type object { ... on Blob { text } } } } }" +
+  "    secretScanningAlerts(first: 1, states: [OPEN]) { totalCount }" +
+  "   }" +
+  "  }" +
+  "  licenseRepository: repository(name: \"license\") { object(expression: \"HEAD:LICENSE\") { ... on Blob { text } } }" +
+  " }" +
+ "}";
+async function pfFetchStandards(env) {
+  var byName = {}, after = null, licenseVersion = null, pages = 0;
+  while (pages++ < 10) {
+    var response = await timedFetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: pfGh(env),
+      body: JSON.stringify({ query: PF_STANDARDS_QUERY, variables: { after: after, first: PF_GRAPHQL_PAGE_SIZE } })
+    }, 20e3);
+    if (response.status !== 200) return { ok: false, by_name: {}, note: "GraphQL settings query HTTP " + response.status };
+    var payload = await response.json().catch(function() { return null; });
+    if (!payload || payload.errors || !payload.data || !payload.data.organization) return { ok: false, by_name: {}, note: "GraphQL settings query failed" };
+    var org = payload.data.organization, connection = org.repositories;
+    if (licenseVersion === null) licenseVersion = pfLicenseVersion(org.licenseRepository && org.licenseRepository.object && org.licenseRepository.object.text);
+    if (!connection || !Array.isArray(connection.nodes)) return { ok: false, by_name: {}, note: "GraphQL repository page unreadable" };
+    connection.nodes.forEach(function(node) {
+      var rollup = node.defaultBranchRef && node.defaultBranchRef.target && node.defaultBranchRef.target.statusCheckRollup || {};
+      var workflows = node.workflows && node.workflows.entries || [];
+      var workflowFiles = workflows.filter(function(f) { return String(f.type || "").toLowerCase() === "blob" && /\.(?:ya?ml)$/i.test(String(f.name || "")); }).map(function(f) { return { name: f.name, type: f.type, text: f.object && f.object.text || "" }; });
+      var githubEntries = node.github && node.github.entries || [];
+      var dependabot = githubEntries.some(function(f) { return String(f.type || "").toLowerCase() === "blob" && /^dependabot\.ya?ml$/i.test(String(f.name || "")); });
+      var ownOid = node.defaultBranchRef && node.defaultBranchRef.target && node.defaultBranchRef.target.oid;
+      var parentOid = node.parent && node.parent.defaultBranchRef && node.parent.defaultBranchRef.target && node.parent.defaultBranchRef.target.oid;
+      var runs = rollup.checkRuns && rollup.checkRuns.nodes || [];
+      byName[node.name] = {
+        available: true,
+        security_policy_enabled: node.isSecurityPolicyEnabled === true,
+        actions_enabled: node.hasActionsEnabled === true,
+        has_root_workflows: workflowFiles.length > 0,
+        has_dependabot: dependabot,
+        workflow_files: workflowFiles,
+        readme: node.readme && node.readme.text || "",
+        license_version: licenseVersion,
+        secret_alert_count: node.secretScanningAlerts && node.secretScanningAlerts.totalCount || 0,
+        status_check_state: rollup.state || null,
+        codeql_runs: runs.map(function(run) {
+          return {
+            name: run.name || "",
+            conclusion: run.conclusion || "",
+            started_at: run.startedAt || "",
+            completed_at: run.completedAt || "",
+            workflow_name: run.workflowRun && run.workflowRun.workflow && run.workflowRun.workflow.name || "",
+            workflow_path: run.workflowRun && run.workflowRun.workflow && run.workflowRun.workflow.path || ""
+          };
+        }),
+        fork_pure_mirror: !!(node.isFork && ownOid && parentOid && ownOid === parentOid)
+      };
+    });
+    if (!connection.pageInfo || !connection.pageInfo.hasNextPage) break;
+    after = connection.pageInfo.endCursor;
+  }
+  if (pages > 10) return { ok: false, by_name: {}, note: "GraphQL settings page limit exceeded" };
+  return { ok: !!licenseVersion, by_name: licenseVersion ? byName : {}, note: licenseVersion ? "ok" : "canonical license version unavailable" };
+}
 async function pfFetchOrg(env) {
   var out = [];
   for (var page = 1; page <= 5; page++) {
@@ -7685,7 +7870,12 @@ async function pfFetchOrg(env) {
     });
     if (j.length < 100) break;
   }
-  return { ok: out.length > 0, note: out.length ? "ok" : "empty listing", repos: out };
+  if (!out.length) return { ok: false, note: "empty listing", repos: out };
+  var standards = await pfFetchStandards(env);
+  out.forEach(function(repo) {
+    if (repo.visibility === "public" && !repo.archived) repo.standard_data = standards.ok ? standards.by_name[repo.name] || { available: false } : { available: false };
+  });
+  return { ok: true, note: standards.ok ? "ok" : "ok; standards unavailable", repos: out, standards_available: standards.ok };
 }
 async function pfWbs(env) {
   if (!env.PORTFOLIO) return { ok: false, rows: [], note: "no PORTFOLIO (portfolio-state) binding" };
@@ -7699,7 +7889,7 @@ async function pfUpsert(env, ev) {
   var now = ev.ts, stmts = [];
   ev.rows.forEach(function(r) {
     stmts.push(env.AUDIT.prepare("INSERT INTO portfolio_repos (name, full_name, tier, pillar, visibility, archived, fork, description, license, topics, homepage, language, pushed_at, created_at, has_pages, open_issues, stars, wbs, flags, seen, synced_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,1,?20) ON CONFLICT(name) DO UPDATE SET full_name=excluded.full_name, tier=excluded.tier, pillar=excluded.pillar, visibility=excluded.visibility, archived=excluded.archived, fork=excluded.fork, description=excluded.description, license=excluded.license, topics=excluded.topics, homepage=excluded.homepage, language=excluded.language, pushed_at=excluded.pushed_at, created_at=excluded.created_at, has_pages=excluded.has_pages, open_issues=excluded.open_issues, stars=excluded.stars, wbs=excluded.wbs, flags=excluded.flags, seen=1, synced_at=excluded.synced_at")
-      .bind(r.name, PF_ORG + "/" + r.name, r.tier, r.pillar, r.visibility, r.archived ? 1 : 0, r.fork ? 1 : 0, r.description.slice(0, 400), r.license, JSON.stringify(r.topics), r.homepage, r.language, r.pushed_at, null, r.has_pages ? 1 : 0, r.open_issues, r.stars, r.wbs.join(","), r.flags.join(","), now));
+      .bind(r.name, PF_ORG + "/" + r.name, r.tier, r.pillar, r.visibility, r.archived ? 1 : 0, r.fork ? 1 : 0, r.description.slice(0, 400), r.license, JSON.stringify(r.topics), r.homepage, r.language, r.pushed_at, null, r.has_pages ? 1 : 0, r.open_issues, r.stars, r.wbs.join(","), JSON.stringify({ hygiene: r.flags, standards: r.standards }), now));
   });
   for (var i = 0; i < stmts.length; i += 40) await env.AUDIT.batch(stmts.slice(i, i + 40));
   await env.AUDIT.prepare("UPDATE portfolio_repos SET seen=0 WHERE synced_at IS NULL OR synced_at <> ?1").bind(now).run();
@@ -7780,7 +7970,7 @@ async function portfolioSync(env, force) {
   actions = actions.filter(function(a) { return a.status !== "unchanged"; });
   ev.actions = actions;
   try { await env.AUDIT.prepare("INSERT INTO portfolio_sync_runs (ts, repos, hygiene, status, note, writes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(ev.ts, ev.total, ev.hygiene_score, status, "kernel " + VERSION + "; wbs:" + wbs.note + "; dormant " + ev.dormant.length + "; unlinked " + ev.unlinked_research.length + "; actions " + actions.length + " (" + done + " committed)", JSON.stringify(writes).slice(0, 1500)).run(); } catch (e) { console.error(JSON.stringify({ evt: "fleet-control:portfolioSync:caught", error: String(e && e.message) })); }
-  return { ok: true, status: status, ts: ev.ts, repos: ev.total, tiers: ev.tiers, hygiene: ev.hygiene_score, wbs: wbs.note, writes: writes, actions: actions, ms: Date.now() - t0 };
+  return { ok: true, status: status, ts: ev.ts, repos: ev.total, tiers: ev.tiers, hygiene: ev.hygiene_score, standards: ev.standards, wbs: wbs.note, writes: writes, actions: actions, ms: Date.now() - t0 };
 }
 // PARTIAL-RETRY-1: a run that left a surface unwritten (partial) is retried on the next hourly tick, not after 20h;
 // a fully written run (ok) holds for PF_STALE_H. The writes are idempotent (unchanged content is a no-op), so an
@@ -7811,9 +8001,31 @@ async function portfolioLatest(env) {
   var rows = await charterRows(env, "SELECT name, tier, pillar, visibility, archived, fork, description, license, topics, homepage, pushed_at, wbs, flags, seen, synced_at FROM portfolio_repos WHERE seen=1 ORDER BY tier, pushed_at DESC");
   var run = await charterOne(env, "SELECT ts, repos, hygiene, status, note, writes FROM portfolio_sync_runs ORDER BY id DESC LIMIT 1");
   var acts = await charterRows(env, "SELECT ts, repo, action, status, detail FROM portfolio_actions ORDER BY id DESC LIMIT 40");
+  var privateNames = rows.filter(function(r) { return r.visibility === "private"; }).map(function(r) { return String(r.name || ""); }).filter(Boolean);
+  acts = acts.filter(function(a) {
+    var text = String(a.repo || "") + " " + String(a.detail || "");
+    return !privateNames.some(function(name) { return text.indexOf(name) >= 0; });
+  });
   var tiers = {};
   rows.forEach(function(r) { tiers[r.tier] = (tiers[r.tier] || 0) + 1; });
-  return { last_run: run, repos: rows.length, tiers: tiers, actions: acts, rows: rows.map(function(r) { if (r.visibility === "private") return { name: "(private)", tier: r.tier, pillar: r.pillar, visibility: "private" }; r.topics = JSON.parse(r.topics || "[]"); r.wbs = r.wbs ? r.wbs.split(",") : []; r.flags = r.flags ? r.flags.split(",") : []; return r; }) };
+  var decoded = rows.map(function(r) {
+    var stored = null;
+    try { stored = JSON.parse(r.flags || ""); } catch (e) { stored = null; }
+    if (stored && Array.isArray(stored.hygiene)) { r.flags = stored.hygiene; r.standards = stored.standards || null; }
+    else { r.flags = r.flags ? r.flags.split(",") : []; r.standards = null; }
+    r.topics = JSON.parse(r.topics || "[]");
+    r.wbs = r.wbs ? r.wbs.split(",") : [];
+    return r;
+  });
+  var standards = pfStandardsSummary(decoded);
+  return {
+    last_run: run, repos: rows.length, tiers: tiers, actions: acts, standards: standards,
+    rows: decoded.map(function(r) {
+      if (r.visibility === "private") return { name: "(private)", tier: r.tier, pillar: r.pillar, visibility: "private" };
+      delete r.standards;
+      return r;
+    })
+  };
 }
 // ---- PORTFOLIO-HYGIENE-1 (2026-10-01, pillar autonomy) ----
 // The first live register (hygiene 0.08: 32 of 39 graded public repositories lacked a licence file, a description or
@@ -8031,6 +8243,20 @@ async function pfHygieneApply(env, ev, wbsRows) {
     out.push({ repo: a.repo, action: a.action, status: res.status, note: res.note || "" });
     if (res.status === "unchanged") continue;
     try { await env.AUDIT.prepare("INSERT INTO portfolio_actions (ts, repo, action, status, detail) VALUES (?1, ?2, ?3, ?4, ?5)").bind(ev.ts, a.repo, a.action, res.status, String(res.note || "").slice(0, 300)).run(); } catch (e2) { console.error(JSON.stringify({ evt: "fleet-control:pfHygieneApply:caught", error: String(e2 && e2.message) })); }
+  }
+  var mirrors = pfPureMirrorCandidates(ev), proposed = {};
+  try {
+    var pending = await charterRows(env, "SELECT repo FROM portfolio_actions WHERE action = 'archive-request' AND status IN ('proposed','requested','committed')");
+    pending.forEach(function(r) { proposed[String(r.repo || "").replace(/^QNFO\//, "")] = true; });
+  } catch (e3) { mirrors = []; }
+  for (var m = 0; m < mirrors.length; m++) {
+    var mirror = mirrors[m];
+    if (proposed[mirror]) continue;
+    var detail = "pure mirror of upstream; archive request proposed only, no repository setting changed";
+    try {
+      await env.AUDIT.prepare("INSERT INTO portfolio_actions (ts, repo, action, status, detail) VALUES (?1, ?2, 'archive-request', 'proposed', ?3)").bind(ev.ts, mirror, detail).run();
+      out.push({ repo: mirror, action: "archive-request", status: "proposed", note: detail });
+    } catch (e4) { console.error(JSON.stringify({ evt: "fleet-control:pfHygieneApply:caught", error: String(e4 && e4.message) })); }
   }
   // PORTFOLIO-ARCHIVE-1 (0.5.0, REPO-ARCHIVE-1 agent_issues 2045): an explicit archive request is executed here. A session
   // cannot archive a repository (its GitHub proxy refuses repository settings writes: HTTP 403 on 2026-10-06), so
@@ -11489,6 +11715,7 @@ var worker_default2 = {
     if (p === "/portfolio.md" && request.method === "GET") {
       var pl = await portfolioLatest(env);
       var pev = pfEvaluate(pl.rows.filter(function(r) { return r.name !== "(private)"; }).map(function(r) { return { name: r.name, description: r.description, visibility: r.visibility, archived: !!r.archived, fork: !!r.fork, pushed_at: r.pushed_at, topics: r.topics, license: r.license, homepage: r.homepage }; }), [], new Date().toISOString());
+      pev.standards = pl.standards;
       return new Response(pfRenderDocBlock(pev), { status: 200, headers: { "Content-Type": "text/markdown; charset=utf-8" } });
     }
     if (p === "/portfolio/sync" && request.method === "POST") {
