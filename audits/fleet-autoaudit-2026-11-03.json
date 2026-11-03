@@ -1,15 +1,8 @@
 {
-  "audited_at": "2026-11-03 05:59:25",
+  "audited_at": "2026-11-03 06:31:00",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
-    "_drift_confirm": {
-      "first_pass": [
-        "qnfo-fleet-control"
-      ],
-      "refreshed": true,
-      "second_pass": []
-    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -673,7 +666,7 @@
       },
       {
         "dir": "qnfo-jobsearch",
-        "version": "1.4.0-codeagent",
+        "version": "1.4.1-codeagent",
         "worker": "qnfo-jobsearch"
       },
       {
@@ -683,7 +676,7 @@
       },
       {
         "dir": "qnfo-memory-mcp",
-        "version": "2.6.0",
+        "version": "2.7.0",
         "worker": "qnfo-memory-mcp"
       },
       {
@@ -1534,9 +1527,9 @@
       "worker": "qnfo-ipatent"
     },
     "qnfo-jobsearch": {
-      "before": "1.4.0-codeagent",
+      "before": "1.4.1-codeagent",
       "http": 200,
-      "live": "1.4.0-codeagent",
+      "live": "1.4.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-jobsearch"
@@ -1559,9 +1552,9 @@
       "worker": "qnfo-lifecycle"
     },
     "qnfo-memory-mcp": {
-      "before": "2.6.0",
+      "before": "2.7.0",
       "http": 200,
-      "live": "2.6.0",
+      "live": "2.7.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-memory-mcp"
