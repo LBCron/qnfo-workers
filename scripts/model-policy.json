@@ -5,6 +5,7 @@
   "allowed": [
     { "id": "kimi-k2.6", "family": "moonshot", "wa": "@cf/moonshotai/kimi-k2.6", "ctx": 262144, "reasoning": true },
     { "id": "kimi-k2.7-code", "family": "moonshot", "wa": "@cf/moonshotai/kimi-k2.7-code", "ctx": 262144, "reasoning": true },
+    { "id": "qwen3-30b-a3b-fp8", "family": "qwen", "wa": "@cf/qwen/qwen3-30b-a3b-fp8", "ctx": 32768, "reasoning": false },
     { "id": "glm-5.3-flash", "family": "zai", "wa": "@cf/zai-org/glm-5.3-flash", "ctx": 1048576, "reasoning": true },
     { "id": "gemma-4-26b-a4b-it", "family": "google", "wa": "@cf/google/gemma-4-26b-a4b-it", "ctx": 256000, "reasoning": false },
     { "id": "glm-5.3", "family": "zai", "wa": "@cf/zai-org/glm-5.3", "ctx": 1048576, "reasoning": true },

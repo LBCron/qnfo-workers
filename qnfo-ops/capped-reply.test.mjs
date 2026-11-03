@@ -20,6 +20,8 @@ ok(/OPS-CAPPED-REPLY-1/.test(src.split("\n")[33] || "") || /var VERSION = "[^"]*
 const helper = grab("var OPS_CAPPED_LINE =", "async function callGLM(");
 ok(helper.includes("function opsReasoningAsReply"), "the helper is found");
 const { OPS_CAPPED_LINE, opsReasoningAsReply } = new Function(helper + "\nreturn { OPS_CAPPED_LINE, opsReasoningAsReply };")();
+const CHAT_MODEL = (/^var UPSTREAM_CHAT_MODEL = "([^"]+)";/m.exec(src) || [])[1];
+ok(CHAT_MODEL === "@cf/qwen/qwen3-30b-a3b-fp8", "the chat lane selects the evaluated Qwen model");
 ok(opsReasoningAsReply("length", "chain of thought") === OPS_CAPPED_LINE, "finish_reason length: the honest line");
 ok(opsReasoningAsReply("stop", "chain of thought") === "chain of thought" && opsReasoningAsReply(undefined, "r") === "r" && opsReasoningAsReply("tool_calls", "r") === "r", "any other finish reason: the old copy");
 const truncMark = new RegExp((/const truncMark = \/([^\n]*)\/i;/.exec(src) || [])[1] || "NOMATCH", "i");
@@ -28,10 +30,12 @@ ok(!/chain of thought|reasoning_content/i.test(OPS_CAPPED_LINE) && OPS_CAPPED_LI
 
 // callGLM
 const glmSrc = grab("async function callGLM(", '__name(callGLM, "callGLM");');
-const mkGlm = (reply) => new Function("OPS_CAPPED_LINE", "opsReasoningAsReply", "truncateToContext", "OPS_PROMPT_CTX", "UPSTREAM_GLM_MODEL", glmSrc + "\nreturn callGLM;")(OPS_CAPPED_LINE, opsReasoningAsReply, (m) => m, 1e5, "@cf/zai-org/glm-5.3-flash");
-const wai = (msg, finish) => ({ WAI: { run: async () => ({ choices: [{ message: msg, finish_reason: finish }], usage: { completion_tokens: 8000 } }) } });
+const mkGlm = (reply) => new Function("OPS_CAPPED_LINE", "opsReasoningAsReply", "truncateToContext", "OPS_PROMPT_CTX", "UPSTREAM_CHAT_MODEL", glmSrc + "\nreturn callGLM;")(OPS_CAPPED_LINE, opsReasoningAsReply, (m) => m, 1e5, CHAT_MODEL);
+const seenModels = [];
+const wai = (msg, finish) => ({ WAI: { run: async (model) => { seenModels.push(model); return { choices: [{ message: msg, finish_reason: finish }], usage: { completion_tokens: 8000 } }; } } });
 let res = await mkGlm()(wai({ role: "assistant", content: "", reasoning_content: "Good data. Now let me analyze" + " x".repeat(50) }, "length"), [{ role: "user", content: "q" }], 8000, null, {});
 ok(res.choices[0].message.content === OPS_CAPPED_LINE && res.choices[0].finish_reason === "length" && res.usage.completion_tokens === 8000, "callGLM: a reasoning-only turn cut at the cap returns the honest line and keeps finish_reason length", res.choices[0]);
+ok(seenModels[0] === CHAT_MODEL, "callGLM sends chat requests to Qwen");
 res = await mkGlm()(wai({ role: "assistant", content: "", reasoning_content: "thinking out loud" }, "stop"), [{ role: "user", content: "q" }], 100, null, {});
 ok(res.choices[0].message.content === "thinking out loud", "callGLM: a reasoning-only turn that ended normally keeps the old copy", res.choices[0]);
 res = await mkGlm()(wai({ role: "assistant", content: "real answer", reasoning_content: "r" }, "length"), [{ role: "user", content: "q" }], 100, null, {});
@@ -41,7 +45,7 @@ ok(res.choices[0].message.content === "" && res.choices[0].message.tool_calls.le
 
 // budgetFallback
 const bfSrc = grab("async function budgetFallback(", '__name(budgetFallback, "budgetFallback");');
-const mkBf = () => new Function("OPS_CAPPED_LINE", "opsReasoningAsReply", "truncateToContext", "CODE_MODEL_CTX", "UPSTREAM_GLM_MODEL", "UPSTREAM_CODE_MODEL", "console", bfSrc + "\nreturn budgetFallback;")(OPS_CAPPED_LINE, opsReasoningAsReply, (m) => m, 2e5, "@cf/zai-org/glm-5.3", "@cf/moonshotai/kimi-k2.7-code", { log() {} });
+const mkBf = () => new Function("OPS_CAPPED_LINE", "opsReasoningAsReply", "truncateToContext", "CODE_MODEL_CTX", "UPSTREAM_CHAT_MODEL", "UPSTREAM_CODE_MODEL", "console", bfSrc + "\nreturn budgetFallback;")(OPS_CAPPED_LINE, opsReasoningAsReply, (m) => m, 2e5, CHAT_MODEL, "@cf/moonshotai/kimi-k2.7-code", { log() {} });
 let bf = await mkBf()(wai({ role: "assistant", content: "", reasoning_content: "long reasoning" }, "length"), [{ role: "user", content: "q" }], 8000, null, {});
 ok(bf && bf.resp.choices[0].message.content === OPS_CAPPED_LINE && /free-fallback/.test(bf.servedBy), "budgetFallback: a capped reasoning-only free turn returns the honest line", bf && bf.resp.choices[0].message);
 bf = await mkBf()(wai({ role: "assistant", content: "", reasoning_content: "long reasoning" }, "stop"), [{ role: "user", content: "q" }], 8000, null, {});
@@ -51,12 +55,15 @@ ok(bf.resp.choices[0].message.content === "long reasoning", "budgetFallback: a r
 const dsSrc = grab("async function callDeepSeekStream(", '__name(callDeepSeekStream, "callDeepSeekStream");');
 ok(dsSrc.length > 2000, "callDeepSeekStream is found");
 const sse = (frames) => new Response(new ReadableStream({ start(c) { const enc = new TextEncoder(); for (const f of frames) c.enqueue(enc.encode("data: " + JSON.stringify(f) + "\n\n")); c.enqueue(enc.encode("data: [DONE]\n\n")); c.close(); } }), { status: 200 });
-const mkDs = (frames) => {
+const mkDs = (frames, freeChat = async () => null) => {
   globalThis.fetch = async () => sse(frames);
-  return new Function("OPS_CAPPED_LINE", "opsReasoningAsReply", "isAgentTranscript", "callGLM", "UPSTREAM_GLM_MODEL", "truncateToContext", "OPS_PROMPT_CTX", "UPSTREAM_MODEL", "UPSTREAM_MODEL_FB", "UPSTREAM_TOOLCALL_MODEL", "agentLoopIncapable", "dsPaidBlocked", "dsPaidTrip", "budgetFallback", "isOAIUpstream", "gwMaxOut", "DEEPSEEK_URL", "opsUpstreamError", "firstFrameIdx", "console",
-    dsSrc + "\nreturn callDeepSeekStream;")(OPS_CAPPED_LINE, opsReasoningAsReply, () => false, async () => null, "glm", (m) => m, 1e5, "deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash", async () => ({}), async () => false, async () => false, async () => null, () => false, () => 8192, "https://gateway.test/chat", async () => {}, () => -1, { log() {} });
+  return new Function("OPS_CAPPED_LINE", "opsReasoningAsReply", "isAgentTranscript", "callGLM", "UPSTREAM_CHAT_MODEL", "truncateToContext", "OPS_PROMPT_CTX", "UPSTREAM_MODEL", "UPSTREAM_MODEL_FB", "UPSTREAM_TOOLCALL_MODEL", "agentLoopIncapable", "dsPaidBlocked", "dsPaidTrip", "budgetFallback", "isOAIUpstream", "gwMaxOut", "DEEPSEEK_URL", "opsUpstreamError", "firstFrameIdx", "console",
+    dsSrc + "\nreturn callDeepSeekStream;")(OPS_CAPPED_LINE, opsReasoningAsReply, () => false, freeChat, CHAT_MODEL, (m) => m, 1e5, "deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash", async () => ({}), async () => false, async () => false, async () => null, () => false, () => 8192, "https://gateway.test/chat", async () => {}, () => -1, { log() {} });
 };
 const rf = (reasoning, finish) => [{ choices: [{ delta: { reasoning_content: reasoning } }] }, { choices: [{ delta: {}, finish_reason: finish }], usage: { completion_tokens: 8192 } }];
+const chatResp = { choices: [{ message: { role: "assistant", content: "chat answer" } }] };
+const chat = await mkDs([], async () => chatResp)({ WAI: {} }, [{ role: "user", content: "q" }], 8192, null, {});
+ok(chat.resp === chatResp && chat.servedBy === CHAT_MODEL, "streaming no-tools chat uses the selected Qwen model");
 let d = await mkDs(rf("Good data. Now let me analyze ".repeat(20), "length"))({}, [{ role: "user", content: "q" }], 8192, null, { upstreamModel: "deepseek/deepseek-v4-pro" });
 ok(d.resp.choices[0].message.content === OPS_CAPPED_LINE && d.resp.choices[0].finish_reason === "length", "callDeepSeekStream: a reasoning-only stream cut at the cap returns the honest line", d.resp.choices[0]);
 d = await mkDs(rf("short thought", "stop"))({}, [{ role: "user", content: "q" }], 8192, null, { upstreamModel: "deepseek/deepseek-v4-pro" });

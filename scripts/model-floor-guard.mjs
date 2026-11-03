@@ -50,7 +50,7 @@ const BANNED = [
   { label: "mistral-7b", re: /(@cf\/mistral\/mistral-7b[\w.-]*|mistral-7b[\w.-]*)/i },
   { label: "gemma-small", re: /(@cf\/google\/gemma-(2b|7b|3-12b)[\w.-]*|gemma-(2b|7b|3-12b)[\w.-]*)/i },
   { label: "qwen2.5-coder-32b", re: /qwen2\.5-coder-32b[\w.-]*/i },
-  { label: "qwen3-30b", re: /qwen3-30b[\w.-]*/i },
+  { label: "qwen3-30b", re: /qwen3-30b(?!-a3b-fp8(?:$|[^\w.-]))[\w.-]*/i },
   { label: "qwq-32b", re: /qwq-32b[\w.-]*/i },
   { label: "r1-distill-32b", re: /deepseek-r1-distill-qwen-32b[\w.-]*/i },
   { label: "gemma-4-26b", re: /gemma-4-26b(?!-a4b-it(?:$|[^\w.-]))[\w.-]*/i },

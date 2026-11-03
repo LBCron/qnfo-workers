@@ -99,6 +99,8 @@ const POLICY = JSON.parse(readFileSync(policyFile, "utf8"));
   ok(Array.isArray(rows) && rows.every((r) => !BANNED.some((b) => b.re.test(r.id) || b.re.test(r.wa))), "no allowed row matches a BANNED rule");
   const gemmaBan = BANNED.find((b) => b.label === "gemma-4-26b");
   ok(gemmaBan && !gemmaBan.re.test("@cf/google/gemma-4-26b-a4b-it") && gemmaBan.re.test("@cf/google/gemma-4-26b-a4b-it-v2"), "only the evaluated Gemma 4 26B A4B instruction model is exempt from the model-floor ban");
+  const qwenBan = BANNED.find((b) => b.label === "qwen3-30b");
+  ok(qwenBan && !qwenBan.re.test("@cf/qwen/qwen3-30b-a3b-fp8") && qwenBan.re.test("@cf/qwen/qwen3-30b") && qwenBan.re.test("@cf/qwen/qwen3-30b-instruct"), "only the catalogued Qwen 3 30B A3B FP8 model is exempt from the model-floor ban");
   ok(Array.isArray(rows) && new Set(rows.map((r) => r.family)).size >= 4, "the allowed table keeps at least four vendor families (panels count families)"); }
 { ok(validateAllowed([{ id: "x", family: "f", wa: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", ctx: 1, reasoning: false }]).some((p) => /conflicts with BANNED \[llama\]/.test(p)), "validateAllowed rejects a row that re-admits a BANNED model");
   ok(validateAllowed([{ id: "x", family: "f", wa: "nope", ctx: 0, reasoning: "no" }]).length === 3, "validateAllowed rejects a malformed row (wa, ctx, reasoning)"); }
