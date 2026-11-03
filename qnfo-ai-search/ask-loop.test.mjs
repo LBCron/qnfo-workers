@@ -286,6 +286,23 @@ ok(models.includes("@cf/deepseek-ai/deepseek-v4-flash-0731"), "the judge is a di
   const e2 = sse(s2.text, "error")[0];
   ok(e2 && /timed out/.test(e2.error) && sse(s2.text, "meta").length === 1, "a model call that never answers still gives the visitor the sources and an error, never a hung request");
   AI.run = real;
+  const oldSearch = env.AI_SEARCH, oldFetch = env.GATEWAY.fetch, oldBody = PAPERS[0].body_md;
+  const bodyMarker = "SLOW_BODY_SOURCE_MARKER";
+  PAPERS[0].body_md = "# JPCUB for LLM Energy\n\nThis full source passage includes " + bodyMarker + " and explains how the energy benchmark measures joules per correct answer across systems with a repeatable, verified protocol.";
+  env.AI_SEARCH = { get() { return { async search() { return { chunks: [] }; } }; } };
+  env.GATEWAY.fetch = async (u, opts) => {
+    if (new URL(typeof u === "string" ? u : u.url).pathname === "/papers/jpcub-llm-energy") await new Promise((resolve) => setTimeout(resolve, 7500));
+    return oldFetch(u, opts);
+  };
+  let sawSlowBody = false;
+  const realRun = AI.run;
+  AI.run = async (m, o) => { if (o && o.stream) sawSlowBody = JSON.stringify(o.messages).includes(bodyMarker); return realRun(m, o); };
+  await call("/api/ask", { query: "What does JPCUB measure in this timing test?" }, "5.5.5.9");
+  AI.run = realRun;
+  env.AI_SEARCH = oldSearch;
+  env.GATEWAY.fetch = oldFetch;
+  PAPERS[0].body_md = oldBody;
+  ok(sawSlowBody, "a source body finishing after 7s but within the gateway's 8s timeout reaches the answer prompt");
   globalThis.setTimeout = realST;
 }
 // 10. ASK-IDEA-HANDOFF-1 (#1936): an uncovered answer points to the ideas pipeline; thread links use /s/<id>.

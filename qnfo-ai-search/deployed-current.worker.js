@@ -29,7 +29,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.12.10-codeagent";
+var VERSION = "2.12.12-codeagent";
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
 async function callModelWithRetry(url, payload, timeoutMs = 20000) {
@@ -161,6 +161,7 @@ var ASK_GRAPH_MS = 12000;
 var ASK_MODEL_START_MS = 30000;
 var ASK_MODEL_IDLE_MS = 45000;
 var ASK_TOTAL_MS = 150000;
+var PAPER_DETAIL_TIMEOUT_MS = 8000;
 // ASK-PLAIN-1: the corrective rewrite starts only within PLAIN_RETRY_BEFORE_MS of the request and is bounded by PLAIN_RETRY_MS, so the first
 // (checked) answer is always still sent inside ASK_TOTAL_MS.
 var PLAIN_RETRY_BEFORE_MS = 110000, PLAIN_RETRY_MS = 30000;
@@ -738,7 +739,7 @@ async function retrieve(env, query, cfg) {
     var c = cat && cat.bySlug.get(g.slug);
     var catMeta = c && c.abstract ? { slug: c.slug, title: c.title, doi: c.doi, abstract: c.abstract } : null;
     if (i < cfg.max_sources && stubOnly(g) && stubReads++ < 1) {
-      return deadline(pinPaper(env, g.slug, query), 7000, "body-" + g.slug).then(function (p) {
+      return deadline(pinPaper(env, g.slug, query), PAPER_DETAIL_TIMEOUT_MS + 1000, "body-" + g.slug).then(function (p) {
         if (p && p.excerpt && p.excerpt.length > stubLength(g)) { g.chunks = [p.excerpt]; g.stubs = 0; g.body = true; }
         return p || catMeta;
       }, function (e) { logErr("source-voice body " + g.slug, e); return catMeta; });
@@ -928,7 +929,7 @@ function plainRewriteRequest(rep) {
 // PAPER-PIN-1: the paper a visitor is reading on papers.qnfo.org, as source [1]: its abstract plus the sections of its
 // body that share most terms with the question (the gateway's JSON detail route; published papers only).
 async function pinPaper(env, slug, query) {
-  var p = await up(env, "GATEWAY", UP.papers, "/papers/" + encodeURIComponent(slug), null, 8000);
+  var p = await up(env, "GATEWAY", UP.papers, "/papers/" + encodeURIComponent(slug), null, PAPER_DETAIL_TIMEOUT_MS);
   if (!p || !p.slug || !p.title) return null;
   var body = String(p.body_md || "").replace(/^---[\s\S]*?---\s*/, "");
   // Sections split at level-1 to level-3 headings (some papers number their sections as '# 6.'), and words compared on a
