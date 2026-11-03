@@ -27,9 +27,10 @@ if (a < 0 || b < 0 || b < a) {
 }
 const sandbox = { VERSION: "0.0.0-test", timedFetch: null, b64encode: null, charterOne: null, charterRows: null, console, Date, Math, JSON, Number, String, Object, Array, RegExp, isNaN, TextDecoder, atob, __export: null };
 vm.createContext(sandbox);
-vm.runInContext(src.slice(a, b + END.length) + "\n__export = { pfTier, pfHygiene, pfEvaluate, pfRenderDocBlock, pfRenderPublic, pfRenderReadmeBlock, pfSplice, pfSpliceOrBootstrap, PF_BEGIN, PF_END, PF_README_ANCHOR, PF_TIER_ORDER, pfWbsHint, pfTopicsFor, pfDescriptionFromReadme, pfHygienePlan, PF_HYGIENE_MAX, pfNeedsSync, PF_STALE_H, pfScrubProfile, PF_PROFILE_SCRUB, pfIsMetadata };", sandbox, { filename: "portfolio-block.js" });
+vm.runInContext(src.slice(a, b + END.length) + "\n__export = { pfTier, pfHygiene, pfEvaluate, pfRenderDocBlock, pfRenderPublic, pfRenderReadmeBlock, pfSplice, pfSpliceOrBootstrap, PF_BEGIN, PF_END, PF_README_ANCHOR, PF_TIER_ORDER, pfWbsHint, pfTopicsFor, pfDescriptionFromReadme, pfHygienePlan, PF_HYGIENE_MAX, pfNeedsSync, PF_STALE_H, pfScrubProfile, PF_PROFILE_SCRUB, pfIsMetadata, pfStandards, pfStandardsSummary, pfUnpinnedUses, pfLicenseVersion, pfStaleLicenseRef, pfCredentialMatchCount, pfCodeqlSetupFailed, pfPureMirrorCandidates, PF_STANDARD_FLAGS };", sandbox, { filename: "portfolio-block.js" });
 const P = sandbox.__export;
 const fx = JSON.parse(readFileSync(join(here, "portfolio.fixture.json"), "utf8"));
+const standardsFixture = JSON.parse(readFileSync(join(here, "portfolio-standards.fixture.json"), "utf8"));
 const NOW = "2026-10-01T12:00:00.000Z";
 
 let passed = 0, failed = 0;
@@ -79,6 +80,34 @@ ok(ev.rows.findIndex((r) => r.tier === "archived") > ev.rows.findIndex((r) => r.
 const ev0 = P.pfEvaluate([], [], NOW);
 eq(ev0.total, 0, "empty organisation evaluates without throwing");
 eq(ev0.hygiene_score, null, "empty organisation has no hygiene score");
+
+// --- PORTFOLIO-STANDARDS-1 --------------------------------------------------
+const standardRepos = standardsFixture.repos.map((r) => Object.assign({ description: "fixture", license: "MIT", topics: ["qnfo"], pushed_at: NOW }, r));
+const standardEv = P.pfEvaluate(standardRepos, [], NOW);
+for (const [repo, flag] of [
+  ["standards-no-security", "no-security-policy"],
+  ["standards-unpinned", "actions-unpinned"],
+  ["standards-no-dependabot", "no-dependabot"],
+  ["standards-stale-license", "stale-license-ref"],
+  ["standards-credential", "committed-credential"],
+  ["standards-pure-mirror", "fork-pure-mirror"],
+  ["standards-fork-actions", "fork-actions-enabled"],
+  ["standards-codeql-failed", "codeql-setup-failed"]
+]) ok(standardEv.rows.find((r) => r.name === repo).standards.flags.includes(flag), `${flag} grades from the fixture`);
+eq(standardEv.rows.find((r) => r.name === "standards-unpinned").standards.counts["actions-unpinned"], 1, "only root workflow uses without a 40-character SHA are counted");
+eq(standardEv.standards.counts["committed-credential"], 2, "credential alerts are represented as a count");
+eq(standardEv.rows.find((r) => r.name === "standards-codeql-recovered").standards.flags.includes("codeql-setup-failed"), false, "later CodeQL success clears the failure flag");
+eq(P.pfLicenseVersion("QNFO Unified License Agreement v2.1"), "2.1", "canonical license version is parsed");
+eq(P.pfStaleLicenseRef("QNFO-ULA v2.0", "2.1"), true, "an older QNFO license reference is flagged");
+eq(P.pfStaleLicenseRef("QNFO-ULA v2.1", "2.1"), false, "the current QNFO license reference is not flagged");
+eq(P.pfCredentialMatchCount([["AKIA", "A".repeat(16)].join("")]), 1, "default-branch credential patterns are counted without returning their values");
+eq(standardEv.hygiene_score, 1, "standards flags do not affect the existing hygiene score");
+eq(standardEv.standards.available, true, "standards summary is available for a complete fixture");
+eq(P.pfPureMirrorCandidates(standardEv).join(","), "standards-pure-mirror", "pure mirrors are proposed without including other forks");
+const standardsPublic = P.pfRenderPublic(standardEv);
+ok(standardsPublic.includes("### Standards (reported separately; not included in the hygiene score)"), "public mirror includes standards summary");
+ok(!standardsPublic.includes("private-standard-repository"), "private repository is never named in the standards render");
+ok(!standardsPublic.includes("AKIA") && !standardsPublic.includes(".github/workflows"), "public standards output contains no credential value or path");
 
 // --- renders never name a private repository ---------------------------------
 const doc = P.pfRenderDocBlock(ev);

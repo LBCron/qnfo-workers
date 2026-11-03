@@ -1,0 +1,170 @@
+{
+  "license_version": "2.1",
+  "repos": [
+    {
+      "name": "standards-no-security",
+      "visibility": "public",
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": false,
+        "actions_enabled": false,
+        "has_root_workflows": false,
+        "has_dependabot": false,
+        "workflow_files": [],
+        "readme": "",
+        "license_version": "2.1",
+        "secret_alert_count": 0,
+        "status_check_state": "SUCCESS",
+        "codeql_runs": []
+      }
+    },
+    {
+      "name": "standards-unpinned",
+      "visibility": "public",
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": true,
+        "actions_enabled": false,
+        "has_root_workflows": true,
+        "has_dependabot": true,
+        "workflow_files": [
+          { "name": "ci.yml", "type": "blob", "text": "steps:\n  - uses: actions/checkout@v4\n  - uses: sample/action@0123456789abcdef0123456789abcdef01234567\n" },
+          { "name": "nested", "type": "tree", "text": "uses: sample/nested@v1\n" }
+        ],
+        "readme": "",
+        "license_version": "2.1",
+        "secret_alert_count": 0,
+        "status_check_state": "SUCCESS",
+        "codeql_runs": []
+      }
+    },
+    {
+      "name": "standards-no-dependabot",
+      "visibility": "public",
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": true,
+        "actions_enabled": false,
+        "has_root_workflows": true,
+        "has_dependabot": false,
+        "workflow_files": [{ "name": "ci.yaml", "type": "blob", "text": "name: CI\n" }],
+        "readme": "",
+        "license_version": "2.1",
+        "secret_alert_count": 0,
+        "status_check_state": "SUCCESS",
+        "codeql_runs": []
+      }
+    },
+    {
+      "name": "standards-stale-license",
+      "visibility": "public",
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": true,
+        "actions_enabled": false,
+        "has_root_workflows": false,
+        "has_dependabot": false,
+        "workflow_files": [],
+        "readme": "Licensed under the QNFO Unified License Agreement v2.0.",
+        "license_version": "2.1",
+        "secret_alert_count": 0,
+        "status_check_state": "SUCCESS",
+        "codeql_runs": []
+      }
+    },
+    {
+      "name": "standards-credential",
+      "visibility": "public",
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": true,
+        "actions_enabled": false,
+        "has_root_workflows": false,
+        "has_dependabot": false,
+        "workflow_files": [],
+        "readme": "",
+        "license_version": "2.1",
+        "secret_alert_count": 2,
+        "status_check_state": "SUCCESS",
+        "codeql_runs": []
+      }
+    },
+    {
+      "name": "standards-pure-mirror",
+      "visibility": "public",
+      "fork": true,
+      "standard_data": {
+        "available": true,
+        "fork_pure_mirror": true,
+        "actions_enabled": false
+      }
+    },
+    {
+      "name": "standards-fork-actions",
+      "visibility": "public",
+      "fork": true,
+      "standard_data": {
+        "available": true,
+        "fork_pure_mirror": false,
+        "actions_enabled": true
+      }
+    },
+    {
+      "name": "standards-codeql-failed",
+      "visibility": "public",
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": true,
+        "actions_enabled": false,
+        "has_root_workflows": false,
+        "has_dependabot": false,
+        "workflow_files": [],
+        "readme": "",
+        "license_version": "2.1",
+        "secret_alert_count": 0,
+        "status_check_state": "FAILURE",
+        "codeql_runs": [
+          { "name": "CodeQL", "conclusion": "FAILURE", "completed_at": "2026-11-02T00:00:00Z", "workflow_path": ".github/workflows/codeql.yml" }
+        ]
+      }
+    },
+    {
+      "name": "standards-codeql-recovered",
+      "visibility": "public",
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": true,
+        "actions_enabled": false,
+        "has_root_workflows": false,
+        "has_dependabot": false,
+        "workflow_files": [],
+        "readme": "",
+        "license_version": "2.1",
+        "secret_alert_count": 0,
+        "status_check_state": "SUCCESS",
+        "codeql_runs": [
+          { "name": "CodeQL", "conclusion": "FAILURE", "completed_at": "2026-11-01T00:00:00Z", "workflow_path": ".github/workflows/codeql.yml" },
+          { "name": "CodeQL", "conclusion": "SUCCESS", "completed_at": "2026-11-02T00:00:00Z", "workflow_path": ".github/workflows/codeql.yml" }
+        ]
+      }
+    },
+    {
+      "name": "private-standard-repository",
+      "visibility": "private",
+      "private": true,
+      "standard_data": {
+        "available": true,
+        "security_policy_enabled": false,
+        "actions_enabled": true,
+        "has_root_workflows": true,
+        "has_dependabot": false,
+        "workflow_files": [{ "name": "ci.yml", "type": "blob", "text": "uses: actions/checkout@v4\n" }],
+        "readme": "QNFO-ULA v1.0",
+        "license_version": "2.1",
+        "secret_alert_count": 4,
+        "status_check_state": "FAILURE",
+        "codeql_runs": [{ "name": "CodeQL", "conclusion": "FAILURE", "completed_at": "2026-11-02T00:00:00Z" }]
+      }
+    }
+  ]
+}

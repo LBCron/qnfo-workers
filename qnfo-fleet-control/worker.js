@@ -7464,6 +7464,90 @@ function pfDays(iso, nowMs) {
   var t = Date.parse(iso || "");
   return isNaN(t) ? null : Math.floor((nowMs - t) / 86400000);
 }
+var PF_STANDARD_FLAGS = ["no-security-policy", "actions-unpinned", "no-dependabot", "stale-license-ref", "committed-credential", "fork-pure-mirror", "fork-actions-enabled", "codeql-setup-failed"];
+function pfUnpinnedUses(workflows) {
+  var count = 0;
+  (workflows || []).forEach(function(f) {
+    if (!f || f.type !== "blob" || !/\.(?:ya?ml)$/i.test(String(f.name || ""))) return;
+    String(f.text || "").split(/\r?\n/).forEach(function(line) {
+      var m = line.match(/^\s*uses\s*:\s*['"]?([^\s'"#]+)/i);
+      if (m && !/@[a-f0-9]{40}$/i.test(m[1])) count++;
+    });
+  });
+  return count;
+}
+function pfLicenseVersion(text) {
+  var m = String(text || "").match(/(?:QNFO\s+(?:Unified\s+)?License(?:\s+Agreement)?|QNFO-ULA|LicenseRef-QNFO-ULA)[^\n]{0,100}?\bv(?:ersion\s*)?(\d+(?:\.\d+)+)\b/i);
+  return m ? m[1] : null;
+}
+function pfVersionIsOlder(a, b) {
+  if (!a || !b) return false;
+  var av = String(a).split(".").map(Number), bv = String(b).split(".").map(Number);
+  for (var i = 0; i < Math.max(av.length, bv.length); i++) {
+    var x = av[i] || 0, y = bv[i] || 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+function pfStaleLicenseRef(readme, currentVersion) {
+  var re = /(?:QNFO\s+(?:Unified\s+)?License(?:\s+Agreement)?|QNFO-ULA|LicenseRef-QNFO-ULA)[^\n]{0,100}?\bv(?:ersion\s*)?(\d+(?:\.\d+)+)\b/gi, m;
+  while ((m = re.exec(String(readme || "")))) if (pfVersionIsOlder(m[1], currentVersion)) return true;
+  return false;
+}
+function pfCredentialMatchCount(texts) {
+  var found = {};
+  (texts || []).forEach(function(text) {
+    var s = String(text || ""), patterns = [/gh[pousr]_[A-Za-z0-9]{20,}/g, /github_pat_[A-Za-z0-9_]{20,}/g, /AKIA[0-9A-Z]{16}/g, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g];
+    patterns.forEach(function(re) { var m; while ((m = re.exec(s))) found[m[0]] = true; });
+  });
+  return Object.keys(found).length;
+}
+function pfCodeqlSetupFailed(state, runs) {
+  if (state !== "FAILURE") return false;
+  var codeql = (runs || []).filter(function(r) {
+    var label = [r && r.name, r && r.workflow_name, r && r.workflow_path].join(" ").toLowerCase();
+    return label.indexOf("codeql") >= 0;
+  }).sort(function(a, b) { return String(b.completed_at || b.started_at || "").localeCompare(String(a.completed_at || a.started_at || "")); });
+  return !!(codeql.length && String(codeql[0].conclusion || "").toUpperCase() !== "SUCCESS" && String(codeql[0].conclusion || "").toUpperCase() !== "SKIPPED");
+}
+function pfStandards(r, tier) {
+  var d = r && r.standard_data;
+  if (!d || d.available !== true || r.visibility === "private" || r.private === true) return null;
+  var flags = [], counts = {};
+  if (tier === "fork") {
+    if (d.fork_pure_mirror === true) flags.push("fork-pure-mirror");
+    if (d.actions_enabled === true) flags.push("fork-actions-enabled");
+  } else if (tier !== "archived" && tier !== "client-config") {
+    if (d.security_policy_enabled === false) flags.push("no-security-policy");
+    counts["actions-unpinned"] = pfUnpinnedUses(d.workflow_files);
+    if (counts["actions-unpinned"] > 0) flags.push("actions-unpinned");
+    if (d.has_root_workflows === true && d.has_dependabot !== true) flags.push("no-dependabot");
+    if (pfStaleLicenseRef(d.readme, d.license_version)) flags.push("stale-license-ref");
+    counts["committed-credential"] = Math.max(Number(d.secret_alert_count || 0), pfCredentialMatchCount([d.readme].concat((d.workflow_files || []).map(function(f) { return f.text || ""; }))));
+    if (counts["committed-credential"] > 0) flags.push("committed-credential");
+    if (pfCodeqlSetupFailed(d.status_check_state, d.codeql_runs)) flags.push("codeql-setup-failed");
+  }
+  return { flags: flags, counts: counts };
+}
+function pfStandardsSummary(rows) {
+  var counts = {}, unknown = 0, repositories = 0;
+  PF_STANDARD_FLAGS.forEach(function(f) { counts[f] = 0; });
+  (rows || []).forEach(function(r) {
+    if (r.visibility !== "public" || r.tier === "archived" || r.tier === "client-config") return;
+    repositories++;
+    if (!r.standards) { unknown++; return; }
+    r.standards.flags.forEach(function(f) {
+      if (f === "actions-unpinned" || f === "committed-credential") counts[f] += Number(r.standards.counts[f] || 0);
+      else counts[f]++;
+    });
+  });
+  return { available: unknown === 0, repositories: repositories, counts: unknown ? null : counts };
+}
+function pfPureMirrorCandidates(ev) {
+  return (ev && ev.rows || []).filter(function(r) {
+    return r.visibility === "public" && r.fork && r.standards && r.standards.flags.indexOf("fork-pure-mirror") >= 0;
+  }).map(function(r) { return r.name; });
+}
 function pfHygiene(r, tier, nowMs) {
   var flags = [];
   if (tier === "archived" || tier === "fork") return flags;
@@ -7501,7 +7585,7 @@ function pfEvaluate(repos, wbsRows, nowIso) {
       archived: !!r.archived, fork: !!r.fork, description: r.description || "", license: r.license || null, topics: r.topics || [],
       homepage: r.homepage || null, language: r.language || null, pushed_at: r.pushed_at || null, has_pages: !!r.has_pages,
       open_issues: Number(r.open_issues_count || r.open_issues || 0), stars: Number(r.stargazers_count || r.stars || 0),
-      wbs: wbsOf(r), flags: pfHygiene(r, tier, nowMs), days_since_push: pfDays(r.pushed_at, nowMs)
+      wbs: wbsOf(r), flags: pfHygiene(r, tier, nowMs), standards: pfStandards(r, tier), days_since_push: pfDays(r.pushed_at, nowMs)
     };
   });
   rows.sort(function(a, b) { return PF_TIER_ORDER.indexOf(a.tier) - PF_TIER_ORDER.indexOf(b.tier) || String(b.pushed_at || "").localeCompare(String(a.pushed_at || "")); });
@@ -7522,7 +7606,8 @@ function pfEvaluate(repos, wbsRows, nowIso) {
     ts: nowIso || new Date().toISOString(), total: rows.length, private_count: priv, tiers: tiers, pillars: pillars, rows: rows,
     graded: graded.length, hygiene_score: graded.length ? Math.round(100 * clean / graded.length) / 100 : null,
     dormant: dormant.map(function(r) { return r.name; }), unlinked_research: unlinked.map(function(r) { return r.name; }),
-    archive_candidates: candidates.map(function(r) { return r.name; }), wbs_linked: Object.keys(linkedWbs).length, wbs_total: (wbsRows || []).length
+    archive_candidates: candidates.map(function(r) { return r.name; }), wbs_linked: Object.keys(linkedWbs).length, wbs_total: (wbsRows || []).length,
+    standards: pfStandardsSummary(rows)
   };
 }
 function pfCell(s) { return String(s === null || s === void 0 ? "" : s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " "); }
@@ -7551,6 +7636,15 @@ function pfRenderBody(ev) {
   L.push("| Dormant graded repositories (no push for " + PF_DORMANT_DAYS + "+ days) | " + ev.dormant.length + " |");
   L.push("| Research repositories with no WBS program code | " + ev.unlinked_research.length + " |");
   L.push("| WBS codes linked to a repository | " + ev.wbs_linked + " of " + ev.wbs_total + " in program_registry |");
+  L.push("");
+  L.push("### Standards (reported separately; not included in the hygiene score)");
+  L.push("");
+  if (!ev.standards || !ev.standards.available) L.push("Standards data unavailable; counts are not reported as zero.");
+  else {
+    L.push("| Flag | Count |");
+    L.push("|---|---:|");
+    PF_STANDARD_FLAGS.forEach(function(f) { L.push("| " + f + " | " + Number(ev.standards.counts[f] || 0) + " |"); });
+  }
   L.push("");
   L.push("### Tiers");
   L.push("");
@@ -7673,6 +7767,76 @@ async function pfSchema(env) {
 function pfGh(env) {
   return { "Authorization": "Bearer " + env.GITHUB_TOKEN, "User-Agent": "qnfo-fleet-control/portfolio", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
 }
+var PF_GRAPHQL_PAGE_SIZE = 20;
+var PF_STANDARDS_QUERY = "query PortfolioStandards($after: String, $first: Int!) {" +
+  " organization(login: \"QNFO\") {" +
+  "  repositories(first: $first, after: $after, privacy: PUBLIC, isArchived: false, orderBy: {field: NAME, direction: ASC}) {" +
+  "   pageInfo { hasNextPage endCursor } nodes {" +
+  "    name isFork isSecurityPolicyEnabled hasActionsEnabled" +
+  "    defaultBranchRef { target { ... on Commit { oid statusCheckRollup { state checkRuns(first: 100, orderBy: {field: STARTED_AT, direction: DESC}) { nodes { name conclusion startedAt completedAt workflowRun { workflow { name path } } } } } } } }" +
+  "    parent { defaultBranchRef { target { ... on Commit { oid } } } }" +
+  "    readme: object(expression: \"HEAD:README.md\") { ... on Blob { text } }" +
+  "    github: object(expression: \"HEAD:.github\") { ... on Tree { entries { name type } } }" +
+  "    workflows: object(expression: \"HEAD:.github/workflows\") { ... on Tree { entries { name type object { ... on Blob { text } } } } }" +
+  "    secretScanningAlerts(first: 1, states: [OPEN]) { totalCount }" +
+  "   }" +
+  "  }" +
+  "  licenseRepository: repository(name: \"license\") { object(expression: \"HEAD:LICENSE\") { ... on Blob { text } } }" +
+  " }" +
+ "}";
+async function pfFetchStandards(env) {
+  var byName = {}, after = null, licenseVersion = null, pages = 0;
+  while (pages++ < 10) {
+    var response = await timedFetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: pfGh(env),
+      body: JSON.stringify({ query: PF_STANDARDS_QUERY, variables: { after: after, first: PF_GRAPHQL_PAGE_SIZE } })
+    }, 20e3);
+    if (response.status !== 200) return { ok: false, by_name: {}, note: "GraphQL settings query HTTP " + response.status };
+    var payload = await response.json().catch(function() { return null; });
+    if (!payload || payload.errors || !payload.data || !payload.data.organization) return { ok: false, by_name: {}, note: "GraphQL settings query failed" };
+    var org = payload.data.organization, connection = org.repositories;
+    if (licenseVersion === null) licenseVersion = pfLicenseVersion(org.licenseRepository && org.licenseRepository.object && org.licenseRepository.object.text);
+    if (!connection || !Array.isArray(connection.nodes)) return { ok: false, by_name: {}, note: "GraphQL repository page unreadable" };
+    connection.nodes.forEach(function(node) {
+      var rollup = node.defaultBranchRef && node.defaultBranchRef.target && node.defaultBranchRef.target.statusCheckRollup || {};
+      var workflows = node.workflows && node.workflows.entries || [];
+      var workflowFiles = workflows.filter(function(f) { return String(f.type || "").toLowerCase() === "blob" && /\.(?:ya?ml)$/i.test(String(f.name || "")); }).map(function(f) { return { name: f.name, type: f.type, text: f.object && f.object.text || "" }; });
+      var githubEntries = node.github && node.github.entries || [];
+      var dependabot = githubEntries.some(function(f) { return String(f.type || "").toLowerCase() === "blob" && /^dependabot\.ya?ml$/i.test(String(f.name || "")); });
+      var ownOid = node.defaultBranchRef && node.defaultBranchRef.target && node.defaultBranchRef.target.oid;
+      var parentOid = node.parent && node.parent.defaultBranchRef && node.parent.defaultBranchRef.target && node.parent.defaultBranchRef.target.oid;
+      var runs = rollup.checkRuns && rollup.checkRuns.nodes || [];
+      byName[node.name] = {
+        available: true,
+        security_policy_enabled: node.isSecurityPolicyEnabled === true,
+        actions_enabled: node.hasActionsEnabled === true,
+        has_root_workflows: workflowFiles.length > 0,
+        has_dependabot: dependabot,
+        workflow_files: workflowFiles,
+        readme: node.readme && node.readme.text || "",
+        license_version: licenseVersion,
+        secret_alert_count: node.secretScanningAlerts && node.secretScanningAlerts.totalCount || 0,
+        status_check_state: rollup.state || null,
+        codeql_runs: runs.map(function(run) {
+          return {
+            name: run.name || "",
+            conclusion: run.conclusion || "",
+            started_at: run.startedAt || "",
+            completed_at: run.completedAt || "",
+            workflow_name: run.workflowRun && run.workflowRun.workflow && run.workflowRun.workflow.name || "",
+            workflow_path: run.workflowRun && run.workflowRun.workflow && run.workflowRun.workflow.path || ""
+          };
+        }),
+        fork_pure_mirror: !!(node.isFork && ownOid && parentOid && ownOid === parentOid)
+      };
+    });
+    if (!connection.pageInfo || !connection.pageInfo.hasNextPage) break;
+    after = connection.pageInfo.endCursor;
+  }
+  if (pages > 10) return { ok: false, by_name: {}, note: "GraphQL settings page limit exceeded" };
+  return { ok: !!licenseVersion, by_name: licenseVersion ? byName : {}, note: licenseVersion ? "ok" : "canonical license version unavailable" };
+}
 async function pfFetchOrg(env) {
   var out = [];
   for (var page = 1; page <= 5; page++) {
@@ -7685,7 +7849,12 @@ async function pfFetchOrg(env) {
     });
     if (j.length < 100) break;
   }
-  return { ok: out.length > 0, note: out.length ? "ok" : "empty listing", repos: out };
+  if (!out.length) return { ok: false, note: "empty listing", repos: out };
+  var standards = await pfFetchStandards(env);
+  out.forEach(function(repo) {
+    if (repo.visibility === "public" && !repo.archived) repo.standard_data = standards.ok ? standards.by_name[repo.name] || { available: false } : { available: false };
+  });
+  return { ok: true, note: standards.ok ? "ok" : "ok; standards unavailable", repos: out, standards_available: standards.ok };
 }
 async function pfWbs(env) {
   if (!env.PORTFOLIO) return { ok: false, rows: [], note: "no PORTFOLIO (portfolio-state) binding" };
@@ -7699,7 +7868,7 @@ async function pfUpsert(env, ev) {
   var now = ev.ts, stmts = [];
   ev.rows.forEach(function(r) {
     stmts.push(env.AUDIT.prepare("INSERT INTO portfolio_repos (name, full_name, tier, pillar, visibility, archived, fork, description, license, topics, homepage, language, pushed_at, created_at, has_pages, open_issues, stars, wbs, flags, seen, synced_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,1,?20) ON CONFLICT(name) DO UPDATE SET full_name=excluded.full_name, tier=excluded.tier, pillar=excluded.pillar, visibility=excluded.visibility, archived=excluded.archived, fork=excluded.fork, description=excluded.description, license=excluded.license, topics=excluded.topics, homepage=excluded.homepage, language=excluded.language, pushed_at=excluded.pushed_at, created_at=excluded.created_at, has_pages=excluded.has_pages, open_issues=excluded.open_issues, stars=excluded.stars, wbs=excluded.wbs, flags=excluded.flags, seen=1, synced_at=excluded.synced_at")
-      .bind(r.name, PF_ORG + "/" + r.name, r.tier, r.pillar, r.visibility, r.archived ? 1 : 0, r.fork ? 1 : 0, r.description.slice(0, 400), r.license, JSON.stringify(r.topics), r.homepage, r.language, r.pushed_at, null, r.has_pages ? 1 : 0, r.open_issues, r.stars, r.wbs.join(","), r.flags.join(","), now));
+      .bind(r.name, PF_ORG + "/" + r.name, r.tier, r.pillar, r.visibility, r.archived ? 1 : 0, r.fork ? 1 : 0, r.description.slice(0, 400), r.license, JSON.stringify(r.topics), r.homepage, r.language, r.pushed_at, null, r.has_pages ? 1 : 0, r.open_issues, r.stars, r.wbs.join(","), JSON.stringify({ hygiene: r.flags, standards: r.standards }), now));
   });
   for (var i = 0; i < stmts.length; i += 40) await env.AUDIT.batch(stmts.slice(i, i + 40));
   await env.AUDIT.prepare("UPDATE portfolio_repos SET seen=0 WHERE synced_at IS NULL OR synced_at <> ?1").bind(now).run();
@@ -7780,7 +7949,7 @@ async function portfolioSync(env, force) {
   actions = actions.filter(function(a) { return a.status !== "unchanged"; });
   ev.actions = actions;
   try { await env.AUDIT.prepare("INSERT INTO portfolio_sync_runs (ts, repos, hygiene, status, note, writes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(ev.ts, ev.total, ev.hygiene_score, status, "kernel " + VERSION + "; wbs:" + wbs.note + "; dormant " + ev.dormant.length + "; unlinked " + ev.unlinked_research.length + "; actions " + actions.length + " (" + done + " committed)", JSON.stringify(writes).slice(0, 1500)).run(); } catch (e) { console.error(JSON.stringify({ evt: "fleet-control:portfolioSync:caught", error: String(e && e.message) })); }
-  return { ok: true, status: status, ts: ev.ts, repos: ev.total, tiers: ev.tiers, hygiene: ev.hygiene_score, wbs: wbs.note, writes: writes, actions: actions, ms: Date.now() - t0 };
+  return { ok: true, status: status, ts: ev.ts, repos: ev.total, tiers: ev.tiers, hygiene: ev.hygiene_score, standards: ev.standards, wbs: wbs.note, writes: writes, actions: actions, ms: Date.now() - t0 };
 }
 // PARTIAL-RETRY-1: a run that left a surface unwritten (partial) is retried on the next hourly tick, not after 20h;
 // a fully written run (ok) holds for PF_STALE_H. The writes are idempotent (unchanged content is a no-op), so an
@@ -7811,9 +7980,31 @@ async function portfolioLatest(env) {
   var rows = await charterRows(env, "SELECT name, tier, pillar, visibility, archived, fork, description, license, topics, homepage, pushed_at, wbs, flags, seen, synced_at FROM portfolio_repos WHERE seen=1 ORDER BY tier, pushed_at DESC");
   var run = await charterOne(env, "SELECT ts, repos, hygiene, status, note, writes FROM portfolio_sync_runs ORDER BY id DESC LIMIT 1");
   var acts = await charterRows(env, "SELECT ts, repo, action, status, detail FROM portfolio_actions ORDER BY id DESC LIMIT 40");
+  var privateNames = rows.filter(function(r) { return r.visibility === "private"; }).map(function(r) { return String(r.name || ""); }).filter(Boolean);
+  acts = acts.filter(function(a) {
+    var text = String(a.repo || "") + " " + String(a.detail || "");
+    return !privateNames.some(function(name) { return text.indexOf(name) >= 0; });
+  });
   var tiers = {};
   rows.forEach(function(r) { tiers[r.tier] = (tiers[r.tier] || 0) + 1; });
-  return { last_run: run, repos: rows.length, tiers: tiers, actions: acts, rows: rows.map(function(r) { if (r.visibility === "private") return { name: "(private)", tier: r.tier, pillar: r.pillar, visibility: "private" }; r.topics = JSON.parse(r.topics || "[]"); r.wbs = r.wbs ? r.wbs.split(",") : []; r.flags = r.flags ? r.flags.split(",") : []; return r; }) };
+  var decoded = rows.map(function(r) {
+    var stored = null;
+    try { stored = JSON.parse(r.flags || ""); } catch (e) { stored = null; }
+    if (stored && Array.isArray(stored.hygiene)) { r.flags = stored.hygiene; r.standards = stored.standards || null; }
+    else { r.flags = r.flags ? r.flags.split(",") : []; r.standards = null; }
+    r.topics = JSON.parse(r.topics || "[]");
+    r.wbs = r.wbs ? r.wbs.split(",") : [];
+    return r;
+  });
+  var standards = pfStandardsSummary(decoded);
+  return {
+    last_run: run, repos: rows.length, tiers: tiers, actions: acts, standards: standards,
+    rows: decoded.map(function(r) {
+      if (r.visibility === "private") return { name: "(private)", tier: r.tier, pillar: r.pillar, visibility: "private" };
+      delete r.standards;
+      return r;
+    })
+  };
 }
 // ---- PORTFOLIO-HYGIENE-1 (2026-10-01, pillar autonomy) ----
 // The first live register (hygiene 0.08: 32 of 39 graded public repositories lacked a licence file, a description or
@@ -8031,6 +8222,20 @@ async function pfHygieneApply(env, ev, wbsRows) {
     out.push({ repo: a.repo, action: a.action, status: res.status, note: res.note || "" });
     if (res.status === "unchanged") continue;
     try { await env.AUDIT.prepare("INSERT INTO portfolio_actions (ts, repo, action, status, detail) VALUES (?1, ?2, ?3, ?4, ?5)").bind(ev.ts, a.repo, a.action, res.status, String(res.note || "").slice(0, 300)).run(); } catch (e2) { console.error(JSON.stringify({ evt: "fleet-control:pfHygieneApply:caught", error: String(e2 && e2.message) })); }
+  }
+  var mirrors = pfPureMirrorCandidates(ev), proposed = {};
+  try {
+    var pending = await charterRows(env, "SELECT repo FROM portfolio_actions WHERE action = 'archive-request' AND status IN ('proposed','requested','committed')");
+    pending.forEach(function(r) { proposed[String(r.repo || "").replace(/^QNFO\//, "")] = true; });
+  } catch (e3) { mirrors = []; }
+  for (var m = 0; m < mirrors.length; m++) {
+    var mirror = mirrors[m];
+    if (proposed[mirror]) continue;
+    var detail = "pure mirror of upstream; archive request proposed only, no repository setting changed";
+    try {
+      await env.AUDIT.prepare("INSERT INTO portfolio_actions (ts, repo, action, status, detail) VALUES (?1, ?2, 'archive-request', 'proposed', ?3)").bind(ev.ts, mirror, detail).run();
+      out.push({ repo: mirror, action: "archive-request", status: "proposed", note: detail });
+    } catch (e4) { console.error(JSON.stringify({ evt: "fleet-control:pfHygieneApply:caught", error: String(e4 && e4.message) })); }
   }
   // PORTFOLIO-ARCHIVE-1 (0.5.0, REPO-ARCHIVE-1 agent_issues 2045): an explicit archive request is executed here. A session
   // cannot archive a repository (its GitHub proxy refuses repository settings writes: HTTP 403 on 2026-10-06), so
@@ -11489,6 +11694,7 @@ var worker_default2 = {
     if (p === "/portfolio.md" && request.method === "GET") {
       var pl = await portfolioLatest(env);
       var pev = pfEvaluate(pl.rows.filter(function(r) { return r.name !== "(private)"; }).map(function(r) { return { name: r.name, description: r.description, visibility: r.visibility, archived: !!r.archived, fork: !!r.fork, pushed_at: r.pushed_at, topics: r.topics, license: r.license, homepage: r.homepage }; }), [], new Date().toISOString());
+      pev.standards = pl.standards;
       return new Response(pfRenderDocBlock(pev), { status: 200, headers: { "Content-Type": "text/markdown; charset=utf-8" } });
     }
     if (p === "/portfolio/sync" && request.method === "POST") {
