@@ -32,9 +32,11 @@ import { createMcpHandler } from "agents/mcp/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { DynamicWorkerExecutor } from "@cloudflare/codemode";
 import { createCodeTool } from "@cloudflare/codemode/ai";
+import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
+import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, lastStepText, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute } from "./lib.js";
+import { callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, lastStepText, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
 declare var VERSION: string;
@@ -49,6 +51,7 @@ const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 const STEP_TIMEOUT_MS = 3 * 60 * 1000;
 const FINAL_ANSWER_TIMEOUT_MS = 2 * 60 * 1000;
 const STALE_RUN_MIN = 20;
+const APPROVED_SEND_EMAIL = Symbol("approved-send-email");
 
 type Scope = "public" | "read" | "write" | "loop";
 const REQUEST_STALE_MIN = 30;
@@ -118,8 +121,9 @@ async function opsTools(env: Env): Promise<Array<{ name: string; description: st
     return tools;
   } catch (e) { logErr("opsTools", e); return opsCatalog ? opsCatalog.tools : []; }
 }
-async function opsCall(env: Env, scope: Scope, name: string, args: unknown): Promise<any> {
+async function opsCall(env: Env, scope: Scope, name: string, args: unknown, approval?: typeof APPROVED_SEND_EMAIL): Promise<any> {
   if (!opsToolAllowed(name, scope)) return { ok: false, error: "'" + name + "' changes the fleet: it needs the write scope (on the console: cfagent! <request>, which asks for a fresh code)" };
+  if (name === "send_email" && approval !== APPROVED_SEND_EMAIL) return { ok: false, error: "send_email requires the durable approval step; call codemode.ops_send_email" };
   try {
     const r = await env.OPS.fetch("https://qnfo-ops/v1/tools/call", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, arguments: args || {} }), signal: AbortSignal.timeout(120000) });
     const t = await r.text();
@@ -166,7 +170,7 @@ async function fileIssue(env: Env, input: { title: string; description: string; 
   } catch (e) { return { ok: false, error: errText(e) }; }
 }
 
-interface ToolCtx { env: Env; scope: Scope; caller: string; agent: FleetCodeAgent | null; proposals: any[] }
+interface ToolCtx { env: Env; scope: Scope; caller: string; agent: FleetCodeAgent | null; runId?: string; proposals: any[] }
 
 function directTools(c: ToolCtx): Record<string, any> {
   const t: Record<string, any> = {
@@ -236,9 +240,16 @@ async function codeModeTool(c: ToolCtx, direct: Record<string, any>) {
   for (const k of Object.keys(direct)) fns[k] = direct[k];
   for (const o of await opsTools(c.env)) {
     if (!opsToolAllowed(o.name, c.scope)) continue;
+    if (o.name === "send_email" && (!c.agent || !c.runId || c.scope !== "write")) continue;
     const n = safeToolName("ops_" + o.name);
     if (fns[n]) continue;
-    fns[n] = tool({ description: o.description, inputSchema: jsonSchema(o.parameters || { type: "object", properties: {} }) as any, execute: async (args: any) => opsCall(c.env, c.scope, o.name, args) });
+    fns[n] = tool({
+      description: o.name === "send_email" ? o.description + " This action pauses for explicit approval and resumes the same durable execution." : o.description,
+      inputSchema: jsonSchema(o.parameters || { type: "object", properties: {} }) as any,
+      execute: async (args: any) => o.name === "send_email"
+        ? c.agent!.sendEmail(args, c.runId!, c.caller)
+        : opsCall(c.env, c.scope, o.name, args)
+    });
   }
   const executor = new DynamicWorkerExecutor({ loader: c.env.LOADER, timeout: 120000, globalOutbound: null } as any);
   return createCodeTool({ tools: fns as any, executor, description: "Run JavaScript in an isolated sandbox. Inside it, every fleet tool is an async function on `codemode` (codemode.repo_read_file, codemode.fleet_sql, codemode.ops_<qnfo-ops tool>, ...). Use it to chain several calls, loop over results or compute; return the value you want back." } as any);
@@ -262,6 +273,7 @@ const SYSTEM = [
   "Work from evidence: read the code (repo_read_file, or codemode with ops_workspace_grep / ops_github_repo_read), the fleet graph (ops_fleet_graph impact before any change to a binding, table or route), and D1 (fleet_sql). Say what you read.",
   "Code changes go through the fleet's code loop: call propose_code_task with one file, the goal, and a verbatim anchor that occurs exactly once in that file. Never paste a patch as the only record.",
   "Use codemode when a task needs several tool calls, loops or computation. A tool that refuses (scope, guard, permission) is reported plainly with its reason; never retry it under another name.",
+  "send_email is the single identity-bound action gated by a durable approval: use codemode.ops_send_email, and never bypass it through ops_call.",
   "Never print a secret, token or key. Keep the final answer short: what you found, what you did, what is proposed, and what is open."
 ].join("\n");
 
@@ -291,6 +303,7 @@ async function ledger(env: Env, row: Record<string, unknown>) {
 
 export class FleetCodeAgent extends Agent<Env, State> {
   initialState: State = { runs: 0, last_run: null, last_status: null, version: VERSION };
+  private approvalWorkspace: Workspace | null = null;
 
   async onStart() {
     this.sql`CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, prompt TEXT, scope TEXT, caller TEXT, status TEXT, attempts INTEGER DEFAULT 0, model TEXT, steps INTEGER DEFAULT 0, tools_used TEXT, result TEXT, proposals TEXT, error TEXT, created_ms INTEGER, finished_ms INTEGER)`;
@@ -329,7 +342,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
     const id = ctx && ctx.stash && ctx.stash.id;
     if (!id) return;
     const r = this.row(id);
-    if (!r || r.status === "done" || r.status === "failed") return;
+    if (!r || r.status === "done" || r.status === "failed" || r.status === "awaiting_approval") return;
     if ((r.attempts || 0) >= 2) {
       this.sql`UPDATE runs SET status = 'failed', error = 'evicted twice mid-turn', finished_ms = ${Date.now()} WHERE id = ${id}`;
       return;
@@ -347,7 +360,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
     try {
       const m = await modelFor(this.env);
       modelId = m.id;
-      const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, proposals });
+      const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, runId: id, proposals });
       const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(MAX_STEPS), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
       result = String(out.text || "").trim() || lastStepText(out.steps);
       steps = Array.isArray(out.steps) ? out.steps.length : 0;
@@ -375,6 +388,116 @@ export class FleetCodeAgent extends Agent<Env, State> {
   listRuns(limit = 20) {
     const n = Math.max(1, Math.min(100, Number(limit) || 20));
     return this.sql`SELECT id, status, scope, caller, model, steps, tools_used, substr(prompt, 1, 160) AS prompt, substr(result, 1, 240) AS result, error, created_ms, finished_ms FROM runs ORDER BY created_ms DESC LIMIT ${n}`;
+  }
+
+  private async computerWorkspace(): Promise<Workspace> {
+    if (!this.approvalWorkspace) {
+      this.approvalWorkspace = new Workspace({
+        storage: this.ctx.storage,
+        backends: [new WorkerJavaScriptBackend({
+          loader: this.env.LOADER,
+          id: "worker-javascript",
+          onInterrupt: "replay",
+          modules: {
+            "codemode:approval": {
+              requestApproval: async ([input]: any[], call: any) => {
+                if (!input || input.action !== "send_email") throw new Error("unsupported approval action");
+                return emailApprovalGranted(await call.interrupt(input));
+              },
+              sendEmail: unsafeToRepeat(async ([input]: any[]) => {
+                const row = this.row(String(input && input.run_id || ""));
+                if (!row || row.scope !== "write" || row.caller !== input.caller || input.action !== "send_email") throw new Error("the approved email no longer matches its run");
+                const result = await opsCall(this.env, "write", "send_email", input.arguments, APPROVED_SEND_EMAIL);
+                if (!result || !result.ok) throw new Error(String(result && result.error || "send_email failed"));
+                await this.finishApprovedEmail(String(input.run_id), row, result);
+                return result;
+              })
+            }
+          },
+          onWait: (call: any) => this.markApprovalPending(call)
+        })]
+      });
+    }
+    await this.approvalWorkspace.ready();
+    return this.approvalWorkspace;
+  }
+
+  private async markApprovalPending(call: any) {
+    const input = call && call.payload;
+    if (!input || input.kind !== "approval" || input.action !== "send_email") return;
+    const row = this.row(String(input.run_id || ""));
+    if (!row || row.scope !== "write" || row.caller !== input.caller) return;
+    this.sql`UPDATE runs SET status = 'awaiting_approval' WHERE id = ${row.id} AND status = 'running'`;
+    await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'awaiting_approval' WHERE id = ?1 AND caller = ?2 AND status = 'running'")
+      .bind(row.id, row.caller).run();
+  }
+
+  private async finishApprovedEmail(id: string, row: any, result: any) {
+    const now = Date.now(), text = clip(JSON.stringify(result), 8000);
+    this.sql`UPDATE runs SET status = 'done', result = ${text}, finished_ms = ${now} WHERE id = ${id} AND status IN ('running', 'awaiting_approval')`;
+    await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'done', result = ?2, finished_ms = ?3 WHERE id = ?1 AND status IN ('running', 'awaiting_approval')")
+      .bind(id, text, now).run();
+  }
+
+  async sendEmail(args: unknown, id: string, caller: string) {
+    const row = this.row(id);
+    if (!row || row.scope !== "write" || row.caller !== caller) throw new Error("send_email needs the originating write-scoped run");
+    const serialized = JSON.stringify(args || {});
+    if (serialized.length > 12000) throw new Error("send_email arguments exceed the approval limit");
+    const input = emailApprovalPayload(id, caller, JSON.parse(serialized));
+    const payload = JSON.stringify(input).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+    const source = `import { requestApproval, sendEmail } from "codemode:approval";
+export default async function() {
+  const request = ${payload};
+  if (!(await requestApproval(request))) throw new Error("email send was not approved");
+  return await sendEmail(request);
+}`;
+    const workspace = await this.computerWorkspace();
+    const execution = await workspace.runtime.exec(source, { backend: "worker-javascript", id: "computer_" + id + "_email", onInterrupt: "replay" });
+    const result = await execution.result();
+    if (result.status !== "completed" || result.exitCode !== 0) throw new Error(String(result.stderr || "email approval execution failed"));
+    return result.value;
+  }
+
+  async pendingApprovals(caller: string) {
+    const workspace = await this.computerWorkspace();
+    const pending = await workspace.runtime.pending();
+    return {
+      ok: true,
+      approvals: pending.filter((call: any) => {
+        const input = call && call.payload;
+        const row = input && this.row(String(input.run_id || ""));
+        return !!row && row.scope === "write" && row.caller === caller &&
+          pendingEmailApprovalMatches(call, String(row.id), String(call.callId), caller);
+      }).map((call: any) => ({ id: call.id, callId: call.callId, payload: call.payload, since: call.since }))
+    };
+  }
+
+  async respondToApproval(id: string, callId: string, caller: string, approved: boolean) {
+    const row = this.row(id);
+    if (!row || row.scope !== "write" || row.caller !== caller) return { ok: false, error: "no such pending approval" };
+    const workspace = await this.computerWorkspace();
+    const pending = await workspace.runtime.pending();
+    const call = pending.find((item: any) => pendingEmailApprovalMatches(item, id, callId, caller));
+    if (!call) return { ok: false, error: "no such pending approval" };
+    this.sql`UPDATE runs SET status = 'running' WHERE id = ${id} AND status = 'awaiting_approval'`;
+    await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'running' WHERE id = ?1 AND caller = ?2 AND status = 'awaiting_approval'")
+      .bind(id, caller).run();
+    try {
+      await workspace.runtime.respond(call.id, call.callId, { approved });
+    } catch (e) {
+      this.sql`UPDATE runs SET status = 'awaiting_approval' WHERE id = ${id} AND status = 'running'`;
+      await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'awaiting_approval' WHERE id = ?1 AND caller = ?2 AND status = 'running'")
+        .bind(id, caller).run();
+      return { ok: false, error: errText(e) };
+    }
+    if (!approved) {
+      const now = Date.now();
+      this.sql`UPDATE runs SET status = 'failed', error = 'send_email approval rejected', finished_ms = ${now} WHERE id = ${id} AND status = 'running'`;
+      await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'failed', error = 'send_email approval rejected', finished_ms = ?3 WHERE id = ?1 AND caller = ?2 AND status = 'running'")
+        .bind(id, caller, now).run();
+    }
+    return { ok: true, run_id: id, status: approved ? "resuming" : "rejected" };
   }
 
   // Schedules: each fires scheduledTurn with the stored request.

@@ -9,6 +9,21 @@ export function isDynamicRoute(model) {
   return typeof model === "string" && /^dynamic\/[a-z0-9][a-z0-9._-]{0,119}$/.test(model);
 }
 
+export function emailApprovalPayload(runId, caller, args) {
+  return { kind: "approval", action: "send_email", run_id: String(runId), caller: String(caller), arguments: args };
+}
+
+export function pendingEmailApprovalMatches(call, runId, callId, caller) {
+  const payload = call && call.payload && typeof call.payload === "object" ? call.payload : null;
+  return !!payload && call.id === "computer_" + runId + "_email" && call.callId === callId &&
+    payload.kind === "approval" && payload.action === "send_email" &&
+    payload.run_id === runId && payload.caller === caller;
+}
+
+export function emailApprovalGranted(answer) {
+  return !!answer && typeof answer === "object" && answer.approved === true;
+}
+
 export function callerOf(ctx) {
   const c = ctx && ctx.props && typeof ctx.props.caller === "string" ? ctx.props.caller : "";
   return TRUSTED_CALLERS.indexOf(c) >= 0 ? c : "";
