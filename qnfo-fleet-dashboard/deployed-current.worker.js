@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.80.2";
+var VERSION = "1.81.0";
+// 1.81.0 DASHBOARD-FIX-IT-1 (issue #1000784, pillar autonomy; minor): every visible breach card exposes its one-tap fleet handoff, and parked code/issue-loop cards can be re-audited through their owning loop with evidence-only closure.
 // 1.80.2 LOOP-HEARTBEAT-CRON-FALLBACK-1 (issue #1001283, pillar core; patch): non-quarter-hour dashboard heartbeats also queue a stale issue-loop sync from saved state, recovering when full refreshes time out.
 // 1.80.1 ATTENTION-EFFICACY-SAMPLE-1 (issue #2467, pillar reach; patch): sparse 7-day windows are unmeasured, not flat efficacy results.
 // 1.80.0 DASHBOARD-HEARTBEAT-CADENCE-1 (pillar core; minor): run the standby heartbeat every five minutes while limiting the full dashboard refresh to quarter-hour runs.
@@ -3137,7 +3138,7 @@ function statusPageHtml(doc, rev, holder, decisions) {
     if (AE["program:" + g.code]) o.push('<div class="st-pact">' + bar("program:" + g.code) + "</div>");
     if (g.breaches.length) {
       o.push("<details><summary>All " + g.breaches.length + ' off-target metrics</summary><div class="st-scroll"><table class="st-tbl"><thead><tr><th>Metric</th><th>Now</th><th>Target</th><th>7 days</th><th>Measured</th><th>Act</th></tr></thead><tbody>');
-      for (const b of g.breaches) o.push("<tr><td>" + e(b.title) + "<br><code>" + e(b.metric) + '</code></td><td class="r">' + e(statusNumText(b.value)) + '</td><td class="r">' + e((STATUS_OP_TEXT[b.operator] || b.operator) + " " + statusNumText(b.threshold)) + '</td><td class="tw ' + e(b.trend) + '">' + e(statusTrendText(b)) + "</td><td>" + (b.age_min == null ? "unknown" : e(b.age_min < 120 ? b.age_min + " min ago" : Math.round(b.age_min / 60) + " h ago") + (b.stale ? " (stale)" : "")) + '</td><td class="act-cell"><details><summary>Act</summary>' + bar("metric:" + b.metric) + "</details></td></tr>");
+      for (const b of g.breaches) o.push("<tr><td>" + e(b.title) + "<br><code>" + e(b.metric) + '</code></td><td class="r">' + e(statusNumText(b.value)) + '</td><td class="r">' + e((STATUS_OP_TEXT[b.operator] || b.operator) + " " + statusNumText(b.threshold)) + '</td><td class="tw ' + e(b.trend) + '">' + e(statusTrendText(b)) + "</td><td>" + (b.age_min == null ? "unknown" : e(b.age_min < 120 ? b.age_min + " min ago" : Math.round(b.age_min / 60) + " h ago") + (b.stale ? " (stale)" : "")) + '</td><td class="act-cell">' + bar("metric:" + b.metric) + "</td></tr>");
       o.push("</tbody></table></div></details>");
     }
     o.push("</div>");
@@ -3149,7 +3150,7 @@ function statusPageHtml(doc, rev, holder, decisions) {
   }
   if (doc.fleet_handling.count) {
     o.push('<section class="st-sec" aria-labelledby="st-fh"><h2 class="fl-h" id="st-fh">The fleet is handling <span class="ct">' + doc.fleet_handling.count + '</span></h2><section class="card"><details><summary>' + e(doc.fleet_handling.note) + "</summary><ul>");
-    for (const it of doc.fleet_handling.items) o.push("<li>" + e(clipWords(it.title, 140)) + (it.why ? ' <span class="meta">' + e(clipWords(it.why, 160)) + "</span>" : "") + "</li>");
+    for (const it of doc.fleet_handling.items) o.push("<li>" + e(clipWords(it.title, 140)) + (it.why ? ' <span class="meta">' + e(clipWords(it.why, 160)) + "</span>" : "") + issueFixHtml(it, holder, e) + "</li>");
     o.push("</ul></details>" + bar("handling") + "</section></section>");
   }
   if (doc.blind.length) o.push('<div class="note">Could not read: ' + e(doc.blind.join("; ")) + ". Figures that depend on it are missing, not zero.</div>");
@@ -3341,8 +3342,26 @@ function validSubject(s) {
 // One action bar. holder false: the page says what the fleet does and that acting needs sign-in; nothing is hidden from a reader.
 function actBarHtml(subject, entry, holder, e) {
   const info = '<details class="act-info"><summary>What is this, why am I seeing it, what can I do?</summary><dl><dt>What it means</dt><dd>' + e(entry.meaning) + "</dd><dt>Why you see it</dt><dd>" + e(entry.why) + "</dd><dt>What the fleet does on its own</dt><dd>" + e(entry.fleet_default) + "</dd><dt>Who does it</dt><dd>" + e(entry.doer) + "</dd></dl></details>";
-  if (!holder) return '<div class="act" data-subject="' + e(subject) + '">' + info + '<p class="act-hint">The fleet is already doing the above. To send it new instructions, <a href="/cmd">sign in with your emailed code</a>.</p></div>';
-  return '<div class="act" data-subject="' + e(subject) + '">' + info + '<div class="act-b"><button type="button" class="p" data-vact="fix">Fix it</button><button type="button" data-vact="tell">Tell the system&hellip;</button><span class="act-res" role="status" aria-live="polite"></span></div><div class="act-tell" hidden><input type="text" maxlength="600" placeholder="What should the system do about this? One sentence is enough." aria-label="Instruction for the system"><button type="button" class="p" data-vact="send">Send</button></div></div>';
+  if (!holder) return '<div class="act" data-subject="' + e(subject) + '">' + info + '<p class="act-hint"><a class="do" role="button" href="/cmd">Fix it</a> Sign in with your emailed code to send work to the fleet.</p></div>';
+  return '<div class="act" data-subject="' + e(subject) + '"' + (entry.fix_directive ? ' data-fix-directive="' + e(entry.fix_directive) + '"' : "") + '>' + info + '<div class="act-b"><button type="button" class="p" data-vact="fix">Fix it</button><button type="button" data-vact="tell">Tell the system&hellip;</button><span class="act-res" role="status" aria-live="polite"></span></div><div class="act-tell" hidden><input type="text" maxlength="600" placeholder="What should the system do about this? One sentence is enough." aria-label="Instruction for the system"><button type="button" class="p" data-vact="send">Send</button></div></div>';
+}
+
+function issueFixHtml(it, holder, e) {
+  const source = String(it && it.source || "");
+  if (source !== "code-loop" && source !== "issue-loop") return "";
+  const key = String(it && it.key || "").replace(/[^A-Za-z0-9:._-]/g, "").slice(0, 120);
+  if (!key) return "";
+  const code = source === "code-loop";
+  const directive = "Audit and remediate parked " + source + " item " + key + ". Read its stored task or issue and current live condition; route it through its owning " + (code ? "code task" : "issue loop") + ", verify the declared probe, and close only with measured evidence. Preserve identity-bound and permission limits and record the exact reason if unresolved.";
+  return actBarHtml("handling", {
+    title: "Fleet-handled item " + key,
+    meaning: "A parked " + source + " item the fleet is responsible for finishing.",
+    why: "It is shown so the fleet's unfinished work stays visible.",
+    fleet_default: "The owning loop audits, remediates, verifies, and closes with evidence.",
+    doer: code ? "qnfo-code-orchestrator" : "qnfo-fleet-control",
+    lever: "Re-audit the existing item through its owning loop.",
+    fix_directive: directive
+  }, holder, e);
 }
 
 function valueSectionHtml(value, holder, entries, e) {
@@ -3365,7 +3384,7 @@ function valueSectionHtml(value, holder, entries, e) {
 
 var VALUE_CSS = ".vl-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:10px}.vl{padding:14px 16px}.vl-n{display:block;font:500 30px/1.1 var(--serif);font-variant-numeric:tabular-nums;margin:4px 0}.vl-q{font-size:13px;margin:8px 0 0;line-height:1.45}.vl-q.on_target b{color:var(--green)}.vl-q.off_target b{color:var(--red)}.vl-q.mixed b,.vl-q.unmeasured b{color:var(--amber)}.vl-lv{font-size:12.5px;margin:6px 0 0;line-height:1.45;color:var(--muted)}.vl-post{margin:6px 0;padding:10px 12px;border-left:4px solid var(--muted);background:var(--surface);border-radius:8px}.vl-post.grow{border-left-color:var(--green)}.vl-post.over_budget{border-left-color:var(--red)}.vl-post.fix_quality{border-left-color:var(--amber)}.act{margin-top:10px;border-top:1px solid var(--rule);padding-top:8px}.act-info summary{cursor:pointer;font-size:12.5px;color:var(--muted)}.act-info dl{margin:8px 0 0;font-size:13px;line-height:1.5}.act-info dt{font-weight:600;margin-top:6px}.act-info dd{margin:0;color:var(--muted)}.act-b{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.act-tell{display:flex;gap:8px;margin-top:8px}.act-tell[hidden]{display:none}.act-tell input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;background:var(--bg);color:var(--ink)}.act-res{font-size:12.5px;color:var(--muted)}.act-hint{font-size:12.5px;color:var(--muted);margin:8px 0 0}@media (max-width:1100px){.vl-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media (max-width:560px){.vl-grid{grid-template-columns:1fr}}";
 
-var VALUE_JS = "<script>(function(){var H={'Content-Type':'application/json','x-fleet-ui':'1'};function post(b){return fetch('/api/owner/act',{method:'POST',headers:H,credentials:'same-origin',body:JSON.stringify(b)}).then(function(r){return r.json().catch(function(){return{ok:false,error:'HTTP '+r.status}})})}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest&&ev.target.closest('[data-vact]');if(!t)return;var bar=t.closest('.act');if(!bar)return;var res=bar.querySelector('.act-res'),tell=bar.querySelector('.act-tell'),kind=t.getAttribute('data-vact'),directive='';if(kind==='tell'){tell.hidden=!tell.hidden;if(!tell.hidden)tell.querySelector('input').focus();return}if(kind==='send'){directive=tell.querySelector('input').value.trim();if(!directive)return}t.disabled=true;if(res)res.textContent='Sending to the fleet\\u2026';post({subject:bar.getAttribute('data-subject'),directive:directive}).then(function(j){if(res)res.textContent=j.ok?'\\u2713 Handed to the fleet'+(j.issue_id?' as issue '+j.issue_id:'')+(j.duplicate?' (already filed, nothing duplicated)':'')+'. '+(j.next||''):(j.error||'It did not go through.')+(j.error&&/token|sign|closed/i.test(j.error)?' Sign in with the command line (type login).':'');if(j.ok&&tell){tell.hidden=true;tell.querySelector('input').value=''}t.disabled=false}).catch(function(){if(res)res.textContent='Network error: nothing was sent.';t.disabled=false})})})()<\/script>";
+var VALUE_JS = "<script>(function(){var H={'Content-Type':'application/json','x-fleet-ui':'1'};function post(b){return fetch('/api/owner/act',{method:'POST',headers:H,credentials:'same-origin',body:JSON.stringify(b)}).then(function(r){return r.json().catch(function(){return{ok:false,error:'HTTP '+r.status}})})}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest&&ev.target.closest('[data-vact]');if(!t)return;var bar=t.closest('.act');if(!bar)return;var res=bar.querySelector('.act-res'),tell=bar.querySelector('.act-tell'),kind=t.getAttribute('data-vact'),directive=kind==='fix'?(bar.getAttribute('data-fix-directive')||''):'';if(kind==='tell'){tell.hidden=!tell.hidden;if(!tell.hidden)tell.querySelector('input').focus();return}if(kind==='send'){directive=tell.querySelector('input').value.trim();if(!directive)return}t.disabled=true;if(res)res.textContent='Sending to the fleet\\u2026';post({subject:bar.getAttribute('data-subject'),directive:directive}).then(function(j){if(res)res.textContent=j.ok?'\\u2713 Handed to the fleet'+(j.issue_id?' as issue '+j.issue_id:'')+(j.duplicate?' (already filed, nothing duplicated)':'')+'. '+(j.next||''):(j.error||'It did not go through.')+(j.error&&/token|sign|closed/i.test(j.error)?' Sign in with the command line (type login).':'');if(j.ok&&tell){tell.hidden=true;tell.querySelector('input').value=''}t.disabled=false}).catch(function(){if(res)res.textContent='Network error: nothing was sent.';t.disabled=false})})})()<\/script>";
 /* VALUE-DASH-1:END */
 // ==== AREA-MAP platform: HTTP routes (handleRequest) ====
 async function handleRequest(request, env, ctx) {
