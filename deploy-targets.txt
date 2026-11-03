@@ -25,3 +25,5 @@ qnfo-model-eval qnfo-model-eval/worker.js
 # MIND-Q08-1 (2026-10-21): the inside reading surface at mind.q08.org. Binding-free by design, so
 # nothing in the runtime can take it down; content is in source, so it is one file to redeploy.
 q08-mind q08-mind/worker.js
+# PUBLICATION-PREFLIGHT-FAIL-Q08: keep the q08.org publication routes and cron in full canonical deploys.
+q08-signal-engine q08-signal-engine/worker.js
