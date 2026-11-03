@@ -126,16 +126,18 @@ await t("protocol: negotiation, ping, prompts/resources lists, batch, notificati
   eq((await w.fetch(new Request("https://m.test/mcp?token=w-tok", { method: "GET" }), env)).status, 405);
 });
 
-await t("read token: list hides write tools; remember_fact and exuvia_publish_paper refused (-32003)", async () => {
+await t("read token: list hides write tools; remember_fact and Exuvia write tools refused (-32003)", async () => {
   const env = mkEnv();
   const list = await rpc(env, { jsonrpc: "2.0", id: 1, method: "tools/list" }, "r-tok");
   const names = list.body.result.tools.map((x) => x.name);
   ok(names.includes("search_papers") && names.includes("recall_facts"), "reads listed");
-  ok(!names.includes("remember_fact") && !names.includes("exuvia_publish_paper"), "writes hidden");
+  ok(!names.includes("remember_fact") && !names.includes("exuvia_publish_paper") && !names.includes("exuvia_engage"), "writes hidden");
   const rf = await rpc(env, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "remember_fact", arguments: { content: "x", category: "project_fact" } } }, "r-tok");
   eq(rf.body.error.code, -32003);
   const ep = await rpc(env, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "exuvia_publish_paper", arguments: { slug: "demo", confirm: true } } }, "r-tok");
   eq(ep.body.error.code, -32003);
+  const engage = await rpc(env, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "exuvia_engage", arguments: {} } }, "r-tok");
+  eq(engage.body.error.code, -32003);
 });
 
 // ---- tools over real sqlite ------------------------------------------------

@@ -6,7 +6,7 @@ var PROTOCOL_VERSION = "2024-11-05";
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var NL = String.fromCharCode(10);
 var SERVER_NAME = "qnfo-memory-mcp";
-var VERSION = "2.6.0"; /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
+var VERSION = "2.7.0"; /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
 // NO-REGISTRAR-1: a DOI under the dead 10.5281 prefix is never returned; third-party DOIs pass through.
 function nozDoi(d) { return d && !/10\.5281\//.test(String(d)) ? d : null; }
 var SERVER_VERSION = VERSION;
@@ -18,6 +18,7 @@ var TOOLS = [
   { name: "exuvia_paper_post_draft", description: "Build an Exuvia research-post payload (title, abstract, content_markdown, tags, post_type) from a QNFO paper slug, with its knowledge-graph neighbours as a Related section. Nothing is sent.", inputSchema: { type: "object", properties: { slug: { type: "string" }, max_chars: { type: "number", default: 20000 } }, required: ["slug"] }, annotations: { readOnlyHint: true } },
   { name: "exuvia_publish_paper", description: "Publish a QNFO paper to Exuvia as a public research post. Public and not agent-deletable: dry-run unless confirm=true. Needs EXUVIA_API_KEY.", inputSchema: { type: "object", properties: { slug: { type: "string" }, confirm: { type: "boolean", default: false }, post_type: { type: "string", default: "research" }, max_chars: { type: "number", default: 20000 } }, required: ["slug"] }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } },
   { name: "exuvia_kg_context", description: "QNFO papers and knowledge-graph nodes relevant to an Exuvia post (by post id, fetched with the key) or to free text. Use before replying on Exuvia.", inputSchema: { type: "object", properties: { post_id: { type: "string" }, text: { type: "string" }, limit: { type: "number", default: 5 } } }, annotations: { readOnlyHint: true, openWorldHint: true } },
+  { name: "exuvia_engage", description: "Draft evidence-backed QNFO paper replies to Exuvia posts marked needs_response. Requires EXUVIA_API_KEY and ops_config exuvia_engage=on. Drafts are logged to decision_log and never posted.", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: false, openWorldHint: true } },
   { name: "search_papers", description: "Semantic search across QWAV research papers using Vectorize.", inputSchema: { type: "object", properties: { query: { type: "string", description: "Natural language search query" }, limit: { type: "number", description: "Maximum results (1-20, default 10)", default: 10 } }, required: ["query"] }, annotations: { readOnlyHint: true } },
   { name: "search_papers_enriched", description: "Semantic search papers AND return full body content. Searches Vectorize then enriches with D1 body_md, doi, authors.", inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number", default: 5 }, includeBody: { type: "boolean", default: true }, bodyLimitChars: { type: "number", default: 3e3 } }, required: ["query"] }, annotations: { readOnlyHint: true } },
   { name: "resolve_paper_id", description: "Resolve a paper identifier (slug, Vectorize ID, KG ID, DOI) into ALL cross-system identifiers.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] }, annotations: { readOnlyHint: true } },
@@ -43,7 +44,7 @@ var TOOLS = [
 ];
 // FULLSCOPE-1: write-scope tools. MCP_TOKEN is the full read+write credential; MCP_READ_TOKEN (optional)
 // grants read tools only, the same split as qnfo-tools-mcp (MCP-TOKEN-NO-SCOPE-SEPARATION, 954).
-var WRITE_TOOLS = ["remember_fact", "memory_outcome", "exuvia_publish_paper"];
+var WRITE_TOOLS = ["remember_fact", "memory_outcome", "exuvia_publish_paper", "exuvia_engage"];
 var MEM_CATEGORIES = ["user_preference", "project_fact", "task_outcome", "heuristic", "anti_pattern"];
 function corsHeaders() {
   return { "Access-Control-Allow-Origin": "https://qnfo.org", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id" };
@@ -378,7 +379,8 @@ async function tool_exuvia_status(args, env) {
 async function tool_exuvia_feed(args, env) {
   if (!env.EXUVIA_API_KEY) return exOut({ error: "EXUVIA_API_KEY not set" }, true);
   const path = ["feed", "feed/needs-response", "feed/follows"].includes(args.path) ? args.path : "feed";
-  const r = await exFetch(env, "/api/v1/" + path + "?limit=" + fgInt(args.limit, 10, 1, 50));
+  const feedPath = path === "feed/needs-response" ? "/api/v1/feed?sort=needs_response" : path === "feed/follows" ? "/api/v1/feed/follows" : "/api/v1/feed?sort=new";
+  const r = await exFetch(env, feedPath + "?limit=" + fgInt(args.limit, 10, 1, 50));
   return exOut({ status: r.status, data: r.data && r.data.data || r.data }, r.status >= 400);
 }
 async function tool_exuvia_paper_post_draft(args, env) {
@@ -413,12 +415,79 @@ async function tool_exuvia_kg_context(args, env) {
   let parsed = null; try { parsed = JSON.parse(papers.content[0].text); } catch (e) { console.error(JSON.stringify({ worker: SERVER_NAME, where: "exuvia-kg-context-parse", error: String(e && e.message || e).slice(0, 200) })); }
   return exOut({ post, query: text.slice(0, 200), papers: parsed, kg_nodes: nodes.results || [] });
 }
-// EXUVIA-ENGAGE-1
 async function exuviaEngageTick(env) {
-  if (!env.EXUVIA_API_KEY || !(env.OPS_CONFIG?.exuvia_engage)) {
-    return { skipped: "no exuvia key" };
+  if (!env.EXUVIA_API_KEY) return { skipped: "no exuvia key" };
+  if (!env.AUDIT) return { skipped: "audit binding unavailable" };
+  let flag;
+  try { flag = await env.AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'exuvia_engage'").first(); }
+  catch (e) { return { error: "engagement config unavailable" }; }
+  if (!flag || String(flag.value || "").trim().toLowerCase() !== "on") return { skipped: "exuvia engagement disabled" };
+  const feed = await exFetch(env, "/api/v1/feed?sort=needs_response&limit=10").catch((e) => ({ status: 0, data: { error: String(e && e.message || e).slice(0, 200) } }));
+  if (feed.status >= 400 || !feed.status) return { error: "Exuvia needs-response feed unavailable", status: feed.status };
+  const posts = feed.data && feed.data.data && Array.isArray(feed.data.data.posts) ? feed.data.data.posts : [];
+  const drafts = [];
+  const errors = [];
+  let unmatched = 0;
+  for (const post of posts.slice(0, 10)) {
+    const postId = sanitize(post && post.id);
+    const query = sanitizeLong([post && post.title, post && post.abstract].filter(Boolean).join("\n"));
+    if (!postId || !query) { unmatched++; continue; }
+    const action = "EXUVIA-ENGAGE-1: reply draft for post " + postId;
+    let existing;
+    try { existing = await env.AUDIT.prepare("SELECT evidence FROM decision_log WHERE action = ?1 LIMIT 1").bind(action).first(); }
+    catch (e) { errors.push({ post_id: postId, error: "decision lookup failed" }); continue; }
+    if (existing && existing.evidence) {
+      try { drafts.push(JSON.parse(existing.evidence)); } catch (e) { errors.push({ post_id: postId, error: "stored draft is invalid" }); }
+      continue;
+    }
+    let matches;
+    try {
+      const searched = await tool_search_papers({ query, limit: 5 }, env);
+      matches = JSON.parse(searched.content[0].text).results || [];
+    } catch (e) { errors.push({ post_id: postId, error: "paper search failed" }); continue; }
+    let draft = null;
+    for (const match of matches) {
+      const score = Number(match.score);
+      if (!match.slug || !Number.isFinite(score) || score < 0.82) continue;
+      const paper = await env.LIVING_PAPER.prepare("SELECT slug, title, abstract, status FROM papers WHERE slug = ?1 AND status IN ('published','distributed','external_preprint') LIMIT 1").bind(match.slug).first().catch(() => null);
+      if (!paper || !paper.abstract) continue;
+      const title = sanitize(paper.title || match.title || paper.slug);
+      const abstract = sanitizeLong(paper.abstract).slice(0, 900);
+      const url = "https://papers.qnfo.org/papers/" + encodeURIComponent(paper.slug);
+      draft = {
+        post_id: postId,
+        post_title: sanitize(post.title),
+        paper: { slug: paper.slug, title, url, score },
+        evidence: abstract,
+        reply_draft: "A relevant QNFO paper is “" + title + "”: " + abstract + " Full text: " + url
+      };
+      break;
+    }
+    if (!draft) { unmatched++; continue; }
+    const evidence = JSON.stringify(draft);
+    try {
+      await env.AUDIT.prepare(
+        "INSERT INTO decision_log (actor, assumption, action, evidence, outcome, blast_radius, rollback_path, capability_gain, predicted_outcome, reach_gain, surfaces_tested) " +
+        "SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11 WHERE NOT EXISTS (SELECT 1 FROM decision_log WHERE action = ?3)"
+      ).bind(
+        "qnfo-memory-mcp:exuvia-engage",
+        "A needs_response post has a high-confidence match to a published QNFO paper; draft only",
+        action,
+        evidence,
+        "Evidence-backed reply draft prepared; not posted",
+        "One Exuvia post and its matched QNFO paper",
+        "No external post is made; disable ops_config exuvia_engage to stop drafts; decision_log remains append-only",
+        "Exuvia posts can be matched to QNFO research and surfaced as cited response drafts",
+        "A relevant paper citation in a draft may help the Exuvia post author find QNFO research; no public effect until separately approved",
+        "Potential Exuvia-to-QNFO paper referral; unmeasured",
+        "Exuvia needs_response feed, QNFO Vectorize, living-paper D1, qnfo-audit decision_log"
+      ).run();
+      const stored = await env.AUDIT.prepare("SELECT evidence FROM decision_log WHERE action = ?1 LIMIT 1").bind(action).first();
+      if (stored && stored.evidence) drafts.push(JSON.parse(stored.evidence));
+      else errors.push({ post_id: postId, error: "draft audit write unavailable" });
+    } catch (e) { errors.push({ post_id: postId, error: "draft audit write failed" }); }
   }
-  return { skipped: "not implemented" };
+  return { posts_seen: posts.length, drafts, unmatched, errors };
 }
 // ---------------------------------------------------------------------------------------------------------------------------
 // FLEET-GRAPH-1 (2.1.0): read-only queries over qnfo-graph fg_node / fg_edge / fg_finding / fg_state.
@@ -614,7 +683,8 @@ async function callTool(name, args, env) {
     exuvia_feed: tool_exuvia_feed,
     exuvia_paper_post_draft: tool_exuvia_paper_post_draft,
     exuvia_publish_paper: tool_exuvia_publish_paper,
-    exuvia_kg_context: tool_exuvia_kg_context
+    exuvia_kg_context: tool_exuvia_kg_context,
+    exuvia_engage: async (args, env) => exOut(await exuviaEngageTick(env), false)
   };
   if (/^fleet_graph_/.test(String(name))) return await fgTool(name, args, env);
   const fn = handlers[name];
