@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.81.3";
+var VERSION = "1.81.4";
+// 1.81.4 AREA-FEED-LATENCY-1 (#6717, agent_issues 1001453, pillar core): area reads use cached probe counts without building the human queue or awaiting a cold fleet refresh.
 // 1.81.3 FLEET-STATUS-STATE-OVERLAP-1 (issue #1001440, pillar core; patch): start the cached fleet-state read alongside independent /api/status inputs so a slow state read does not delay those reads or the public queue page.
 // 1.81.2 FLEET-STATUS-READ-PARALLEL-1 (issue #1001434, pillar core; patch): overlap the independent value feeds with core status reads to reduce cold /api/status latency without changing its cache or response.
 // 1.81.0 DASHBOARD-FIX-IT-1 (issue #1000784, pillar autonomy; minor): every visible breach card exposes its one-tap fleet handoff, and parked code/issue-loop cards can be re-audited through their owning loop with evidence-only closure.
@@ -2302,6 +2303,19 @@ async function currentState(env, ctx, maxAgeMs) {
   }));
   return rec.state;
 }
+async function areaReadModel(env, ctx) {
+  const rec = await loadState(env);
+  // Area feeds need only cached probe counts; queue collection and cold refreshes must not delay these reads.
+  if (!rec || Date.now() - new Date(rec.updatedAt).getTime() > 5 * 6e4) ctx.waitUntil(runRefresh(env, ctx).catch(function() {
+  }));
+  const probes = rec && rec.state && rec.state.probes || [];
+  return areasModel(env, {
+    probes_ok: probes.filter(function(p) {
+      return p.ok;
+    }).length,
+    probes_total: probes.length
+  });
+}
 // AREA-FEEDS-1: a snapshot-backed read must not serve a body nobody has refreshed. /api/state already scheduled a
 // rebuild when its record was older than STALE_MS, but /api/actions and /api/integration read the record directly, so a
 // poller could keep receiving a fifteen-minute-old answer while the fleet looked healthy. The three now share this.
@@ -3657,9 +3671,7 @@ if (path === "/health") {
   // own responses in /api/human.
   const machine = !!(env.LOOP_TOKEN && constEq(request.headers.get("x-loop-token") || "", env.LOOP_TOKEN));
   if (path === "/api/areas" && request.method === "GET") {
-    const st = await currentState(env, ctx, 5 * 6e4);
-    const v = await humanView(env, st, ctx);
-    const mA = await areasModel(env, v.system);
+    const mA = await areaReadModel(env, ctx);
     const bodyA = areasApiBody(mA, url.searchParams.get("full") === "1");
     const revA = rtDigest(bodyA);
     bodyA.revision = revA;
@@ -3684,9 +3696,7 @@ if (path === "/health") {
     if (!faA) return json({ ok: false, error: "no such functional area", asked: idA, areas: FEED_AREAS.map(function(x) {
       return x.id;
     }) }, 404, { cache: "no-store" });
-    const stA = await currentState(env, ctx, 5 * 6e4);
-    const vA = await humanView(env, stA, ctx);
-    const mAA = await areasModel(env, vA.system);
+    const mAA = await areaReadModel(env, ctx);
     const rowA = (mAA.areas || []).filter(function(x) {
       return x.id === idA;
     })[0] || null;
