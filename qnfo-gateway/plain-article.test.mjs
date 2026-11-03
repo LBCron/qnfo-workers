@@ -7,7 +7,7 @@
 // use is dropped with its sentence; links are verified (Simple English first, English Wikipedia second, a disambiguation page or a
 // missing page left out, the host checked); the build writes, verifies, repairs once and stores, fails open when the verifier is
 // silent, and never stores an article that still breaks a hard rule; the fill takes new papers first, three at a time, at most
-// ARTICLE_FILL_MAX, retries a failed one only after six hours and three times; and the pages show the article above the folded
+// ARTICLE_FILL_MAX, retries a failed one only after six hours and three times, and gives empty writer replies one independent-family fallback; the pages show the article above the folded
 // technical digest, the paper page links to it, the API returns it, and a paper without one says so.
 // Run: node qnfo-gateway/plain-article.test.mjs   -> prints "N passed, 0 failed"
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
@@ -24,6 +24,7 @@ const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m 
 const block = src.slice(src.indexOf("PLAIN-ARTICLE-1:BEGIN"), src.indexOf("PLAIN-ARTICLE-1:END"));
 ok(block.length > 5000 && !/[^\x00-\x7f]/.test(src), "the block exists and the source is ASCII");
 ok(/var ARTICLE_WRITER = "@cf\/moonshotai\/kimi-k2\.6"/.test(block) && /var ARTICLE_VERIFIER = "@cf\/openai\/gpt-oss-120b"/.test(block), "the writer and the verifier are from different families (moonshot, openai)");
+ok(/var ARTICLE_WRITER_FALLBACK = "@cf\/google\/gemma-4-26b-a4b-it"/.test(block), "the empty-reply fallback uses a separate model family");
 ok(!/qrBuild|plainRun\(/.test(block) && !/function handle/.test(block), "the block builds no quick-read answer and answers no route");
 const digest = src.slice(src.indexOf("QUICK-READ-DIGEST-1:BEGIN"), src.indexOf("QUICK-READ-DIGEST-1:END"));
 ok(!/env\.AI/.test(digest), "the digest block still makes no model call");
@@ -65,11 +66,12 @@ const GOOD = [
 const BAD = GOOD.replace("A control system solved", "A control system with index kappa = 4 solved").replace("Each solved problem used", "Each solved problem used 1.7 J, as in [1], and used");
 
 // ---- the module with its internals exported, and the fakes ----
-const calls = { writer: 0, verifier: 0, fetch: [] };
-let writerOut = () => GOOD, verifierOut = () => "{\"jargon\":[],\"math_like\":[]}", writerPrompts = [];
+const calls = { writer: 0, fallback: 0, verifier: 0, fetch: [] };
+let writerOut = () => GOOD, fallbackOut = () => GOOD, verifierOut = () => "{\"jargon\":[],\"math_like\":[]}", writerPrompts = [];
 const AI = { run: async (model, input) => {
   const text = input.messages[0].content;
   if (/kimi/.test(model)) { calls.writer++; writerPrompts.push(text); return { response: typeof writerOut === "function" ? writerOut(calls.writer, text) : writerOut }; }
+  if (/gemma/.test(model)) { calls.fallback++; return { response: typeof fallbackOut === "function" ? fallbackOut(calls.fallback, text) : fallbackOut }; }
   calls.verifier++; return { response: typeof verifierOut === "function" ? verifierOut(calls.verifier, text) : verifierOut };
 } };
 const J = (o) => new Response(JSON.stringify(o), { status: 200, headers: { "content-type": "application/json" } });
@@ -139,7 +141,7 @@ ok(!L.some((x) => /Mercury|Elsewhere/.test(x.title)) && L.length === 3, "a disam
 ok(calls.fetch.indexOf("simple.wikipedia.org:energy") >= 0 && calls.fetch.indexOf("en.wikipedia.org:temperature") >= 0 && calls.fetch.indexOf("en.wikipedia.org:computer") < 0, "English Wikipedia is asked only when the simple page is missing");
 
 // ---- the build ----
-const fresh = () => { calls.writer = 0; calls.verifier = 0; writerPrompts = []; writerOut = () => GOOD; verifierOut = () => "{\"jargon\":[],\"math_like\":[]}"; };
+const fresh = () => { calls.writer = 0; calls.fallback = 0; calls.verifier = 0; writerPrompts = []; writerOut = () => GOOD; fallbackOut = () => GOOD; verifierOut = () => "{\"jargon\":[],\"math_like\":[]}"; };
 fresh();
 let r = await m.articleBuild({ AI }, P);
 ok(r.status === "ok" && calls.writer === 1 && calls.verifier === 1 && /kimi\+gate\+gptoss-verify\+ground/.test(r.method) && r.verdict.repaired === 0, "a clean article is written once and verified once, no repair", { status: r.status, method: r.method, w: calls.writer, v: calls.verifier });
@@ -155,10 +157,13 @@ r = await m.articleBuild({ AI }, P);
 ok(r.status === "failed" && /hard rule not met after one repair/.test(r.note) && calls.writer === 2, "an article that still breaks a hard rule after the repair is not stored", r.note);
 fresh(); writerOut = () => "";
 r = await m.articleBuild({ AI }, P);
-ok(r.status === "failed" && /no text/.test(r.note) && calls.writer === 1, "a writer that returns nothing is a failure, not a retry loop", r.note);
+ok(r.status === "ok" && calls.writer === 1 && calls.fallback === 1 && /gemma-fallback\+gate/.test(r.method), "an empty primary-writer reply falls back once and still passes the normal checks", { status: r.status, method: r.method, calls });
+fresh(); writerOut = () => ""; fallbackOut = () => "";
+r = await m.articleBuild({ AI }, P);
+ok(r.status === "failed" && /no text/.test(r.note) && calls.writer === 1 && calls.fallback === 1, "empty replies from both writers remain failed without looping", r.note);
 fresh(); writerOut = () => "Here is some text without the shape.";
 r = await m.articleBuild({ AI }, P);
-ok(r.status === "failed" && /no title, short version and three sections/.test(r.note), "a reply without the shape is a failure", r.note);
+ok(r.status === "failed" && /no title, short version and three sections/.test(r.note) && calls.fallback === 0, "a nonempty malformed reply is refused without spending a fallback call", r.note);
 fresh(); verifierOut = () => "";
 r = await m.articleBuild({ AI }, P);
 ok(r.status === "ok" && !/gptoss-verify/.test(r.method) && calls.writer === 1, "a verifier that does not answer fails open after the deterministic gate", r.method);
@@ -207,13 +212,13 @@ const mkLP = (extra) => {
   };
   return Object.assign({ LIVING_PAPER: { prepare: stmt }, DB: { prepare: stmt }, AI }, extra || {});
 };
-// ten more papers, newest last, so the order and the per-run cap show
-for (let i = 1; i <= 18; i++) papers["p" + i] = Object.assign({}, papers[SLUG], { slug: "p" + i, created_at: "2026-09-" + String(i).padStart(2, "0") });
+// more than one run's worth of papers, so the order and per-run cap show
+for (let i = 1; i <= 35; i++) papers["p" + i] = Object.assign({}, papers[SLUG], { slug: "p" + i, created_at: "2026-09-" + String(i).padStart(2, "0") });
 fresh();
 const env = mkLP();
 const fr = await m.articleFill(env);
 ok(fr.tried === m.ARTICLE_FILL_MAX && fr.built === m.ARTICLE_FILL_MAX && art.size === m.ARTICLE_FILL_MAX, "a run builds at most ARTICLE_FILL_MAX papers", fr);
-ok(art.has(SLUG) && art.has("p18") && !art.has("p1"), "new papers come first, newest first", [...art.keys()].slice(0, 4));
+ok(art.has(SLUG) && art.has("p7") && !art.has("p6"), "new papers come first, newest first", [...art.keys()].slice(0, 4));
 ok(m.ARTICLE_FILL_BATCH === 3 && calls.writer === m.ARTICLE_FILL_MAX, "papers are built three at a time and a clean one costs one writer call", { batch: m.ARTICLE_FILL_BATCH, writer: calls.writer });
 const row = art.get(SLUG);
 ok(row.status === "ok" && row.rev === m.articleRev(P) && row.version === "2.0.0" && row.body_len === BODY.length && JSON.parse(row.body).length === 4, "the row is keyed on the paper text and carries the sections");
@@ -226,7 +231,7 @@ const fr2 = await m.articleFill(env);
 ok(fr2.tried >= 1 && art.get(SLUG).body_len === papers[SLUG].body_md.length, "a paper whose text changed is rebuilt", fr2);
 // failures: kept as failed rows, retried after six hours, three times
 for (const k of [...art.keys()]) art.delete(k);
-for (let i = 1; i <= 18; i++) delete papers["p" + i];
+for (let i = 1; i <= 35; i++) delete papers["p" + i];
 fresh(); writerOut = () => "no shape";
 await m.articleFill(env);
 ok(art.get(SLUG).status === "failed" && art.get(SLUG).attempts === 1 && !art.get(SLUG).body, "a failed build is a failed row with one attempt and no article");
