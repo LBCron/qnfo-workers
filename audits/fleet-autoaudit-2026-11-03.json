@@ -1,16 +1,75 @@
 {
-  "audited_at": "2026-11-03 03:52:59",
+  "audited_at": "2026-11-03 04:21:11",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
+    "_deploy_settle": {
+      "settled": [],
+      "waited_for": [
+        "qnfo-gateway",
+        "qnfo-pdf"
+      ]
+    },
+    "_drift_confirm": {
+      "first_pass": [
+        "qnfo-ops"
+      ],
+      "refreshed": true,
+      "second_pass": [
+        "qnfo-gateway",
+        "qnfo-ops",
+        "qnfo-pdf"
+      ]
+    },
     "_guard_rc": 0,
-    "ahead": [],
+    "ahead": [
+      {
+        "artifact": "/home/runner/work/qnfo-workers/qnfo-workers/qnfo-gateway/deployed-current.worker.js",
+        "dir": "qnfo-gateway",
+        "live": "3.48.6",
+        "repo": "3.48.7",
+        "worker": "qnfo-gateway"
+      },
+      {
+        "artifact": "/home/runner/work/qnfo-workers/qnfo-workers/qnfo-ops/deployed-current.worker.js",
+        "dir": "qnfo-ops",
+        "live": "2.62.7-secret-change-scope",
+        "repo": "2.62.9-revert-fd8131a",
+        "worker": "qnfo-ops"
+      },
+      {
+        "artifact": "/home/runner/work/qnfo-workers/qnfo-workers/qnfo-pdf/deployed-current.worker.js",
+        "dir": "qnfo-pdf",
+        "live": "1.7.5",
+        "repo": "1.7.6",
+        "worker": "qnfo-pdf"
+      }
+    ],
     "cf_script_list": true,
     "content_checked": true,
     "content_drift": [],
     "cron_only": [],
     "cron_only_count": 0,
-    "drift": [],
+    "drift": [
+      {
+        "dir": "qnfo-gateway",
+        "live": "3.48.6",
+        "repo": "3.48.7",
+        "worker": "qnfo-gateway"
+      },
+      {
+        "dir": "qnfo-ops",
+        "live": "2.62.7-secret-change-scope",
+        "repo": "2.62.9-revert-fd8131a",
+        "worker": "qnfo-ops"
+      },
+      {
+        "dir": "qnfo-pdf",
+        "live": "1.7.5",
+        "repo": "1.7.6",
+        "worker": "qnfo-pdf"
+      }
+    ],
     "live_err": [],
     "multi_version": [],
     "multi_version_count": 0,
@@ -547,7 +606,7 @@
     "retired_present": [],
     "retired_present_count": 0,
     "scope": "all",
-    "sync": 36,
+    "sync": 33,
     "sync_workers": [
       {
         "dir": "idea-hub",
@@ -561,7 +620,7 @@
       },
       {
         "dir": "personal-companion",
-        "version": "1.44.13",
+        "version": "1.44.14",
         "worker": "personal-companion"
       },
       {
@@ -640,11 +699,6 @@
         "worker": "qnfo-fleet-dashboard"
       },
       {
-        "dir": "qnfo-gateway",
-        "version": "3.48.6",
-        "worker": "qnfo-gateway"
-      },
-      {
         "dir": "qnfo-github-steward",
         "version": "0.11.1-codeagent",
         "worker": "qnfo-github-steward"
@@ -666,7 +720,7 @@
       },
       {
         "dir": "qnfo-jobsearch",
-        "version": "1.3.6-codeagent",
+        "version": "1.4.0-codeagent",
         "worker": "qnfo-jobsearch"
       },
       {
@@ -688,16 +742,6 @@
         "dir": "qnfo-observability",
         "version": "1.5.7-retired-agent-ws",
         "worker": "qnfo-observability"
-      },
-      {
-        "dir": "qnfo-ops",
-        "version": "2.62.7-secret-change-scope",
-        "worker": "qnfo-ops"
-      },
-      {
-        "dir": "qnfo-pdf",
-        "version": "1.7.5",
-        "worker": "qnfo-pdf"
       },
       {
         "dir": "qnfo-research-exec",
@@ -996,9 +1040,9 @@
       "worker": "personal-api"
     },
     "personal-companion": {
-      "before": "1.44.13",
+      "before": "1.44.14",
       "http": 200,
-      "live": "1.44.13",
+      "live": "1.44.14",
       "match": 1,
       "note": "SYNC",
       "worker": "personal-companion"
@@ -1447,11 +1491,11 @@
       "worker": "qnfo-fleet-lee"
     },
     "qnfo-gateway": {
-      "before": "3.48.6",
+      "before": "3.48.7",
       "http": 200,
       "live": "3.48.6",
-      "match": 1,
-      "note": "SYNC",
+      "match": 0,
+      "note": "DRIFT",
       "worker": "qnfo-gateway"
     },
     "qnfo-github-steward": {
@@ -1523,9 +1567,9 @@
       "worker": "qnfo-ipatent"
     },
     "qnfo-jobsearch": {
-      "before": "1.3.6-codeagent",
+      "before": "1.4.0-codeagent",
       "http": 200,
-      "live": "1.3.6-codeagent",
+      "live": "1.4.0-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-jobsearch"
@@ -1581,11 +1625,11 @@
       "worker": "qnfo-observability"
     },
     "qnfo-ops": {
-      "before": "2.62.7-secret-change-scope",
+      "before": "2.62.9-revert-fd8131a",
       "http": 200,
       "live": "2.62.7-secret-change-scope",
-      "match": 1,
-      "note": "SYNC",
+      "match": 0,
+      "note": "DRIFT",
       "worker": "qnfo-ops"
     },
     "qnfo-outreach": {
@@ -1625,11 +1669,11 @@
       "worker": "qnfo-paper-reviser"
     },
     "qnfo-pdf": {
-      "before": "1.7.5",
+      "before": "1.7.6",
       "http": 200,
       "live": "1.7.5",
-      "match": 1,
-      "note": "SYNC",
+      "match": 0,
+      "note": "DRIFT",
       "worker": "qnfo-pdf"
     },
     "qnfo-pipeline-ops": {
