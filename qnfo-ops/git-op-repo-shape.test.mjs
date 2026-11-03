@@ -184,8 +184,7 @@ const onlyApiHost = (list) => list.every((u) => u.startsWith("https://api.github
 { // release bookkeeping
   const v = /var VERSION = "(\d+)\.(\d+)\.(\d+)/.exec(src);
   ok(v && (+v[1] > 2 || (+v[1] === 2 && +v[2] >= 58)), "VERSION is at least 2.58.0 (git_op reads large files in windows: a minor)", v && v[0]);
-  const head = src.slice(0, src.indexOf("\n", src.indexOf("var VERSION")));
-  ok(/GIT-OP-HARDEN-1/.test(head) && /GIT-OP-REPO-SHAPE-1/.test(head), "the VERSION line carries both notes");
+  ok(/\/\* [^\n]*GIT-OP-HARDEN-1/.test(src) && /\/\* [^\n]*GIT-OP-REPO-SHAPE-1/.test(src), "release notes carry both notes");
   ok(src === mirror, "deployed-current.worker.js is identical to worker.js");
 }
 console.log(pass + " passed, " + fail + " failed");

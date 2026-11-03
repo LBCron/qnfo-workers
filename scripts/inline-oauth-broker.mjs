@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { versionAtLeast } from "./version-at-least.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = join(root, "qnfo-ops", "oauth-broker.mjs");
@@ -37,11 +38,8 @@ function inlineWorker(text) {
   const releaseNote = " /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */";
   if (text.includes(oldVersion)) {
     text = replaceOne(text, oldVersion, newVersion + releaseNote, "old worker version");
-  } else if (text.includes(newVersion)) {
-    const noteStart = text.indexOf(" /* 2.62.11 WORKER-LOAD-GATE-1 ");
-    const noteEnd = noteStart < 0 ? -1 : text.indexOf(" */", noteStart);
-    if (noteEnd < 0) throw new Error("qnfo-ops worker release note is missing");
-    text = text.slice(0, noteStart) + releaseNote + text.slice(noteEnd + 3);
+  } else if (versionAtLeast((/^var VERSION = "([^"]+)";/m.exec(text) || [])[1], "2.62.11")) {
+    if (!text.includes(releaseNote.trim())) throw new Error("qnfo-ops worker release note is missing");
   } else {
     throw new Error("qnfo-ops worker version differs from the expected main version");
   }

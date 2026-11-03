@@ -15,7 +15,7 @@ const grab = (a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); return
 ok(src === mirror, "deployed-current.worker.js is identical to worker.js");
 const _v = (/^var VERSION = "(\d+)\.(\d+)\.(\d+)/m.exec(src) || []).slice(1).map(Number);
 ok(_v.length === 3 && (_v[0] > 2 || (_v[0] === 2 && (_v[1] > 59 || (_v[1] === 59 && _v[2] >= 1)))), "VERSION is at least 2.59.1", _v);
-ok(/OPS-CAPPED-REPLY-1/.test(src.split("\n")[33] || "") || /var VERSION = "[^"]*"; \/\* [^\n]*OPS-CAPPED-REPLY-1/.test(src), "the VERSION line carries the OPS-CAPPED-REPLY-1 tag");
+ok(/\/\* [^\n]*OPS-CAPPED-REPLY-1/.test(src), "release notes carry the OPS-CAPPED-REPLY-1 tag");
 
 const helper = grab("var OPS_CAPPED_LINE =", "async function callGLM(");
 ok(helper.includes("function opsReasoningAsReply"), "the helper is found");
