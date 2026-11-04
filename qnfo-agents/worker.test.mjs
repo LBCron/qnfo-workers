@@ -2,7 +2,7 @@
 // ADVERSARIAL: the helpers are tested directly; the bundle is checked by shape (it needs the Workers runtime to run). The live proof
 // is GET https://agents.qnfo.org/health answering this VERSION, a public POST /run answering 403, and a console turn reaching done.
 import { readFileSync } from "node:fs";
-import { callerOf, scopeOf, opsToolAllowed, readOnlySql, repoPathOk, codeTaskText, scheduleWhen, safeToolName, sliceLines, OPS_READ_ONLY, validateRequest, loopInstance, requesterOk, DRAIN_PER_TICK, EMPTY_TEXT, lastStepText, pickAnswer, hasToolMarkup, stripToolMarkup, SHORT_ANSWER_CHARS, FINAL_ANSWER_ASK, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute } from "./src/lib.js";
+import { callerOf, scopeOf, opsToolAllowed, readOnlySql, repoPathOk, codeTaskText, scheduleWhen, safeToolName, sliceLines, OPS_READ_ONLY, validateRequest, loopInstance, requesterOk, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_FLOOR_EVERY_TICKS, AGENT_TICK_MS, AGENT_SHED_MIN, EMPTY_TEXT, lastStepText, pickAnswer, hasToolMarkup, stripToolMarkup, SHORT_ANSWER_CHARS, FINAL_ANSWER_ASK, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute } from "./src/lib.js";
 const here = (p) => new URL(p, import.meta.url);
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
@@ -143,6 +143,54 @@ ok(/try \{ await this\.startRun\(\{ text: payload\.text[^\n]*catch \(e\) \{ logE
 // ALARM-TIMEOUT-2: a rejection nobody awaits is logged with its stack and kept from failing the alarm invocation.
 ok(/addEventListener\("unhandledrejection"/.test(ts) && /where: "unhandledrejection".{0,200}stack:/.test(ts) && /ev\.preventDefault\(\)/.test(ts), "an unhandled rejection is logged with its stack and prevented from failing the invocation");
 ok(/try \{\s*\(globalThis as any\)\.addEventListener\("unhandledrejection"[\s\S]*?\} catch \(e\) \{ \/\* the event is not supported here \*\/ \}/.test(ts), "registering the listener cannot throw at load");
+
+// QNFO-AGENTS-BUDGET-1: the loop drain takes its share of a daily neuron budget (slower, never stopped).
+ok(Math.abs(agentNeurons(23818312, 579237) - 1022000) < 15000, "pricing: 23.8M input and 0.58M output tokens are about 1.02M neurons (the Cloudflare meter read 1.04M on 2026-11-04)");
+ok(agentNeurons(0, 0) === 0 && agentNeurons("x", null) === 0, "unusable token counts price as 0");
+{
+  const DAY0 = Date.UTC(2026, 10, 5, 0, 0, 1);
+  let seed = 12345;
+  const cost = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return 1500 + (seed % 3000); };   // 1,500 to 4,500, mean 3,000: the 2,500 estimate is wrong on purpose
+  const simulate = (budget, est, perTick) => {
+    let spent = 0, started = 0, maxTick = 0, floorMax = 0, firstFloor = -1;
+    const startsAt = [];
+    for (let k = 0; k < 288; k++) {
+      const now = DAY0 + k * AGENT_TICK_MS;
+      const pl = agentDrainPlan(spent, budget, now, est, perTick);
+      for (let j = 0; j < pl.take; j++) { spent += cost(); started++; startsAt.push(k); }
+      maxTick = Math.max(maxTick, pl.take);
+      if (spent >= budget && firstFloor < 0) firstFloor = k;
+    }
+    return { spent, started, maxTick, startsAt, firstFloor };
+  };
+  const g = simulate(250000, 2500, DRAIN_PER_TICK);
+  ok(g.spent <= 250000 * 1.1 + AGENT_FLOOR_EVERY_TICKS * 4500, "a whole UTC day spends the budget and not much more: " + g.spent);
+  ok(g.spent >= 250000 * 0.7, "and it is used, not starved: " + g.spent);
+  ok(g.maxTick <= DRAIN_PER_TICK, "no tick starts more than the drain's per-tick bound");
+  ok(g.started < 288 * DRAIN_PER_TICK / 4, "against the ungoverned 864 starts a day: " + g.started);
+  let emptyWindow = 0;
+  for (let w = 0; w + 36 <= 288; w += 36) if (!g.startsAt.some((k) => k >= w && k < w + 36)) emptyWindow++;
+  ok(emptyWindow === 0, "every three-hour window of the day starts at least one request (slower, never stopped)");
+  // a spent day keeps one request an hour and nothing more
+  const spentDay = [];
+  for (let k = 0; k < 288; k++) spentDay.push(agentDrainPlan(500000, 250000, DAY0 + k * AGENT_TICK_MS, 2500, DRAIN_PER_TICK).take);
+  ok(spentDay.reduce((a, b) => a + b, 0) === 288 / AGENT_FLOOR_EVERY_TICKS && Math.max(...spentDay) === 1, "a spent day starts exactly one request every " + AGENT_FLOOR_EVERY_TICKS + " ticks: " + spentDay.reduce((a, b) => a + b, 0));
+  // an early, unspent day lets the drain work at its per-tick bound
+  const early = agentDrainPlan(0, 3000000, DAY0, 2500, DRAIN_PER_TICK);
+  ok(early.limited === true && early.take === DRAIN_PER_TICK && early.duty === 1, "a large budget early in the day runs at the drain's per-tick bound");
+  // unreadable spend, no budget, 'off': not limited, at the per-tick bound
+  ok(agentDrainPlan(null, 250000, DAY0, 2500, 3).limited === false && agentDrainPlan(null, 250000, DAY0, 2500, 3).take === 3, "an unreadable ledger never throttles the queue");
+  ok(agentDrainPlan(1e9, 0, DAY0, 2500, 3).limited === false && agentDrainPlan(1e9, -1, DAY0, 2500, 3).take === 3, "budget 0 or below (off) disables the governor");
+  ok(AGENT_DAILY_NEURONS_DEFAULT === 250000, "the default budget is 250k neurons a day");
+  ok(AGENT_SHED_MIN < 120 && AGENT_SHED_MIN >= 60, "a request the budget cannot start leaves the queue before the 120-minute bar");
+}
+ok(/async function agentPlan\(env: Env\)[\s\S]*?FROM ai_spend_ledger WHERE day = \?1 AND caller = \?2/.test(ts), "the spend is read from the ledger rows this worker wrote");
+ok(/const gov = await agentPlan\(env\);\s*let modelSlots = gov\.plan\.take;/.test(ts), "the drain asks the governor once a tick");
+ok(/q\.priority !== "critical" && !\/\^lever-\/\.test\(String\(q\.requester \|\| ""\)\) && String\(q\.kind \|\| "run"\) === "run"\) \{\s*if \(modelSlots <= 0\) \{ out\.deferred\+\+; continue; \}\s*modelSlots--;/.test(ts), "critical, lever-* and no-model requests are never deferred");
+ok(/requester NOT LIKE 'lever-%' AND COALESCE\(kind, 'run'\) = 'run' AND created_at < strftime/.test(ts), "a lever-* request is never shed either: its rows are a measured verdict window");
+ok(/if \(gov\.plan\.limited\) \{\s*const old: any = await db\.prepare\("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND requester NOT LIKE 'lever-%' AND COALESCE\(kind, 'run'\) = 'run' AND created_at < strftime/.test(ts) && /shed: waited over/.test(ts), "while limited, a queued non-critical model request older than AGENT_SHED_MIN minutes is failed with the reason");
+ok(ts.indexOf("const gov = await agentPlan(env);") < ts.indexOf("const queued: any = await db.prepare(\"SELECT * FROM cf_agent_requests WHERE status = 'queued'"), "the shed runs before the queue is read, so a shed request is never started");
+ok(/qnfo_agents_daily_neurons/.test(ts) && /raw === "off" \? 0/.test(ts), "ops_config qnfo_agents_daily_neurons sets the budget and off disables it");
 
 console.log("qnfo-agents worker.test: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

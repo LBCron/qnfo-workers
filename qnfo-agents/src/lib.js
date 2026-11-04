@@ -203,6 +203,44 @@ export function runId() {
 export const REQUEST_KINDS = ["run", "sandbox", "schedule"];
 export const DRAIN_PER_TICK = 3;
 
+// QNFO-AGENTS-BUDGET-1 (0.7.0, 2026-11-04, pillar cost; BUDGET-SOFT-ROUTE-1: slower, never stopped). The loop drain started up to DRAIN_PER_TICK requests every
+// five minutes with no daily bound: deepseek-v4.1-flash-1017 through dynamic/standard was 1.06M to 1.42M neurons a day on 11-02 and 11-03 (28 to 40 percent of the
+// Cloudflare meter, USD 11 to 16 a day) while the owner's all-in target is about 757k neurons a day. The drain now takes its share of a daily neuron budget
+// (ops_config qnfo_agents_daily_neurons, default 250000, 'off' disables): each tick may start the requests that fit left / ticks-left neurons, a tick whose share is
+// under one request starts one every `duty` ticks, and a spent day keeps one request an hour. Critical requests and requests that call no model (sandbox,
+// schedule) are never deferred, and a request the budget cannot start leaves the queue after AGENT_SHED_MIN minutes (SLA-120M), failed with the reason, so
+// nothing waits past the 120-minute bar; the loop that wrote it files the next one. The spend is read from ai_spend_ledger (caller qnfo-agents), priced at the
+// rates the Cloudflare meter showed on 2026-11-04 (1.04M neurons for 23.8M input and 0.58M output tokens).
+export const AGENT_NEURONS_IN_PER_M = 40000;
+export const AGENT_NEURONS_OUT_PER_M = 120000;
+export const AGENT_DAILY_NEURONS_DEFAULT = 250000;
+export const AGENT_RUN_NEURONS_EST_DEFAULT = 2500;
+export const AGENT_FLOOR_EVERY_TICKS = 12;
+export const AGENT_TICK_MS = 300000;
+export const AGENT_SHED_MIN = 110;
+
+export function agentNeurons(inTok, outTok) {
+  return (Number(inTok) || 0) * AGENT_NEURONS_IN_PER_M / 1e6 + (Number(outTok) || 0) * AGENT_NEURONS_OUT_PER_M / 1e6;
+}
+
+// How many non-critical model requests this tick may start. spent is null when the ledger cannot be read: the drain is then not limited (a D1 fault never
+// throttles the queue; the drain cannot claim a row without D1 either).
+export function agentDrainPlan(spent, budget, nowMs, est, perTick) {
+  const per = perTick > 0 ? perTick : DRAIN_PER_TICK;
+  const e = est > 0 ? est : AGENT_RUN_NEURONS_EST_DEFAULT;
+  if (!(budget > 0) || spent == null || !Number.isFinite(Number(spent))) return { limited: false, take: per, duty: 1, left: null, share: null };
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const dayStart = Math.floor(now / 864e5) * 864e5;
+  const ticksLeft = Math.max(1, Math.ceil((dayStart + 864e5 - now) / AGENT_TICK_MS));
+  const left = Math.max(0, budget - Number(spent));
+  const share = left / ticksLeft;
+  const runs = Math.floor(share / e);
+  if (runs >= 1) return { limited: true, take: Math.min(per, runs), duty: 1, left, share };
+  const duty = share > 0 ? Math.min(AGENT_FLOOR_EVERY_TICKS, Math.ceil(e / share)) : AGENT_FLOOR_EVERY_TICKS;
+  const slot = Math.floor(now / AGENT_TICK_MS) % duty === 0;
+  return { limited: true, take: slot ? 1 : 0, duty, left, share };
+}
+
 export function requesterOk(s) {
   return /^[A-Za-z0-9][A-Za-z0-9:._-]{1,79}$/.test(String(s || ""));
 }

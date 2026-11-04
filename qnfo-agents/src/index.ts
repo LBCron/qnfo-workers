@@ -36,7 +36,7 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
+import { callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
 declare var VERSION: string;
@@ -734,9 +734,28 @@ async function finishRequest(env: Env, id: number, status: string, result: unkno
     .bind(id, status, result == null ? null : clip(typeof result === "string" ? result : JSON.stringify(result), 8000), error ? clip(error, 600) : null).run();
 }
 
+// QNFO-AGENTS-BUDGET-1: today's neurons for this worker's own model calls (ai_spend_ledger rows written by meter()) against ops_config qnfo_agents_daily_neurons.
+async function agentPlan(env: Env) {
+  try {
+    const cfg: any = await env.AUDIT_DB.prepare("SELECT key, value FROM ops_config WHERE key IN ('qnfo_agents_daily_neurons', 'qnfo_agents_run_neurons_est')").all();
+    const kv: Record<string, string> = {};
+    for (const r of (cfg.results || [])) kv[String(r.key)] = String(r.value == null ? "" : r.value).trim().toLowerCase();
+    const raw = kv.qnfo_agents_daily_neurons;
+    const budget = raw === "off" ? 0 : (raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : AGENT_DAILY_NEURONS_DEFAULT);
+    const est = Number(kv.qnfo_agents_run_neurons_est) > 0 ? Number(kv.qnfo_agents_run_neurons_est) : AGENT_RUN_NEURONS_EST_DEFAULT;
+    if (!(budget > 0)) return { plan: agentDrainPlan(null, 0, Date.now(), est, DRAIN_PER_TICK), spent: null, budget };
+    const u: any = await env.AUDIT_DB.prepare("SELECT COALESCE(SUM(in_tok), 0) AS i, COALESCE(SUM(out_tok), 0) AS o FROM ai_spend_ledger WHERE day = ?1 AND caller = ?2").bind(new Date().toISOString().slice(0, 10), WORKER).first();
+    const spent = Math.round(agentNeurons(u && u.i, u && u.o));
+    return { plan: agentDrainPlan(spent, budget, Date.now(), est, DRAIN_PER_TICK), spent, budget };
+  } catch (e) {
+    logErr("agentPlan", e);
+    return { plan: agentDrainPlan(null, 0, Date.now(), 0, DRAIN_PER_TICK), spent: null, budget: null };
+  }
+}
+
 async function drainRequests(env: Env) {
   const db = env.AUDIT_DB;
-  const out = { reconciled: 0, started: 0, failed: 0 };
+  const out: any = { reconciled: 0, started: 0, failed: 0, deferred: 0 };
   // 1. A running turn is finished when its cf_agent_runs row is; one with no result after REQUEST_STALE_MIN is re-queued (twice at
   //    most) and then failed with the reason, so nothing waits silently.
   const running: any = await db.prepare("SELECT q.id, q.attempts, q.started_at, a.status AS run_status, a.result AS run_result, a.error AS run_error FROM cf_agent_requests q LEFT JOIN cf_agent_runs a ON a.id = q.run_id WHERE q.status = 'running' LIMIT 50").all();
@@ -748,8 +767,22 @@ async function drainRequests(env: Env) {
     else { await finishRequest(env, r.id, "failed", null, "no result after " + REQUEST_STALE_MIN + " minutes, " + r.attempts + " attempts"); out.failed++; }
   }
   // 2. Start the next requests, critical first, then oldest.
+  // QNFO-AGENTS-BUDGET-1: the daily neuron budget decides how many model requests start this tick; the rest wait, and a request the budget cannot start
+  // leaves the queue before it has waited 120 minutes (SLA-120M), failed with the reason; the loop that wrote it files the next one.
+  const gov = await agentPlan(env);
+  let modelSlots = gov.plan.take;
+  out.governor = { limited: gov.plan.limited, spent: gov.spent, budget: gov.budget, duty: gov.plan.duty };
+  if (gov.plan.limited) {
+    const old: any = await db.prepare("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND requester NOT LIKE 'lever-%' AND COALESCE(kind, 'run') = 'run' AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-" + AGENT_SHED_MIN + " minutes') LIMIT 25").all();
+    for (const o of old.results || []) { await finishRequest(env, o.id, "failed", null, "shed: waited over " + AGENT_SHED_MIN + " minutes under the daily neuron budget (QNFO-AGENTS-BUDGET-1)"); out.shed = (out.shed || 0) + 1; }
+  }
   const queued: any = await db.prepare("SELECT * FROM cf_agent_requests WHERE status = 'queued' ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, id LIMIT ?1").bind(DRAIN_PER_TICK).all();
   for (const q of queued.results || []) {
+    // A critical request, a lever-* request (the agents_lever_usable_share_48h verdict window, decision 1552, needs every lever row) and a request that calls no model (sandbox, schedule) are never deferred; the rest take the tick's model slots.
+    if (q.priority !== "critical" && !/^lever-/.test(String(q.requester || "")) && String(q.kind || "run") === "run") {
+      if (modelSlots <= 0) { out.deferred++; continue; }
+      modelSlots--;
+    }
     const claim = await db.prepare("UPDATE cf_agent_requests SET status = 'running', attempts = attempts + 1, started_at = " + NOW_SQL + " WHERE id = ?1 AND status = 'queued'").bind(q.id).run();
     if (!claim.meta || !claim.meta.changes) continue;
     const v = validateRequest(q);
