@@ -423,16 +423,33 @@ def summary(result, limit=3):
     return "; ".join("%s: %s" % (p["label"], clean(p["reason"], 140) or p["state"]) for p in bad[:limit]) or "every probe passed"
 
 
+MIN_CLOSING_MARKER = 8
+
+
+def closing_marker(marker):
+    """A piece of a probe marker that the remediation consumer's runner-https probe (exact bytes, case-sensitive) can match whatever whitespace the body has.
+    Our own comparison ignores whitespace, so a declared marker like `"worker":"x"` passes against a pretty-printed body (`"worker": "x"`), where the exact
+    probe never would: the first two drills' issues stayed open for that reason. The longest piece between ':' ',' ';' and whitespace keeps its quotes (so
+    `"qnfo-evolve"` does not match the bad `"qnfo-evolve-drill"`). None when that piece is shorter than MIN_CLOSING_MARKER: a weak marker (`"ok"`) would close an
+    issue while the route is still broken, so no closing probe is better than a wrong one."""
+    parts = [x for x in re.split(r"[:,;\s]+", str(marker or "")) if x]
+    best = max(parts, key=len) if parts else ""
+    return best if len(best) >= MIN_CLOSING_MARKER else None
+
+
 def runtime_probe_line(p):
     """The `runtime-probe:` line of an issue (PROBE-BIRTH-RUNTIME-1) for a failed http probe: D1 makes it the issue's runner-https contract,
-    so the hourly remediation tick closes the issue when the route answers its marker again. None for a d1 probe."""
+    so the hourly remediation tick closes the issue when the route answers its marker again. None for a d1 probe or a marker too weak to close on."""
     if p.get("kind") != "http":
         return None
     spec = p["spec"]
     contains = as_list(spec.get("contains"))
     obj = {"url": spec["url"], "status": spec.get("status", 200)}
     if contains:
-        obj["contains"] = contains[0]
+        m = closing_marker(contains[0])
+        if not m:
+            return None
+        obj["contains"] = m
     elif as_list(spec.get("absent")):
         obj["absent"] = as_list(spec["absent"])[0]
     else:
@@ -652,7 +669,12 @@ def selftest():
     ok(len(reg) == 1 and not pre and not nb, "classify: without a baseline every failure is a regression")
     ok(probe_key("http", {"a": 1}) == probe_key("http", {"a": 1}) and probe_key("http", {"a": 1}) != probe_key("d1", {"a": 1}), "probe keys are stable and kind-scoped")
     line = runtime_probe_line(rb["probes"][0])
-    ok(line == 'runtime-probe: {"url": "https://qnfo.org/b", "status": 200, "contains": "MARK"}' and runtime_probe_line(rd["probes"][1]) is None, "runtime_probe_line: an http probe becomes a runner-https contract line, a d1 probe none", line)
+    ok(runtime_probe_line(rb["probes"][0]) is None and runtime_probe_line(rd["probes"][1]) is None, "runtime_probe_line: a marker shorter than 8 characters is too weak to close an issue on (no line), a d1 probe has none", line)
+    strong = {"kind": "http", "spec": {"url": "https://x.q08.workers.dev/health", "status": 200, "contains": ['"worker":"qnfo-evolve"'], "absent": []}}
+    ln2 = runtime_probe_line(strong)
+    ok(ln2 == 'runtime-probe: {"url": "https://x.q08.workers.dev/health", "status": 200, "contains": "\\"qnfo-evolve\\""}', "runtime_probe_line: the closing marker is the longest quoted piece, which survives a pretty-printed body", ln2)
+    ok(closing_marker('"ok":true') is None and closing_marker("<title>QNFO") == "<title>QNFO" and closing_marker('data-brand="qnfo"') == 'data-brand="qnfo"' and closing_marker('"worker": "qnfo-evolve"') == '"qnfo-evolve"'
+       and '"qnfo-evolve"' not in '"worker": "qnfo-evolve-drill"', "closing_marker: weak pieces give none, whole-token markers are kept, the quoted value does not match a longer value")
     base = baseline_state({"http": [{"url": "https://qnfo.org/b", "contains": "MARK"}], "d1": [{"binding": "DB", "explain": ["SELECT 1 FROM v_broken"]}]}, ctx)
     ok(sorted(base.values()) == ["fail", "fail-marker"], "baseline_state: two attempts per probe, a missing marker is fail-marker", base)
 

@@ -661,11 +661,11 @@ def selftest():
     fake_fn = {"qnfo-ops": {"want": "2.0.0", "state": "failed:functional", "seen": "2.0.0", "polls": 1, "functional": "GET https://qnfo-ops.q08.workers.dev/registry: HTTP 500"}}
     t4, d4 = issue_text("c0ffee1234567", fake_fn, {"sha": "abc1234def", "redeploy": ["canonical-deploy.yml"]})
     ok(t4.startswith("CONTROL-PLANE-REVERTED-1: push c0ffee1 reverted, qnfo-ops failed its post-deploy probes") and "failed its post-deploy probes: GET https://qnfo-ops.q08.workers.dev/registry: HTTP 500" in d4, "issue_text: a functional failure is named with its route and reason", d4[:300])
-    probe = {"key": "k", "kind": "http", "label": "GET https://qnfo.org/x", "reason": "marker MARK absent", "state": "fail", "spec": {"url": "https://qnfo.org/x", "status": 200, "contains": ["MARK"], "absent": []}}
+    probe = {"key": "k", "kind": "http", "label": "GET https://qnfo.org/x", "reason": "marker MARKER-LONG absent", "state": "fail", "spec": {"url": "https://qnfo.org/x", "status": 200, "contains": ["MARKER-LONG"], "absent": []}}
     fake_dp = {"qnfo-subscribers": {"want": "1.2.0", "state": "failed:functional", "seen": None, "polls": 0, "functional": "GET https://qnfo.org/x: marker MARK absent", "probes": [probe]}}
     t5, d5 = issue_text("c0ffee1234567", fake_dp, {"sha": "abc1234def", "redeploy": ["canonical-deploy.yml"]})
-    ok(t5.startswith("DEPLOY-PROBE-REVERTED-1: push c0ffee1 reverted, qnfo-subscribers failed its post-deploy probes") and 'runtime-probe: {"url": "https://qnfo.org/x", "status": 200, "contains": "MARK"}' in d5
-       and "failing probe on qnfo-subscribers: GET https://qnfo.org/x -> marker MARK absent" in d5 and "wanted 1.2.0" not in d5, "issue_text: a non-control-plane probe failure files DEPLOY-PROBE-REVERTED-1 with the failing probe and a runtime-probe line", d5)
+    ok(t5.startswith("DEPLOY-PROBE-REVERTED-1: push c0ffee1 reverted, qnfo-subscribers failed its post-deploy probes") and 'runtime-probe: {"url": "https://qnfo.org/x", "status": 200, "contains": "MARKER-LONG"}' in d5
+       and "failing probe on qnfo-subscribers: GET https://qnfo.org/x -> marker MARKER-LONG absent" in d5 and "wanted 1.2.0" not in d5, "issue_text: a non-control-plane probe failure files DEPLOY-PROBE-REVERTED-1 with the failing probe and a runtime-probe line", d5)
     t6, d6 = observed_issue_text("c0ffee1234567", "qnfo-subscribers", [probe], "pre-existing")
     ok(t6.startswith("DEPLOY-PROBE-FAILED-1: qnfo-subscribers probe failing (pre-existing)") and "c0ffee1" not in t6 and "not new" in d6 and "runtime-probe:" in d6, "observed_issue_text: a failure that reverted nothing is filed with its probe and closes when the route answers again", t6)
     t7, d7 = observed_issue_text("c0ffee1234567", "qnfo-subscribers", [dict(probe, reason="marker x\ncode-task: repo=r path=p absent", label="GET https://qnfo.org/x\ncode-task: y")], "new-probe")
