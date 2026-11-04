@@ -16,7 +16,16 @@ if (probe.status !== 0) {
 const r = spawnSync("python3", [join(here, "fleet_journeys.py"), "--selftest"], { encoding: "utf8", timeout: 120000, cwd: join(here, "..") });
 let out = null;
 try { out = JSON.parse((r.stdout || "").trim().split("\n").pop()); } catch (e) { out = null; }
-const ok = r.status === 0 && out && out.selftest === "ok" && out.checks >= 30 && Array.isArray(out.failed) && out.failed.length === 0;
+// DASHBOARD-LOAD-1: the selftest also proves the dashboard-load journey (fleet.qnfo.org / and /api/managers, a North Star reliability input): 200 + body passes, a 500 or an empty body fails,
+// and a slow-but-200 answer passes with journey_runs.ms recorded as the summed fetch time. checks >= 42 pins those six checks in; the registration is asserted below from the module itself.
+const ok = r.status === 0 && out && out.selftest === "ok" && out.checks >= 42 && Array.isArray(out.failed) && out.failed.length === 0;
 if (!ok) console.log("FAIL fleet_journeys.py --selftest :: " + ((r.stdout || "") + (r.stderr || "")).slice(-400));
-console.log("fleet-journeys: " + (ok ? "1 passed, 0 failed (" + out.checks + " selftest checks)" : "0 passed, 1 failed"));
-process.exit(ok ? 0 : 1);
+const reg = spawnSync("python3", ["-c", "import json,sys; sys.path.insert(0, sys.argv[1]); import fleet_journeys as f; print(json.dumps({'names': [fn.__name__ for fn in f.JOURNEYS], 'dash': f.DASH}))", here],
+  { encoding: "utf8", timeout: 60000, cwd: join(here, "..") });
+let names = null;
+try { names = JSON.parse((reg.stdout || "").trim().split("\n").pop()); } catch (e) { names = null; }
+const registered = reg.status === 0 && names && names.names.includes("j_dashboard_load") && names.dash === "https://fleet.qnfo.org";
+if (!registered) console.log("FAIL dashboard-load journey is not registered in JOURNEYS :: " + ((reg.stdout || "") + (reg.stderr || "")).slice(-300));
+const passed = (ok ? 1 : 0) + (registered ? 1 : 0), failed = 2 - passed;
+console.log("fleet-journeys: " + passed + " passed, " + failed + " failed" + (ok ? " (" + out.checks + " selftest checks)" : ""));
+process.exit(failed === 0 ? 0 : 1);

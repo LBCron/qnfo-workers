@@ -32,6 +32,8 @@ WHAT
     loop-heartbeats    the cron loops ran recently: fleet-control /loops and /chaos-drill, dashboard /api/loop and
                        /api/state, ai-search /api/loop, gateway /api/render-health
     ai-router          qnfo-ai /health declares its bindings, /v1/models lists models, /v1/ensemble/policy answers
+    dashboard-load     fleet.qnfo.org/ (HTML) and /api/managers (JSON) each answer 200 with a body; the journey's ms is the summed wall time of
+                       both fetches, the dashboard load time a North Star reliability metric reads. Slowness never fails it (DASHBOARD-LOAD-1)
 
   Results: one journey_runs row per journey per run (runner gha; failed steps and the hops taken, never response bodies: this repository
   is public), the shared metric fleet_journeys_failing, and the shared self-closing issue "FLEET-JOURNEY-FAILED-1: <journey> (...)".
@@ -450,7 +452,23 @@ def j_ai_router(h):
     return j
 
 
-JOURNEYS = [j_deploy_coherence, j_binding_census, j_lock_roundtrip, j_papers_path, j_ask_path, j_loop_heartbeats, j_ai_router]
+def j_dashboard_load(h):
+    """DASHBOARD-LOAD-1: how long the owner's dashboard takes to load, measured from the runner (outside Cloudflare, so it is what a browser sees).
+
+    The recorded journey_runs.ms is the wall time of this whole function, i.e. the SUM of the two sequential GETs (home HTML, then /api/managers JSON);
+    the per-request times are also in path_json. Pass = HTTP 200 and a non-empty body for both. Slowness is never a failure here: a failing journey files
+    FLEET-JOURNEY-FAILED-1, and a slow dashboard is the business of the metric trigger that reads ms. Only an error status, an empty body or a network
+    error sets ok=false. Both fetches always run (no early return), so ms covers both even when the first fails. Per-request timeout is TIMEOUT (30 s)."""
+    j = Journey("dashboard-load")
+    for label, path in (("dashboard home (HTML)", "/"), ("/api/managers (JSON)", "/api/managers")):
+        t0 = time.time()
+        st, body = h.req("GET", DASH + path)
+        ms = int((time.time() - t0) * 1000)
+        j.check("%s answers 200 with a body" % label, st == 200 and bool((body or "").strip()), "http %s, %d bytes, %d ms" % (st, len(body or ""), ms))
+    return j
+
+
+JOURNEYS = [j_deploy_coherence, j_binding_census, j_lock_roundtrip, j_papers_path, j_ask_path, j_loop_heartbeats, j_ai_router, j_dashboard_load]
 
 
 def run_all(h=None, skip_ai=None):
@@ -620,6 +638,14 @@ def selftest():
                 return 200, json.dumps({"data": [{"id": "qnfo"}]})
             if url == AI + "/v1/ensemble/policy":
                 return 200, "{}"
+            if url in (DASH + "/", DASH + "/api/managers"):
+                if break_hop == "dash-slow":
+                    time.sleep(0.12)  # slow but healthy: must still pass
+                if break_hop == "dash-500" and url.endswith("/managers"):
+                    return 500, "boom"
+                if break_hop == "dash-empty" and url == DASH + "/":
+                    return 200, "   "
+                return 200, "<html>ok</html>" if url == DASH + "/" else json.dumps({"managers": []})
             return 404, ""
         return opener
 
@@ -719,6 +745,21 @@ def selftest():
     expect("loops pass", run_one(j_loop_heartbeats).ok)
     expect("stale loop fails", not run_one(j_loop_heartbeats, "stale").ok)
     expect("ai router passes", run_one(j_ai_router).ok)
+    # DASHBOARD-LOAD-1: registered under its name; passes on 200 + body; an error status or an empty body fails; slow-but-200 passes with ms = summed fetch time.
+    expect("dashboard-load is registered", j_dashboard_load in JOURNEYS and run_one(j_dashboard_load).name == "dashboard-load")
+    expect("dashboard-load passes on 200 with bodies", run_one(j_dashboard_load).ok)
+    expect("dashboard-load 500 on /api/managers fails", not run_one(j_dashboard_load, "dash-500").ok)
+    expect("dashboard-load empty home body fails", not run_one(j_dashboard_load, "dash-empty").ok)
+    expect("dashboard-load transport error (status 0) fails", not j_dashboard_load(Http(lambda m, u, b, hd: (0, ""))).ok)
+    saved_journeys = list(JOURNEYS)
+    JOURNEYS[:] = [j_dashboard_load]
+    try:
+        slow = run_all(Http(site("dash-slow")), skip_ai=True)
+    finally:
+        JOURNEYS[:] = saved_journeys
+    expect("dashboard-load slow-but-200 passes and records ms as the summed fetch time (2 x 120 ms)",
+           len(slow) == 1 and slow[0]["journey"] == "dashboard-load" and slow[0]["ok"] is True and slow[0]["ms"] >= 200
+           and len(slow[0]["path"]) == 2 and all(p["to"] == "qnfo-fleet-dashboard" and p["status"] == 200 for p in slow[0]["path"]))
     expect("age_min parses both forms", abs(age_min(iso(10)) - 10) < 1 and abs(age_min(iso(10).replace("T", " ").rstrip("Z")) - 10) < 1)
 
     # Record lifecycle on an in-memory SQLite with the production columns: a failing journey files once, updates on the next failure,
