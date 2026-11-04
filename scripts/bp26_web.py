@@ -494,6 +494,15 @@ def collect_web(ctx):
     avail_rows, per_host = [], {}
     for h in HTML_HOSTS:
         r = homes[h]
+        if r.error == "budget-exhausted":
+            # SLO-PROBE-BUDGET-1 (#7170, #7119, #7132, #7153): the producers run under one wall-clock budget (BP26_BUDGET_S); when it is spent, Ctx.http answers
+            # Resp(0 ..., "budget-exhausted") WITHOUT sending a request. That is the prober running out of time, not the host failing to answer, yet it was recorded
+            # as ok = 0 for every host fetched after the cutoff: on 2026-10-31T00:54:09Z and 2026-11-04T18:11:33Z 13 of 14 surfaces "failed" in the same sample and each
+            # one opened an availability incident and a postmortem. No observation, no sample: ok stays NULL, which slo_history() and bp26_slo.py already leave out
+            # (ok IS NOT NULL), so the host is neither up nor down for that run.
+            avail_rows.append(("avail:" + h, None, "not sampled: budget-exhausted (the probe's own time budget ran out before this host was fetched)"))
+            per_host[h] = (hist or {}).get(h, (0, 0, None))
+            continue
         if r.error or not r.status:
             up = 0
             detail = "down: %s" % (r.error or "no status")
@@ -799,6 +808,13 @@ INSERT INTO social_threads VALUES (1, '["thread post one"]', 'posted', datetime(
     # a total outage of fetching gives None, never 0
     res3 = {r.metric: r for r in collect_web(P.Ctx(d1=d1, http=lambda u, **k: Resp(0, {}, [], "", u, 0, [], "timeout"), root=td_root))}
     ok(res3["security_headers_pass"].value is None and res3["third_party_trackers"].value is None and res3["structured_data_valid"].value is None, "nothing fetched: unknown, not zero")
+    # SLO-PROBE-BUDGET-1: hosts fetched after the probe's own time budget ran out were not observed: no sample (ok NULL), never a failed one
+    res4 = {r.metric: r for r in collect_web(P.Ctx(d1=d1, http=lambda u, **k: Resp(0, {}, [], "", u, 0, [], "budget-exhausted"), root=td_root))}
+    rows4 = res4["slo_attainment_28d_min"].rows
+    ok(bool(rows4) and all(v is None and d.startswith("not sampled: budget-exhausted") for _s, v, d in rows4), "a budget-exhausted fetch is recorded as not sampled (ok NULL), not as down: %r" % (rows4[:2],))
+    ok(res4["slo_attainment_28d_min"].value == round(27 / 30.0, 4), "a run that observed nothing leaves the figure at the history alone (me.q08.org 27 of 30): %r" % res4["slo_attainment_28d_min"].value)
+    res5 = {r.metric: r for r in collect_web(P.Ctx(d1=d1, http=lambda u, **k: Resp(0, {}, [], "", u, 0, [], "timeout"), root=td_root))}
+    ok(all(v == 0 and d.startswith("down: timeout") for _s, v, d in res5["slo_attainment_28d_min"].rows), "a real timeout is still a failed sample (the host did not answer)")
     print("bp26_web selftest %s" % ("ok" if not fails else "FAILED %d" % len(fails)))
     return 1 if fails else 0
 
