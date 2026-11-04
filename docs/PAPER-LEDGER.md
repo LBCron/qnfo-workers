@@ -55,3 +55,19 @@ Detector `fm-paper-ledger-bodies-unbounded` fails above 330 MB.
 
 `papers_fts` (the full-text index) failed its integrity check in production because `papers_au` ran an FTS5 delete on every update; see
 `migrations/living-paper/2026-10-26-papers-fts-drift.sql`. A new trigger on `papers` must not issue an FTS statement for an update that leaves `title` and `abstract` alone.
+
+## Reading the record (PAPER-HISTORY-1, qnfo-gateway 3.56.0)
+
+Owner directive 2026-11-04: every edit of a paper keeps its full version information, earlier versions stay verbatim, the Versions tab shows what changed (not only raw text), and each paper links to the
+files kept about it. The gateway reads the ledger above; nothing new is stored.
+
+| URL (papers.qnfo.org/papers/<slug>/...) | What it shows |
+|---|---|
+| `history` | every version (date, size, SHA-256, verbatim text, "what changed" link) and every ledger change (when, version, fields, why, by, size) |
+| `diff?from=v1.0.0&to=current` | paragraph + word diff of the Markdown; refs are `current`, `v<semver>`, `c<seq>` (the text before ledger change seq) or `s<id>` (a `paper_version_history` snapshot) |
+| `diff?change=<seq>` | what one ledger change did (raw source view; `&view=clean` ignores front matter, byline, repeated title, in-body version history) |
+| `files`, `files.json`, `ro-crate-metadata.json` | the record as a repository keeps it: files with size and SHA-256, earlier versions, the `QNFO/qnfo-research` directory (`papers/<slug>`, read from its `provenance.json`), the research runs pinned to their commit (`research_run_ledger`), other QNFO papers linked, as an RO-Crate 1.1 |
+| `history.json` | the same versions and changes as JSON |
+
+Limits: the ledger starts 2026-10-26, so older versions come from `paper_version_history` (one body per version); a ledger body archived off-database (`paper_change_body_archive`) is read from `RELEASES paper-ledger/<seq>.md`, and
+shown as not held when neither is readable; at most 80 recent changes are listed. Suite: `node qnfo-gateway/paper-history.test.mjs`. Rollback: remove the `paperHistoryRoutes` hook in `serve`; the Versions tab links then 404 and nothing else changes.
