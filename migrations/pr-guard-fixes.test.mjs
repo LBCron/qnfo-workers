@@ -75,13 +75,19 @@ const judge = (probeText, rootDir) => {
   const r = spawnSync(PY, ["-I", "-c", "import sys, json; sys.path.insert(0, sys.argv[1]); import remediation_consumer as rc; p, e = rc.parse_code_probe(sys.argv[2]); print(json.dumps({'err': e, 'observed': rc.run_code_probe(p, sys.argv[3]) if p else None}))", join(root, "scripts"), probeText, rootDir], { encoding: "utf8" });
   try { return JSON.parse(String(r.stdout).trim().split("\n").pop()); } catch (e) { return { err: "no output", observed: null, stderr: r.stderr }; }
 };
-const probeOf = (key) => rcs.find((r) => r.class === "fm-" + key).verify_probe;
+// MAIN-GUARD-RANGE-FLOOR-1 (2026-11-04): PUSH-COALESCE-1 replaced the per-sha group, so migrations/2026-11-04-push-guard-range-floor-detector.sql repoints the
+// push-guard-cancelled-on-main detector. The detectors are judged as the live table holds them: with that later file applied on top of this one.
+const finalDb = fresh();
+finalDb.exec(sql);
+finalDb.exec(readFileSync(join(here, "2026-11-04-push-guard-range-floor-detector.sql"), "utf8").replace(/\r\n/g, "\n"));
+const finalRcs = all(finalDb, "SELECT * FROM remediation_contracts ORDER BY class");
+const probeOf = (key) => finalRcs.find((r) => r.class === "fm-" + key).verify_probe;
 const read = (rel) => readFileSync(join(root, rel), "utf8");
 const tmp = mkdtempSync(join(tmpdir(), "pgf-"));
 const variant = (name, rel, edit) => { const d = join(tmp, name); mkdirSync(dirname(join(d, rel)), { recursive: true }); writeFileSync(join(d, rel), edit(read(rel))); return d; };
 const cases = [
   ["version-bump-guard-reads-comment", "scripts/version-bump-guard.py", (t) => t.replace(/^VERSION_RE = .*$/m, "VERSION_RE = re.compile(r'var\\s+VERSION\\s*=\\s*\"([^\"]*)\"')"), "missing-marker:scripts/version-bump-guard.py"],
-  ["push-guard-cancelled-on-main", ".github/workflows/version-bump-guard.yml", (t) => t.replace(/^ {2}cancel-in-progress: .*$/m, "  cancel-in-progress: true"), "missing-marker:.github/workflows/version-bump-guard.yml"],
+  ["push-guard-cancelled-on-main", ".github/workflows/version-bump-guard.yml", (t) => t.replace("range floor is the last green guard run", "range floor is gone"), "missing-marker:.github/workflows/version-bump-guard.yml"],
   ["conflict-repair-skips-required-check", "scripts/conflict_repair.py", (t) => t.replace('"mirror-guard.yml", ', ""), "missing-marker:scripts/conflict_repair.py"],
   ["model-floor-guard-read-failure-as-finding", "scripts/model-floor-guard.mjs", (t) => t.replace("class GuardReadError", "class Gone"), "missing-marker:scripts/model-floor-guard.mjs"],
   ["model-floor-guard-read-failure-as-finding", "scripts/model-floor-guard.mjs", (t) => t + '\nconst REPO_OLD = "C:/Users/LENOVO/Documents/GitHub/qnfo-workers";\n', "present-marker:scripts/model-floor-guard.mjs"],

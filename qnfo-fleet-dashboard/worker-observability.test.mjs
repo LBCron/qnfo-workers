@@ -4,13 +4,14 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
-const start = source.indexOf("async function workerObservability(env, nowMs) {");
-const end = source.indexOf('\n__name(workerObservability, "workerObservability");', start);
-assert.ok(start >= 0 && end > start, "workerObservability helper is present");
+const start = source.indexOf("var _wobsMemo = null;\nasync function workerObservability(env, nowMs) {");
+const end = source.indexOf('\n__name(workerObservabilityRead, "workerObservabilityRead");', start);
+assert.ok(start >= 0 && end > start, "workerObservability, its 5-minute memo and the read are present");
 
-const activeIssues = new Function("d1all", "ERR_ACTIVE_MS", `${source.slice(start, end)}\nreturn workerObservability;`)(
+const activeIssues = new Function("d1all", "ERR_ACTIVE_MS", "__name", `${source.slice(start, end)}\nreturn workerObservability;`)(
   async (env, sql, params) => env.db.prepare(sql).all(...params),
-  3 * 36e5
+  3 * 36e5,
+  (fn) => fn
 );
 
 test("reports only fresh unresolved issues not followed by a successful deployment", async () => {
@@ -43,6 +44,11 @@ test("reports only fresh unresolved issues not followed by a successful deployme
     const result = await activeIssues({ AUDIT: { db } }, now);
     assert.equal(result.count, 3);
     assert.deepEqual(new Set(result.workers), new Set(["qnfo-ai", "qnfo-ai-search"]));
+
+    // D1-OVERLOAD-1d: a second call inside 5 minutes answers from the isolate memo, not from D1
+    db.exec("DELETE FROM fleet_issue_loop");
+    assert.equal((await activeIssues({ AUDIT: { db } }, now + 60_000)).count, 3);
+    assert.equal((await activeIssues({ AUDIT: { db } }, now + 6 * 60_000)).count, 0);
   } finally {
     db.close();
   }

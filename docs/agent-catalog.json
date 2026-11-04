@@ -211,6 +211,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CF-ACCESS-ROLLOUT-1277.md"
     },
     {
+      "path": "docs/CI-VELOCITY-2026-11.md",
+      "title": "CI velocity, 2026-11 (CI-VELOCITY-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CI-VELOCITY-2026-11.md"
+    },
+    {
       "path": "docs/CLAUDE-CODE-CLOUD-VS-QUNIVERSE.md",
       "title": "Claude Code cloud execution vs the Quniverse (2026-10-01)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CLAUDE-CODE-CLOUD-VS-QUNIVERSE.md"
@@ -286,6 +291,21 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CONTENT-PIPELINE.md"
     },
     {
+      "path": "docs/COPILOT-YIELD-2026-11.md",
+      "title": "Copilot assignment yield, 2026-11-04 (COPILOT-YIELD-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/COPILOT-YIELD-2026-11.md"
+    },
+    {
+      "path": "docs/COST-AND-D1-ANALYSIS-2026-11-04.md",
+      "title": "Cost and D1 analysis, 2026-11-04 (COST-D1-DRILL-1, pillar cost)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/COST-AND-D1-ANALYSIS-2026-11-04.md"
+    },
+    {
+      "path": "docs/COST-LEDGER-ALLVENDOR.md",
+      "title": "All-vendor monthly cost ledger (COST-LEDGER-ALLVENDOR-1, pillar cost)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/COST-LEDGER-ALLVENDOR.md"
+    },
+    {
       "path": "docs/COST-OPTIMIZED-MODEL-CALLS.md",
       "title": "COST-OPTIMIZED MODEL-CALL STACK (fleet v2 — IMPLEMENTED)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/COST-OPTIMIZED-MODEL-CALLS.md"
@@ -296,9 +316,19 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CRON-RATE-CEILING-1.md"
     },
     {
+      "path": "docs/D1-CLOUD-OPS-EVENTS-2026-11.md",
+      "title": "cloud_ops_events insert cost (CLOUD-OPS-EVENTS-TRIGGER-COST-1, 2026-11-04)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/D1-CLOUD-OPS-EVENTS-2026-11.md"
+    },
+    {
       "path": "docs/D1-RESTORE-RUNBOOK.md",
       "title": "D1 restore runbook (D1-RESTORE-RUNBOOK-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/D1-RESTORE-RUNBOOK.md"
+    },
+    {
+      "path": "docs/D1-SPLIT-DESIGN-2026-11.md",
+      "title": "D1 split design: hot write paths off qnfo-audit (D1-SPLIT-1, pillar core)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/D1-SPLIT-DESIGN-2026-11.md"
     },
     {
       "path": "docs/DATA-PLANE-DISPOSITIONS-2026-10-01.md",
@@ -386,6 +416,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/FLEET-REPORT-CARD.md"
     },
     {
+      "path": "docs/GH-BUDGET-FLOOR.md",
+      "title": "GH-BUDGET-FLOOR-1 (issue 7071, charter pillar core)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/GH-BUDGET-FLOOR.md"
+    },
+    {
       "path": "docs/GITHUB-CLOUD-QUNIVERSE.md",
       "title": "GitHub cloud access to Quniverse",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/GITHUB-CLOUD-QUNIVERSE.md"
@@ -461,6 +496,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/LEASES-FENCING.md"
     },
     {
+      "path": "docs/MAIN-PUSH-POLICY.md",
+      "title": "Main push policy (MAIN-PUSH-POLICY-1, 2026-11-04)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/MAIN-PUSH-POLICY.md"
+    },
+    {
       "path": "docs/MODEL-MATRIX.md",
       "title": "MODEL-MATRIX-1: which Cloudflare model for which job",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/MODEL-MATRIX.md"
@@ -529,6 +569,11 @@
       "path": "docs/PORTFOLIO.md",
       "title": "The QNFO portfolio (QNFO-PORTFOLIO-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/PORTFOLIO.md"
+    },
+    {
+      "path": "docs/PR-CYCLE-TIME-2026-11.md",
+      "title": "PR cycle time, 2026-11 (PR-RETRY-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/PR-CYCLE-TIME-2026-11.md"
     },
     {
       "path": "docs/PROBE-WRITE-DEAD-1.md",
@@ -660,6 +705,11 @@
       "path": "docs/TRANSFORMATION-PROGRAM.md",
       "title": "Quniverse transformation program (TRANSFORMATION-PROGRAM-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/TRANSFORMATION-PROGRAM.md"
+    },
+    {
+      "path": "docs/UX-JOURNEYS.md",
+      "title": "Phone journeys: every user-facing app is tested the way a person uses it (UX-JOURNEYS-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/UX-JOURNEYS.md"
     },
     {
       "path": "docs/VALUE-FOR-MONEY.md",

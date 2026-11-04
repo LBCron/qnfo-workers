@@ -4,9 +4,10 @@
 //      qnfo-model-eval/worker.js line 50 quoted the form in a comment, so the guard read the placeholder "..." on both sides of two real bumps
 //      (1.2.0 -> 1.3.0, 1.3.0 -> 1.4.0) and reported "unchanged VERSION after a byte change" (push runs 39126065745 and 39126418865, PR runs
 //      39125992400 and 39126349048). The suite builds throw-away repositories (a base commit and a head commit) and runs the real script over them.
-//   2. VERSION-BUMP-PUSH-SHA-1: .github/workflows/version-bump-guard.yml cancelled the run of an earlier push to main when a later one arrived
-//      (group per ref, cancel-in-progress true): 35 of 277 push-to-main runs from 2026-10-18, so the commits of a burst were never validated.
-//      The suite evaluates the workflow's own concurrency expressions for push, pull_request and dispatch contexts.
+//   2. PUSH-COALESCE-1 and MAIN-GUARD-RANGE-FLOOR-1: .github/workflows/version-bump-guard.yml lets a newer push to main cancel the older run (one group, cancel-in-progress
+//      true; before 2026-11-04 VERSION-BUMP-PUSH-SHA-1 gave each push its own group because 35 of 277 push-to-main runs from 2026-10-18 were cancelled and their commits never
+//      validated). The suite evaluates the workflow's own concurrency expressions for push, pull_request and dispatch contexts, and runs the range-floor shell
+//      against a throw-away repository with a fake gh: the newest run starts at the last green run's head, so a cancelled run's range is still read.
 // Run: node scripts/version-bump-guard.test.mjs
 //   VBG_GUARD=<file> runs another copy of the script, VBG_WORKFLOW=<file> another copy of the workflow (the pre-change files): each must fail.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -102,9 +103,12 @@ if (m) {
   const ctx = (event, ref, sha) => ({ event_name: event, ref, sha });
   const gr = (c) => evaluate(m[1], c), cancel = (c) => evaluate(m[2], c).trim() === "true";
   const push1 = ctx("push", "refs/heads/main", "a".repeat(40)), push2 = ctx("push", "refs/heads/main", "b".repeat(40));
-  ok(gr(push1) !== gr(push2), "two pushes to main fall in different groups, so one never waits behind or cancels the other", [gr(push1), gr(push2)]);
-  ok(cancel(push1) === false && cancel(push2) === false, "a push to main is never cancelled", [m[2]]);
-  ok(gr(ctx("workflow_dispatch", "refs/heads/main", "c".repeat(40))).includes("c".repeat(40)), "a dispatch on main has its own sha group too");
+  // PUSH-COALESCE-1 (2026-11-04, #7001): a burst of merges queued one run per pushed sha, so a newer push to main now cancels the older run. This reverses
+  // VERSION-BUMP-PUSH-SHA-1 on purpose; the cost is that a cancelled run's before..sha range is validated by nobody;
+  // MAIN-GUARD-RANGE-FLOOR-1 (follow-up) widens a push's range to the last green run so the newest run covers it.
+  ok(gr(push1) === gr(push2) && gr(push1).includes("main-push"), "two pushes to main share one group (PUSH-COALESCE-1), so only the newest main is guarded", [gr(push1), gr(push2)]);
+  ok(cancel(push1) === true && cancel(push2) === true, "a newer push to main cancels the older guard run (PUSH-COALESCE-1)", [m[2]]);
+  ok(gr(ctx("workflow_dispatch", "refs/heads/main", "c".repeat(40))) === gr(push1), "a dispatch on main joins the same main-push group");
   const b1 = ctx("push", "refs/heads/codeagent-x", "d".repeat(40)), b2 = ctx("push", "refs/heads/codeagent-x", "e".repeat(40));
   ok(gr(b1) === gr(b2) && cancel(b1) === true, "two pushes to one branch share a group and the newer cancels the older (CONCURRENCY-PER-REF-1 kept)", [gr(b1), gr(b2), m[2]]);
   const p1 = ctx("pull_request", "refs/pull/7/merge", "f".repeat(40)), p2 = ctx("pull_request", "refs/pull/7/merge", "0".repeat(40));
@@ -112,7 +116,50 @@ if (m) {
   const other = ctx("pull_request", "refs/pull/8/merge", "f".repeat(40));
   ok(new Set([gr(p1), gr(other), gr(b1), gr(push1)]).size === 4, "a pull request, another pull request, a branch and main are four groups, so none cancels another", [gr(p1), gr(other), gr(b1), gr(push1)]);
 }
-ok(/^ {2}pull_request:\s*$/m.test(wf) && !/^ {2}pull_request:\n[ \t]+paths:/m.test(wf), "the pull_request trigger still has no paths filter (INTEG-GITHUB-HARDEN-1: the guard job is a required check)");
+// THREE-PR-WORKFLOWS-1, then PR-CHECK-CAP-5-1: the pull_request trigger left this file; pr-checks.yml holds the guard's steps in its `versions` job (a `uses:` job is one check
+// entry, so it no longer calls this file). The guard must still run on every pull request: its step is unconditional and the trigger keeps no `paths:` filter
+// (INTEG-GITHUB-HARDEN-1): a check that never runs stays "Expected" for ever.
+const checks = readFileSync(join(root, ".github", "workflows", "pr-checks.yml"), "utf8").replace(/\r\n/g, "\n");
+const versionsJob = (checks.match(/\n  versions:\n([\s\S]*?)(?=\n  [a-z-]+:\n|$)/) || [])[1] || "";
+const guardStep = (versionsJob.match(/- name: Version bump guard\n([\s\S]*?)(?=\n      - |$)/) || [])[1] || "";
+ok(/^ {2}workflow_call:\s*$/m.test(wf) && !/^ {2}pull_request:/m.test(wf) && /python3 scripts\/version-bump-guard\.py/.test(guardStep) && /^\s+if: \$\{\{ !cancelled\(\) \}\}\s*$/m.test(guardStep) && /^on:\n {2}pull_request:\n {4}branches: \[main\]\n(?! {4}paths)/m.test(checks), "pr-checks runs the guard on every pull request into main: the step has no condition and the pull_request trigger has no paths filter (INTEG-GITHUB-HARDEN-1)");
+
+// ---- MAIN-GUARD-RANGE-FLOOR-1: a push to main validates from the last green run, so a run PUSH-COALESCE-1 cancelled leaves no unvalidated range ----
+{
+  const floorAt = wf.indexOf("          # MAIN-GUARD-RANGE-FLOOR-1");
+  const floorEnd = wf.indexOf('          echo "before=$BEFORE"', floorAt);
+  ok(floorAt > 0 && floorEnd > floorAt, "the range step carries the MAIN-GUARD-RANGE-FLOOR-1 floor");
+  if (floorAt > 0 && floorEnd > floorAt) {
+    const snippet = wf.slice(floorAt, floorEnd).split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
+    const repo = mkdtempSync(join(tmpdir(), "vbg-floor-")); dirs.push(repo);
+    git(repo, "init", "-q", "-b", "main");
+    const shas = [];
+    for (let i = 0; i < 4; i++) { writeFileSync(join(repo, "f.txt"), "c" + i + "\n"); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "c" + i); shas.push(git(repo, "rev-parse", "HEAD").stdout.trim()); }
+    git(repo, "checkout", "-q", "-b", "side", shas[0]); writeFileSync(join(repo, "g.txt"), "side\n"); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "side");
+    const sideSha = git(repo, "rev-parse", "HEAD").stdout.trim(); git(repo, "checkout", "-q", "main");
+    const run = (event, ref, floor, before) => {
+      const script = 'gh() { echo called >> "$GH_LOG"; if [ -n "${FAKE_FLOOR+x}" ]; then printf "%s" "$FAKE_FLOOR"; else return 1; fi; }\nset -euo pipefail\nBEFORE=' + before + "\nAFTER=" + shas[3] + "\n" + snippet + '\necho "RESULT=$BEFORE"';
+      writeFileSync(join(repo, "gh.log"), "");
+      const env = Object.assign({}, process.env, { GITHUB_EVENT_NAME: event, GITHUB_REF: ref, GITHUB_REPOSITORY: "QNFO/qnfo-workers", GH_LOG: join(repo, "gh.log").replaceAll(String.fromCharCode(92), "/") });
+      delete env.FAKE_FLOOR; if (floor !== null) env.FAKE_FLOOR = floor;
+      const r = spawnSync("bash", ["-c", script], { cwd: repo, encoding: "utf8", env });
+      return { result: ((r.stdout.match(/RESULT=(\S*)/) || [])[1]) || null, called: readFileSync(join(repo, "gh.log"), "utf8").includes("called"), status: r.status, err: (r.stderr || "").slice(0, 200) };
+    };
+    const a = run("push", "refs/heads/main", shas[0], shas[2]);
+    ok(a.status === 0 && a.result === shas[0], "a push to main starts at the last green run's head when that commit is an ancestor of before", a);
+    const b = run("push", "refs/heads/main", null, shas[2]);
+    ok(b.status === 0 && b.result === shas[2], "when the runs API fails the range stays event.before", b);
+    const c = run("push", "refs/heads/main", sideSha, shas[2]);
+    ok(c.status === 0 && c.result === shas[2], "a green run on a commit that is not an ancestor of before never moves the floor", c);
+    const d = run("push", "refs/heads/main", "", shas[2]);
+    ok(d.status === 0 && d.result === shas[2], "an empty answer (no green run yet) leaves the range alone", d);
+    const e = run("push", "refs/heads/some-branch", shas[0], shas[2]);
+    ok(e.status === 0 && e.result === shas[2] && e.called === false, "a push to another ref neither asks the API nor changes the range", e);
+    const f = run("workflow_dispatch", "refs/heads/main", shas[0], shas[2]);
+    ok(f.status === 0 && f.result === shas[2] && f.called === false, "a dispatch neither asks the API nor changes the range", f);
+  }
+  ok(/^ {8}env:\n {10}GH_TOKEN: \$\{\{ github\.token \}\}\n {8}run: \|\n {10}set -euo pipefail\n {10}BEFORE=/m.test(wf), "the range step hands the workflow token over through env for the runs API read (no new permission: the repository is public)");
+}
 
 for (const d of dirs) rmSync(d, { recursive: true, force: true });
 console.log(fail ? fail + " failed, " + pass + " passed" : pass + " passed, 0 failed");

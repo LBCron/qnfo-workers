@@ -102,6 +102,8 @@ jobs:
 
       - name: Resolve the diff range
         id: range
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           BEFORE='${{ github.event.before }}'
@@ -154,6 +156,20 @@ jobs:
             if [ -n "$MB" ] && [ "$MB" != "$(git rev-parse "$AFTER")" ]; then
               echo "pull_request or merge commit; validating merge-base with origin/$BASE_REF: $MB"
               BEFORE="$MB"
+            fi
+          fi
+          # MAIN-GUARD-RANGE-FLOOR-1 (2026-11-04, pillar autonomy; fm push-guard-cancelled-on-main): PUSH-COALESCE-1 lets a newer push to main cancel the older run, so the
+          # older push's before..after range would be validated by nobody. The range of a push to main therefore starts at the head of the last GREEN push run of this workflow
+          # when that commit is an ancestor of before (a superset of before..after, so it can only be stricter), is at most 300 commits behind, and the runs API answers;
+          # otherwise it stays event.before. Whatever a cancelled run would have read, the newest run now reads.
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            FLOOR=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/version-bump-guard.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)
+            if [ -n "$FLOOR" ] && git cat-file -e "${FLOOR}^{commit}" 2>/dev/null && git merge-base --is-ancestor "$FLOOR" "$BEFORE" 2>/dev/null \
+               && [ "$(git rev-list --count "$FLOOR..$AFTER" 2>/dev/null || echo 99999)" -le 300 ]; then
+              echo "push to main; range floor is the last green guard run $FLOOR (event.before was $BEFORE)"
+              BEFORE="$FLOOR"
+            else
+              echo "push to main; no usable green floor (${FLOOR:-none}); keeping event.before"
             fi
           fi
           echo "before=$BEFORE" >> "$GITHUB_OUTPUT"

@@ -57,7 +57,7 @@ ok(left.length === 2 && left.some((x) => x.title === "unrelated") && left.some((
 
 ok(/^## Inventory$/m.test(doc), "docs/DOMAINS.md carries the ## Inventory section");
 const inv = doc.slice(doc.indexOf("## Inventory"));
-ok(inv.includes("me.q08.org") && inv.includes("personal.qnfo.org") && inv.includes("DOMAIN-PLANE-1:ask.qwav.tech") && inv.includes("DOMAIN-PLANE-1:qwav.tech"), "the inventory names the personal host, the old personal host and both misplaced quantum hosts with their issues");
+ok(inv.includes("me.q08.org") && inv.includes("personal.qnfo.org") && inv.includes("DOMAIN-PLANE-1:ask.qwav.tech") && /\| `qwav\.tech` \| quantum \| zone redirect rule, 301 to `https:\/\/qwav\.org` \| yes, a redirect/.test(inv), "the inventory names the personal host, the old personal host, the misplaced ask.qwav.tech with its issue and qwav.tech as the redirect QWAV-PAGES-RETIRE-1 (#7017) made it");
 ok(/\| `reading\.q08\.org`/.test(inv) && /\| `travel\.q08\.org`/.test(inv) && /\| `fleet\.qnfo\.org`/.test(inv) && /\| `qwav\.org`/.test(inv), "the inventory covers every plane's flagship hosts");
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

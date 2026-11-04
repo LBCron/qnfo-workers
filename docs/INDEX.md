@@ -38,6 +38,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [QNFO / QUNIVERSE — BUSINESS PLAN v1.1 (2026-09-26, aligned 2026-10-01)](BUSINESS-PLAN.md) - `docs/BUSINESS-PLAN.md`
 - [CAPABILITY-ADVERTISING-CONTRACT-1 (v1.0, 2026-09-19)](CAPABILITY-ADVERTISING-CONTRACT.md) - `docs/CAPABILITY-ADVERTISING-CONTRACT.md`
 - [CF-ACCESS-ROLLOUT-1277: putting Cloudflare Access in front of the admin surface](CF-ACCESS-ROLLOUT-1277.md) - `docs/CF-ACCESS-ROLLOUT-1277.md`
+- [CI velocity, 2026-11 (CI-VELOCITY-1)](CI-VELOCITY-2026-11.md) - `docs/CI-VELOCITY-2026-11.md`
 - [Claude Code cloud execution vs the Quniverse (2026-10-01)](CLAUDE-CODE-CLOUD-VS-QUNIVERSE.md) - `docs/CLAUDE-CODE-CLOUD-VS-QUNIVERSE.md`
 - [Closeout, 2026-10-01: no Claude dependency at runtime](CLOSEOUT-2026-10-01-NO-CLAUDE-RUNTIME.md) - `docs/CLOSEOUT-2026-10-01-NO-CLAUDE-RUNTIME.md`
 - [Closeout, 2026-10-01 round 2: drain without waiting on the owner](CLOSEOUT-2026-10-01-ROUND2.md) - `docs/CLOSEOUT-2026-10-01-ROUND2.md`
@@ -53,9 +54,14 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Research code as reach (CODE-REACH-1)](CODE-REACH-PROGRAM.md) - `docs/CODE-REACH-PROGRAM.md`
 - [Composio and the DeepSeek harness (COMPOSIO-1, DSH-LESSONS-1)](COMPOSIO-INTEGRATION.md) - `docs/COMPOSIO-INTEGRATION.md`
 - [The content pipeline (CONTENT-PIPELINE-1)](CONTENT-PIPELINE.md) - `docs/CONTENT-PIPELINE.md`
+- [Copilot assignment yield, 2026-11-04 (COPILOT-YIELD-1)](COPILOT-YIELD-2026-11.md) - `docs/COPILOT-YIELD-2026-11.md`
+- [Cost and D1 analysis, 2026-11-04 (COST-D1-DRILL-1, pillar cost)](COST-AND-D1-ANALYSIS-2026-11-04.md) - `docs/COST-AND-D1-ANALYSIS-2026-11-04.md`
+- [All-vendor monthly cost ledger (COST-LEDGER-ALLVENDOR-1, pillar cost)](COST-LEDGER-ALLVENDOR.md) - `docs/COST-LEDGER-ALLVENDOR.md`
 - [COST-OPTIMIZED MODEL-CALL STACK (fleet v2 — IMPLEMENTED)](COST-OPTIMIZED-MODEL-CALLS.md) - `docs/COST-OPTIMIZED-MODEL-CALLS.md`
 - [CRON-RATE-CEILING-1 — Worker cron rate ceiling](CRON-RATE-CEILING-1.md) - `docs/CRON-RATE-CEILING-1.md`
+- [cloud_ops_events insert cost (CLOUD-OPS-EVENTS-TRIGGER-COST-1, 2026-11-04)](D1-CLOUD-OPS-EVENTS-2026-11.md) - `docs/D1-CLOUD-OPS-EVENTS-2026-11.md`
 - [D1 restore runbook (D1-RESTORE-RUNBOOK-1)](D1-RESTORE-RUNBOOK.md) - `docs/D1-RESTORE-RUNBOOK.md`
+- [D1 split design: hot write paths off qnfo-audit (D1-SPLIT-1, pillar core)](D1-SPLIT-DESIGN-2026-11.md) - `docs/D1-SPLIT-DESIGN-2026-11.md`
 - [Data plane dispositions (2026-10-01)](DATA-PLANE-DISPOSITIONS-2026-10-01.md) - `docs/DATA-PLANE-DISPOSITIONS-2026-10-01.md`
 - [DEGENERATE-TEXT-1: a model loop never stays on a paper page](DEGENERATE-TEXT.md) - `docs/DEGENERATE-TEXT.md`
 - [DEPLOY RUNBOOK — 2026-09-07 (audit + machine-readability + CF capability integration)](DEPLOY-RUNBOOK-2026-09-07.md) - `docs/DEPLOY-RUNBOOK-2026-09-07.md`
@@ -73,6 +79,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [FLEET-GRAPH-1: the fleet code and topology graph](FLEET-GRAPH.md) - `docs/FLEET-GRAPH.md`
 - [FLEET-NODE-MAP (canonical, 2026-09-26)](FLEET-NODE-MAP.md) - `docs/FLEET-NODE-MAP.md`
 - [FLEET REPORT CARD — Objective Function & Constraints (canonical)](FLEET-REPORT-CARD.md) - `docs/FLEET-REPORT-CARD.md`
+- [GH-BUDGET-FLOOR-1 (issue 7071, charter pillar core)](GH-BUDGET-FLOOR.md) - `docs/GH-BUDGET-FLOOR.md`
 - [GitHub cloud access to Quniverse](GITHUB-CLOUD-QUNIVERSE.md) - `docs/GITHUB-CLOUD-QUNIVERSE.md`
 - [Google, GitHub and Cloudflare as one system (GOOGLE-HUB-1)](GOOGLE-HUB-INTEGRATION.md) - `docs/GOOGLE-HUB-INTEGRATION.md`
 - [Gradual deploys with automatic rollback (BP26-GRADUAL-DEPLOYS-1)](GRADUAL-DEPLOYS.md) - `docs/GRADUAL-DEPLOYS.md`
@@ -88,6 +95,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Infrastructure and AI-spend audit, 2026-11-04 (pillar: cost)](INFRA-AUDIT-2026-11-04.md) - `docs/INFRA-AUDIT-2026-11-04.md`
 - [Kill-switch drill protocol (BP26-LEASES-KILLSWITCH-1)](KILL-SWITCH-DRILL.md) - `docs/KILL-SWITCH-DRILL.md`
 - [Leases, fencing tokens, caps, breakers and the kill switch (BP26-LEASES-KILLSWITCH-1)](LEASES-FENCING.md) - `docs/LEASES-FENCING.md`
+- [Main push policy (MAIN-PUSH-POLICY-1, 2026-11-04)](MAIN-PUSH-POLICY.md) - `docs/MAIN-PUSH-POLICY.md`
 - [MODEL-MATRIX-1: which Cloudflare model for which job](MODEL-MATRIX.md) - `docs/MODEL-MATRIX.md`
 - [MONOREPO-DECISION-1: keep qnfo-workers as one repository](MONOREPO-DECISION.md) - `docs/MONOREPO-DECISION.md`
 - [One Thing / Focus backlog and roadmap](ONE-THING-BACKLOG.md) - `docs/ONE-THING-BACKLOG.md`
@@ -102,6 +110,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Plussing: every product gets better without being asked (PLUSSING-1)](PLUSSING.md) - `docs/PLUSSING.md`
 - [Portfolio operations (PORTFOLIO-OPS-1)](PORTFOLIO-OPERATIONS.md) - `docs/PORTFOLIO-OPERATIONS.md`
 - [The QNFO portfolio (QNFO-PORTFOLIO-1)](PORTFOLIO.md) - `docs/PORTFOLIO.md`
+- [PR cycle time, 2026-11 (PR-RETRY-1)](PR-CYCLE-TIME-2026-11.md) - `docs/PR-CYCLE-TIME-2026-11.md`
 - [PROBE-WRITE-DEAD-1 — the remediation verifier cannot write evidence](PROBE-WRITE-DEAD-1.md) - `docs/PROBE-WRITE-DEAD-1.md`
 - [Q08 publication recovery and preflight procedure](Q08-PUBLICATION-RECOVERY-2026-09-26.md) - `docs/Q08-PUBLICATION-RECOVERY-2026-09-26.md`
 - [Q08 root cause + remediation record (2026-09-27)](Q08-ROOT-CAUSE-2026-09-27.md) - `docs/Q08-ROOT-CAUSE-2026-09-27.md`
@@ -128,6 +137,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [QNFO unified strategy (STRATEGY-1)](STRATEGY.md) - `docs/STRATEGY.md`
 - [TEMPO-POLICY-120M-5M-1 — the 120-minute cap and the 5-minute tick](TEMPO-POLICY-120M-5M-1.md) - `docs/TEMPO-POLICY-120M-5M-1.md`
 - [Quniverse transformation program (TRANSFORMATION-PROGRAM-1)](TRANSFORMATION-PROGRAM.md) - `docs/TRANSFORMATION-PROGRAM.md`
+- [Phone journeys: every user-facing app is tested the way a person uses it (UX-JOURNEYS-1)](UX-JOURNEYS.md) - `docs/UX-JOURNEYS.md`
 - [Value for money (VALUE-FOR-MONEY-1)](VALUE-FOR-MONEY.md) - `docs/VALUE-FOR-MONEY.md`
 - [WebMCP on the QNFO fleet (WEBMCP-FLEET-1)](WEBMCP.md) - `docs/WEBMCP.md`
 - [worker_logs sampling contract (WORKER-LOGS-CONTRACT-1)](WORKER-LOGS-CONTRACT.md) - `docs/WORKER-LOGS-CONTRACT.md`
