@@ -24,6 +24,9 @@ export function isSystemDocument(path) {
   if (ENTRYPOINTS.includes(path) || /^\.github\/agents\/[^/]+\.md$/.test(path)) return true;
   if (!path.endsWith(".md") || path.startsWith(".")) return false;
   if (/^(archive|papers|funding)\//.test(path)) return false;
+  // CATALOG-RACE-1: release fragments (<worker>/releases/<version>.md, RELEASE-FRAGMENT-1) are one new file per bump; two PRs that each add one, or one that moves a document,
+  // made main's inventory stale after the second merge (deploy-gate red on 2026-11-04: #7219, #7246, #7260). They are a changelog, not agent documentation.
+  if (/(^|\/)releases\/[^/]+\.md$/.test(path)) return false;
   return !/(^|\/)(node_modules|testdata|fixtures)(\/|$)/.test(path);
 }
 

@@ -191,12 +191,6 @@ def cmd_bump(args):
         if chk.returncode != 0:
             print("\n".join(report))
             return 1
-    # CATALOG-ON-BUMP-1: the release note is a new tracked Markdown file, so docs/INDEX.md and docs/agent-catalog.json go stale with it and main's docs suite
-    # went red after each such merge (#7219, #7246, 2026-11-04); the bump regenerates them in the same change.
-    gen = os.path.join(ROOT, "scripts", "build-agent-catalog.mjs")
-    if shutil.which("node") and os.path.exists(gen):
-        r = subprocess.run(["node", gen], cwd=ROOT, capture_output=True, text=True)
-        report.append("documentation catalog regenerated" if r.returncode == 0 else "documentation catalog NOT regenerated: run node scripts/build-agent-catalog.mjs (%s)" % (r.stderr or r.stdout)[:200])
     print("\n".join(report))
     return 0
 

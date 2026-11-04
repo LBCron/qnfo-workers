@@ -1669,19 +1669,9 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-agents/README.md"
     },
     {
-      "path": "qnfo-agents/releases/0.7.2.md",
-      "title": "qnfo-agents/releases/0.7.2.md",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-agents/releases/0.7.2.md"
-    },
-    {
       "path": "qnfo-ai-calibration/README.md",
       "title": "qnfo-ai-calibration",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-ai-calibration/README.md"
-    },
-    {
-      "path": "qnfo-ai-calibration/releases/1.6.12.md",
-      "title": "qnfo-ai-calibration 1.6.12 (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-ai-calibration/releases/1.6.12.md"
     },
     {
       "path": "qnfo-ai-search/README.md",
@@ -1762,11 +1752,6 @@
       "path": "qnfo-code-orchestrator/README.md",
       "title": "qnfo-code-orchestrator v0.3.0",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-code-orchestrator/README.md"
-    },
-    {
-      "path": "qnfo-code-orchestrator/releases/0.46.0-codeagent.md",
-      "title": "qnfo-code-orchestrator 0.46.0-codeagent (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-code-orchestrator/releases/0.46.0-codeagent.md"
     },
     {
       "path": "qnfo-containers-pilot/CONTAINER-RESTORE-1.md",
@@ -1867,26 +1852,6 @@
       "path": "qnfo-gateway/README.md",
       "title": "qnfo-gateway — QNFO site router (papers.qnfo.org, ideas, archive, ipatent, graph-api, legal)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-gateway/README.md"
-    },
-    {
-      "path": "qnfo-gateway/releases/3.55.0-codeagent.md",
-      "title": "qnfo-gateway 3.55.0-codeagent (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-gateway/releases/3.55.0-codeagent.md"
-    },
-    {
-      "path": "qnfo-gateway/releases/3.56.1-codeagent.md",
-      "title": "qnfo-gateway 3.56.1-codeagent (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-gateway/releases/3.56.1-codeagent.md"
-    },
-    {
-      "path": "qnfo-gateway/releases/3.57.0-codeagent.md",
-      "title": "qnfo-gateway 3.57.0-codeagent (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-gateway/releases/3.57.0-codeagent.md"
-    },
-    {
-      "path": "qnfo-gateway/releases/3.57.1-codeagent.md",
-      "title": "qnfo-gateway 3.57.1-codeagent (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-gateway/releases/3.57.1-codeagent.md"
     },
     {
       "path": "qnfo-github-steward/README.md",
@@ -2074,11 +2039,6 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-research-exec/README.md"
     },
     {
-      "path": "qnfo-research-exec/releases/0.50.0.md",
-      "title": "qnfo-research-exec 0.50.0 (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-research-exec/releases/0.50.0.md"
-    },
-    {
       "path": "qnfo-research-radar/README.md",
       "title": "qnfo-research-radar",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-research-radar/README.md"
@@ -2092,11 +2052,6 @@
       "path": "qnfo-social/README.md",
       "title": "qnfo-social",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-social/README.md"
-    },
-    {
-      "path": "qnfo-social/releases/0.22.0.md",
-      "title": "qnfo-social 0.22.0 (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-social/releases/0.22.0.md"
     },
     {
       "path": "qnfo-subscribers/README.md",
@@ -2127,16 +2082,6 @@
       "path": "qnfo-web-unified/README.md",
       "title": "qnfo-web-unified — the QNFO design system (QDS-1, 2026-10-02)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-web-unified/README.md"
-    },
-    {
-      "path": "qnfo-youtube-shorts/releases/0.5.0-oauth.md",
-      "title": "qnfo-youtube-shorts 0.5.0-oauth (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-youtube-shorts/releases/0.5.0-oauth.md"
-    },
-    {
-      "path": "qnfo-youtube-shorts/releases/0.5.1-oauth.md",
-      "title": "qnfo-youtube-shorts 0.5.1-oauth (2026-11-04)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-youtube-shorts/releases/0.5.1-oauth.md"
     },
     {
       "path": "research-code/README.md",
