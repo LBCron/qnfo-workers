@@ -429,7 +429,52 @@ def test_migration_trigger_is_shaped():
     assert "DELETE FROM metric_authorship WHERE metric = 'cf_obs_reopen_churn_24h'" in [l for l in sql.splitlines() if l.startswith("-- Rollback:")][0]
 
 
+D1_TITLE = "D1_ERROR: D1 DB is overloaded. Too many resources consumed within a <duration> window"
+
+
+def test_d1_overload_groups_fold_into_one_umbrella_issue():
+    now = B.now_ms()
+    env = Env([grp("g-a", "qnfo-social", 60e3, now, title=D1_TITLE, count=10),
+               grp("g-b", "qnfo-fleet-control", 90e3, now, title="performanceLoopTick error: " + D1_TITLE, count=5),
+               grp("g-c", "qnfo-pdf", 2 * H, now, title=D1_TITLE, count=3),
+               grp("g-other", "qnfo-ai", 60e3, now)])
+    r1 = env.sweep(now)
+    assert r1["folded"] == 3 and r1["live"] == 1 and len(r1["filed"]) == 2, r1   # the umbrella plus the one unrelated group
+    titles = [i["title"] for i in env.issues()]
+    assert sum("D1 DB is overloaded" in t for t in titles) == 1, titles
+    assert B.UMBRELLA_TITLE in titles and any("qnfo-ai" in t for t in titles), titles
+    umb = [i for i in env.issues() if i["title"] == B.UMBRELLA_TITLE][0]
+    assert "3 live" in umb["description"] and "18 occurrence" in umb["description"] and "qnfo-pdf" in umb["description"], umb
+    assert "code-task:" not in umb["description"]
+    r2 = env.sweep(now)
+    assert r2["filed"] == [] and r2["already"] == 2 and r2["folded"] == 3, r2
+    assert len(env.issues()) == 2
+
+
+def test_umbrella_probe_fails_while_overload_is_live_and_passes_when_quiet():
+    now = B.now_ms()
+    env = Env([grp("g-a", "qnfo-social", 60e3, now, title=D1_TITLE)])
+    env.sweep(now)
+    umb = [i for i in env.issues() if i["title"] == B.UMBRELLA_TITLE][0]
+    pr = env.d1("SELECT verify_probe FROM remediation_contracts WHERE class = 'issue-%d'" % umb["id"])[0]["verify_probe"]
+    env.c.execute("INSERT INTO fleet_issue_dispatch VALUES ('cf-obs-x', 'worker-observability', ?, 'tracked')",
+                  [json.dumps({"title": D1_TITLE, "lastObserved": now - 60e3})])
+    assert env.d1(pr)[0]["observed"] == "0"
+    env.c.execute("UPDATE fleet_issue_dispatch SET payload = ?", [json.dumps({"title": D1_TITLE, "lastObserved": now - 7 * H})])
+    assert env.d1(pr)[0]["observed"] == "1"
+
+
+def test_quiet_overload_group_files_nothing():
+    now = B.now_ms()
+    env = Env([grp("g-q", "qnfo-pdf", 30 * H, now, title=D1_TITLE)])
+    r = env.sweep(now)
+    assert r["folded"] == 0 and r["filed"] == [] and env.issues() == [], r
+
+
 TESTS = [
+    test_d1_overload_groups_fold_into_one_umbrella_issue,
+    test_umbrella_probe_fails_while_overload_is_live_and_passes_when_quiet,
+    test_quiet_overload_group_files_nothing,
     test_quiet_group_with_closed_issue_is_resolved_not_refiled,
     test_quiet_group_without_issue_is_not_filed,
     test_live_group_filed_once_and_probe_lifecycle,

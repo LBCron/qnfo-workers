@@ -50,6 +50,53 @@ def now_ms():
     return int(time.time() * 1000)
 
 
+# D1-OVERLOAD-FOLD-1 (issue 6953 family): "D1 DB is overloaded" is one shared-database condition seen by many workers. Each worker, function and
+# message variant is a separate Cloudflare group, so one saturation spike filed 20+ CF-OBS-ISSUE-1 issues, each handed to a coding session
+# (2026-11-04: #6883-#6896, #6953-#6959, 87 open issues of one cause). They are folded into ONE umbrella issue that carries the counts; the
+# fix for the cause lives in the D1-OVERLOAD-1 series (migrations/2026-11-04-d1-overload-root-cause.sql). Issues already filed stay and close
+# on their own probe; the umbrella closes when no overload group has been observed for QUIET_H hours.
+D1_OVERLOAD_MARK = "d1 db is overloaded"
+UMBRELLA_ID = "d1-overload"
+UMBRELLA_TITLE = PREFIX + "fleet: D1 DB is overloaded, all workers [cf-obs:" + UMBRELLA_ID + "]"
+
+
+def is_d1_overload(it):
+    return D1_OVERLOAD_MARK in str(it.get("title") or "").lower()
+
+
+def umbrella_probe():
+    return ("SELECT '1' AS expected, CASE WHEN NOT EXISTS (SELECT 1 FROM fleet_issue_dispatch d WHERE d.category = 'worker-observability' "
+            "AND d.state <> 'resolved' AND json_valid(d.payload) AND instr(lower(COALESCE(json_extract(d.payload, '$.title'), '')), '%s') > 0 "
+            "AND CAST(json_extract(d.payload, '$.lastObserved') AS INTEGER) > (CAST(strftime('%%s', 'now') AS INTEGER) - %d) * 1000) "
+            "THEN '1' ELSE '0' END AS observed") % (D1_OVERLOAD_MARK, QUIET_H * 3600)
+
+
+def ensure_umbrella(d1, folded, now, res):
+    """One open issue for every live D1-overload group. Returns without writing when it is already open."""
+    if d1("SELECT id FROM agent_issues WHERE status = 'open' AND lower(trim(title)) = lower(trim(?1)) LIMIT 1", [UMBRELLA_TITLE]):
+        res["already"] += 1
+        return
+    services = sorted({str(g.get("service") or "?") for g in folded})
+    occ = sum(int(g.get("count") or 0) for g in folded)
+    desc = ("Charter pillar: reliability. %d live Cloudflare observability group(s), %d occurrence(s), across %d worker(s): %s.\n"
+            "cf-obs-id: %s\nOne shared-database condition (qnfo-audit is a single-writer D1 used by 80+ workers). Per-group issues are not filed "
+            "for it (D1-OVERLOAD-FOLD-1); the cause is worked in the D1-OVERLOAD-1 series (migrations/2026-11-04-d1-overload-root-cause.sql, "
+            "FLEET-TICK-FANOUT-COST-1 and the other D1-OVERLOAD-1 doers). Closes by verification when no overload group has been observed for %d hours.") % (
+        len(folded), occ, len(services), ", ".join(services)[:400], UMBRELLA_ID, QUIET_H)
+    try:
+        d1("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) "
+           "VALUES (?1, ?2, 'cf-obs-bridge', 'reliability', 'high', 'open', ?3, ?3)", [UMBRELLA_TITLE, desc, now])
+        row = d1("SELECT id, created_at FROM agent_issues WHERE title = ?1 AND status = 'open' ORDER BY id DESC LIMIT 1", [UMBRELLA_TITLE])
+        if row:
+            iid = int(row[0]["id"])
+            d1("UPDATE remediation_contracts SET verify_probe = ?1, verify_transport = 'd1-query', status = 'active', next_due_at = datetime('now'), "
+               "attempts = 0 WHERE class = ?2", [umbrella_probe(), "issue-%d" % iid])
+            (res["filed"] if int(row[0]["created_at"] or 0) == now else res["relapsed"]).append(iid)
+    except Exception as e:  # noqa: BLE001
+        res["errors"] += 1
+        print(json.dumps({"evt": "cf-obs-bridge:umbrella", "error": str(e)[:200]}))
+
+
 def is_noise(it):
     t = str(it.get("title") or "").lower()
     return any(n in t for n in NOISE) and "low risk" in t
@@ -109,7 +156,7 @@ def list_active(cf):
 def sweep(d1, cf, now=None):
     now = now or now_ms()
     res = {"active": 0, "live": 0, "noise": 0, "filed": [], "relapsed": [], "held_closed": 0, "already": 0, "resolved_cf": [], "errors": 0,
-           "reopened_24h": 0, "drill_skipped": []}
+           "reopened_24h": 0, "drill_skipped": [], "folded": 0}
     try:
         _file_and_resolve(d1, cf, now, res)
     except Exception:
@@ -124,6 +171,7 @@ def _file_and_resolve(d1, cf, now, res):
     items = list_active(cf)
     res["active"] = len(items)
     filed = 0
+    folded = []
     for it in items:
         cid = str(it.get("id") or "")
         if not cid:
@@ -133,6 +181,10 @@ def _file_and_resolve(d1, cf, now, res):
             continue
         if now - int(it.get("lastObserved") or 0) >= FILE_H * 3600 * 1000:
             continue   # quiet: never filed; a closed issue for it is resolved below
+        if is_d1_overload(it):
+            folded.append(it)
+            res["folded"] += 1
+            continue
         res["live"] += 1
         if is_router_drill_503(it):
             try:
@@ -212,6 +264,8 @@ def _file_and_resolve(d1, cf, now, res):
         except Exception as e:  # noqa: BLE001
             res["errors"] += 1
             print(json.dumps({"evt": "cf-obs-bridge:file", "id": cid, "error": str(e)[:200]}))
+    if folded:
+        ensure_umbrella(d1, folded, now, res)
     # RESOLVE: verified-closed bridge issues whose group is still active in Cloudflare but quiet QUIET_H hours.
     active_ids = {str(it.get("id")): it for it in items}
     closed = d1("SELECT id, description FROM agent_issues WHERE title LIKE 'CF-OBS-ISSUE-1:%' AND status IN ('closed', 'resolved') "
