@@ -4,6 +4,7 @@
 
 ## Start here
 
+- [System map](https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/SYSTEM-MAP.md): SYSTEM-MAP-1; load FIRST. One page (about 3k tokens): every worker, data store, Vectorize index, AI call path and hot path, plus how to look up one thing. Read it instead of opening worker files.
 - [Session rules](https://raw.githubusercontent.com/QNFO/qnfo-workers/main/CLAUDE.md): Read first; claims, permissions, secrets, migrations and canonical deploy.
 - [Shared operating library](https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/agent-library/README.md): FLEET-SHARED-LIBRARY-1; research, publications, issues, programs, cost-aware providers, quality and measured autonomy.
 - [Central documentation directory](https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/README.md): Task-to-standard routing and authority/freshness rules.

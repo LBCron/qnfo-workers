@@ -35,6 +35,7 @@
 //        Reads CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (or CF_ACCOUNT_ID) for the live scope and for writes.
 //        Exit 0 on success or a skipped run, 1 on a failed build (the heartbeat row records ok = 0).
 import { readFileSync, readdirSync, existsSync, statSync, writeFileSync } from "node:fs";
+import { buildSystemMap, collectMapExtra } from "./system_map.mjs";
 import { join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
@@ -930,8 +931,8 @@ export async function writeSqlite(file, built, findings, now, sha) {
   db.close();
 }
 
-async function r2Put(cf, key, buf) {
-  const r = await cf.req("PUT", "/accounts/" + cf.account + "/r2/buckets/" + SNAPSHOT_BUCKET + "/objects/" + key.split("/").map(encodeURIComponent).join("/"), buf, "application/gzip", true);
+async function r2Put(cf, key, buf, ctype) {
+  const r = await cf.req("PUT", "/accounts/" + cf.account + "/r2/buckets/" + SNAPSHOT_BUCKET + "/objects/" + key.split("/").map(encodeURIComponent).join("/"), buf, ctype || "application/gzip", true);
   if (!r.ok) throw new Error("R2 PUT " + key + " -> " + r.status);
 }
 
@@ -959,6 +960,11 @@ export async function buildCode(root, deps, live) {
     parsedToml.set(w, toml);
     for (const r of [].concat(toml.routes || [])) { const pat = typeof r === "string" ? r : r && r.pattern; if (pat) routes.push([routeHost(pat), toml.name || w]); }
   }
+  // SYSTEM-MAP-1: a d1_databases entry with only database_id (personal-companion PERSONAL) became node "d1:undefined" and lost its table edges; resolve the name from the other tomls and the live list.
+  const d1NameById = new Map();
+  for (const d of live ? live.d1 : []) d1NameById.set(d.id, d.name);
+  for (const w of workers) for (const b of [].concat(parsedToml.get(w).d1_databases || [])) if (b.database_id && b.database_name) d1NameById.set(b.database_id, b.database_name);
+  for (const w of workers) for (const b of [].concat(parsedToml.get(w).d1_databases || [])) if (!b.database_name && b.database_id && d1NameById.has(b.database_id)) b.database_name = d1NameById.get(b.database_id);
   const codeNames = workers.map((w) => parsedToml.get(w).name || w);
   if (live) { for (const r of live.routes) routes.push([routeHost(r.pattern), r.script]); for (const d of live.domains) routes.push([d.hostname.toLowerCase(), d.service]); }
   const hosts = hostIndex(codeNames.concat(live ? live.workers.map((x) => x.name) : []), routes);
@@ -1056,6 +1062,15 @@ export async function main(argv) {
     if (code) built.code = code.g.finalize(now);
     if (liveGraph) built.live = liveGraph.finalize(now);
     report.size = Object.fromEntries(Object.entries(built).map(([k, v]) => [k, { nodes: v.nodes.size, edges: v.edges.size }]));
+    // SYSTEM-MAP-1: the whole system on one page (docs/SYSTEM-MAP.md + docs/system-map.json), built from this same graph.
+    const mapOut = arg(argv, "--system-map-out", null), mapExtraFile = arg(argv, "--map-extra", null);
+    let sysMap = null;
+    if (code && (mapOut || (cf && !dryRun))) {
+      let extra = mapExtraFile ? JSON.parse(readFileSync(mapExtraFile, "utf8")) : (cf ? await collectMapExtra(cf, live, AUDIT_DB_ID) : {});
+      sysMap = buildSystemMap({ graphs: [code.g, liveGraph].filter(Boolean), extra, root, sha, now });
+      report.system_map = { tokens: sysMap.tokens, errors: (extra.errors || []).slice(0, 5) };
+      if (mapOut) { writeFileSync(join(mapOut, "SYSTEM-MAP.md"), sysMap.md); writeFileSync(join(mapOut, "system-map.json"), JSON.stringify(sysMap.json, null, 1) + "\n"); }
+    }
     const jsonOut = arg(argv, "--json-out", null);
     const graphs = [code && code.g, liveGraph].filter(Boolean);
     const nl = nodeLink(graphs, { name: "qnfo-fleet-graph", version: VERSION, built_at: now, sha, findings: findings.length });
@@ -1079,6 +1094,7 @@ export async function main(argv) {
         report.snapshot_bytes = gz.length;
         try { await r2Put(cf, "fleet-graph/latest.json.gz", gz); await r2Put(cf, "fleet-graph/" + now.slice(0, 10).replace(/-/g, "") + ".json.gz", gz); report.snapshot = SNAPSHOT_BUCKET + "/fleet-graph/latest.json.gz"; }
         catch (e) { report.snapshot_error = String(e.message || e); }
+        if (sysMap) { try { await r2Put(cf, "fleet-graph/SYSTEM-MAP.md", Buffer.from(sysMap.md), "text/markdown"); await r2Put(cf, "fleet-graph/system-map.json", Buffer.from(JSON.stringify(sysMap.json)), "application/json"); report.system_map.r2 = "fleet-graph/SYSTEM-MAP.md"; } catch (e) { report.system_map.r2_error = String(e.message || e); } }
         const refused = report.writes.some((w) => w.refused);
         await auditHeartbeat(cf, !refused, JSON.stringify({ version: VERSION, sha, size: report.size, findings_warn: report.findings_warn, ms }), code && live ? report.findings_warn : null).catch((e) => { report.heartbeat_error = String(e.message || e); });
         if (refused) { report.ok = false; console.log(JSON.stringify(report)); return 1; }

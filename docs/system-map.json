@@ -1,0 +1,1978 @@
+{
+ "schema": "system-map/1",
+ "version": "1.0.0",
+ "generated": "2026-11-04",
+ "sha": null,
+ "workers": [
+  {
+   "worker": "idea-hub",
+   "version": "1.17.0-intake-rigid",
+   "pillar": "research",
+   "purpose": "idea intake, scoring and triage",
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "r2:obsidian-vault",
+    "svc:workers-ai",
+    "vz:qwav-research-v2"
+   ],
+   "services": [],
+   "crons": [
+    "25 * * * *"
+   ],
+   "writes": [
+    "d1t:living-paper.papers",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.ai_cache_counters",
+    "d1t:qnfo-audit.ai_call_counters",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.idea_proposals",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.owner_corpus_seen",
+    "d1t:qnfo-audit.research_queue",
+    "d1t:qnfo-audit.self_questions",
+    "d1t:qnfo-audit.signals"
+   ],
+   "reads_count": 15,
+   "ai_neurons_per_day": null,
+   "bytes": 223774
+  },
+  {
+   "worker": "personal-api",
+   "version": "4.36.0",
+   "pillar": "personal",
+   "purpose": "personal twin: personal RAG, calendar, tasks, memory",
+   "bindings": [
+    "d1:personal-life",
+    "d1:qnfo-audit",
+    "do:personal-api.PersonalTwinAgent",
+    "r2:personal-media",
+    "svc:send-email",
+    "svc:workers-ai",
+    "vz:personal-life"
+   ],
+   "services": [
+    "qnfo-lifecycle"
+   ],
+   "crons": [
+    "5 * * * *"
+   ],
+   "writes": [
+    "d1t:personal-life.brief_cron_runs",
+    "d1t:personal-life.budget",
+    "d1t:personal-life.chat",
+    "d1t:personal-life.daily_briefs",
+    "d1t:personal-life.email_index",
+    "d1t:personal-life.facts",
+    "d1t:personal-life.google_oauth",
+    "d1t:personal-life.google_oauth_state",
+    "d1t:personal-life.habit_log",
+    "d1t:personal-life.habits",
+    "d1t:personal-life.journal",
+    "d1t:personal-life.ledger_interactions",
+    "d1t:personal-life.ledger_people",
+    "d1t:personal-life.ledger_sync_state",
+    "d1t:personal-life.live_cache",
+    "d1t:personal-life.live_sources",
+    "d1t:personal-life.location_history",
+    "d1t:personal-life.media_objects",
+    "d1t:personal-life.ms_oauth",
+    "d1t:personal-life.ms_oauth_state",
+    "d1t:personal-life.ms_sync_runs",
+    "d1t:personal-life.notes",
+    "d1t:personal-life.oauth_clients",
+    "d1t:personal-life.oauth_codes",
+    "d1t:personal-life.oauth_tokens",
+    "d1t:personal-life.predictions",
+    "d1t:personal-life.proactive_signals",
+    "d1t:personal-life.profile",
+    "d1t:personal-life.tasks",
+    "d1t:personal-life.travel_options",
+    "d1t:personal-life.travel_reactions",
+    "d1t:qnfo-audit.ai_call_counters",
+    "d1t:qnfo-audit.fleet_heartbeat"
+   ],
+   "reads_count": 34,
+   "ai_neurons_per_day": 60,
+   "bytes": 650502
+  },
+  {
+   "worker": "personal-companion",
+   "version": "1.44.15",
+   "pillar": "personal",
+   "purpose": "personal companion loop",
+   "bindings": [
+    "d1:personal-life",
+    "d1:qnfo-audit",
+    "r2:obsidian-vault",
+    "r2:personal-media",
+    "svc:send-email",
+    "svc:workers-ai",
+    "vz:personal-life",
+    "wf:companion-generation"
+   ],
+   "services": [
+    "qnfo-email"
+   ],
+   "crons": [
+    "0 * * * *"
+   ],
+   "writes": [
+    "d1t:personal-life.companion_anchor_cache",
+    "d1t:personal-life.companion_audits",
+    "d1t:personal-life.companion_broadcasts",
+    "d1t:personal-life.companion_feedback",
+    "d1t:personal-life.companion_morning_brief",
+    "d1t:personal-life.companion_pieces",
+    "d1t:personal-life.companion_retractions",
+    "d1t:personal-life.companion_runs",
+    "d1t:personal-life.companion_seeds",
+    "d1t:personal-life.companion_series",
+    "d1t:personal-life.companion_subscribers",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.content_external_items",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.owner_questions",
+    "d1t:qnfo-audit.signals"
+   ],
+   "reads_count": 29,
+   "ai_neurons_per_day": null,
+   "bytes": 607759
+  },
+  {
+   "worker": "personal-watch",
+   "version": "1.1.0",
+   "pillar": "personal",
+   "purpose": null,
+   "bindings": [],
+   "services": [],
+   "crons": [],
+   "writes": [],
+   "reads_count": 0,
+   "ai_neurons_per_day": null,
+   "bytes": 12590
+  },
+  {
+   "worker": "q08-mind",
+   "version": "2.2.1",
+   "pillar": "personal",
+   "purpose": null,
+   "bindings": [],
+   "services": [],
+   "crons": [],
+   "writes": [],
+   "reads_count": 0,
+   "ai_neurons_per_day": null,
+   "bytes": 62247
+  },
+  {
+   "worker": "q08-signal-engine",
+   "version": "0.43.0",
+   "pillar": "personal",
+   "purpose": "q08.org signal scraping and essays",
+   "bindings": [
+    "d1:q08-signal",
+    "d1:qnfo-audit",
+    "svc:send-email",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-email"
+   ],
+   "crons": [
+    "0 * * * *",
+    "30 * * * *"
+   ],
+   "writes": [
+    "d1t:q08-signal.engine_runs",
+    "d1t:q08-signal.prompt_pool",
+    "d1t:q08-signal.published_pieces",
+    "d1t:q08-signal.q08_audits",
+    "d1t:q08-signal.q08_daily_reads",
+    "d1t:q08-signal.q08_feedback",
+    "d1t:q08-signal.q08_forecast_claims",
+    "d1t:q08-signal.q08_forecast_updates",
+    "d1t:q08-signal.q08_forecasts",
+    "d1t:q08-signal.q08_reader_tests",
+    "d1t:q08-signal.q08_retractions",
+    "d1t:q08-signal.q08_run_rate",
+    "d1t:q08-signal.signal_log",
+    "d1t:q08-signal.subscribers",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.alerts",
+    "d1t:qnfo-audit.content_external_items",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.signals",
+    "d1t:qnfo-audit.social_threads"
+   ],
+   "reads_count": 21,
+   "ai_neurons_per_day": 136625,
+   "bytes": 572982
+  },
+  {
+   "worker": "qnfo-agents",
+   "version": "0.7.1",
+   "pillar": "autonomy",
+   "purpose": "Agents SDK agent over the ops tool surface",
+   "bindings": [
+    "d1:qnfo-audit",
+    "do:qnfo-agents.CodeSession",
+    "do:qnfo-agents.FleetCodeAgent",
+    "svc:worker-loader",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-ops"
+   ],
+   "crons": [
+    "*/5 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit._vfs_fetch_cursor",
+    "d1t:qnfo-audit._vfs_mounts",
+    "d1t:qnfo-audit._vfs_push_cursor",
+    "d1t:qnfo-audit._vfs_sync_operations",
+    "d1t:qnfo-audit._vfs_sync_skips",
+    "d1t:qnfo-audit._vfs_watermark",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.ai_spend_ledger",
+    "d1t:qnfo-audit.cf_agent_requests",
+    "d1t:qnfo-audit.cf_agent_runs",
+    "d1t:qnfo-audit.cf_agents_task_runs",
+    "d1t:qnfo-audit.cf_agents_task_steps",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.qnfo",
+    "d1t:qnfo-audit.vfs_blob_bytes",
+    "d1t:qnfo-audit.vfs_blobs",
+    "d1t:qnfo-audit.vfs_changes",
+    "d1t:qnfo-audit.vfs_chunks",
+    "d1t:qnfo-audit.vfs_dirents",
+    "d1t:qnfo-audit.vfs_manifests",
+    "d1t:qnfo-audit.vfs_meta",
+    "d1t:qnfo-audit.vfs_nodes",
+    "d1t:qnfo-audit.workspace_runtime_journal",
+    "d1t:qnfo-audit.workspace_runtime_resume",
+    "d1t:qnfo-audit.workspace_runtime_resume_start"
+   ],
+   "reads_count": 27,
+   "ai_neurons_per_day": null,
+   "bytes": 2378656
+  },
+  {
+   "worker": "qnfo-ai",
+   "version": "5.46.2-codeagent",
+   "pillar": "core",
+   "purpose": "research gateway (model router, semantic paper search, ensemble)",
+   "bindings": [
+    "d1:qnfo-audit",
+    "r2:qnfo-media",
+    "svc:worker-loader",
+    "svc:workers-ai",
+    "vz:ipatent-corpus",
+    "vz:qnfo-ai-log",
+    "vz:qnfo-handoffs",
+    "vz:qnfo-infra",
+    "vz:qnfo-notes",
+    "vz:qnfo-tasks",
+    "vz:qwav-research-v2"
+   ],
+   "services": [
+    "qnfo-email",
+    "qnfo-infra",
+    "qnfo-intent-orchestrator",
+    "qnfo-ops"
+   ],
+   "crons": [],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.ai_cache_counters",
+    "d1t:qnfo-audit.ai_call_counters",
+    "d1t:qnfo-audit.ai_queries",
+    "d1t:qnfo-audit.ai_spend_ledger",
+    "d1t:qnfo-audit.chat",
+    "d1t:qnfo-audit.chatbox_conversations",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.cost_router_metrics",
+    "d1t:qnfo-audit.idea_proposals",
+    "d1t:qnfo-audit.intent_express_log",
+    "d1t:qnfo-audit.media_objects"
+   ],
+   "reads_count": 15,
+   "ai_neurons_per_day": 2645,
+   "bytes": 321038
+  },
+  {
+   "worker": "qnfo-ai-calibration",
+   "version": "1.6.11",
+   "pillar": "research",
+   "purpose": "AI model health baselines",
+   "bindings": [
+    "d1:qnfo-audit",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "personal-api",
+    "qnfo-ai",
+    "qnfo-ops"
+   ],
+   "crons": [
+    "*/30 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.ai_calibration_config",
+    "d1t:qnfo-audit.ai_calibration_results",
+    "d1t:qnfo-audit.ai_calibration_runs",
+    "d1t:qnfo-audit.ai_calibration_truth",
+    "d1t:qnfo-audit.ai_call_counters",
+    "d1t:qnfo-audit.ai_gateway_failures",
+    "d1t:qnfo-audit.ai_model_health",
+    "d1t:qnfo-audit.issue_ledger",
+    "d1t:qnfo-audit.service_registry"
+   ],
+   "reads_count": 8,
+   "ai_neurons_per_day": null,
+   "bytes": 99208
+  },
+  {
+   "worker": "qnfo-ai-search",
+   "version": "2.13.0",
+   "pillar": "reach",
+   "purpose": "semantic search over the research corpus",
+   "bindings": [
+    "aisearch:default",
+    "d1:qnfo-audit",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "idea-hub",
+    "qnfo-gateway"
+   ],
+   "crons": [
+    "40 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.ai_cache_counters",
+    "d1t:qnfo-audit.ai_call_counters",
+    "d1t:qnfo-audit.ai_spend_ledger",
+    "d1t:qnfo-audit.ask_corpus_sync",
+    "d1t:qnfo-audit.ask_evals",
+    "d1t:qnfo-audit.ask_events",
+    "d1t:qnfo-audit.ask_feedback",
+    "d1t:qnfo-audit.ask_golden",
+    "d1t:qnfo-audit.ask_loop_runs",
+    "d1t:qnfo-audit.ask_rate",
+    "d1t:qnfo-audit.experiments",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.human_actions",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.pipeline_flags"
+   ],
+   "reads_count": 12,
+   "ai_neurons_per_day": 14058,
+   "bytes": 255203
+  },
+  {
+   "worker": "qnfo-cloud-ops",
+   "version": "1.46.0-gh-pat-budget-min",
+   "pillar": "autonomy",
+   "purpose": "scheduled visibility digests, health probes, graph cadence",
+   "bindings": [
+    "d1:living-paper",
+    "d1:portfolio-state",
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "d1:qnfo-outreach",
+    "r2:d-drive",
+    "r2:qnfo-backups",
+    "r2:qnfo-releases",
+    "svc:send-email",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-ai",
+    "qnfo-email",
+    "qnfo-fleet-control",
+    "qnfo-infra",
+    "qnfo-ops",
+    "qnfo-research-exec"
+   ],
+   "crons": [
+    "*/10 * * * *"
+   ],
+   "writes": [
+    "d1t:living-paper.paper_change_bodies",
+    "d1t:living-paper.paper_change_body_archive",
+    "d1t:living-paper.papers",
+    "d1t:living-paper.publication_gate_audit",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.alerts",
+    "d1t:qnfo-audit.audit_sessions",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.contact_ledger",
+    "d1t:qnfo-audit.email_suppression",
+    "d1t:qnfo-audit.emails",
+    "d1t:qnfo-audit.external_mentions",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.gtd_register",
+    "d1t:qnfo-audit.human_actions",
+    "d1t:qnfo-audit.idea_proposals",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.migration_runs",
+    "d1t:qnfo-audit.outreach_learner_arms",
+    "d1t:qnfo-audit.outreach_learner_sends",
+    "d1t:qnfo-audit.outreach_log",
+    "d1t:qnfo-audit.outreach_queue",
+    "d1t:qnfo-audit.pipeline_flags",
+    "d1t:qnfo-audit.quality_scores",
+    "d1t:qnfo-audit.remediation_contracts",
+    "d1t:qnfo-audit.research_exec_lease",
+    "d1t:qnfo-audit.research_scan_log",
+    "d1t:qnfo-audit.scheduler_state",
+    "d1t:qnfo-audit.social_engagements",
+    "d1t:qnfo-audit.task_dod_register",
+    "d1t:qnfo-audit.worker_invocations",
+    "d1t:qnfo-outreach.pipeline_state"
+   ],
+   "reads_count": 43,
+   "ai_neurons_per_day": 4184,
+   "bytes": 526586
+  },
+  {
+   "worker": "qnfo-code-orchestrator",
+   "version": "0.45.0-codeagent",
+   "pillar": "autonomy",
+   "purpose": null,
+   "bindings": [
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "do:qnfo-code-orchestrator.PyContainer",
+    "svc:worker-loader",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-deploy-guard"
+   ],
+   "crons": [
+    "*/2 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.ai_call_counters",
+    "d1t:qnfo-audit.ai_spend_ledger",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.code_tasks",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.issue_plans",
+    "d1t:qnfo-audit.loop_lock",
+    "d1t:qnfo-audit.ops_config",
+    "d1t:qnfo-audit.work_claims"
+   ],
+   "reads_count": 15,
+   "ai_neurons_per_day": 669184,
+   "bytes": 430580
+  },
+  {
+   "worker": "qnfo-containers-pilot",
+   "version": "1.0.11-command-exit-honest",
+   "pillar": "core",
+   "purpose": "Cloudflare Containers Python exec pilot",
+   "bindings": [
+    "d1:qnfo-audit",
+    "do:qnfo-containers-pilot.ShellContainer"
+   ],
+   "services": [],
+   "crons": [],
+   "writes": [
+    "d1t:qnfo-audit.cloud_ops_events"
+   ],
+   "reads_count": 0,
+   "ai_neurons_per_day": null,
+   "bytes": 24693
+  },
+  {
+   "worker": "qnfo-deploy-guard",
+   "version": "1.4.6",
+   "pillar": "security",
+   "purpose": "deploy lock, work claims, secret leases",
+   "bindings": [
+    "d1:qnfo-audit",
+    "kv:d3768b93a76640be83151b00a8b42717"
+   ],
+   "services": [],
+   "crons": [
+    "*/20 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.alerts",
+    "d1t:qnfo-audit.capability_audit_snapshot",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.deploy_locks",
+    "d1t:qnfo-audit.fleet_deploys",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.service_registry",
+    "d1t:qnfo-audit.work_claims"
+   ],
+   "reads_count": 10,
+   "ai_neurons_per_day": null,
+   "bytes": 69506
+  },
+  {
+   "worker": "qnfo-email",
+   "version": "2.12.4-codeagent",
+   "pillar": "reach",
+   "purpose": "email intake and MIME archive",
+   "bindings": [
+    "d1:personal-life",
+    "d1:qnfo-audit",
+    "svc:send-email",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-fleet-dashboard",
+    "qnfo-ops"
+   ],
+   "crons": [
+    "*/15 * * * *"
+   ],
+   "writes": [
+    "d1t:personal-life.email_index",
+    "d1t:personal-life.events",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.calendar",
+    "d1t:qnfo-audit.email_calendar_delivery",
+    "d1t:qnfo-audit.email_calendar_invites",
+    "d1t:qnfo-audit.email_commands",
+    "d1t:qnfo-audit.email_filters",
+    "d1t:qnfo-audit.email_loop_quarantine",
+    "d1t:qnfo-audit.email_parse_failures",
+    "d1t:qnfo-audit.email_raw_archive",
+    "d1t:qnfo-audit.email_reply_queue",
+    "d1t:qnfo-audit.email_send_violations",
+    "d1t:qnfo-audit.email_suppression",
+    "d1t:qnfo-audit.emails",
+    "d1t:qnfo-audit.handoffs",
+    "d1t:qnfo-audit.ops_config"
+   ],
+   "reads_count": 19,
+   "ai_neurons_per_day": null,
+   "bytes": 214797
+  },
+  {
+   "worker": "qnfo-evolve",
+   "version": "0.2.8",
+   "pillar": "autonomy",
+   "purpose": "gap registers to named work for the code loop",
+   "bindings": [
+    "d1:qnfo-audit"
+   ],
+   "services": [],
+   "crons": [
+    "5,20,35,50 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.code_tasks",
+    "d1t:qnfo-audit.evolve_filings",
+    "d1t:qnfo-audit.evolve_runs",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.ops_config"
+   ],
+   "reads_count": 7,
+   "ai_neurons_per_day": null,
+   "bytes": 26343
+  },
+  {
+   "worker": "qnfo-fleet-control",
+   "version": "0.63.0-codeagent",
+   "pillar": "autonomy",
+   "purpose": "control plane: advisor audits, deploy scan/heal, metric triggers, stale-PR lane",
+   "bindings": [
+    "d1:portfolio-state",
+    "d1:qnfo-audit",
+    "do:qnfo-fleet-control.FleetAdvisor",
+    "kv:d3768b93a76640be83151b00a8b42717",
+    "r2:qnfo-audit",
+    "r2:qnfo-canonical",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "personal-api",
+    "qnfo-ai",
+    "qnfo-ai-search",
+    "qnfo-deploy-guard",
+    "qnfo-fleet-dashboard",
+    "qnfo-gateway",
+    "qnfo-infra",
+    "qnfo-intent-orchestrator",
+    "qnfo-ops",
+    "qnfo-pdf"
+   ],
+   "crons": [
+    "*/10 * * * *",
+    "5 * * * *"
+   ],
+   "writes": [
+    "d1t:portfolio-state.program_registry",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.analytics_metric_triggers",
+    "d1t:qnfo-audit.branch_hygiene_log",
+    "d1t:qnfo-audit.cf_changelog_items",
+    "d1t:qnfo-audit.cf_changelog_runs",
+    "d1t:qnfo-audit.charter_snapshots",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.cloudflare_capability_catalog",
+    "d1t:qnfo-audit.code_tasks",
+    "d1t:qnfo-audit.control_alternate_probes",
+    "d1t:qnfo-audit.control_registry",
+    "d1t:qnfo-audit.evolve_candidates",
+    "d1t:qnfo-audit.fleet_budget",
+    "d1t:qnfo-audit.fleet_deploy_state",
+    "d1t:qnfo-audit.fleet_deploys",
+    "d1t:qnfo-audit.fleet_drift_report",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.fleet_improvements",
+    "d1t:qnfo-audit.fleet_signal_observations",
+    "d1t:qnfo-audit.fleet_state_snapshots",
+    "d1t:qnfo-audit.goals",
+    "d1t:qnfo-audit.human_actions",
+    "d1t:qnfo-audit.improvement_loop_runs",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.loop_watch_state",
+    "d1t:qnfo-audit.metric_history",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.objective_constraint_runs",
+    "d1t:qnfo-audit.ops_config",
+    "d1t:qnfo-audit.perf_experiments",
+    "d1t:qnfo-audit.perf_levers",
+    "d1t:qnfo-audit.perf_runs",
+    "d1t:qnfo-audit.portfolio_actions",
+    "d1t:qnfo-audit.portfolio_repos",
+    "d1t:qnfo-audit.portfolio_sync_runs",
+    "d1t:qnfo-audit.pr_sla_state",
+    "d1t:qnfo-audit.reach_idea_outcomes",
+    "d1t:qnfo-audit.reach_idea_runs",
+    "d1t:qnfo-audit.remediation_contracts",
+    "d1t:qnfo-audit.reorg_work_queue",
+    "d1t:qnfo-audit.research_code_libraries",
+    "d1t:qnfo-audit.scheduler_state",
+    "d1t:qnfo-audit.self_heal_actions",
+    "d1t:qnfo-audit.self_rewrite_state",
+    "d1t:qnfo-audit.service_registry",
+    "d1t:qnfo-audit.signals",
+    "d1t:qnfo-audit.spof_alternate_probes",
+    "d1t:qnfo-audit.spof_registry",
+    "d1t:qnfo-audit.spof_registry_resolved",
+    "d1t:qnfo-audit.transformation_levers",
+    "d1t:qnfo-audit.transformation_runs",
+    "d1t:qnfo-audit.worker_activity_daily",
+    "d1t:qnfo-audit.worker_live_audit",
+    "d1t:qnfo-audit.worker_removals",
+    "d1t:qnfo-audit.workflow_failures",
+    "d1t:qnfo-audit.workflow_main_state"
+   ],
+   "reads_count": 59,
+   "ai_neurons_per_day": null,
+   "bytes": 1357273
+  },
+  {
+   "worker": "qnfo-fleet-dashboard",
+   "version": "1.91.0",
+   "pillar": "core",
+   "purpose": "fleet.qnfo.org dashboard",
+   "bindings": [
+    "d1:living-paper",
+    "d1:q08-signal",
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "d1:qnfo-identity",
+    "d1:qnfo-outreach",
+    "do:qnfo-fleet-dashboard.OtpRateLimiter",
+    "kv:d3768b93a76640be83151b00a8b42717",
+    "svc:send-email",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "personal-api",
+    "qnfo-agents",
+    "qnfo-ai",
+    "qnfo-cloud-ops",
+    "qnfo-email",
+    "qnfo-fleet-control",
+    "qnfo-ipatent",
+    "qnfo-ops",
+    "qnfo-research-exec"
+   ],
+   "crons": [
+    "*/5 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issue_refiles",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.analytics_metric_triggers",
+    "d1t:qnfo-audit.attention_decisions",
+    "d1t:qnfo-audit.attention_scorecard",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.cmd_log",
+    "d1t:qnfo-audit.console_agent_auth",
+    "d1t:qnfo-audit.console_backups",
+    "d1t:qnfo-audit.email_reply_queue",
+    "d1t:qnfo-audit.email_sender_policy",
+    "d1t:qnfo-audit.emails",
+    "d1t:qnfo-audit.entity_map",
+    "d1t:qnfo-audit.fleet_changelog",
+    "d1t:qnfo-audit.fleet_crons",
+    "d1t:qnfo-audit.fleet_dashboard_state",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.fleet_issue_dispatch",
+    "d1t:qnfo-audit.fleet_issue_log",
+    "d1t:qnfo-audit.fleet_issue_loop",
+    "d1t:qnfo-audit.fleet_loop_meta",
+    "d1t:qnfo-audit.fleet_probe_log",
+    "d1t:qnfo-audit.fleet_tasks",
+    "d1t:qnfo-audit.fleet_tick",
+    "d1t:qnfo-audit.fleet_tick_heavy",
+    "d1t:qnfo-audit.goals",
+    "d1t:qnfo-audit.human_actions",
+    "d1t:qnfo-audit.human_responses",
+    "d1t:qnfo-audit.impact_thresholds",
+    "d1t:qnfo-audit.intents",
+    "d1t:qnfo-audit.invest_decision_log",
+    "d1t:qnfo-audit.invest_facts",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.objective_revision_applies",
+    "d1t:qnfo-audit.objectives",
+    "d1t:qnfo-audit.ops_config",
+    "d1t:qnfo-audit.owner_codes",
+    "d1t:qnfo-audit.owner_docs",
+    "d1t:qnfo-audit.owner_prompts",
+    "d1t:qnfo-audit.owner_sessions",
+    "d1t:qnfo-audit.pipeline_flags",
+    "d1t:qnfo-audit.portfolio_runs",
+    "d1t:qnfo-audit.portfolio_scorecards",
+    "d1t:qnfo-audit.program_review_notes",
+    "d1t:qnfo-audit.program_scorecards",
+    "d1t:qnfo-audit.q08_editor_notes",
+    "d1t:qnfo-audit.q08_owner_verdicts",
+    "d1t:qnfo-audit.reach_signals",
+    "d1t:qnfo-audit.remediation_contracts",
+    "d1t:qnfo-audit.reorg_work_queue",
+    "d1t:qnfo-audit.report_card_history",
+    "d1t:qnfo-audit.roi_daily_snapshots",
+    "d1t:qnfo-audit.sai_config",
+    "d1t:qnfo-audit.self_heal_actions",
+    "d1t:qnfo-audit.site_ux_checks",
+    "d1t:qnfo-audit.survival_state",
+    "d1t:qnfo-audit.watchmaker_runs",
+    "d1t:qnfo-audit.worker_schedules",
+    "d1t:qnfo-identity.owner_docs",
+    "d1t:qnfo-identity.store_meta",
+    "d1t:qnfo-outreach.pipeline_state"
+   ],
+   "reads_count": 110,
+   "ai_neurons_per_day": null,
+   "bytes": 1464179
+  },
+  {
+   "worker": "qnfo-gateway",
+   "version": "3.54.3",
+   "pillar": "core",
+   "purpose": "qnfo.org landing + email capture",
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "r2:qnfo",
+    "r2:qnfo-releases",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-pdf"
+   ],
+   "crons": [
+    "0 * * * *"
+   ],
+   "writes": [
+    "d1t:living-paper.indexnow_log",
+    "d1t:living-paper.paper_category",
+    "d1t:living-paper.paper_tag",
+    "d1t:living-paper.papers",
+    "d1t:living-paper.plain_article",
+    "d1t:living-paper.plain_summary",
+    "d1t:living-paper.quick_read",
+    "d1t:living-paper.quick_read_vec",
+    "d1t:living-paper.seo_404_paths",
+    "d1t:living-paper.seo_crawl_log",
+    "d1t:qnfo-audit.analytics_dash_meta",
+    "d1t:qnfo-audit.asset_provenance",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.internal_errata",
+    "d1t:qnfo-audit.reader_reports",
+    "d1t:qnfo-graph.ask_rate",
+    "d1t:qnfo-graph.edges",
+    "d1t:qnfo-graph.nodes",
+    "d1t:qnfo-graph.utm_clicks"
+   ],
+   "reads_count": 20,
+   "ai_neurons_per_day": null,
+   "bytes": 908789
+  },
+  {
+   "worker": "qnfo-github-steward",
+   "version": "0.15.1-fold-live-first",
+   "pillar": "autonomy",
+   "purpose": null,
+   "bindings": [
+    "d1:qnfo-audit"
+   ],
+   "services": [],
+   "crons": [
+    "5,15,25,35,45,55 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.code_task_pr_links",
+    "d1t:qnfo-audit.code_tasks",
+    "d1t:qnfo-audit.cost_usage_daily",
+    "d1t:qnfo-audit.cost_vendor_month",
+    "d1t:qnfo-audit.cron_fire_log",
+    "d1t:qnfo-audit.fleet_issue_dispatch",
+    "d1t:qnfo-audit.gh_digest_links",
+    "d1t:qnfo-audit.gh_issue_links",
+    "d1t:qnfo-audit.github_steward_runs",
+    "d1t:qnfo-audit.issue_project_map",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.model_floor_guard_runs",
+    "d1t:qnfo-audit.projects",
+    "d1t:qnfo-audit.roadmap_gh_links",
+    "d1t:qnfo-audit.roadmap_implementation",
+    "d1t:qnfo-audit.tracker_sync_state"
+   ],
+   "reads_count": 24,
+   "ai_neurons_per_day": null,
+   "bytes": 169435
+  },
+  {
+   "worker": "qnfo-infra",
+   "version": "1.11.1-cost-ledger",
+   "pillar": "core",
+   "purpose": "infra records API: papers count, KG, intents, analytics, cost ledger",
+   "bindings": [
+    "d1:living-paper",
+    "d1:personal-life",
+    "d1:portfolio-state",
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "svc:workers-ai",
+    "vz:ipatent-corpus",
+    "vz:qnfo-ai-log",
+    "vz:qnfo-handoffs",
+    "vz:qnfo-infra",
+    "vz:qnfo-notes",
+    "vz:qnfo-tasks",
+    "vz:qwav-research-v2"
+   ],
+   "services": [],
+   "crons": [
+    "30 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.cost_usage_daily",
+    "d1t:qnfo-audit.cost_vendor_month",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.infra_state",
+    "d1t:qnfo-audit.ops_config"
+   ],
+   "reads_count": 17,
+   "ai_neurons_per_day": null,
+   "bytes": 123083
+  },
+  {
+   "worker": "qnfo-intent-orchestrator",
+   "version": "1.7.6-codeagent",
+   "pillar": "autonomy",
+   "purpose": "intent classify/route/queue + research triage/dispatch",
+   "bindings": [
+    "d1:qnfo-audit",
+    "svc:workers-ai",
+    "vz:personal-life",
+    "vz:qnfo-ai-log"
+   ],
+   "services": [
+    "qnfo-ai",
+    "qnfo-lifecycle",
+    "qnfo-ops"
+   ],
+   "crons": [
+    "0,30 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.ai_call_counters",
+    "d1t:qnfo-audit.cron_fire_log",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.intent_classify_stats",
+    "d1t:qnfo-audit.intents",
+    "d1t:qnfo-audit.research_candidates"
+   ],
+   "reads_count": 4,
+   "ai_neurons_per_day": null,
+   "bytes": 60006
+  },
+  {
+   "worker": "qnfo-ipatent",
+   "version": "3.20.0",
+   "pillar": "research",
+   "purpose": "IPatent app: submissions + analytics",
+   "bindings": [
+    "d1:ipatent-db",
+    "d1:qnfo-audit",
+    "r2:ipatent",
+    "svc:workers-ai",
+    "vz:ipatent-corpus"
+   ],
+   "services": [],
+   "crons": [],
+   "writes": [
+    "d1t:ipatent-db.page_views",
+    "d1t:ipatent-db.submissions",
+    "d1t:ipatent-db.usage_counts",
+    "d1t:qnfo-audit.ai_call_counters"
+   ],
+   "reads_count": 5,
+   "ai_neurons_per_day": null,
+   "bytes": 437078
+  },
+  {
+   "worker": "qnfo-jobsearch",
+   "version": "1.5.0",
+   "pillar": "personal",
+   "purpose": null,
+   "bindings": [
+    "d1:qnfo-audit"
+   ],
+   "services": [
+    "qnfo-email"
+   ],
+   "crons": [
+    "15 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.jobsearch_bank",
+    "d1t:qnfo-audit.jobsearch_bank_history",
+    "d1t:qnfo-audit.jobsearch_codes",
+    "d1t:qnfo-audit.jobsearch_events",
+    "d1t:qnfo-audit.jobsearch_feedback",
+    "d1t:qnfo-audit.jobsearch_feeds",
+    "d1t:qnfo-audit.jobsearch_history",
+    "d1t:qnfo-audit.jobsearch_matches",
+    "d1t:qnfo-audit.jobsearch_meta",
+    "d1t:qnfo-audit.jobsearch_prefs",
+    "d1t:qnfo-audit.jobsearch_runs",
+    "d1t:qnfo-audit.jobsearch_sessions",
+    "d1t:qnfo-audit.metric_registry"
+   ],
+   "reads_count": 11,
+   "ai_neurons_per_day": null,
+   "bytes": 186235
+  },
+  {
+   "worker": "qnfo-lifecycle",
+   "version": "1.17.6-codeagent",
+   "pillar": "reach",
+   "purpose": "intent scheduler, dated cron runner",
+   "bindings": [
+    "d1:ipatent-db",
+    "d1:living-paper",
+    "d1:portfolio-state",
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "r2:obsidian-vault",
+    "r2:qnfo-assets",
+    "r2:qnfo-backups",
+    "svc:workers-ai",
+    "vz:qwav-research-v2"
+   ],
+   "services": [],
+   "crons": [
+    "0 * * * *"
+   ],
+   "writes": [
+    "d1t:portfolio-state.resources",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.audit_sessions",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.goals",
+    "d1t:qnfo-audit.internal_errata",
+    "d1t:qnfo-audit.issue_triage",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.paper_learn_state",
+    "d1t:qnfo-audit.paper_learnings",
+    "d1t:qnfo-audit.remediation_contracts",
+    "d1t:qnfo-audit.service_registry",
+    "d1t:qnfo-graph.agent_memories"
+   ],
+   "reads_count": 17,
+   "ai_neurons_per_day": null,
+   "bytes": 262676
+  },
+  {
+   "worker": "qnfo-memory-mcp",
+   "version": "2.7.3",
+   "pillar": "core",
+   "purpose": "agent memory MCP (D1 + Vectorize + KG) and open fleet-graph API",
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "svc:workers-ai",
+    "vz:qwav-research-v2"
+   ],
+   "services": [],
+   "crons": [],
+   "writes": [
+    "d1t:qnfo-audit.decision_log",
+    "d1t:qnfo-audit.mcp_log",
+    "d1t:qnfo-graph.agent_memories"
+   ],
+   "reads_count": 10,
+   "ai_neurons_per_day": null,
+   "bytes": 73153
+  },
+  {
+   "worker": "qnfo-model-eval",
+   "version": "1.8.4-codeagent",
+   "pillar": "autonomy",
+   "purpose": "discovers and benchmarks new Workers AI models",
+   "bindings": [
+    "d1:qnfo-audit"
+   ],
+   "services": [
+    "qnfo-ai"
+   ],
+   "crons": [
+    "20 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.cf_model_canary",
+    "d1t:qnfo-audit.cf_model_catalog",
+    "d1t:qnfo-audit.cf_model_eval_config",
+    "d1t:qnfo-audit.cf_model_eval_runs",
+    "d1t:qnfo-audit.cf_model_evals",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.cron_fire_log",
+    "d1t:qnfo-audit.model_ab_policy_seen",
+    "d1t:qnfo-audit.model_ab_runs",
+    "d1t:qnfo-audit.model_ladder_models",
+    "d1t:qnfo-audit.roadmap_implementation"
+   ],
+   "reads_count": 13,
+   "ai_neurons_per_day": null,
+   "bytes": 122431
+  },
+  {
+   "worker": "qnfo-observability",
+   "version": "1.5.8-retired-agent-ws",
+   "pillar": "core",
+   "purpose": "fleet telemetry/audit scorer host",
+   "bindings": [
+    "ae:qnfo_fleet",
+    "d1:qnfo-audit",
+    "r2:qnfo-audit"
+   ],
+   "services": [],
+   "crons": [
+    "15 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.alerts",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.integration_state",
+    "d1t:qnfo-audit.issue_events",
+    "d1t:qnfo-audit.issue_ledger",
+    "d1t:qnfo-audit.trace_ingest_state",
+    "d1t:qnfo-audit.worker_logs"
+   ],
+   "reads_count": 16,
+   "ai_neurons_per_day": null,
+   "bytes": 105484
+  },
+  {
+   "worker": "qnfo-ops",
+   "version": "2.62.20-tool-arg-alias",
+   "pillar": "core",
+   "purpose": "ops endpoint, service registry, queue/query, tool surface",
+   "bindings": [
+    "d1:ipatent-db",
+    "d1:living-paper",
+    "d1:personal-life",
+    "d1:portfolio-state",
+    "d1:qnfo-audit",
+    "d1:qnfo-cms",
+    "d1:qnfo-graph",
+    "d1:qnfo-outreach",
+    "do:qnfo-ops.AgenticOpsExec",
+    "kv:2fbbb9fa2d774a6e80d3a3d2547f8b5f",
+    "kv:a277c879f01a48198304ab8f24a212d2",
+    "queue:qnfo-ops-jobs",
+    "r2:qnfo-audit",
+    "r2:qnfo-backups",
+    "r2:qnfo-canonical",
+    "r2:qnfo-releases",
+    "r2:qnfo-skills",
+    "svc:worker-loader",
+    "svc:workers-ai",
+    "vz:qnfo-ai-log",
+    "vz:qnfo-handoffs",
+    "vz:qnfo-notes",
+    "vz:qnfo-ops-semcache",
+    "vz:qnfo-tasks",
+    "vz:qwav-research-v2",
+    "wf:ops-exec-workflow"
+   ],
+   "services": [
+    "idea-hub",
+    "personal-api",
+    "personal-companion",
+    "q08-signal-engine",
+    "qnfo-agents",
+    "qnfo-ai",
+    "qnfo-ai-calibration",
+    "qnfo-ai-search",
+    "qnfo-cloud-ops",
+    "qnfo-code-orchestrator",
+    "qnfo-containers-pilot",
+    "qnfo-deploy-guard",
+    "qnfo-email",
+    "qnfo-evolve",
+    "qnfo-fleet-control",
+    "qnfo-fleet-dashboard",
+    "qnfo-gateway",
+    "qnfo-github-steward",
+    "qnfo-infra",
+    "qnfo-intent-orchestrator",
+    "qnfo-ipatent",
+    "qnfo-lifecycle",
+    "qnfo-memory-mcp",
+    "qnfo-model-eval",
+    "qnfo-observability",
+    "qnfo-pdf",
+    "qnfo-research-exec",
+    "qnfo-social",
+    "qnfo-subscribers",
+    "qnfo-tools-mcp",
+    "radar-hub"
+   ],
+   "crons": [
+    "*/30 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.audit_trail",
+    "d1t:qnfo-audit.branch_hygiene_log",
+    "d1t:qnfo-audit.capability_audit_snapshot",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.cost_router_metrics",
+    "d1t:qnfo-audit.deployment_history",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.idea_proposals",
+    "d1t:qnfo-audit.issue_ledger",
+    "d1t:qnfo-audit.llm_gateway_log",
+    "d1t:qnfo-audit.model_ladder_budget",
+    "d1t:qnfo-audit.model_ladder_daily",
+    "d1t:qnfo-audit.model_ladder_escalations",
+    "d1t:qnfo-audit.ops_ai_log",
+    "d1t:qnfo-audit.ops_jobs",
+    "d1t:qnfo-audit.ops_req_log",
+    "d1t:qnfo-audit.ops_run_events",
+    "d1t:qnfo-audit.owner_chat_codes",
+    "d1t:qnfo-audit.owner_chat_sessions",
+    "d1t:qnfo-audit.self_heal_actions",
+    "d1t:qnfo-audit.service_registry",
+    "d1t:qnfo-audit.worker_compat_state",
+    "d1t:qnfo-audit.worker_logs"
+   ],
+   "reads_count": 30,
+   "ai_neurons_per_day": 15277,
+   "bytes": 806894
+  },
+  {
+   "worker": "qnfo-pdf",
+   "version": "1.7.6",
+   "pillar": "research",
+   "purpose": "PDF render service for publications",
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "r2:qnfo-releases",
+    "svc:browser-run"
+   ],
+   "services": [],
+   "crons": [
+    "*/10 * * * *"
+   ],
+   "writes": [
+    "d1t:living-paper.papers",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.metric_registry"
+   ],
+   "reads_count": 2,
+   "ai_neurons_per_day": null,
+   "bytes": 594001
+  },
+  {
+   "worker": "qnfo-research-exec",
+   "version": "0.49.2",
+   "pillar": "research",
+   "purpose": "research pipeline: version_queue drain, publish to Zenodo, PDF, KG",
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "d1:qnfo-graph",
+    "r2:qnfo-releases",
+    "svc:browser-run",
+    "svc:send-email",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-ai",
+    "qnfo-containers-pilot",
+    "qnfo-pdf"
+   ],
+   "crons": [
+    "*/10 * * * *"
+   ],
+   "writes": [
+    "d1t:living-paper.abstract_repair_bak",
+    "d1t:living-paper.citations",
+    "d1t:living-paper.cite_backfill_state",
+    "d1t:living-paper.corpus_leverage",
+    "d1t:living-paper.paper_body_backups",
+    "d1t:living-paper.paper_change_bodies",
+    "d1t:living-paper.paper_change_body_archive",
+    "d1t:living-paper.paper_citations",
+    "d1t:living-paper.paper_version_history",
+    "d1t:living-paper.papers",
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.dissemination_tracker",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.gov_gate_log",
+    "d1t:qnfo-audit.internal_errata",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.ops_config",
+    "d1t:qnfo-audit.paper_claim_audits",
+    "d1t:qnfo-audit.paper_claims",
+    "d1t:qnfo-audit.paper_integrity_backups",
+    "d1t:qnfo-audit.paper_revision_log",
+    "d1t:qnfo-audit.portfolio_actions",
+    "d1t:qnfo-audit.remediation_contracts",
+    "d1t:qnfo-audit.research_golden_runs",
+    "d1t:qnfo-audit.research_queue",
+    "d1t:qnfo-audit.research_queue_merge_ledger",
+    "d1t:qnfo-audit.research_run_ledger",
+    "d1t:qnfo-audit.spof_registry",
+    "d1t:qnfo-audit.version_queue",
+    "d1t:qnfo-graph.edges",
+    "d1t:qnfo-graph.nodes"
+   ],
+   "reads_count": 28,
+   "ai_neurons_per_day": 962892,
+   "bytes": 1648715
+  },
+  {
+   "worker": "qnfo-social",
+   "version": "0.21.16",
+   "pillar": "reach",
+   "purpose": "research amplifier: Bluesky/Buffer posting",
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "svc:workers-ai"
+   ],
+   "services": [],
+   "crons": [
+    "30 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.agent_issues",
+    "d1t:qnfo-audit.alerts",
+    "d1t:qnfo-audit.auto_scan_lock",
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.dissemination_tracker",
+    "d1t:qnfo-audit.drain_lock",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.metric_history",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.ops_config",
+    "d1t:qnfo-audit.pipeline_flags",
+    "d1t:qnfo-audit.social_channels",
+    "d1t:qnfo-audit.social_engagements",
+    "d1t:qnfo-audit.social_learner_posts",
+    "d1t:qnfo-audit.social_media_posts",
+    "d1t:qnfo-audit.social_replies",
+    "d1t:qnfo-audit.social_threads"
+   ],
+   "reads_count": 16,
+   "ai_neurons_per_day": null,
+   "bytes": 308197
+  },
+  {
+   "worker": "qnfo-subscribers",
+   "version": "1.5.8-codeagent",
+   "pillar": "reach",
+   "purpose": "newsletter capture and weekly digest",
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "svc:send-email"
+   ],
+   "services": [],
+   "crons": [
+    "0 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.reach_signals",
+    "d1t:qnfo-audit.subscribe_funnel",
+    "d1t:qnfo-audit.subscriber_digest_runs",
+    "d1t:qnfo-audit.subscribers"
+   ],
+   "reads_count": 4,
+   "ai_neurons_per_day": null,
+   "bytes": 48811
+  },
+  {
+   "worker": "qnfo-tools-mcp",
+   "version": "1.4.0-fullscope",
+   "pillar": "core",
+   "purpose": "MCP server exposing the machine tool surface to LLM clients",
+   "bindings": [
+    "d1:qnfo-audit"
+   ],
+   "services": [
+    "qnfo-ai",
+    "qnfo-email",
+    "qnfo-infra",
+    "qnfo-intent-orchestrator",
+    "qnfo-ops"
+   ],
+   "crons": [],
+   "writes": [
+    "d1t:qnfo-audit.mcp_log"
+   ],
+   "reads_count": 0,
+   "ai_neurons_per_day": null,
+   "bytes": 35190
+  },
+  {
+   "worker": "qnfo-youtube-shorts",
+   "version": "0.4.2-oauth",
+   "pillar": "reach",
+   "purpose": null,
+   "bindings": [
+    "d1:living-paper",
+    "d1:qnfo-audit",
+    "do:qnfo-youtube-shorts.RenderContainer",
+    "r2:qnfo-media",
+    "svc:workers-ai"
+   ],
+   "services": [
+    "qnfo-ai"
+   ],
+   "crons": [
+    "0 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.cloud_ops_events",
+    "d1t:qnfo-audit.fleet_heartbeat",
+    "d1t:qnfo-audit.metric_registry",
+    "d1t:qnfo-audit.youtube_spend",
+    "d1t:qnfo-audit.youtube_videos"
+   ],
+   "reads_count": 3,
+   "ai_neurons_per_day": null,
+   "bytes": 57069
+  },
+  {
+   "worker": "radar-hub",
+   "version": "1.5.1-heartbeat-retry",
+   "pillar": "research",
+   "purpose": null,
+   "bindings": [
+    "d1:personal-life",
+    "d1:qnfo-audit",
+    "r2:obsidian-vault",
+    "wf:job-market-watch"
+   ],
+   "services": [
+    "qnfo-email",
+    "qnfo-lifecycle"
+   ],
+   "crons": [
+    "0 * * * *"
+   ],
+   "writes": [
+    "d1t:qnfo-audit.fleet_heartbeat"
+   ],
+   "reads_count": 2,
+   "ai_neurons_per_day": null,
+   "bytes": 154833
+  }
+ ],
+ "d1": [
+  {
+   "db": "ipatent-db",
+   "size": 1191936,
+   "tables": 4,
+   "bound": 3,
+   "top": [
+    {
+     "id": "page_views",
+     "w": 1,
+     "r": 2
+    },
+    {
+     "id": "submissions",
+     "w": 1,
+     "r": 2
+    },
+    {
+     "id": "usage_counts",
+     "w": 1,
+     "r": 1
+    },
+    {
+     "id": "analytics",
+     "w": 0,
+     "r": 1
+    }
+   ]
+  },
+  {
+   "db": "living-paper",
+   "size": 311554048,
+   "tables": 27,
+   "bound": 13,
+   "top": [
+    {
+     "id": "papers",
+     "w": 5,
+     "r": 9
+    },
+    {
+     "id": "paper_change_bodies",
+     "w": 2,
+     "r": 3
+    },
+    {
+     "id": "paper_change_body_archive",
+     "w": 2,
+     "r": 2
+    },
+    {
+     "id": "paper_category",
+     "w": 1,
+     "r": 2
+    },
+    {
+     "id": "paper_version_history",
+     "w": 1,
+     "r": 2
+    }
+   ]
+  },
+  {
+   "db": "personal-life",
+   "size": 71798784,
+   "tables": 49,
+   "bound": 6,
+   "top": [
+    {
+     "id": "events",
+     "w": 1,
+     "r": 4
+    },
+    {
+     "id": "email_index",
+     "w": 2,
+     "r": 2
+    },
+    {
+     "id": "profile",
+     "w": 1,
+     "r": 2
+    },
+    {
+     "id": "notes",
+     "w": 1,
+     "r": 2
+    },
+    {
+     "id": "chat",
+     "w": 1,
+     "r": 2
+    }
+   ]
+  },
+  {
+   "db": "portfolio-state",
+   "size": 368640,
+   "tables": 3,
+   "bound": 5,
+   "top": [
+    {
+     "id": "program_registry",
+     "w": 1,
+     "r": 3
+    },
+    {
+     "id": "resources",
+     "w": 1,
+     "r": 1
+    },
+    {
+     "id": "governance_policies",
+     "w": 0,
+     "r": 1
+    }
+   ]
+  },
+  {
+   "db": "q08-signal",
+   "size": 8691712,
+   "tables": 14,
+   "bound": 2,
+   "top": [
+    {
+     "id": "published_pieces",
+     "w": 1,
+     "r": 2
+    },
+    {
+     "id": "engine_runs",
+     "w": 1,
+     "r": 2
+    },
+    {
+     "id": "q08_forecasts",
+     "w": 1,
+     "r": 1
+    },
+    {
+     "id": "q08_reader_tests",
+     "w": 1,
+     "r": 1
+    },
+    {
+     "id": "signal_log",
+     "w": 1,
+     "r": 1
+    }
+   ]
+  },
+  {
+   "db": "qnfo-audit",
+   "size": 1451139072,
+   "tables": 953,
+   "bound": 34,
+   "top": [
+    {
+     "id": "agent_issues",
+     "w": 19,
+     "r": 17
+    },
+    {
+     "id": "ops_config",
+     "w": 8,
+     "r": 20
+    },
+    {
+     "id": "cloud_ops_events",
+     "w": 17,
+     "r": 11
+    },
+    {
+     "id": "fleet_heartbeat",
+     "w": 23,
+     "r": 3
+    },
+    {
+     "id": "metric_registry",
+     "w": 14,
+     "r": 6
+    }
+   ]
+  },
+  {
+   "db": "qnfo-cms",
+   "size": 196608,
+   "tables": 0,
+   "bound": 1,
+   "top": []
+  },
+  {
+   "db": "qnfo-graph",
+   "size": 33112064,
+   "tables": 9,
+   "bound": 9,
+   "top": [
+    {
+     "id": "nodes",
+     "w": 2,
+     "r": 6
+    },
+    {
+     "id": "edges",
+     "w": 2,
+     "r": 5
+    },
+    {
+     "id": "agent_memories",
+     "w": 2,
+     "r": 2
+    },
+    {
+     "id": "fg_edge",
+     "w": 0,
+     "r": 2
+    },
+    {
+     "id": "ask_rate",
+     "w": 1,
+     "r": 0
+    }
+   ]
+  },
+  {
+   "db": "qnfo-identity",
+   "size": 516096,
+   "tables": 3,
+   "bound": 1,
+   "top": [
+    {
+     "id": "store_meta",
+     "w": 1,
+     "r": 1
+    },
+    {
+     "id": "owner_docs",
+     "w": 1,
+     "r": 1
+    },
+    {
+     "id": "owner_client_keys",
+     "w": 0,
+     "r": 1
+    }
+   ]
+  },
+  {
+   "db": "qnfo-outreach",
+   "size": 294912,
+   "tables": 5,
+   "bound": 3,
+   "top": [
+    {
+     "id": "pipeline_state",
+     "w": 2,
+     "r": 1
+    },
+    {
+     "id": "contacts",
+     "w": 0,
+     "r": 1
+    },
+    {
+     "id": "sends",
+     "w": 0,
+     "r": 1
+    },
+    {
+     "id": "funnel_daily",
+     "w": 0,
+     "r": 1
+    },
+    {
+     "id": "submissions",
+     "w": 0,
+     "r": 1
+    }
+   ]
+  }
+ ],
+ "vectorize": [
+  {
+   "index": "ipatent-corpus",
+   "vectors": 7517,
+   "queries_7d": 549,
+   "writers": [],
+   "readers": [
+    "ai?",
+    "infra?",
+    "ipatent"
+   ],
+   "last_write": "2026-08-04",
+   "external_writer": null
+  },
+  {
+   "index": "personal-life",
+   "vectors": 155315,
+   "queries_7d": 70,
+   "writers": [
+    "personal-api",
+    "personal-companion",
+    "intent-orchestrator"
+   ],
+   "readers": [
+    "personal-api",
+    "personal-companion",
+    "intent-orchestrator"
+   ],
+   "last_write": "2026-11-04",
+   "external_writer": null
+  },
+  {
+   "index": "qnfo-ai-log",
+   "vectors": 10632,
+   "queries_7d": 568,
+   "writers": [
+    "ai",
+    "intent-orchestrator"
+   ],
+   "readers": [
+    "ai",
+    "infra?",
+    "intent-orchestrator",
+    "ops?"
+   ],
+   "last_write": "2026-11-04",
+   "external_writer": null
+  },
+  {
+   "index": "qnfo-handoffs",
+   "vectors": 3609,
+   "queries_7d": 548,
+   "writers": [
+    "infra"
+   ],
+   "readers": [
+    "ai?",
+    "ops?"
+   ],
+   "last_write": "2026-11-04",
+   "external_writer": null
+  },
+  {
+   "index": "qnfo-infra",
+   "vectors": 3,
+   "queries_7d": 460,
+   "writers": [
+    "infra"
+   ],
+   "readers": [
+    "ai?",
+    "infra"
+   ],
+   "last_write": "2026-11-04",
+   "external_writer": null
+  },
+  {
+   "index": "qnfo-notes",
+   "vectors": 5502,
+   "queries_7d": 552,
+   "writers": [],
+   "readers": [
+    "ai?",
+    "infra?",
+    "ops?"
+   ],
+   "last_write": "2026-08-10",
+   "external_writer": null
+  },
+  {
+   "index": "qnfo-ops-semcache",
+   "vectors": 294,
+   "queries_7d": 15,
+   "writers": [
+    "ops"
+   ],
+   "readers": [
+    "ops"
+   ],
+   "last_write": "2026-11-02",
+   "external_writer": null
+  },
+  {
+   "index": "qnfo-repos",
+   "vectors": 24146,
+   "queries_7d": 0,
+   "writers": [],
+   "readers": [],
+   "last_write": "2026-11-04",
+   "external_writer": "scripts/repo_content_index.py (REST, CI)"
+  },
+  {
+   "index": "qnfo-tasks",
+   "vectors": 111,
+   "queries_7d": 547,
+   "writers": [],
+   "readers": [
+    "ai?",
+    "infra?",
+    "ops?"
+   ],
+   "last_write": "2026-07-17",
+   "external_writer": null
+  },
+  {
+   "index": "qwav-research-v2",
+   "vectors": 59110,
+   "queries_7d": 572,
+   "writers": [
+    "infra",
+    "memory-mcp"
+   ],
+   "readers": [
+    "idea-hub",
+    "ai",
+    "infra",
+    "lifecycle?",
+    "memory-mcp",
+    "ops"
+   ],
+   "last_write": "2026-11-04",
+   "external_writer": null
+  }
+ ],
+ "r2": [
+  "d-drive",
+  "ipatent",
+  "obsidian-vault",
+  "personal-media",
+  "qnfo",
+  "qnfo-assets",
+  "qnfo-audit",
+  "qnfo-backups",
+  "qnfo-canonical",
+  "qnfo-media",
+  "qnfo-releases",
+  "qnfo-skills"
+ ],
+ "ai_paths": [
+  {
+   "worker": "qnfo-research-exec",
+   "model": "@cf/zai-org/glm-5.3-flash",
+   "neurons": 522957,
+   "calls": 1209,
+   "in_tok": 22103781
+  },
+  {
+   "worker": "qnfo-research-exec",
+   "model": "@cf/openai/gpt-oss-120b",
+   "neurons": 439935,
+   "calls": 493,
+   "in_tok": 8411393
+  },
+  {
+   "worker": "qnfo-code-orchestrator",
+   "model": "@cf/moonshotai/kimi-k2.7-code",
+   "neurons": 412164,
+   "calls": 116,
+   "in_tok": 1442600
+  },
+  {
+   "worker": "qnfo-code-orchestrator",
+   "model": "@cf/zai-org/glm-5.3",
+   "neurons": 161221,
+   "calls": 65,
+   "in_tok": 733495
+  },
+  {
+   "worker": "q08-signal-engine",
+   "model": "@cf/moonshotai/kimi-k2.6",
+   "neurons": 59370,
+   "calls": 99,
+   "in_tok": 527552
+  },
+  {
+   "worker": "qnfo-paper-reviser",
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "neurons": 55361,
+   "calls": 45,
+   "in_tok": 1236335
+  },
+  {
+   "worker": "qnfo-code-orchestrator",
+   "model": "@cf/openai/gpt-oss-120b",
+   "neurons": 51717,
+   "calls": 214,
+   "in_tok": 1083948
+  },
+  {
+   "worker": "qnfo-code-orchestrator",
+   "model": "@cf/zai-org/glm-5.3-flash",
+   "neurons": 44083,
+   "calls": 23,
+   "in_tok": 70182
+  }
+ ],
+ "ai_total": {
+  "neurons": 1960220,
+  "in_tok": 41579098
+ },
+ "cost": {
+  "mtd_usd": 160.11,
+  "forecast_month_usd": 1601.13,
+  "budget_month_usd": 300,
+  "lines": [
+   {
+    "product": "workers_ai",
+    "mtd_usd": 114.61
+   },
+   {
+    "product": "direct_providers",
+    "mtd_usd": 45
+   },
+   {
+    "product": "workers_paid_plan",
+    "mtd_usd": 0.5
+   }
+  ]
+ },
+ "hubs": [
+  "qnfo-ai(10)",
+  "qnfo-email(9)",
+  "qnfo-ops(9)",
+  "qnfo-infra(5)",
+  "qnfo-lifecycle(4)",
+  "qnfo-intent-orchestrator(4)",
+  "personal-api(4)",
+  "qnfo-pdf(4)"
+ ],
+ "hot_tables": [
+  "agent_issues(w19/r17)",
+  "ops_config(w8/r20)",
+  "cloud_ops_events(w17/r11)",
+  "fleet_heartbeat(w23/r3)",
+  "metric_registry(w14/r6)",
+  "ai_call_counters(w8/r9)",
+  "living-paper.papers(w5/r9)",
+  "service_registry(w5/r9)",
+  "issue_triage(w8/r3)",
+  "idea_proposals(w4/r6)"
+ ]
+}

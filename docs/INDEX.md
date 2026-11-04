@@ -137,6 +137,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [SLOs, error budgets and automatic postmortems (BP26-SLO-ERROR-BUDGETS-1)](SLO-ERROR-BUDGETS.md) - `docs/SLO-ERROR-BUDGETS.md`
 - [QNFO Fleet Stock Prompts — reusable autonomous-execution commands](STOCK-PROMPTS.md) - `docs/STOCK-PROMPTS.md`
 - [QNFO unified strategy (STRATEGY-1)](STRATEGY.md) - `docs/STRATEGY.md`
+- [SYSTEM-MAP: the whole Quniverse on one page](SYSTEM-MAP.md) - `docs/SYSTEM-MAP.md`
 - [TEMPO-POLICY-120M-5M-1 — the 120-minute cap and the 5-minute tick](TEMPO-POLICY-120M-5M-1.md) - `docs/TEMPO-POLICY-120M-5M-1.md`
 - [Quniverse transformation program (TRANSFORMATION-PROGRAM-1)](TRANSFORMATION-PROGRAM.md) - `docs/TRANSFORMATION-PROGRAM.md`
 - [Phone journeys: every user-facing app is tested the way a person uses it (UX-JOURNEYS-1)](UX-JOURNEYS.md) - `docs/UX-JOURNEYS.md`

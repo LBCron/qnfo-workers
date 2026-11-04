@@ -707,6 +707,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/STRATEGY.md"
     },
     {
+      "path": "docs/SYSTEM-MAP.md",
+      "title": "SYSTEM-MAP: the whole Quniverse on one page",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/SYSTEM-MAP.md"
+    },
+    {
       "path": "docs/TEMPO-POLICY-120M-5M-1.md",
       "title": "TEMPO-POLICY-120M-5M-1 — the 120-minute cap and the 5-minute tick",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/TEMPO-POLICY-120M-5M-1.md"
@@ -755,7 +760,7 @@
       "path": "docs/agent-library/README.md",
       "title": "Shared fleet operating library",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/agent-library/README.md",
-      "sha256": "a2940f7377e6429e5fcfd493e59254962c81caff5ffeb28f95b7aa65a82fd41e"
+      "sha256": "18eaedceac9734eeb0ab92360b97cdec6fb7d03f6fb4e408eb32732987abbfb5"
     },
     {
       "path": "docs/breach-doctor/ENGINE-DESIGN.md",
@@ -1551,7 +1556,7 @@
       "path": "llms.txt",
       "title": "Quniverse",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/llms.txt",
-      "sha256": "7228e6e4ccc46c4fdbe5897b02af9574417e0b088f01a869476d7d5f76944199"
+      "sha256": "03e3cafddface122615e77ec01af947f6a7814cc8f5e2bf0bb2aa54880e32acf"
     },
     {
       "path": "machine-readability/README.md",
