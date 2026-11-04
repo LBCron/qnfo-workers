@@ -1,8 +1,376 @@
 {
- "ok": false,
- "error": "no parseable consumer output: Extra data: line 2 column 1 (char 452)",
+ "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
- "head": "f73f9e2bb95bd2571b3891176dcb7318b51beec0",
- "job_status": "cancelled",
- "ts": "2026-11-04T13:16:11Z"
-}
+ "verifier": "remediation-consumer@28fe423cd3f7",
+ "due": 97,
+ "pass": 22,
+ "fail": 53,
+ "skipped": 22,
+ "deferred": 2,
+ "contracts": [
+  {
+   "class": "rt-live-idea-hub",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-radar-hub",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "fm-notice-reply-encoded-subject",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-page-qnfo-home",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1000140",
+   "issue_id": 1000140,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "status=404",
+   "written": true
+  },
+  {
+   "class": "issue-1001627",
+   "issue_id": 1001627,
+   "verdict": "fail",
+   "expected": "1",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "issue-1000822",
+   "issue_id": 1000822,
+   "verdict": "fail",
+   "expected": "none",
+   "observed": "social_bot_label_enabled, dmarc_aligned_pass_rate",
+   "written": true
+  },
+  {
+   "class": "issue-1000823",
+   "issue_id": 1000823,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "7",
+   "written": true
+  },
+  {
+   "class": "issue-1001009",
+   "issue_id": 1001009,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001077",
+   "issue_id": 1001077,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001035",
+   "issue_id": 1001035,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1000255",
+   "issue_id": 1000255,
+   "verdict": "pass",
+   "expected": "clear",
+   "observed": "clear",
+   "written": true
+  },
+  {
+   "class": "issue-1001220",
+   "issue_id": 1001220,
+   "verdict": "fail",
+   "expected": 0,
+   "observed": 14,
+   "written": true
+  },
+  {
+   "class": "issue-1001469",
+   "issue_id": 1001469,
+   "verdict": "fail",
+   "expected": "errors without readable $.error: 0",
+   "observed": "errors without readable $.error: 6 of 7",
+   "written": true
+  },
+  {
+   "class": "issue-1001525",
+   "issue_id": 1001525,
+   "verdict": "fail",
+   "expected": "coordinated-deploy",
+   "observed": "uncoordinated-deploy",
+   "written": true
+  },
+  {
+   "class": "issue-1000337",
+   "issue_id": 1000337,
+   "verdict": "fail",
+   "expected": "clean: criteria_complete=1.0 and brier_rolling_90d<0.25 measured",
+   "observed": "criteria_complete=0 (MEASURED refreshed 2026-11-04T12:29:36Z) brier_rolling_90d=null (UNMEASURED)",
+   "written": true
+  },
+  {
+   "class": "issue-1000598",
+   "issue_id": 1000598,
+   "verdict": "fail",
+   "expected": "retired: qnfo-ipatent is retired and qnfo-youtube-shorts is live",
+   "observed": "present: qnfo-ipatent state=live, qnfo-youtube-shorts state=live, last_census=UNMEASURED req24=1043 seen=2026-11-04T13:05:44.980Z",
+   "written": true
+  },
+  {
+   "class": "issue-1000778",
+   "issue_id": 1000778,
+   "verdict": "fail",
+   "expected": "1",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "issue-1000794",
+   "issue_id": 1000794,
+   "verdict": "fail",
+   "expected": "tool_allowlist>0,human_actions>0,capability>0,agent_actions>0,analytics_events>0,ae_events>0,fleet_agent_tools>0",
+   "observed": "tool_allowlist=0,human_actions=0,capability=0,agent_actions=0,analytics_events=0,ae_events=0,fleet_agent_tools=0",
+   "written": true
+  },
+  {
+   "class": "issue-1001017",
+   "issue_id": 1001017,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001462",
+   "issue_id": 1001462,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "fewer than two fleet_tick producers in 24 h: cron:qnfo-fleet-dashboard x143",
+   "written": true
+  },
+  {
+   "class": "issue-100294",
+   "issue_id": 100294,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "unmet: 7 families have net inflow above 0 with three or more open, largest CF-OBS-ISSUE-1 +51, LOOP-BREAKER-1 +9, CRON-FAULT-1 +8",
+   "written": true
+  },
+  {
+   "class": "issue-1000295",
+   "issue_id": 1000295,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1000296",
+   "issue_id": 1000296,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1000298",
+   "issue_id": 1000298,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1000292",
+   "issue_id": 1000292,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-2829",
+   "issue_id": 2829,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1000039",
+   "issue_id": 1000039,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1000299",
+   "issue_id": 1000299,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "fm-conflict-probe-skips-unknown",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-100031",
+   "issue_id": 100031,
+   "verdict": "pass",
+   "expected": "1",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "fm-q08-thin-source-composed",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "fm-fm-reconcile-cycle-reset",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-2852",
+   "issue_id": 2852,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "below target",
+   "written": true
+  },
+  {
+   "class": "issue-1001267",
+   "issue_id": 1001267,
+   "verdict": "fail",
+   "expected": "merged or closed as superseded",
+   "observed": "resolved: merged",
+   "written": true
+  },
+  {
+   "class": "issue-1001488",
+   "issue_id": 1001488,
+   "verdict": "fail",
+   "expected": "1",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "issue-1001494",
+   "issue_id": 1001494,
+   "verdict": "fail",
+   "expected": "1",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "issue-1001623",
+   "issue_id": 1001623,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "issue-99941-BACKFILL-1",
+   "issue_id": 99941,
+   "verdict": "fail",
+   "expected": "closed-with-evidence",
+   "observed": "open: issue 99941 is not closed with close_evidence yet (doer: qnfo-ops)",
+   "written": true
+  },
+  {
+   "class": "issue-1000751",
+   "issue_id": 1000751,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "2",
+   "written": true
+  },
+  {
+   "class": "issue-1000824",
+   "issue_id": 1000824,
+   "verdict": "fail",
+   "expected": "0 off-target QNFO.OPS metrics without a doer",
+   "observed": "7 off-target QNFO.OPS metrics without a doer",
+   "written": true
+  },
+  {
+   "class": "metric-relapse-2467",
+   "issue_id": 2467,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "16",
+   "written": true
+  },
+  {
+   "class": "issue-1000915",
+   "issue_id": 1000915,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "34",
+   "written": true
+  },
+  {
+   "class": "issue-1001082",
+   "issue_id": 1001082,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001212",
+   "issue_id": 1001212,
+   "verdict": "fail",
+   "expected": "<=10",
+   "observed": "5",
+   "written": true
+  },
+  {
+   "class": "metric-relapse-1001556",
+   "issue_id": 1001556,
+   "verdict": "pass",
+   "expected": "0",
+   "obser
