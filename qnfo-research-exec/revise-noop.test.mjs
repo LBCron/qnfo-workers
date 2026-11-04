@@ -59,7 +59,7 @@ const row = { id: "r1", context: "{}", recover_count: 0, source: "idea-hub", sta
   // WAI-WIDTH-GOVERNOR-1 (0.25.0): gpt-oss-120b, then glm-5.3-flash with the strict text, then kimi-k2.6 once as the last retry.
   ok(t.calls.length === 3, "the empty answer is retried on the second family and once more on the last resort", t.calls.length);
   ok(t.calls[0].model !== t.calls[1].model, "the retry runs on another model", t.calls.map((c) => c.model));
-  ok(/glm-5\.3-flash/.test(t.calls[0].model) && /gpt-oss-120b/.test(t.calls[1].model) && /kimi-k2\.6/.test(t.calls[2].model), "the order is glm-5.3-flash, gpt-oss-120b, kimi-k2.6 (kimi only last)", t.calls.map((c) => c.model));
+  ok(/gpt-oss-120b/.test(t.calls[0].model) && /glm-5\.3-flash/.test(t.calls[1].model) && /kimi-k2\.6/.test(t.calls[2].model), "the order is gpt-oss-120b, glm-5.3-flash, kimi-k2.6 (RESEARCH-REVISE-RELIABLE-1) (kimi only last)", t.calls.map((c) => c.model));
   ok(t.calls[2].prompt === t.calls[1].prompt, "the last-resort call carries the same strict text", t.calls[2].prompt.slice(-80));
   ok(t.calls[1].prompt.startsWith(t.calls[0].prompt), "the retry prompt keeps the first prompt (preamble + paper + fixes) as its prefix, so the cached prefix is unchanged");
   const add = t.calls[1].prompt.slice(t.calls[0].prompt.length);

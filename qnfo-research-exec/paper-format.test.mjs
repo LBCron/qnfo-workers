@@ -20,7 +20,7 @@ function d1(db) {
 test("full public corpus repair converges, preserves versions/status and attributes archived changes", async () => {
   const living = new DatabaseSync(":memory:");
   const audit = new DatabaseSync(":memory:");
-  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT); CREATE TABLE old_bodies (slug TEXT,body_md TEXT); CREATE TRIGGER history AFTER UPDATE ON papers BEGIN INSERT INTO old_bodies VALUES (old.slug,old.body_md); END;");
+  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT); CREATE TABLE old_bodies (slug TEXT,body_md TEXT); CREATE TRIGGER history AFTER UPDATE ON papers BEGIN INSERT INTO old_bodies VALUES (old.slug,old.body_md); END;");
   audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
   const old = "# Broken\nTitle\n\n**Author:** Writer\n\n### ABSTRACT\n\nA complete real abstract about a scientific result.\n\n## 1. Introduction\n\nBody with $x^2$.\n";
   for (const [slug, status] of [["a", "published"], ["b", "distributed"], ["c", "external_preprint"], ["d", "draft"], ["e", "retracted"]]) {
@@ -70,7 +70,7 @@ test("failed repairs remain visible and are retried on the next sweep", async ()
 test("a concurrent metadata correction is not overwritten or reported as convergence", async () => {
   const living = new DatabaseSync(":memory:");
   const audit = new DatabaseSync(":memory:");
-  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT); INSERT INTO papers VALUES ('a','Title',NULL,'Old abstract','# Title', '2.0','published',NULL,NULL,NULL);");
+  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT); INSERT INTO papers VALUES ('a','a','Title',NULL,'Old abstract','# Title', '2.0','published',NULL,NULL,NULL);");
   audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
   const db = d1(living);
   const env = {
