@@ -1,11 +1,17 @@
 // scripts/ux-journeys.test.mjs (UX-JOURNEYS-1): the pure half of the phone journey check (grading, screen findings, regressions),
 // plus the shape of budgets.json and of every journey module. No browser; runs in the offline suites (scripts/run-suites.mjs).
 import fs from "node:fs";
-import { grade, screenFindings, regressions, exitCode, journeyTitle, screensTitle } from "./ux-journeys/lib.mjs";
+import { grade, screenFindings, regressions, exitCode, journeyTitle, screensTitle, isForeignConsoleError } from "./ux-journeys/lib.mjs";
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) { pass++; console.log("  ok   " + n); } else { fail++; console.log("  FAIL " + n + (x !== undefined ? "  -> " + JSON.stringify(x) : "")); } };
 
-ok("a journey that did not finish is broken", grade({ ok: false, error: "boom", taps: 1, typing: 0 }, { taps: 3 }).status === "broken");
+// CONSOLE-NOISE-1: Cloudflare's DevTools probe (console.error with %c%d / %o, font-size:0, NaN or {}) is not the app's error; the signed-out 401 is expected; real errors still count.
+ok("Cloudflare's %c%d DevTools probe is not an app error", isForeignConsoleError("%c%d font-size:0;color:transparent NaN"));
+ok("Cloudflare's %c%o DevTools probe is not an app error", isForeignConsoleError("%c%o font-size:0;color:transparent {}"));
+ok("the expected 401 of a signed-out visitor is not an app error", isForeignConsoleError("Failed to load resource: the server responded with a status of 401 ()"));
+ok("a real script error still counts", !isForeignConsoleError("Uncaught SyntaxError: Unexpected token '<'") && !isForeignConsoleError("TypeError: x is not a function"));
+ok("a lookalike with other text is not swallowed", !isForeignConsoleError("%c%d font-size:0;color:transparent NaN and then the app crashed") && !isForeignConsoleError("font-size:0 on the hero is broken"));
+ok("a journey that did not finish is broken",grade({ ok: false, error: "boom", taps: 1, typing: 0 }, { taps: 3 }).status === "broken");
 ok("a page exception breaks a finished journey", grade({ ok: true, taps: 1, typing: 0, pageErrors: ["CMP is not defined"] }, { taps: 3 }).status === "broken");
 ok("more taps than the budget is harder", grade({ ok: true, taps: 4, typing: 0 }, { taps: 3 }).status === "harder");
 ok("typing where the budget allows none is harder", grade({ ok: true, taps: 1, typing: 1 }, { taps: 3 }).status === "harder");

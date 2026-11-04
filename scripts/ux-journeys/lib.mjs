@@ -8,6 +8,14 @@ export const NARROW_WIDTH = 360;
 // WCAG 2.2 SC 2.5.8 (AA): a tap target is at least 24 by 24 CSS pixels (inline links in a sentence are exempt).
 export const MIN_TARGET_PX = 24;
 
+/**
+ * A console error that is not the app's: the 401 a signed-out visitor is meant to get, and Cloudflare's DevTools probe. Cloudflare's script injected into a proxied page logs
+ * console.error("%c%d", "font-size:0;color:transparent", NaN) and the same with %o and {} to detect an open console; headless Chromium trips it, so UX-SCREENS-1 listed it as an
+ * app error on every proxied host (travel, fleet, ideas, ipatent, ask-qwav-tech on 2026-11-04). The match is that exact signature, never a general "font-size:0" rule.
+ * @param {string} text
+ */
+export const isForeignConsoleError = (text) => /status of 401/.test(text) || /^%c%[do] font-size:0;color:transparent(?: (?:NaN|\{\}))?$/.test(String(text).trim());
+
 /** Stable issue title of one journey, so a repeat finding refreshes one open issue and a pass closes it. */
 export const journeyTitle = (app, id) => "UX-JOURNEY-1: " + app + " / " + id;
 /** Stable issue title of an app's screen findings (fit, tap size, accessibility, console errors). */

@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { PHONE, NARROW_WIDTH, MIN_TARGET_PX, grade, screenFindings, summarise, exitCode } from "./lib.mjs";
+import { PHONE, NARROW_WIDTH, MIN_TARGET_PX, grade, screenFindings, summarise, exitCode, isForeignConsoleError } from "./lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith("--") ? a.concat([[x.slice(2), all[i + 1] && !all[i + 1].startsWith("--") ? all[i + 1] : "1"]]) : a), []));
@@ -128,7 +128,7 @@ for (const f of appFiles) {
     if (MODE === "local") await ctx.route("**/*", (route) => (new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort()));
     const page = await ctx.newPage();
     const run = { app: app.name, id: j.id, title: j.title, taps: 0, typing: 0, steps: [], screens: [], consoleErrors: [], pageErrors: [], badResponses: [], ok: false, error: null };
-    page.on("console", (m) => { if (m.type() === "error" && !/status of 401/.test(m.text())) run.consoleErrors.push(m.text().slice(0, 200)); });
+    page.on("console", (m) => { if (m.type() === "error" && !isForeignConsoleError(m.text())) run.consoleErrors.push(m.text().slice(0, 200)); });
     page.on("pageerror", (e) => run.pageErrors.push(String(e.message || e).slice(0, 200)));
     page.on("response", (r) => {
       if (r.status() >= 500 || r.status() === 404) run.badResponses.push(r.status() + " " + r.url().slice(0, 160));
