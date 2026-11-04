@@ -527,6 +527,24 @@ def is_standing_detector(cls):
     return isinstance(cls, str) and (cls.startswith("fm-") or cls.startswith("belief-"))
 
 
+def probe_fail_description(cls, fails, observed, verify_probe):
+    """Issue text for a standing liveness contract that failed max_attempts times in a row (RUNTIME-PROBE-FAIL-1).
+
+    STALE-MARKER-HINT-1 (#7040): an observation of missing-marker means the status matched and only the marker text is absent, which on a
+    page that was redesigned is a stale marker, not an outage (rt-page-qwav-home and rt-page-fleet-queue, 2026-11-04). The text then tells
+    the doer to fetch the URL and repoint the marker by migration; the status check is never relaxed."""
+    text = ("Charter pillar: core. remediation-consumer (%s) ran the runner-https liveness contract %s from a "
+            "GitHub-hosted runner and it failed %d times in a row; latest observation %s. Probe: %s. The contract "
+            "keeps running and the autoclose trigger closes this issue on its first pass. agent_issues 2060."
+            % (VERIFIER, cls, fails, observed, str(verify_probe)[:300]))
+    if observed == "missing-marker":
+        text += ("\nSTALE-MARKER-HINT-1: the HTTP status matched and only the marker text is absent, so the page is probably healthy but "
+                 "redesigned. Fetch the URL, pick text the live page carries, and repoint the marker with a migration that updates "
+                 "remediation_contracts.verify_probe for this class (pattern: migrations/2026-11-04-17-page-liveness-markers.sql). "
+                 "Never relax the status check.")
+    return text
+
+
 def https_after_verdict(c, passed, observed, out):
     """Status transitions for a runner-https contract. Returns (next_status or None, cadence_h)."""
     cls, cad = c.get("class"), max(1, int(c.get("expected_cadence_h") or 1))
@@ -550,11 +568,7 @@ def https_after_verdict(c, passed, observed, out):
             "INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) "
             "VALUES (?1, ?2, 'remediation-consumer', 'reliability', 'high', 'open', "
             "CAST(strftime('%s','now') AS INTEGER)*1000, CAST(strftime('%s','now') AS INTEGER)*1000) RETURNING id",
-            ["RUNTIME-PROBE-FAIL-1: %s" % cls,
-             "Charter pillar: core. remediation-consumer (%s) ran the runner-https liveness contract %s from a "
-             "GitHub-hosted runner and it failed %d times in a row; latest observation %s. Probe: %s. The contract "
-             "keeps running and the autoclose trigger closes this issue on its first pass. agent_issues 2060."
-             % (VERIFIER, cls, fails, observed, str(c.get("verify_probe"))[:300])])
+            ["RUNTIME-PROBE-FAIL-1: %s" % cls, probe_fail_description(cls, fails, observed, c.get("verify_probe"))])
         if rows:
             issue_id = rows[0].get("id")
             d1("UPDATE remediation_contracts SET issue_id = ?1 WHERE class = ?2 AND issue_id IS NULL", [issue_id, cls])
