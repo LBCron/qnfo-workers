@@ -1,8 +1,8 @@
 {
  "ok": false,
+ "error": "no parseable consumer output: Extra data: line 2 column 1 (char 465)",
  "marker": "REMEDIATION-CONSUMER-1",
- "error": "HTTP 429 from https://api.cloudflare.com/client/v4/accounts/edb167b78c9fb901ea5bca3ce58ccc4b/d1/database/35e2e573-92f3-46ac-83c6-22f6429fc5e5/query: {\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many resources consumed within a 10 second window\"}]}",
- "head": "e27a41375149dbae7ebd82f3d5ba4e3614256a4b",
- "job_status": "success",
- "ts": "2026-11-04T10:29:12Z"
+ "head": "8c061d928bc884f77f407bb5fb5785e7be178bce",
+ "job_status": "cancelled",
+ "ts": "2026-11-04T11:16:15Z"
 }
