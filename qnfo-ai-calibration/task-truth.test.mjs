@@ -34,7 +34,7 @@ const MODELS = ["m-a", "m-b", "m-c"];
 function load(handler, cfg) {
   const calls = [];
   const jfetch = async (env, url, headers, body) => { calls.push(body); return handler(body); };
-  const cfgGet = async (env, key, def) => (cfg && cfg[key] != null ? cfg[key] : def);
+  const cfgGet = async (env, key, def) => (cfg && cfg[key] != null ? cfg[key] : key === "truth_every_hours" ? "1" : def);
   const mod = new Function("ALL_MODELS", "jfetch", "cfgGet", "__name",
     runPoolSrc + "\n" + block + "\nreturn { truthItems, truthExtract, truthPairs, truthTick, truthReport, TRUTH_KEEP_MS };")(MODELS, jfetch, cfgGet, (f) => f);
   return { mod, calls };
@@ -100,7 +100,7 @@ const NOW = 1791900000000, HOUR = Math.floor(NOW / 36e5);
     if (body.model === "m-b") return reply("m-b", String(Number(exp) + 1));
     return reply("m-c", "I cannot say");
   };
-  const { mod, calls } = load(handler);
+  const { mod, calls } = load(handler, { truth_every_hours: "1" });
   const r1 = await mod.truthTick(env, NOW);
   ok(r1.ran === true && r1.items === 2 && calls.length === 6, "first tick asks every model every item (2 items x 3 models)", { r1, n: calls.length });
   ok(calls.every((c) => c.max_tokens === 16 && c.stream === false), "each call is max_tokens 16, not streamed");
@@ -124,14 +124,14 @@ const NOW = 1791900000000, HOUR = Math.floor(NOW / 36e5);
 {
   const db = new DatabaseSync(":memory:");
   const env = { QNFO_AUDIT: d1(db), QNFO_ROUTER_KEY: "k" };
-  let L = load(() => ({ status: 503, data: { error: "down" } }));
+  let L = load(() => ({ status: 503, data: { error: "down" } }), { truth_every_hours: "1" });
   let r = await L.mod.truthTick(env, NOW);
   ok(r.ran === true && r.rows === 0 && r.errors === 6, "a router that is down writes no row", r);
   ok((await L.mod.truthTick(env, NOW + 6e4)).ran === true, "no rows means the next tick of the hour tries again");
-  L = load((body) => reply(body.model, "   "));
+  L = load((body) => reply(body.model, "   "), { truth_every_hours: "1" });
   r = await L.mod.truthTick(env, NOW);
   ok(r.rows === 0 && r.unscorable === 6, "an empty reply (a reasoning model out of tokens) is unscorable, not wrong", r);
-  L = load(() => { throw new Error("boom"); });
+  L = load(() => { throw new Error("boom"); }, { truth_every_hours: "1" });
   r = await L.mod.truthTick(env, NOW);
   ok(r.rows === 0 && r.errors === 6 && !r.error, "a thrown call is counted and never escapes", r);
 
@@ -161,6 +161,20 @@ const NOW = 1791900000000, HOUR = Math.floor(NOW / 36e5);
   ok(db2.prepare("SELECT COUNT(*) n FROM ai_calibration_truth WHERE model = 'm-b' AND served_by = 'm-a'").get().n === 2, "the row for m-b records that m-a answered");
   const rep = await L.mod.truthReport(env2, NOW);
   ok(rep.excluded_served_by_other === 2 && !rep.models.some((m) => m.model === "m-b") && rep.pairs.length === 1, "the pair table leaves out the fallback's rows", rep);
+}
+
+// COST-CUT-CALIBRATION-1: the default cadence is every 6th UTC hour; truth_every_hours 1 restores hourly
+{
+  const db = new DatabaseSync(":memory:");
+  const env = { QNFO_AUDIT: d1(db), QNFO_ROUTER_KEY: "k" };
+  const six = (h) => 1000000 * 6 * 36e5 + h * 36e5; // an hour index divisible by 6, plus h hours
+  const L = load((body) => reply(body.model, expectedOf(body.messages[0].content)), { truth_every_hours: "6" });
+  const on = await L.mod.truthTick(env, six(0));
+  ok(on.ran === true && L.calls.length === 6, "an hour divisible by 6 runs", on);
+  const off = await L.mod.truthTick(env, six(1));
+  ok(off.ran === false && off.reason === "cadence" && L.calls.length === 6, "the hours between make no call", off);
+  const hourly = load((body) => reply(body.model, "1"), { truth_every_hours: "1" });
+  ok((await hourly.mod.truthTick(env, six(1))).ran === true, "truth_every_hours 1 restores the hourly probe");
 }
 
 // the worker wiring
