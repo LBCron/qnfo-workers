@@ -71,6 +71,21 @@ ASK = "https://ask.qwav.tech"
 AI = "https://qnfo-ai.q08.workers.dev"
 LOCK_KEY = "file:journeys/fleet-journeys.probe"
 
+# HEALTH-URL-OVERRIDE-1 (agent_issues 1000750, GitHub 5743; 2026-11-05): a worker whose health route is not <name>.q08.workers.dev/health. qnfo-fleet-lee is deliberately
+# exposed on lee.qnfo.org and answers 404 on /health at its workers.dev host, so qnfo-ops /fleet read it blind (healthy null) or down (false) in every run for days
+# and binding-census failed on it from both runners. The runner is outside the account, so it can reach the custom host: external_heartbeat probes this URL instead
+# and writes the heartbeat that qnfo-ops already honours (CRON-ONLY-HEARTBEAT-1). scripts/deploy-drift-guard.py UNMANAGED_HEALTH_URLS carries the same address.
+HEALTH_URLS = {"qnfo-fleet-lee": "https://lee.qnfo.org/api/health"}
+
+# LOOP-ERR-COVERED-1 (agent_issues 1001171, GitHub 6420): dashboard issue categories whose error level is judged by another journey. worker-errors is the per-worker
+# error rate over real traffic, read by traffic-health every 20 minutes; counting it here made loop-heartbeats red for as long as any worker threw an exception,
+# whatever the state of the loops this journey is named for.
+LOOP_ERR_COVERED = ("worker-errors",)
+
+
+def health_url(name):
+    return HEALTH_URLS.get(name) or "https://%s.q08.workers.dev/health" % name
+
 # Freshness budgets in minutes: at most the loop's cadence plus 120 minutes (SLA-120M-2, owner directive 2026-10-14: no SLA exceeds
 # 120 minutes), so a missed run is detected within 120 minutes of its due time.
 FRESH = {
@@ -287,7 +302,7 @@ def external_heartbeat(d1, h, now=None):
         blind = r.get("healthy") is None or "1042" in str(r.get("error") or "")
         if not (blind or r.get("http") == 410):
             continue
-        status, text = h.req("GET", "https://%s.q08.workers.dev/health" % name)
+        status, text = h.req("GET", health_url(name))
         try:
             body = json.loads(text)
         except Exception:  # noqa: BLE001
@@ -406,6 +421,15 @@ def j_ask_path(h):
     return j
 
 
+def dashboard_error_issues(state):
+    """Error-level dashboard issues this journey owns: those outside LOOP_ERR_COVERED. 1 when the state carries nothing to count (an unreadable answer is a failure)."""
+    issues = (state or {}).get("issues")
+    if isinstance(issues, list):
+        return sum(1 for i in issues if isinstance(i, dict) and i.get("sev") == "err" and i.get("category") not in LOOP_ERR_COVERED)
+    counts = (state or {}).get("issue_counts")
+    return (counts or {}).get("err", 1) if isinstance(counts, dict) else 1
+
+
 def j_loop_heartbeats(h, now=None):
     j = Journey("loop-heartbeats")
     st, d = h.json("GET", CONTROL + "/loops")
@@ -428,7 +452,8 @@ def j_loop_heartbeats(h, now=None):
     st, s = h.json("GET", DASH + "/api/state")
     s = s or {}
     fresh(j, "dashboard state generated_at", s.get("generated_at"), now)
-    j.check("dashboard state: no error-level issues", st == 200 and ((s.get("issue_counts") or {}).get("err", 1) == 0), "issue_counts %s verdict %s" % (s.get("issue_counts"), s.get("verdict")))
+    errs = dashboard_error_issues(s)
+    j.check("dashboard state: no error-level issues", st == 200 and errs == 0, "error-level issues outside %s: %s; issue_counts %s verdict %s" % ("/".join(LOOP_ERR_COVERED), errs, s.get("issue_counts"), s.get("verdict")))
     st, a = h.json("GET", ASK + "/api/loop")
     runs = (a or {}).get("runs") or []
     fresh(j, "ai-search loop runs[0]", runs[0].get("ts") if runs else None, now)
@@ -627,7 +652,10 @@ def selftest():
             if url == DASH + "/api/loop":
                 return 200, json.dumps({"last_sync": iso(500 if break_hop == "stale" else 5), "last_execute": iso(5), "last_execute_summary": {"failed": 0}})
             if url == DASH + "/api/state":
-                return 200, json.dumps({"generated_at": iso(5), "issue_counts": {"err": 0}})
+                if break_hop in ("worker-err", "loop-err"):
+                    cat = "worker-errors" if break_hop == "worker-err" else "stale-loop"
+                    return 200, json.dumps({"generated_at": iso(5), "issue_counts": {"err": 1, "warn": 0, "total": 1}, "issues": [{"sev": "err", "category": cat}, {"sev": "warn", "category": "general"}]})
+                return 200, json.dumps({"generated_at": iso(5), "issue_counts": {"err": 0}, "issues": []})
             if url == ASK + "/api/loop":
                 return 200, json.dumps({"runs": [{"ts": iso(20)}]})
             if url == PAPERS + "/api/render-health":
@@ -679,7 +707,8 @@ def selftest():
                {"name": "gone410", "healthy": False, "http": 410},
                {"name": "own-beat", "healthy": True, "probe": "heartbeat", "error": "cf-1042-no-published-route (probe blocked; target state unknown)"},
                {"name": "kept", "healthy": True, "probe": "heartbeat", "error": "cf-1042-no-published-route (probe blocked; target state unknown)"},
-               {"name": "kept-down", "healthy": True, "probe": "heartbeat", "error": "cf-1042-no-published-route (probe blocked; target state unknown)"}]
+               {"name": "kept-down", "healthy": True, "probe": "heartbeat", "error": "cf-1042-no-published-route (probe blocked; target state unknown)"},
+               {"name": "qnfo-fleet-lee", "healthy": None, "error": "cf-1042-no-published-route (probe blocked; target state unknown)"}]
 
     def hb_opener(method, url, body, headers):
         if url == OPS + "/fleet":
@@ -698,6 +727,11 @@ def selftest():
             return 502, ""
         if url == "https://own-beat.q08.workers.dev/health":
             return 200, json.dumps({"ok": True, "version": "9.9.9"})
+        # HEALTH-URL-OVERRIDE-1: the worker's health route is on its custom host; the workers.dev /health is a 404, as qnfo-fleet-lee's is
+        if url == "https://lee.qnfo.org/api/health":
+            return 200, json.dumps({"ok": True})
+        if url == "https://qnfo-fleet-lee.q08.workers.dev/health":
+            return 404, ""
         return 500, ""
 
     # CENSUS-EXTERNAL-HEARTBEAT-2: "kept" and "kept-down" were attested by an earlier run and are healthy only through that heartbeat; "own-beat"
@@ -718,8 +752,8 @@ def selftest():
 
     hb_wrote = external_heartbeat(hb_d1, hb_http, now=now)
     expect("heartbeat: a blind worker the runner reaches, the retired stub and an attested worker that is judged by its heartbeat are written",
-           hb_wrote == ["blind-ok", "stub", "kept"])
-    expect("heartbeat: the version is recorded and the stub is marked retired-stub", hb_beats() == [("blind-ok", "3.1.4"), ("stub", "retired-stub"), ("kept", "7.0.1")])
+           hb_wrote == ["blind-ok", "stub", "kept", "qnfo-fleet-lee"])
+    expect("heartbeat: the version is recorded and the stub is marked retired-stub", hb_beats() == [("blind-ok", "3.1.4"), ("stub", "retired-stub"), ("kept", "7.0.1"), ("qnfo-fleet-lee", "")])
     expect("heartbeat: a blind worker that answers 503, a real failure and a plain 410 are not masked",
            not {"blind-down", "real-down", "gone410"} & set(hb_wrote))
     expect("heartbeat: an attested worker whose host answers an error is not refreshed, so its heartbeat ages out and the census shows it",
@@ -728,13 +762,16 @@ def selftest():
            "own-beat" not in hb_wrote and not [u for (_m, u, _s, _ms) in hb_http.calls if "own-beat." in u])
     expect("heartbeat: a row that is healthy through a real probe is never probed", not [u for (_m, u, _s, _ms) in hb_http.calls if "w1." in u])
     expect("heartbeat: the attested list gains the new names and keeps the others",
-           json.loads(hb_store[ATTESTED_KEY]) == ["blind-ok", "kept", "kept-down", "stub"])
+           json.loads(hb_store[ATTESTED_KEY]) == ["blind-ok", "kept", "kept-down", "qnfo-fleet-lee", "stub"])
     n_before = len(hb_sql)
     hb_http2 = Http(hb_opener)
     external_heartbeat(hb_d1, hb_http2, now=now)
     expect("heartbeat: a second pass writes the list only when it changed", not [1 for s, _p in hb_sql[n_before:] if s.startswith("INSERT INTO ops_config")])
     expect("heartbeat: an unreadable list falls back to attesting blind rows only",
-           external_heartbeat(lambda sql, p=None: (_ for _ in ()).throw(RuntimeError("d1 down")) if sql.startswith("SELECT") else [], Http(hb_opener), now=now) == ["blind-ok", "stub"])
+           external_heartbeat(lambda sql, p=None: (_ for _ in ()).throw(RuntimeError("d1 down")) if sql.startswith("SELECT") else [], Http(hb_opener), now=now) == ["blind-ok", "stub", "qnfo-fleet-lee"])
+    expect("heartbeat: HEALTH_URLS sends qnfo-fleet-lee to its custom host and never to the workers.dev 404",
+           ("GET", "https://lee.qnfo.org/api/health") in [(m, u) for (m, u, _s, _ms) in hb_http.calls] and not [u for (_m, u, _s, _ms) in hb_http.calls if "qnfo-fleet-lee.q08" in u]
+           and health_url("kept") == "https://kept.q08.workers.dev/health" and health_url("qnfo-fleet-lee") == "https://lee.qnfo.org/api/health")
     expect("heartbeat: an unreadable census writes nothing", external_heartbeat(lambda sql, p=None: hb_sql.append(1) or [], Http(lambda m, u, b, hd: (500, ""))) == [])
     expect("lock passes", run_one(j_lock_roundtrip).ok)
     expect("lock left behind fails", not run_one(j_lock_roundtrip, "release").ok)
@@ -744,6 +781,10 @@ def selftest():
     expect("ask out-of-range citation fails", not run_one(j_ask_path, "cite").ok)
     expect("loops pass", run_one(j_loop_heartbeats).ok)
     expect("stale loop fails", not run_one(j_loop_heartbeats, "stale").ok)
+    # LOOP-ERR-COVERED-1: an error-level dashboard issue in a category another journey judges (worker-errors) does not fail the loops; one about anything else still does.
+    expect("loops: an error-level worker-errors dashboard issue is traffic-health's, not a loop failure", run_one(j_loop_heartbeats, "worker-err").ok)
+    expect("loops: an error-level dashboard issue of another category fails", not run_one(j_loop_heartbeats, "loop-err").ok)
+    expect("loops: an answer with no issues list falls back to issue_counts.err", dashboard_error_issues({"issue_counts": {"err": 2}}) == 2 and dashboard_error_issues({}) == 1 and dashboard_error_issues({"issues": [], "issue_counts": {"err": 5}}) == 0)
     expect("ai router passes", run_one(j_ai_router).ok)
     # DASHBOARD-LOAD-1: registered under its name; passes on 200 + body; an error status or an empty body fails; slow-but-200 passes with ms = summed fetch time.
     expect("dashboard-load is registered", j_dashboard_load in JOURNEYS and run_one(j_dashboard_load).name == "dashboard-load")
