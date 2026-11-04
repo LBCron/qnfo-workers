@@ -29,36 +29,21 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.12.15-codeagent";
+var VERSION = "2.12.16-codeagent";
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
 async function callModelWithRetry(url, payload, timeoutMs = 20000) {
-  // First attempt
   try {
     return await fetchWithTimeout(url, payload, timeoutMs);
   } catch (e) {
-
-    if (e.name === "AbortError" || (e.message && e.message.includes("AI_TIMEOUT"))) {
-      // 2.12.13 CF-OBS-ISSUE-1 (issue 1001497, D1_ERROR: D1 DB is overloaded; pillar reliability):
-      // every retried model call re-runs the ask path's D1 writes (spend ledger, events), and
-      // retries fired back-to-back aligned the whole fleet's second attempt into the same window.
-      // Space the single retry out before issuing it.
-      let retryDelay = 2000 + Math.floor(Math.random() * 1000);
-await new Promise((r) => setTimeout(r, retryDelay));
-      try {
-        return await fetchWithTimeout(url, payload, timeoutMs);
-      } catch (e2) {
-        // Log structured error before rethrow
-        console.error(JSON.stringify({
-          worker: "qnfo-ai-search",
-          version: VERSION,
-          at: new Date().toISOString(),
-          error: "AI_TIMEOUT",
-          details: e2.message || String(e2)
-        }));
-        throw e2;
-      }
-    }
+    // Log structured error before propagating; no retry to avoid duplicate D1 writes
+    console.error(JSON.stringify({
+      worker: "qnfo-ai-search",
+      version: VERSION,
+      at: new Date().toISOString(),
+      error: e.name || "ModelError",
+      details: e.message || String(e)
+    }));
     throw e;
   }
 }
