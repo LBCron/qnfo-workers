@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "kind": "gate-manifest",
+  "id": "QNFO.GATES.BOOTSTRAP.v1",
+  "ts": "2026-09-09T09:40:00Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-p0",
+    "sha256": "fe2ac969fc963f16e7e7060c4fbce717e9aa4645e33aeb9306d166d3579a95f0"
+  },
+  "payload": {
+    "note": "BOOTSTRAP subset: top canonical gates only, not the full MANDATORY chain (P2 encodes the full chain).",
+    "gates": [
+      {
+        "id": "CODEPARSE-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Every instruction/chat/prompt/skill/response carries a code-parsable representation per QNFO.CODEPARSE.SCOPE.v1 (dual-representation).",
+        "evidence_pointer": "QNFO/qnfo-schemas/SCOPE.v1.json"
+      },
+      {
+        "id": "ENGLISH-ONLY",
+        "version": "1.0",
+        "status": "active",
+        "description": "All output in English; translate non-English sources.",
+        "evidence_pointer": "system-prompt hard gate"
+      },
+      {
+        "id": "BLAME-EXTERNAL-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Local-fault-first: external platform errors are rare; exhaust local recovery before external attribution.",
+        "evidence_pointer": "canonical 2026-08-10 qnfo.org email saga"
+      },
+      {
+        "id": "CHANGE-AUDIT-FIRST-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Before external attribution, run a change audit of own recent actions on the failing component.",
+        "evidence_pointer": "system-prompt hard gate"
+      },
+      {
+        "id": "ADVERSARIAL-REASONING-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Disagree with evidence, seek disconfirmation, expose failure modes, label uncertainty.",
+        "evidence_pointer": "QNFO/qnfo-ops/docs/ADVERSARIAL-REASONING.md"
+      },
+      {
+        "id": "CLOUD-AUTONOMY-100-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "100% cloud infrastructure; fully autonomous user-free self-operation, self-audit, self-correction, self-improvement.",
+        "evidence_pointer": "user standing directive 2026-09-05"
+      },
+      {
+        "id": "PROMPT-PARITY-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "7 prompt stores byte-identical + header==footer==title + 11/11 CMD templates + guard exits 0 after every dual-write.",
+        "evidence_pointer": "prompt-store-verify.py"
+      },
+      {
+        "id": "LAMPORT-STRUCTURED-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "All instructions and code Lamport structured-proof-like: hierarchical WHAT/WHY/SCOPE, PROOF/BY connectors, function=lemma with contract.",
+        "evidence_pointer": "user directive 2026-09-04"
+      },
+      {
+        "id": "FRAMEWORK-DOGFOOD-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Framework/governance records carry claim-sheet fields (claim/evidence/confidence/status) on their locked claims.",
+        "evidence_pointer": "DR runbook claims table"
+      },
+      {
+        "id": "NO-DEFERRED-ZERO-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Every closeout resolves every deferred item: execute, dated schedule, guard, or delete-with-rationale.",
+        "evidence_pointer": "user standing directive 2026-09-02"
+      },
+      {
+        "id": "SCHEDULER-GUARD-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Local scheduler registry must equal the canonical front-end set; scheduler-guard.py exit 0.",
+        "evidence_pointer": "scheduler-guard.py"
+      },
+      {
+        "id": "FLEET-SELF-DOC-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Every worker carries VERSION via /health + self-doc header + canonical repo with byte-matching deployed-current.",
+        "evidence_pointer": "FLEET-MANIFEST.md"
+      },
+      {
+        "id": "RECURRENCE-ZERO-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Root-cause to mechanism, fix with read-back, permanent guard, canonical-case documentation, guard exits 0.",
+        "evidence_pointer": "user standing mandate 2026-08-20"
+      },
+      {
+        "id": "THIN-CLIENT-MANDATE",
+        "version": "1.0",
+        "status": "active",
+        "description": "No local project files; code in git, data in R2/D1/Vectorize.",
+        "evidence_pointer": "system-prompt hard gate"
+      },
+      {
+        "id": "PERSONAL-QNFO-SEPARATION-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Personal twin never calls the QNFO records oracle; research gateway never binds personal stores.",
+        "evidence_pointer": "binding scan"
+      },
+      {
+        "id": "TEST-SEND-EXTERNAL-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Test/verification payloads never go to real external recipients; own mailboxes only.",
+        "evidence_pointer": "canonical MATRIX-E 2026-08-10"
+      },
+      {
+        "id": "VERIFY-1",
+        "version": "1.0",
+        "status": "active",
+        "description": "Every done claim requires a same-turn tool call (file read-back, exit code, DB query, verifier run).",
+        "evidence_pointer": "verification policy"
+      }
+    ]
+  }
+}

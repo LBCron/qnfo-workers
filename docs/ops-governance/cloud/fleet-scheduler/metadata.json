@@ -1,0 +1,24 @@
+{
+  "main_module": "worker.js",
+  "compatibility_date": "2026-08-01",
+  "bindings": [
+    {
+      "type": "d1",
+      "name": "AUDIT",
+      "database_id": "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
+    },
+    {
+      "type": "ai",
+      "name": "AI"
+    },
+    {
+      "type": "service",
+      "name": "EXECUTOR",
+      "service": "fleet-executor",
+      "environment": "production"
+    }
+  ],
+  "schedules": [
+    "* * * * *"
+  ]
+}

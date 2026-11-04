@@ -1,0 +1,15 @@
+{
+  "schema_version": "9.9",
+  "kind": "message",
+  "id": "msg-y",
+  "ts": "2026-09-09T09:41:00Z",
+  "provenance": {
+    "emitter": "x",
+    "session": "y",
+    "sha256": ""
+  },
+  "payload": {
+    "role": "assistant",
+    "text": "unknown schema_version -> reject (D5)"
+  }
+}

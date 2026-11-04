@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QNFO publication manifest payload (claims/citations per paper)",
+  "type": "object",
+  "required": ["paper", "citations", "claims"],
+  "properties": {
+    "paper": {
+      "type": "object",
+      "required": ["slug", "title", "doi", "version"],
+      "properties": {
+        "slug": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "doi": { "type": "string" },
+        "zenodo_doi": { "type": "string" },
+        "version": { "type": "string" },
+        "authors": { "type": "array", "items": { "type": "string" } },
+        "published_at": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "doi": { "type": "string" },
+          "arxiv_id": { "type": "string" },
+          "url": { "type": "string" },
+          "title": { "type": "string" },
+          "relation": { "type": "string", "enum": ["cited", "self", "dataset", "software", "other"] }
+        },
+        "additionalProperties": true
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "status"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low", "unverified"] },
+          "status": { "type": "string", "enum": ["verified", "unverified", "superseded", "open"] }
+        },
+        "additionalProperties": true
+      }
+    },
+    "note": { "type": "string" }
+  },
+  "additionalProperties": true
+}

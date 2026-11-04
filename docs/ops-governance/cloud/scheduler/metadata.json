@@ -1,0 +1,88 @@
+{
+  "main_module": "worker.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "usage_model": "standard",
+  "bindings": [
+    {
+      "type": "d1",
+      "name": "AUDIT",
+      "database_id": "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
+    },
+    {
+      "type": "d1",
+      "name": "PORTFOLIO",
+      "database_id": "d80fdf2a-0a60-45a3-968b-2907ce806dcd"
+    },
+    {
+      "type": "d1",
+      "name": "LIVING",
+      "database_id": "70a58cb3-b2cd-498d-877f-ecca86859a22"
+    },
+    {
+      "type": "d1",
+      "name": "OUTREACH",
+      "database_id": "d5077252-8187-41b2-a44e-f84f8724ee36"
+    },
+    {
+      "type": "d1",
+      "name": "GRAPH",
+      "database_id": "a1954b92-d681-4d02-b1f6-f9a2eb4c265d"
+    },
+    {
+      "type": "service",
+      "name": "EMAIL",
+      "service": "qnfo-email",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "QNFO_INFRA",
+      "service": "qnfo-infra",
+      "environment": "production"
+    },
+    {
+      "type": "send_email",
+      "name": "SEND_EMAIL"
+    },
+    {
+      "type": "r2_bucket",
+      "name": "VAULT",
+      "bucket_name": "d-drive"
+    },
+    {
+      "type": "ai",
+      "name": "AI"
+    },
+    {
+      "type": "vectorize",
+      "name": "OPS_VZ",
+      "index_name": "qnfo-cloud-ops"
+    },
+    {
+      "type": "service",
+      "name": "QNFO_AI",
+      "service": "qnfo-ai",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "PERSONAL_API",
+      "service": "personal-api",
+      "environment": "production"
+    }
+  ],
+  "keep_bindings": [
+    "ai",
+    "d1",
+    "service",
+    "send_email",
+    "vectorize",
+    "r2_bucket",
+    "secret_text",
+    "kv_namespace",
+    "browser"
+  ]
+}

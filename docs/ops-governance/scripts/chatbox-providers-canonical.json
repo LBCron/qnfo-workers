@@ -1,0 +1,68 @@
+[
+  {
+    "id": "qnfo-router",
+    "name": "QNFO Router",
+    "type": "openai",
+    "isCustom": true,
+    "description": "QNFO research router on Cloudflare (free reasoning models, web, auto, ensemble)",
+    "defaultSettings": {
+      "apiKey": "REDACTED-SET-LOCALLY-NEVER-COMMIT",
+      "apiHost": "https://ai.qnfo.org",
+      "apiPath": "/v1/chat/completions",
+      "models": [
+        {
+          "modelId": "qnfo",
+          "type": "chat",
+          "nickname": "qnfo",
+          "capabilities": [],
+          "contextWindow": 1310720,
+          "maxOutput": 32768
+        }
+      ]
+    }
+  },
+  {
+    "id": "personal-twin",
+    "name": "Personal Twin",
+    "type": "openai",
+    "isCustom": true,
+    "description": "Personal assistant with your archive RAG on Cloudflare",
+    "defaultSettings": {
+      "apiKey": "REDACTED-SET-LOCALLY-NEVER-COMMIT",
+      "apiHost": "https://personal.qnfo.org",
+      "apiPath": "/v1/chat/completions",
+      "models": [
+        {
+          "modelId": "personal",
+          "type": "chat",
+          "nickname": "personal",
+          "capabilities": [],
+          "contextWindow": 1310720,
+          "maxOutput": 200000
+        }
+      ]
+    }
+  },
+  {
+    "id": "qnfo-ops",
+    "name": "QNFO Ops",
+    "type": "openai",
+    "isCustom": true,
+    "description": "QNFO infrastructure/operations agent on Cloudflare (fleet probes, D1/R2/KV/Vectorize, self-heal)",
+    "defaultSettings": {
+      "apiKey": "REDACTED-SET-LOCALLY-NEVER-COMMIT",
+      "apiHost": "https://ops.qnfo.org",
+      "apiPath": "/v1/chat/completions",
+      "models": [
+        {
+          "modelId": "ops",
+          "type": "chat",
+          "nickname": "ops",
+          "capabilities": [],
+          "contextWindow": 1048576,
+          "maxOutput": 65536
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,19 @@
+name = "qnfo-container-executor"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# qnfo-container-executor v0.1.0 - DO-bound Cloudflare Containers code executor.
+# Real filesystem/shell/git runtime for the durable ops agent loop.
+# Image: public nikolaik/python-nodejs (python3 + node + git) - no local Docker build needed.
+[[containers]]
+class_name = "CodeExecutor"
+image = "docker.io/nikolaik/python-nodejs:python3.12-nodejs26"
+instances = 0
+
+[[durable_objects.bindings]]
+class_name = "CodeExecutor"
+name = "EXECUTOR"
+
+[[migrations]]
+new_sqlite_classes = [ "CodeExecutor" ]
+tag = "v1"

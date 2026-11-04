@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "kind": "runbook",
+  "id": "QNFO.RUNBOOK.KAIZEN.v1",
+  "ts": "2026-09-10T07:30:00Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-full-scope-2026-09-10",
+    "sha256": "849e73ced224adc618cb75b4dcbcc883efd2c1851c422abb08afd49e4829420f"
+  },
+  "payload": {
+    "title": "Kaizen ops cycle (continuous-improvement watchtower)",
+    "steps": [
+      {
+        "id": "1",
+        "what": "COLLECT CYCLE EVIDENCE: ops_ai_log failures, agent_issues, fleet drift, kaizen_candidates.",
+        "why": "Failed chats and drift auto-file tickets that feed the digest (KAIZEN-CHAT-FAIL-1).",
+        "scope": "qnfo-audit D1 read.",
+        "connector": "BY"
+      },
+      {
+        "id": "2",
+        "what": "DISPOSITION CANDIDATES SAME-CYCLE: every kaizen_candidate resolved/fixed/wontfix with evidence, never left 'proposed' past its due.",
+        "why": "4 candidates sat 'proposed' across two weekly windows (KAIZEN-DISPOSITION-GAP-1).",
+        "scope": "kaizen_candidates.status transitions.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "3",
+        "what": "GUARD SWEEP: prompt-store-verify.py, scheduler-guard.py, model_guard.py, adversarial-guard.py all exit 0.",
+        "why": "Guards are the code-parsable enforcement surface; a failing guard blocks the cycle.",
+        "scope": "Local guard suite run with evidence captured.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "4",
+        "what": "DUAL-WRITE PARITY: 7 prompt stores byte-identical + header==footer==title + 11/11 CMD templates.",
+        "why": "Footer-drift and template-count regressions are the classic silent prompt-store bugs (PROMPT-PARITY-1).",
+        "scope": "All prompt stores + CMD template stores.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "5",
+        "what": "REGISTER DISPOSITION: resolve open task_dod_register rows autonomously (execute now / dated-scheduled / cancel-with-rationale); v_waiting_on_human == 0.",
+        "why": "Owner-assigned-only closeouts are forbidden; user-free resolution is standing (USER-FREE-RESOLUTION-1, NO-DEFERRED-ZERO-1).",
+        "scope": "task_dod_register + intent queues.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "6",
+        "what": "SKILL VERSION BUMP: bump every skill changed this cycle with a changelog entry.",
+        "why": "SKILL version drift breaks the N-2 drift check and the skill registry (SKILL-REGISTRY-GAP-1).",
+        "scope": "Owned skills only.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "7",
+        "what": "CLOSEOUT: handoffs + wbs_state written; zero user-deferred items.",
+        "why": "Canonical closeout tables are qnfo-audit.handoffs + wbs_state (CLOSEOUT-HANDOFF-TABLE-1).",
+        "scope": "Same-turn evidence for every 'done' claim.",
+        "connector": "PROOF"
+      }
+    ],
+    "prose": "The kaizen cycle turns evidence into change in one pass: collect, disposition, sweep, verify parity, resolve, bump, close. No step waits for a human."
+  }
+}

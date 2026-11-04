@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QNFO universal envelope",
+  "description": "Outer shape of every code-parsable QNFO artifact. Consumers route/validate on these fields before reading the kind-specific payload.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "ts",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.0$"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 2
+    },
+    "ts": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "emitter",
+        "session",
+        "sha256"
+      ],
+      "properties": {
+        "emitter": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

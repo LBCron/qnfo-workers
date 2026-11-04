@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QNFO ops event payload",
+  "type": "object",
+  "required": [
+    "kind",
+    "source"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "note": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

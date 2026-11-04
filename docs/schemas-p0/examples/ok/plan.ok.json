@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "kind": "plan",
+  "id": "plan-codeparse-p0",
+  "ts": "2026-09-09T09:41:01Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-p0",
+    "sha256": ""
+  },
+  "payload": {
+    "items": [
+      {
+        "step": "P0 recall",
+        "status": "completed",
+        "wbs_code": "P0"
+      },
+      {
+        "step": "P1 persist scope",
+        "status": "completed",
+        "wbs_code": "P1"
+      },
+      {
+        "step": "P2 scaffold repo",
+        "status": "in_progress",
+        "wbs_code": "P2"
+      }
+    ]
+  }
+}

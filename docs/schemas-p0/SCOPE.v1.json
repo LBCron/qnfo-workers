@@ -1,0 +1,227 @@
+{
+  "schema_version": "1.0",
+  "kind": "scoping-record",
+  "id": "QNFO.CODEPARSE.SCOPE.v1",
+  "ts": "2026-09-09T09:30:00Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-scope-v1-persist",
+    "sha256": "0d540990ed5e1e97ce906ccf05388005a65325e245c4afceabef30bcfac24fc1"
+  },
+  "payload": {
+    "goal": "Every instruction, chat, prompt, skill, and response is machine-parseable across the Cloudflare fleet (server-side) and DeepChat/ChatBox (client-side).",
+    "definition": [
+      {
+        "id": "D1",
+        "name": "schema_bound",
+        "what": "Artifact is emitted against a declared, versioned JSON Schema; schema_version field is always present."
+      },
+      {
+        "id": "D2",
+        "name": "deterministic_validation",
+        "what": "validate(S, artifact) -> {ok, errors[]} runs with no network and no randomness; exit 0/1."
+      },
+      {
+        "id": "D3",
+        "name": "typed_semantics",
+        "what": "Every semantic element (step, claim, gate, finding, status, decision, reference) is a typed field; natural language appears only in string fields carrying a declared role."
+      },
+      {
+        "id": "D4",
+        "name": "round_trip",
+        "what": "parse(render(a)) == a, byte-stable after canonicalization."
+      },
+      {
+        "id": "D5",
+        "name": "version_reject",
+        "what": "Unknown schema_version is rejected, never silently guessed."
+      }
+    ],
+    "principle": {
+      "name": "dual_representation",
+      "rule": "Every artifact has a canonical machine-parseable form plus a deterministic human rendering. The parseable form is authoritative; the rendering is derived.",
+      "mode_A": {
+        "label": "structured_native",
+        "applies_to": [
+          "registers",
+          "logs",
+          "plans",
+          "findings",
+          "events"
+        ],
+        "form": "pure JSON (already mostly true: D1 rows, ops_ai_log, task_dod_register)"
+      },
+      "mode_B": {
+        "label": "prose_with_manifest",
+        "applies_to": [
+          "system_prompts",
+          "skills",
+          "cmd_templates",
+          "runbooks",
+          "publications"
+        ],
+        "form": "machine-readable manifest (gates/steps/claims as typed tree) + prose body as a role-tagged string field; markdown is rendered from the manifest"
+      }
+    },
+    "taxonomy": [
+      {
+        "class": "instructions",
+        "canonical": "7 prompt stores + skills + 11 CMD templates",
+        "current": "markdown/prose",
+        "target": "mode_B: gate-manifest + prose",
+        "validator": "prompt-store-verify.py (extend to manifest)"
+      },
+      {
+        "class": "chat_messages",
+        "canonical": "qnfo-audit.ops_ai_log",
+        "current": "rows (partial JSON)",
+        "target": "mode_A: JSONL envelope",
+        "validator": "@qnfo/validate on ingress"
+      },
+      {
+        "class": "plans",
+        "canonical": "update_plan",
+        "current": "JSON (already structured)",
+        "target": "mode_A: validate against plan schema",
+        "validator": "subtool-side"
+      },
+      {
+        "class": "findings",
+        "canonical": "red-team / kaizen findings",
+        "current": "prose",
+        "target": "mode_A: findings schema (severity/evidence/status typed)",
+        "validator": "@qnfo/validate"
+      },
+      {
+        "class": "runbooks",
+        "canonical": "docs/*.md + skills",
+        "current": "markdown",
+        "target": "mode_B: step-tree manifest + prose",
+        "validator": "validate.py"
+      },
+      {
+        "class": "events_logs",
+        "canonical": "cloud_ops_events, deployment_history, paper_revision_log",
+        "current": "rows (partial JSON)",
+        "target": "mode_A: typed envelope",
+        "validator": "worker-side before write"
+      },
+      {
+        "class": "reports",
+        "canonical": "kaizen digest, daily brief, weekly watchtower",
+        "current": "prose",
+        "target": "mode_B: JSON payload + rendered markdown",
+        "validator": "emitter-side"
+      },
+      {
+        "class": "data_records",
+        "canonical": "D1 / R2 / Vectorize",
+        "current": "structured",
+        "target": "already code-parsable",
+        "validator": "n/a (keep)"
+      },
+      {
+        "class": "publications",
+        "canonical": "living-paper body_md + frontmatter",
+        "current": "frontmatter structured, body prose",
+        "target": "mode_B: claims/citations manifest (extends COMPUTATIONAL-VERIFICATION-1); body stays prose",
+        "validator": "publish-gate probe"
+      },
+      {
+        "class": "governance",
+        "canonical": "task_dod_register, handoffs, wbs_state",
+        "current": "structured rows",
+        "target": "already code-parsable",
+        "validator": "n/a (keep)"
+      }
+    ],
+    "envelope": {
+      "name": "universal_envelope",
+      "fields": [
+        "schema_version",
+        "kind",
+        "id",
+        "ts",
+        "provenance{emitter,session,sha256}",
+        "payload{...schema-specific}"
+      ],
+      "rationale": "One outer shape means any consumer can route/validate before reading the kind-specific payload."
+    },
+    "architecture": [
+      {
+        "component": "schema_registry",
+        "location": "git QNFO/qnfo-schemas + R2 bucket qnfo-schemas",
+        "role": "single source of truth; one JSON Schema file per kind, versioned"
+      },
+      {
+        "component": "shared_validator",
+        "location": "@qnfo/validate (TS, consumed by all Workers) + validate.py (Python mirror for local guards)",
+        "role": "one implementation per language, both read the same schema files"
+      },
+      {
+        "component": "server_enforcement",
+        "points": [
+          "API ingress (chat/prompt/response routes validate before persist)",
+          "worker-to-worker writes (cron -> D1/R2)",
+          "queue consumer boundary (extends QUEUE-BODY-SHAPE-1)"
+        ],
+        "posture": "advisory(warn) on ingress, blocking(reject) on canonical-store write"
+      },
+      {
+        "component": "client_enforcement",
+        "points": [
+          "DeepChat guard suite (prompt-store-verify.py, scheduler-guard.py, model_guard.py) extended to validate manifests",
+          "ops-exec loop: prose-then-extract post-processor wraps responses in response envelope"
+        ],
+        "posture": "blocking on prompt stores; advisory on responses"
+      },
+      {
+        "component": "chatbox_client",
+        "role": "thin client; enforcement is server-side at QNFO-OPS gateway, client only renders the contract"
+      }
+    ],
+    "phases": [
+      {
+        "phase": "P0",
+        "name": "foundation",
+        "deliverable": "schema registry (envelope + 5 schemas: message, plan, finding, gate-manifest, event) + shared validator (TS + Python mirror) + one pilot path end-to-end",
+        "why": "nothing else can proceed without the registry and validator"
+      },
+      {
+        "phase": "P1",
+        "name": "structured_native_lift",
+        "deliverable": "plans, findings, ops_ai_log, deployment_history, paper_revision_log validate against schemas",
+        "why": "already JSON-adjacent; lowest lift, highest coverage"
+      },
+      {
+        "phase": "P2",
+        "name": "gate_manifest",
+        "deliverable": "encode the MANDATORY gate chain (this prompt's gates) as a machine-readable manifest; prompt-store-verify.py validates it",
+        "why": "the single highest-value prompt surface"
+      },
+      {
+        "phase": "P3",
+        "name": "runbooks",
+        "deliverable": "runbooks/procedures become step-tree manifests + prose",
+        "why": "operational docs are the least parseable today"
+      },
+      {
+        "phase": "P4",
+        "name": "response_envelope",
+        "deliverable": "structured-output post-processor on ops-exec; prose-then-extract",
+        "why": "closes the loop on agent -> storage"
+      },
+      {
+        "phase": "P5",
+        "name": "publication_manifest",
+        "deliverable": "claims/citations manifest per paper",
+        "why": "extends COMPUTATIONAL-VERIFICATION-1, lowest priority"
+      }
+    ],
+    "first_action": {
+      "what": "Create QNFO/qnfo-schemas (envelope + 5 schemas), write @qnfo/validate + validate.py, wire ops_ai_log writes to validate on persist (server) and prompt-store-verify.py to validate the gate manifest (client).",
+      "proof": "live probe: emit -> validate -> persist -> read-back -> re-validate, all exit 0",
+      "status_note": "P0 foundation executed 2026-09-09 (this repo). Server-side ops_ai_log wiring DEFERRED to dated register row: qnfo-ops live 2.6.1 > repo 2.5.1 (deployed-ahead, DEPLOY-LAST-WINS-RECONCILE-1)."
+    }
+  }
+}

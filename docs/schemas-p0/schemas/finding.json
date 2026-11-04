@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QNFO adversarial finding payload",
+  "type": "object",
+  "required": [
+    "severity",
+    "finding",
+    "evidence",
+    "status"
+  ],
+  "properties": {
+    "severity": {
+      "type": "string",
+      "enum": [
+        "HARD",
+        "SOFT",
+        "DESIGN",
+        "INFO"
+      ]
+    },
+    "finding": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "fixed",
+        "deferred",
+        "rejected"
+      ]
+    },
+    "claim_sheet": {
+      "type": "object",
+      "properties": {
+        "claim": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,20 @@
+{
+  "main_module": "worker.js",
+  "compatibility_date": "2026-08-01",
+  "usage_model": "standard",
+  "bindings": [
+    {"type": "ai", "name": "AI"},
+    {"type": "d1", "name": "AUDIT", "database_id": "35e2e573-92f3-46ac-83c6-22f6429fc5e5"},
+    {"type": "d1", "name": "GRAPH", "database_id": "a1954b92-d681-4d02-b1f6-f9a2eb4c265d"},
+    {"type": "d1", "name": "LIVING", "database_id": "70a58cb3-b2cd-498d-877f-ecca86859a22"},
+    {"type": "d1", "name": "PERSONAL", "database_id": "e8d6c61a-10b7-4086-b81e-9e6e85afa407"},
+    {"type": "d1", "name": "PORTFOLIO", "database_id": "d80fdf2a-0a60-45a3-968b-2907ce806dcd"},
+    {"type": "vectorize", "name": "PAPER_VZ", "index_name": "qwav-research-v2"},
+    {"type": "vectorize", "name": "NOTES_VZ", "index_name": "qnfo-notes"},
+    {"type": "vectorize", "name": "TASKS_VZ", "index_name": "qnfo-tasks"},
+    {"type": "vectorize", "name": "LOG_VZ", "index_name": "qnfo-ai-log"},
+    {"type": "vectorize", "name": "HANDOFFS_VZ", "index_name": "qnfo-handoffs"},
+    {"type": "vectorize", "name": "IPATENT_VZ", "index_name": "ipatent-corpus"},
+    {"type": "vectorize", "name": "VZ", "index_name": "qnfo-infra"}
+  ]
+}

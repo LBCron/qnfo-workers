@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "kind": "runbook",
+  "id": "QNFO.RUNBOOK.PUBLISH.v1",
+  "ts": "2026-09-10T07:30:00Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-full-scope-2026-09-10",
+    "sha256": "88e2e905d9fe9ff166727e2d621767f901f8d368a130ca3430134c957163d53f"
+  },
+  "payload": {
+    "title": "Research publication pipeline (P1 pre-flight to P8 publish + post-publish)",
+    "steps": [
+      {
+        "id": "1",
+        "what": "PRE-FLIGHT: slug/WBS free via git ls-remote + registry check; take publish-lock.",
+        "why": "A registry P0/no-DOI row does not prove the slug is free; two sessions on one RES.*.P8 created duplicates (PUBLISH-LOCK-1).",
+        "scope": "portfolio-state lock row: session_id + wbs_code + target concept.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "2",
+        "what": "TITLE-EXISTENCE CHECK: query Zenodo for the exact title before creating any deposit.",
+        "why": "A PUBLISHED record with the same title on a different concept = BLOCK and reconcile (TITLE-EXISTENCE-PRE-PUBLISH-1, canonical 22044217/22044106 race).",
+        "scope": "GET https://zenodo.org/api/records?q=title:\"<exact-title>\" + D1/KG/registry slug check.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "3",
+        "what": "SOURCE COMPLETENESS: collect ALL provenance files before deposit.",
+        "why": ".md/.html/.pdf is MINIMUM not complete provenance (PUBLICATION SOURCE COMPLETENESS).",
+        "scope": "references.bib, citation-audit.md, PROJECT-PLAN.md, README.md, docs/deep-research.md, artifacts/*, external-search/*, GitHub provenance via related_identifiers.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "4",
+        "what": "COMPUTATIONAL VERIFICATION: every quantitative claim verified in code, artifacts deposited.",
+        "why": "Unreproducible tables are a publish blocker (COMPUTATIONAL-VERIFICATION-1, canonical QCA Toy Model v1.0 -> v1.1.2).",
+        "scope": "artifacts/verification/ in the deposit.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "5",
+        "what": "DEPOSIT: Zenodo deposit with FINAL frontmatter; verify no <RESERVED> DOI and file list matches.",
+        "why": "Published records are immutable; a placeholder DOI or wrong file list is permanent until a new version (ZENODO-PLACEHOLDER-DOI-1).",
+        "scope": "Deposit draft + bucket uploads + metadata.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "6",
+        "what": "PUBLISH: publish the record; verify concept DOI + version count.",
+        "why": "How-to-Cite must cite the concept DOI, not the v1 record DOI (ZENODO-CONCEPT-DOI-CITE-1).",
+        "scope": "Publish API + conceptrecid read-back.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "7",
+        "what": "POST-PUBLISH ASSERT: frontmatter parity probe (version/date/doi/title all current).",
+        "why": "The publish flow half-updates frontmatter; 7/7 recently published rows carried stale doi/title (FRONTMATTER-SYNC-PARTIAL-1).",
+        "scope": "body_md frontmatter + D1 columns.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "8",
+        "what": "R2 MIRROR: mirror to qnfo-releases YYYY/MM/<slug>/ + distribution_status=distributed + r2_path.",
+        "why": "Missing mirror = HARD finding (R2-MIRROR-AFTER-PUBLISH-1).",
+        "scope": "Canonical qnfo-releases bucket (NOT 'releases').",
+        "connector": "PROOF"
+      },
+      {
+        "id": "9",
+        "what": "STORE SYNC: D1/KG/registry parity after publish.",
+        "why": "Website serves live D1 columns; a new-version publish is NOT live until doi + body_md + zenodo_doi + version are written (WEBSITE-SYNC-COLUMNS-1, REGISTRY-LAG-PARITY-1).",
+        "scope": "living-paper columns + KG node properties + program_registry.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "10",
+        "what": "VERIFY LIVE: papers.qnfo.org/papers/<slug> shows the new record DOI and ZERO old-record DOI.",
+        "why": "Closeout claims publication completion only with the live page proof.",
+        "scope": "curl the live URL.",
+        "connector": "PROOF"
+      }
+    ],
+    "prose": "The publish pipeline is a proof chain: each step produces evidence the next step cites. No step may be skipped; the live-page verification closes the loop."
+  }
+}

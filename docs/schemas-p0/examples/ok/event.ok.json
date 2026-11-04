@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "kind": "event",
+  "id": "evt-001",
+  "ts": "2026-09-09T09:41:03Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-p0",
+    "sha256": ""
+  },
+  "payload": {
+    "kind": "schema-registry-created",
+    "source": "deepchat-parent",
+    "note": "QNFO/qnfo-schemas scaffolded"
+  }
+}

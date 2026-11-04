@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "kind": "finding",
+  "id": "fnd-001",
+  "ts": "2026-09-09T09:41:02Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-p0",
+    "sha256": ""
+  },
+  "payload": {
+    "severity": "SOFT",
+    "finding": "Scope record was chat-only, never persisted",
+    "evidence": "R2/D1/repo probes 2026-09-09 all empty",
+    "status": "fixed",
+    "claim_sheet": {
+      "claim": "SCOPE.v1 now canonical in qnfo-schemas",
+      "evidence": "SCOPE.v1.json committed",
+      "confidence": "high",
+      "status": "verified"
+    }
+  }
+}

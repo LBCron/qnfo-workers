@@ -1,0 +1,55 @@
+{
+  "main_module": "worker.js",
+  "compatibility_date": "2026-08-01",
+  "bindings": [
+    {
+      "type": "d1",
+      "name": "AUDIT",
+      "database_id": "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
+    },
+    {
+      "type": "d1",
+      "name": "LIVING",
+      "database_id": "70a58cb3-b2cd-498d-877f-ecca86859a22"
+    },
+    {
+      "type": "d1",
+      "name": "PORTFOLIO",
+      "database_id": "d80fdf2a-0a60-45a3-968b-2907ce806dcd"
+    },
+    {
+      "type": "d1",
+      "name": "OUTREACH",
+      "database_id": "d5077252-8187-41b2-a44e-f84f8724ee36"
+    },
+    {
+      "type": "d1",
+      "name": "GRAPH",
+      "database_id": "a1954b92-d681-4d02-b1f6-f9a2eb4c265d"
+    },
+    {
+      "type": "d1",
+      "name": "JNL",
+      "database_id": "8be80cdb-979d-401f-b3ab-6a16869473ec"
+    },
+    {
+      "type": "d1",
+      "name": "IPATENT",
+      "database_id": "19cc87d6-4207-477c-bf8c-94fb231b8965"
+    },
+    {
+      "type": "d1",
+      "name": "CMS",
+      "database_id": "0458a344-090d-4264-a0e0-c95d7fa237f3"
+    },
+    {
+      "type": "d1",
+      "name": "PERSONAL",
+      "database_id": "e8d6c61a-10b7-4086-b81e-9e6e85afa407"
+    },
+    {
+      "type": "ai",
+      "name": "AI"
+    }
+  ]
+}

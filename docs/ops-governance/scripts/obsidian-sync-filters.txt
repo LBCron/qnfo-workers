@@ -1,0 +1,10 @@
+- desktop.ini
+- Thumbs.db
+- *.tmp
+- .DS_Store
+- .git/**
+- .rclone-bisync/**
+- .obsidian/workspace.json
+- .obsidian/workspace-mobile.json
+- obsidian-releases-backup*.zip
+- obsidian-releases-export*.zip

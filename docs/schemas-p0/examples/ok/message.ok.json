@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "kind": "message",
+  "id": "msg-2026-09-09-001",
+  "ts": "2026-09-09T09:41:00Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-p0",
+    "sha256": ""
+  },
+  "payload": {
+    "role": "assistant",
+    "text": "P0 foundation executed.",
+    "model": "ops-exec",
+    "conversation_id": "codeparse-demo"
+  }
+}

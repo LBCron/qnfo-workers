@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "kind": "finding",
+  "id": "fnd-x",
+  "ts": "2026-09-09T09:41:00Z",
+  "provenance": {
+    "emitter": "x",
+    "session": "y",
+    "sha256": ""
+  },
+  "payload": {
+    "severity": "CRITICAL",
+    "finding": "invalid enum",
+    "evidence": "e",
+    "status": "open"
+  }
+}

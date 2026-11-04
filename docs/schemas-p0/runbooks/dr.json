@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "kind": "runbook",
+  "id": "QNFO.RUNBOOK.DR.v1",
+  "ts": "2026-09-10T07:30:00Z",
+  "provenance": {
+    "emitter": "deepchat-parent",
+    "session": "codeparse-full-scope-2026-09-10",
+    "sha256": "bee78c0cdd8d9abe2067358262c0390ddc7fa2e93a3a9a0b40a189978e8e30ab"
+  },
+  "payload": {
+    "title": "Disaster Recovery: service-failure resolution sequence",
+    "steps": [
+      {
+        "id": "1",
+        "what": "STOP. Do not check the provider status page. Do not blame the platform.",
+        "why": "External errors are rare; self-caused config mutations are common (BLAME-EXTERNAL-1).",
+        "scope": "Any endpoint/domain/service failure.",
+        "connector": "BY"
+      },
+      {
+        "id": "2",
+        "what": "CHANGE AUDIT: enumerate every change made to the failing zone/account/service in the last 7 days.",
+        "why": "The most common root cause is a change made by this system minutes/hours/days earlier (CHANGE-AUDIT-FIRST-1).",
+        "scope": "DNS records, routing rules, firewall rules, worker filters, bindings, deployments, secrets, rate limits, re-registrations.",
+        "substeps": [
+          {
+            "id": "2.1",
+            "what": "git log across owning repos",
+            "why": "Deploys and config edits are version-controlled."
+          },
+          {
+            "id": "2.2",
+            "what": "handoff files + task_dod_register recent rows",
+            "why": "Session-level changes may not be committed."
+          },
+          {
+            "id": "2.3",
+            "what": "memory_recall + tape_search",
+            "why": "Prior-session actions are the classic silent killer."
+          },
+          {
+            "id": "2.4",
+            "what": "Cloudflare audit logs when available",
+            "why": "API-level mutations."
+          }
+        ]
+      },
+      {
+        "id": "3",
+        "what": "DIFFERENTIAL PROOF: compare the failing component against a sibling that works.",
+        "why": "The difference IS the root cause (canonical: 10/11 domains worked; only qnfo.org - the one with DROP rules - failed).",
+        "scope": "Sibling domains, sibling routes, sibling workers.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "4",
+        "what": "REVERT/ROLLBACK the suspicious change BEFORE trying anything else.",
+        "why": "If the service recovers, the change was the cause; document it as an anti-pattern and never re-introduce it.",
+        "scope": "Rollback = deploy revert, rule delete, config restore.",
+        "connector": "PROOF"
+      },
+      {
+        "id": "5",
+        "what": "ONLY AFTER steps 1-4 exhaust every local mutation hypothesis: consider external causes.",
+        "why": "Prevents misdiagnosing self-damage as external failure (the 2026-08-10 email-10002 case was self-inflicted DROP rules, never a platform incident).",
+        "scope": "External attribution requires a differential test first.",
+        "connector": "BY"
+      }
+    ],
+    "prose": "When a service fails, the first diagnostic question is 'What did I change recently?' not 'Is the platform down?'. Execute the sequence in order; each step cites its evidence."
+  }
+}
