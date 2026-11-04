@@ -129,29 +129,35 @@ try {
   // ---- the floor slot ----
   {
     const slots = Array.from({ length: 720 }, (_, i) => floorSlot(Math.floor(realNow() / 864e5) * 864e5 + i * CODE_TICK_MS + 1000));
-    check(slots.filter(Boolean).length === 48, "a day of 2-minute ticks has 48 floor slots", slots.filter(Boolean).length);
-    check(floorSlot(atSlot(0)) && !floorSlot(atSlot(1)) && !floorSlot(atSlot(14)) && floorSlot(atSlot(15)), "the slot is one tick wide, every fifteenth");
+    check(slots.filter(Boolean).length === 144, "a day of 2-minute ticks has 144 floor slots (one every 10 minutes)", slots.filter(Boolean).length);
+    check(floorSlot(atSlot(0)) && !floorSlot(atSlot(1)) && !floorSlot(atSlot(4)) && floorSlot(atSlot(5)), "the slot is one tick wide, every fifth");
   }
 
   // ---- the tick ----
   const opts = { maxSteps: 48, lanes: 8, intake: false, claims: false, scheduled: true };
   {
+    // FLOOR-FREE-STEPS-1: outside the floor slot a spent day still runs the steps that call no model (read, verify, commit) and holds back only propose and the planner.
     const { env, db, inputs } = makeEnv({ calls: 11, neurons: 100000 });
     await addTask(env, db);
+    const stepOf = () => db.prepare("SELECT step FROM code_tasks WHERE id='ct_budget'").get().step;
     Date.now = () => atSlot(3);
     const r = await tick(env, opts);
-    check(r.floor === true && r.floor_skip === true && r.executed_steps === 0 && r.steps === 0 && r.plan === null, "a spent day's scheduled tick outside the floor slot starts no step and no plan", { executed: r.executed_steps, skip: r.floor_skip });
-    check(inputs.length === 0 && db.prepare("SELECT step FROM code_tasks WHERE id='ct_budget'").get().step === "read", "no model call and the task waits", inputs);
-    check(r.sla && r.sla.errors === 0, "the no-model SLA sweep still runs in a skipped tick");
-    Date.now = () => atSlot(15);
+    check(r.floor === true && r.floor_skip === true && r.executed_steps === 1 && r.plan === null, "a spent day's scheduled tick outside the floor slot runs the model-free read step and starts no plan", { executed: r.executed_steps, skip: r.floor_skip });
+    check(inputs.length === 0 && stepOf() === "propose", "the read step ran without a model call and the task now waits at propose", [inputs, stepOf()]);
+    check(r.sla && r.sla.errors === 0, "the no-model SLA sweep still runs in a paced tick");
+    Date.now = () => atSlot(4);
+    const rWait = await tick(env, opts);
+    check(rWait.floor_skip === true && rWait.executed_steps === 0 && inputs.length === 0 && stepOf() === "propose", "a task waiting at propose is held back outside the slot", { executed: rWait.executed_steps });
+    Date.now = () => atSlot(5);
     const r2 = await tick(env, opts);
-    check(r2.floor_skip === false && r2.executed_steps === 1 && r2.lanes === 1, "in the floor slot the tick runs its one step", { executed: r2.executed_steps, lanes: r2.lanes });
-    Date.now = () => atSlot(20);
-    await tick(env, opts);
-    Date.now = () => atSlot(30);
+    check(r2.floor_skip === false && r2.executed_steps === 1 && r2.lanes === 1 && inputs.length === 1, "in the floor slot the propose step runs", { executed: r2.executed_steps, lanes: r2.lanes, inputs });
+    Date.now = () => atSlot(6);
     const r3 = await tick(env, opts);
-    check(r3.executed_steps === 1, "and again in the next floor slot");
-    check(inputs.every((m) => m === OSS) && inputs.length >= 1, "every model call on a spent day is the cheap rung", inputs);
+    check(r3.floor_skip === true && r3.executed_steps === 1 && stepOf() === "commit" && inputs.length === 1, "the model-free verify step runs on the next tick, not half an hour later", { executed: r3.executed_steps, step: stepOf() });
+    Date.now = () => atSlot(7);
+    await tick(env, opts);
+    check(inputs.every((m) => m === OSS) && inputs.length === 1, "every model call on a spent day is the cheap rung", inputs);
+    check(db.prepare("SELECT status FROM code_tasks WHERE id='ct_budget'").get().status === "ready_to_publish", "the task reached ready_to_publish within 3 ticks and one floor slot (0.39.1: five half-hours)");
     db.close();
   }
   {
@@ -202,8 +208,8 @@ try {
     const legacy = await day({ code_loop_daily_neurons: "off" });
     check(legacy.spent > 1000000, "reproduced: with no neuron budget the call threshold lets a failing queue climb to the dear rung on every tick (2.3M neurons a day)", legacy);
     const bounded = await day({});
-    check(bounded.spent <= 100000 + DEAR + 48 * CHEAP, "with the budget the worst-case day is the budget plus one dear step plus the floor's cheap steps", bounded);
-    check(bounded.steps >= 48, "the loop still takes at least 48 steps a day", bounded);
+    check(bounded.spent <= 100000 + DEAR + 144 * CHEAP, "with the budget the worst-case day is the budget plus one dear step plus the floor's cheap steps", bounded);
+    check(bounded.steps >= 144, "the loop still takes at least 144 model steps a day", bounded);
     console.log("worst-case day: no neuron budget " + Math.round(legacy.spent) + " neurons / " + legacy.steps + " steps; budget 100k " + Math.round(bounded.spent) + " neurons / " + bounded.steps + " steps");
   }
 

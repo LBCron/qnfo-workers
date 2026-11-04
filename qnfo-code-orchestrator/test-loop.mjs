@@ -370,7 +370,7 @@ function fakeLoader(spinMs) {
 // ---- CLAIM-FAIRNESS-1: the shipped claim query puts fewest failed attempts first, so a failing task cannot starve a fresh one ----
 {
   const src = (await import("node:fs")).readFileSync(new URL("./worker.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  const m = /async function claim\(env\) \{[\s\S]*?\n\}/.exec(src);
+  const m = /async function claim\(env(?:, copts)?\) \{[\s\S]*?\n\}/.exec(src);
   check("claim order (source check): merged-family priority, then waited-first, attempts ASC, created_at ASC in claim()",
     !!m && m[0].includes('"ORDER BY CASE WHEN " + PRODUCT_TASK_SQL + " THEN 0 ELSE 1 END, CASE WHEN " + recentMerges + " >= 2 THEN 0 ELSE 1 END, CASE WHEN q.updated_at < ? THEN 0 ELSE 1 END, q.attempts ASC, q.created_at ASC'),
     m && m[0].slice(0, 300));
@@ -380,7 +380,7 @@ function fakeLoader(spinMs) {
     /^const FAMILY_HISTORY_DAYS = .*$/m.exec(src)[0] + "\n" + /^const PRODUCT_TASK_SQL = .*$/m.exec(src)[0] + "\n" +
     /function taskFamilySql\(alias\) \{[\s\S]*?\n\}/.exec(src)[0] + "\n" +
     /function taskPathKeySql\(alias\) \{[\s\S]*?\n\}/.exec(src)[0] + "\n" +
-    /const recentMerges = .*;\n/.exec(m[0])[0];
+    /const recentMerges = .*;\n/.exec(m[0])[0] + "\nconst noPropose = '';\n"; // FLOOR-FREE-STEPS-1: claim(env, { noPropose }) adds a clause; the unpaced query has none
   const expression = /prepare\(([\s\S]*?)\n  \)\.bind/.exec(m[0])[1];
   const sql = new Function(defs + "\nreturn (" + expression + ");")();
   const run = (rows, nowMs) => {
