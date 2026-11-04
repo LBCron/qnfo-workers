@@ -111,6 +111,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Portfolio operations (PORTFOLIO-OPS-1)](PORTFOLIO-OPERATIONS.md) - `docs/PORTFOLIO-OPERATIONS.md`
 - [The QNFO portfolio (QNFO-PORTFOLIO-1)](PORTFOLIO.md) - `docs/PORTFOLIO.md`
 - [PR cycle time, 2026-11 (PR-RETRY-1)](PR-CYCLE-TIME-2026-11.md) - `docs/PR-CYCLE-TIME-2026-11.md`
+- [PR velocity, 2026-11 (PR-VELOCITY-1)](PR-VELOCITY-2026-11.md) - `docs/PR-VELOCITY-2026-11.md`
 - [PROBE-WRITE-DEAD-1 — the remediation verifier cannot write evidence](PROBE-WRITE-DEAD-1.md) - `docs/PROBE-WRITE-DEAD-1.md`
 - [Q08 publication recovery and preflight procedure](Q08-PUBLICATION-RECOVERY-2026-09-26.md) - `docs/Q08-PUBLICATION-RECOVERY-2026-09-26.md`
 - [Q08 root cause + remediation record (2026-09-27)](Q08-ROOT-CAUSE-2026-09-27.md) - `docs/Q08-ROOT-CAUSE-2026-09-27.md`

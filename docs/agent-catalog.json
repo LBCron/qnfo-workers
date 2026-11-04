@@ -576,6 +576,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/PR-CYCLE-TIME-2026-11.md"
     },
     {
+      "path": "docs/PR-VELOCITY-2026-11.md",
+      "title": "PR velocity, 2026-11 (PR-VELOCITY-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/PR-VELOCITY-2026-11.md"
+    },
+    {
       "path": "docs/PROBE-WRITE-DEAD-1.md",
       "title": "PROBE-WRITE-DEAD-1 — the remediation verifier cannot write evidence",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/PROBE-WRITE-DEAD-1.md"

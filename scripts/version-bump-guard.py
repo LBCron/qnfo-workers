@@ -68,11 +68,15 @@ ADVERSARIAL
   change is correct, that the version was bumped in the right direction, or that the worker
   deploys. A worker can be bumped and still never reach live; that is deploy-drift.yml's job.
 """
+import os
 import re
 import subprocess
 import sys
 
 VERSION_RE = re.compile(r'^[ \t]*var\s+VERSION\s*=\s*"([^"\n]*)"', re.M)
+# VERSION-LINE-NOTES-1: what follows the closing quote of the first VERSION declaration (a long trailing comment is a release note on the line every release rewrites)
+VERSION_TAIL_RE = re.compile(r'^[ \t]*var\s+VERSION\s*=\s*"[^"\n]*"([^\n]*)$', re.M)
+NOTE_ON_LINE_CHARS = 80
 ENTRY_RE = re.compile(r'^(?P<dir>[^/]+)/worker\.js$')
 # Files that are copies/mirrors, not deploy sources.
 SKIP_SUFFIXES = ("deployed-current.worker.js",)
@@ -163,6 +167,7 @@ def main(argv):
 
     violations = []
     bumped = []
+    notes_on_line = []
     checked = 0
 
     for path in sorted(candidates):
@@ -197,9 +202,23 @@ def main(argv):
             violations.append((path, v_old, "VERSION-AHEAD-1: %s is behind the base's %s (the version regresses)" % (v_new, v_old)))
             continue
         bumped.append((path, v_old, v_new))
+        t_old, t_new = VERSION_TAIL_RE.search(old), VERSION_TAIL_RE.search(new)
+        t_old, t_new = (t_old.group(1).strip() if t_old else ""), (t_new.group(1).strip() if t_new else "")
+        if len(t_new) > NOTE_ON_LINE_CHARS and t_new != t_old:
+            notes_on_line.append((path, len(t_new)))
 
     for path, v_old, v_new in bumped:
         print("OK    %s  %s -> %s" % (path, v_old, v_new))
+
+    # VERSION-LINE-NOTES-1 (RELEASE-FRAGMENT-1, 2026-11-04): 34 of the 44 worker bumps in the last 100 merged pull requests wrote the release note onto the VERSION line, so
+    # every pull request that bumps that worker rewrites the same long line (qnfo-fleet-control: 32 KB) and two of them always conflict, in the source and again in the mirror.
+    # Advisory by default; VERSION_LINE_NOTES=fail makes it a violation once the habit has moved. `python scripts/worker_release.py bump <worker> --note ...` does the bump with
+    # a bare VERSION line and the note in <worker>/releases/<version>.md.
+    for path, n in notes_on_line:
+        print("::warning title=version-line-notes::%s: a %d-character release note on the VERSION line is what makes concurrent bumps of this worker conflict. "
+              "Write the note to %s/releases/<version>.md (python scripts/worker_release.py bump %s --note ...) and keep the line bare." % (path, n, path.split("/")[0], path.split("/")[0]))
+        if os.environ.get("VERSION_LINE_NOTES", "").strip().lower() == "fail":
+            violations.append((path, None, "VERSION-LINE-NOTES-1: a %d-character release note was written on the VERSION line (VERSION_LINE_NOTES=fail)" % n))
 
     if not violations:
         print("PASS: %d changed worker bundle(s) checked, all bumped VERSION" % checked)

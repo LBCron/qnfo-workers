@@ -48,10 +48,13 @@ jobs:
 
       - name: Lint the workflow YAML class repo-wide
         if: ${{ !cancelled() }}
+        env:
+          REGRESSION_GATE: ${{ vars.REGRESSION_GATE }}
         run: |
           set -euo pipefail
+          # REGRESSION-GATE-1: fails only for a workflow defect this pull request adds (7 unrelated PRs sat 92-107 minutes on 2026-11-04 for one transient defect of main)
           if [ -f scripts/workflow-lint.py ]; then
-            python3 scripts/workflow-lint.py
+            python3 scripts/regression_gate.py --name workflow-lint -- python3 scripts/workflow-lint.py
           else
             echo "no workflow-lint.py in this revision; skipping"
           fi
@@ -583,9 +586,11 @@ jobs:
       - run: pip install --quiet pyyaml
         if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
 
-      - name: Lint every workflow file (fail closed)
+      - name: "Lint every workflow file (fail closed, regression-only for a pull request)"
         if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-        run: python3 scripts/workflow-lint.py
+        env:
+          REGRESSION_GATE: ${{ vars.REGRESSION_GATE }}
+        run: python3 scripts/regression_gate.py --name workflow-lint -- python3 scripts/workflow-lint.py
 
       - name: STATUS-NOOP-SKIP-1 self-test (skip stamp-only status commits, never an outcome change)
         if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
@@ -608,3 +613,23 @@ jobs:
       - name: Agent documentation catalog is current (run node scripts/build-agent-catalog.mjs when this fails)
         if: ${{ !cancelled() && steps.f.outputs.docs_catalog == 'true' }}
         run: node scripts/build-agent-catalog.mjs --check
+
+      # ---- PR-FAST-GUARDS-1 (2026-11-04): the cheap checks that turned main red after a merge, run before it ----
+      # deploy-gate left the PR path (PR-CHECK-CAP-5-1) and its push run is cancelled by the next merge, so a narrative-prompt-guard phrase, a worker entry that no longer loads, a metric without a
+      # cause mapping or an anchor that stopped occurring once was seen only after the merge. scripts/pr_fast_guards.py runs the guards the change selects (about 45 s together), each through
+      # scripts/regression_gate.py: a failure fails the pull request only if the base tree does not have it too. A step of this job, not a check of its own (owner cap: 5 entries).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          python-version: "3.11"
+
+      - name: Run the fast guards the change selects (regression-only)
+        if: ${{ !cancelled() }}
+        env:
+          REGRESSION_GATE: ${{ vars.REGRESSION_GATE }}
+        run: python3 scripts/pr_fast_guards.py

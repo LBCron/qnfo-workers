@@ -161,8 +161,9 @@ because each one was broken at least once; the linked issue holds the evidence.
 - The claim is written to the D1 ledger `qnfo-audit.work_claims` (WORK-CLAIMS-1, migrations/2026-10-02-work-claims.sql) and
   released there too; a row another session inserted there directly also refuses your acquire. Do not keep a second claim
   procedure: the endpoint is the only writer a session needs.
-- Before you bump a worker's VERSION, list what main and the open PRs claim (REST: `gh pr list` is GraphQL, refused in
-  sessions) and take a numeric core above the last line. version-bump-guard fails one that is not ahead (VERSION-AHEAD-1).
+- Before you bump a worker's VERSION, list what main and the open PRs claim and take a numeric core above the last line. version-bump-guard fails one that is not ahead (VERSION-AHEAD-1).
+  `python scripts/worker_release.py claims <worker>` does it with one REST call and git (PR-VELOCITY-1: the loop below spends 1 + N reads, 25 or more with the PRs open on 2026-11-04, from the
+  shared token); `worker_release.py bump` takes the number for you. The loop stays for a session without a checkout:
   ```
   W=<worker>; R=repos/QNFO/qnfo-workers; for x in main $(gh api "$R/pulls?state=open&per_page=100" --jq '.[]|"\(.head.sha)#\(.number)"'); do gh api "$R/contents/$W/worker.js?ref=${x%#*}" -H 'Accept: application/vnd.github.raw' 2>/dev/null | grep -m1 -oE 'var VERSION = "[^"]*"' | sed -E "s/.*\"(.*)\"/\1 ${x#*#}/"; done | sort -V | tail -3
   ```
@@ -190,6 +191,11 @@ because each one was broken at least once; the linked issue holds the evidence.
 - A retired or folded worker directory carries a `RETIRED` or `FOLDED` file; do not remove it to get a deploy through.
 - Bump `var VERSION` in every changed worker.js and keep `deployed-current.worker.js` identical to `worker.js`
   (version-bump-guard and mirror-guard are required checks).
+- Make the bump with `python scripts/worker_release.py bump <worker> --note "<what and why>"` (RELEASE-FRAGMENT-1, PR-VELOCITY-1; `--minor` for a capability, `--dry-run` to look first). It takes the
+  version above main AND every open PR (git, one REST call), writes the VERSION line bare, moves any trailing comment of that line to its own line below, puts the release note in
+  `<worker>/releases/<version>.md` instead of worker.js, copies the mirror when mirror-guard.py says it is safe and runs `node --check`. Measured on the last 100 merged PRs: 34 of 44
+  worker bumps wrote the note onto the VERSION line (qnfo-fleet-control: 32 KB), so two PRs on one worker always conflicted there, again in the mirror; 10 of the 18 PRs that needed a conflicted
+  merge conflicted only in that block. version-bump-guard prints a `version-line-notes` warning for a new note on the line (`VERSION_LINE_NOTES=fail` makes it a violation).
 - The bump says what changed (VERSION-MINOR-CAPABILITY-1, proposed 2026-10-06 with FLEET-CHANGELOG-1). Raise the minor
   number (x.Y.0) when a change gives a worker a capability it did not have: a new route, page, loop, cron step, data
   product, or a decision it now takes on its own. Raise the patch number for fixes, tuning, refactors and wording. Raise
@@ -237,6 +243,11 @@ because each one was broken at least once; the linked issue holds the evidence.
 - A worker's `*.test.mjs` suites run on every PR that touches the worker (scripts/run-suites.mjs). The full set runs for
   control-plane, `scripts/`, `.github/` and `migrations/` changes. A new suite needs no deploy-gate line. A suite that
   pins an exact VERSION breaks on the next bump; assert a minimum instead.
+- PR-FAST-GUARDS-1 (2026-11-04): a last step of the `scans` job in pr-checks (not a check of its own: the owner caps a PR at 5 entries) now runs, strictly, the guards that turned main red after a merge (narrative-prompt-guard, the load of every worker entry,
+  the metric-cause rule, code-anchor-once; about 45 s), each through `scripts/regression_gate.py` (REGRESSION-GATE-1): a guard fails a pull request only for a failure
+  line the base tree does not have, so a defect already on main never holds an unrelated PR (7 PRs sat 92-107 minutes on 2026-11-04 for one transient main defect in the workflow lint),
+  and a new defect is stopped before the merge. Run it yourself with `python scripts/pr_fast_guards.py` (vs origin/main). `REGRESSION_GATE=strict` (repository variable) turns the
+  relaxation off; deleting the step reverts the PR-time run. The workflow lint steps of `versions` and `scans` use the same gate. The two rules below remain the ones to know when you write the file:
 - Two migration rules fail only in the full set after the merge (deploy-gate is advisory on a pull request, MERGE-STREAMLINE-1), so read them before you write the file;
   each broke main more than once in the week of 2026-10-29 (RED-MAIN-RECURRENCE-1):
   - A migration that registers a metric (`INSERT ... INTO metric_registry`) maps its breach cause in the same file (`INSERT ... INTO metric_breach_cause`, with a cause key

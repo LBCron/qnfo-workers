@@ -26,6 +26,7 @@ permissions:
   pull-requests: write
   issues: write
   actions: write
+  checks: read
 
 jobs:
   lane:
@@ -137,9 +138,13 @@ jobs:
         if: ${{ env.DO_MERGE == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+          READ_TOKEN: ${{ github.token }}
         run: |
           set -u
-          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          # LANE-READ-TOKEN-1 (2026-11-04): reads use the workflow token (the repository's own 1000 an hour); the shared PAT (5000 an hour for every session and sweep, 0 twice today) is spent once, on the merge.
+          # A read the workflow token is refused falls back to the PAT. Revert: put gh api back on the three reads.
+          rd() { GH_TOKEN="$READ_TOKEN" gh api "$@" 2>/dev/null || gh api "$@"; }
+          pr="$(rd "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
           state="$(printf '%s' "$pr" | jq -r '.state')"
           draft="$(printf '%s' "$pr" | jq -r '.draft')"
           base="$(printf '%s' "$pr" | jq -r '.base.ref')"
@@ -149,12 +154,12 @@ jobs:
             echo "not ready: state=$state draft=$draft base=$base held=$held"
             exit 0
           fi
-          holds="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '[.[] | select(.body | startswith("HOLD:"))] | length')"
+          holds="$(rd "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '[.[] | select(.body | startswith("HOLD:"))] | length')"
           if [ "$holds" != "0" ]; then
             echo "a HOLD comment is on the pull request"
             exit 0
           fi
-          runs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --jq '[.check_runs[] | select((.name | test("^(gate|analyze|Workers Builds|sweep|lane$|(poke|review|lifecycle) / )")) | not) | {name, status, conclusion}]')"
+          runs="$(rd "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --jq '[.check_runs[] | select((.name | test("^(gate|analyze|Workers Builds|sweep|lane$|(poke|review|lifecycle) / )")) | not) | {name, status, conclusion}]')"
           total="$(printf '%s' "$runs" | jq 'length')"
           pending="$(printf '%s' "$runs" | jq '[.[] | select(.status != "completed")] | length')"
           bad="$(printf '%s' "$runs" | jq '[.[] | select(.status == "completed" and (.conclusion | IN("success", "skipped", "neutral") | not))] | length')"

@@ -86,48 +86,31 @@ jobs:
       GIT_COMMITTER_NAME: qnfo-conflict-repair
       GIT_COMMITTER_EMAIL: conflict-repair@users.noreply.github.com
     steps:
-      # CONFLICT-REPAIR-INPLACE-1: on a push to main, look before paying for a checkout. GitHub computes mergeability on the first read after
-      # main moves, so a null is read again (up to 3 times, 15 s apart). Any other trigger always runs the job.
+      # CONFLICT-PROBE-GIT-1 (2026-11-04, pillar autonomy; REST budget): the probe used to read GET pulls/N for every open pull request (and pulls/N/files for every clean one),
+      # again up to 3 times while GitHub answered a null mergeable state: 40 to 75 REST calls per push on the repository's own 1000-an-hour token bucket, at about 12 pushes an hour.
+      # It is now one list call plus git (`git fetch` of each pull request head and `git merge-tree` against main, scripts/conflict_probe.py): exact at once, no null, no retry sleep.
+      # The price is a checkout on every push; the job already pays it whenever anything is dirty. Revert: restore the REST loop from the history of this file.
+      # A workflow_run checks out the trigger's SHA, which can be stale; the repair is cut from the CURRENT main.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # PR-MERGE-SLA-10M-1: drafts are taken (the harness opens every session pull request as a draft); a title that asks to wait and a repair branch are not.
+      # A pull request the probe cannot judge counts as dirty, and the doer then decides it with git merge-tree (scripts/conflict_repair.py merge_tree_conflicts).
       - name: "probe (push to main, is any open pull request conflicting?)"
         id: probe
         run: |
           set -uo pipefail
           if [ "${GITHUB_EVENT_NAME}" != "push" ]; then echo "dirty=1" >> "$GITHUB_OUTPUT"; exit 0; fi
-          dirty=0
-          for try in 1 2 3; do
-            dirty=0; unknown=0
-            # PR-MERGE-SLA-10M-1: drafts are taken (the harness opens every session pull request as a draft); a title that asks to wait and a
-            # repair branch are not.
-            for n in $(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" --jq '.[]|select((.head.ref|startswith("repair/"))|not)|select((.title|test("(^|[\\s\\[(])(wip|do[\\s-]*not[\\s-]*merge|hold)([\\s:\\])]|$)";"i"))|not)|.number'); do
-              st=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$n" --jq '"\(.mergeable) \(.mergeable_state)"' 2>/dev/null || echo "null unknown")
-              case "$st" in
-                "false dirty") dirty=$((dirty+1));;
-                "null "*) unknown=$((unknown+1));;
-                *)
-                  # Clean merges can still carry a stale VERSION; the doer checks the actual versions.
-                  if gh api "repos/${GITHUB_REPOSITORY}/pulls/$n/files?per_page=100" --paginate \
-                    --jq '.[] | select(.filename | test("^[^/]+/worker\\.js$")) | .filename' | grep -q .; then
-                    dirty=$((dirty+1))
-                  fi
-                  ;;
-              esac
-            done
-            [ "$unknown" -eq 0 ] && break
-            sleep 15
-          done
-          # PR-MERGE-SLA-10M-1: GitHub leaves mergeable null for as long as main keeps moving (every 1 to 5 minutes here), and a pull request it never
-          # computes was counted as clean, so it was never repaired. A pull request still unknown after the retries makes the job run; the script
-          # then decides it with git merge-tree against that pull request's base (scripts/conflict_repair.py merge_tree_conflicts).
+          if [ ! -f scripts/conflict_probe.py ]; then echo "dirty=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          out="$(mktemp)"
+          if ! python3 scripts/conflict_probe.py --base origin/main --repo "${GITHUB_REPOSITORY}" --github-output "$out"; then echo "dirty=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          dirty=$(sed -n 's/^dirty=//p' "$out"); unknown=$(sed -n 's/^unknown=//p' "$out")
+          # PR-MERGE-SLA-10M-1: a pull request the probe cannot judge makes the job run; the doer decides it with git merge-tree
           dirty=$((dirty+unknown))
           echo "dirty=$dirty" >> "$GITHUB_OUTPUT"
-          echo "open pull requests conflicting with main or not yet computed by GitHub: $dirty (unknown: $unknown)"
-
-      # A workflow_run checks out the trigger's SHA, which can be stale; the repair is cut from the CURRENT main.
-      - if: steps.probe.outputs.dirty != '0'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
-          fetch-depth: 0
+          echo "open pull requests conflicting with main, touching a worker or not judged: $dirty (not judged: $unknown)"
 
       - if: steps.probe.outputs.dirty != '0'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
