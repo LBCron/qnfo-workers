@@ -25,7 +25,7 @@ ins.run("1", "t1", "chatbox", "qnfo-ai", "glm-5.3-flash", "first idea about 100%
 ins.run("2", "t1", "chatbox", "qnfo-ai", "ensemble", "follow up", "answer two", "2026-11-01T10:05:00Z");
 ins.run("3", "t2", "other", "qnfo-ai", "kimi-k2.7-code", "refactor the router", "done", "2026-11-03T09:00:00Z");
 ins.run("4", "t3", "other", "personal-api", "personal", "private thing", "secret", "2026-11-04T09:00:00Z");
-const env = { ROUTER_AUTH_KEY: "key-one", QNFO_AUDIT: d1(db), AI: { async run() { return { data: [[0.1]] }; } } };
+const env = { ROUTER_AUTH_KEY: "key-one", OPS: { async fetch(u, init) { const h = (init && init.headers && init.headers.Authorization) || ""; return new Response(JSON.stringify({ ok: h === "Bearer qos_good", scope: "owner" }), { status: 200 }); } }, QNFO_AUDIT: d1(db), AI: { async run() { return { data: [[0.1]] }; } } };
 async function req(path, headers) {
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   const res = await worker.fetch(new Request("https://ai.qnfo.org" + path, { method: "GET", headers: headers || {} }), env, ctx);
@@ -57,5 +57,13 @@ r = await req("/v1/conversations/nope", K);
 ok(r.res.status === 404, "D3 unknown thread is 404");
 r = await req("/history", {});
 ok(r.res.status === 200 && r.text.includes("Chat history") && !r.text.includes("answer one"), "E1 page serves without data");
+r = await req("/v1/conversations", { Authorization: "Bearer qos_good" });
+ok(r.res.status === 200 && r.j.count === 2, "F1 owner session token (qnfo-ops) is accepted", r.j);
+r = await req("/v1/conversations/t1", { Authorization: "Bearer qos_good" });
+ok(r.res.status === 200 && r.j.count === 2, "F2 owner session token reads a thread");
+r = await req("/v1/conversations", { Authorization: "Bearer qos_bad" });
+ok(r.res.status === 401, "F3 a session token qnfo-ops rejects is 401", r.res.status);
+r = await req("/history", {});
+ok(r.text.includes("Email me a sign-in code") && r.text.includes("/v1/owner/verify") && !r.text.includes("answer one"), "F4 page offers the emailed-code sign-in and carries no data");
 say(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
