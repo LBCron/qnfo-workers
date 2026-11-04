@@ -1471,6 +1471,14 @@ def main():
     except Exception as e:  # noqa: BLE001
         out["host_census_error"] = str(e)[:200]
 
+    # VIEW-HEALTH-1 (2026-11-04): every qnfo-audit view is planned with EXPLAIN (reads no rows); a view that errors on read is filed
+    # as one BLINDSPOT-1 issue and closed when all compile (scripts/view_health.py). A failure here never stops the contract run.
+    try:
+        import view_health
+        out["view_health"] = view_health.run(d1, VERIFIER)
+    except Exception as e:  # noqa: BLE001
+        out["view_health_error"] = str(e)[:200]
+
     # FLEET-JOURNEYS-1 (2026-10-13): the end-to-end journeys from outside the account (runner gha, public hostnames), the second path
     # to qnfo-fleet-control's server-side journeyTick; at most every 50 minutes, self-filing and self-closing (scripts/fleet_journeys.py).
     # Called here, not as a workflow step, so the change needs no workflow edit. A failure never stops the contract run.

@@ -44,3 +44,19 @@ jobs:
             exit 0
           fi
           python3 scripts/apply_migrations.py --check --base "origin/$BASE_REF" $files
+
+      # VIEW-PREMERGE-1 (2026-11-04): PR 7023 merged a view that errors on read (a missing column). The live schema (no rows, read-only) is copied into
+      # in-memory SQLite, the changed migrations are applied to it and every view is planned with EXPLAIN; a view the PR breaks fails this check.
+      # No credentials (a fork) or an unreadable schema passes with a notice; scripts/view_health.py checks after merge as the second path.
+      - name: Plan every view after the changed migrations
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          files=$(git diff --name-only --diff-filter=AM "origin/$BASE_REF" HEAD -- 'migrations/*.sql')
+          if [ -z "$files" ]; then
+            echo "no migration changed"
+            exit 0
+          fi
+          python3 scripts/view_premerge.py $files
