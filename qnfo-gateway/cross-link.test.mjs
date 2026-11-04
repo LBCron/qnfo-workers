@@ -26,6 +26,9 @@ for (const [url, cur] of [["https://qwav.org/", "qwav"], ["https://qnfo.org/priv
 const qw = await get("https://qwav.org/");
 ok((qw.text.match(/https:\/\/qnfo\.github\.io\//g) || []).length === 10 && /id="demos"/.test(qw.text), "the QWAV page links the ten interactive demos (QWAV-DEMOS-1)");
 
+const lp = await get("https://papers.qnfo.org/papers");
+ok(lp.status === 200 && /class="lp-fam"/.test(lp.text) && /href="https:..q08\.org.?"/.test(lp.text) && /lp-explore/.test(lp.text), "papers.qnfo.org pages (lpDoc) carry the family bar and Keep exploring (CROSS-LINK-2)", lp.status);
+
 const js = await get("https://qnfo.org/qds.js");
 ok(js.status === 200 && /qdsKeepReading/.test(js.text) && /papers\.qnfo\.org\/api\/papers/.test(js.text), "qds.js hydrates Keep exploring from the open papers API");
 ok(/querySelector\('\.q-family'\)/.test(js.text) && /The QNFO family/.test(js.text) && /\\u003c/.test(js.text), "qds.js injects the module into pages qdsPage did not render");
