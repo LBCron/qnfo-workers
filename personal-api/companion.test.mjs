@@ -241,14 +241,19 @@ ok("tool appendix lists every tool", Object.keys(tools).every((k) => C.TOOL_APPE
 
 console.log("\n[http]");
 const hdeps = Object.assign({}, deps, { auth: async (r) => r.headers.get("Authorization") === "Bearer k", version: "test", doStub: () => ({ fetch: async () => new Response("{}") }) });
-const ctx = { waitUntil() {} };
+const bg = [];
+const ctx = { waitUntil(p) { bg.push(p); } };
 const page = await C.handleCompanion(new Request("https://x/companion"), env, ctx, hdeps);
 ok("page is public and strict-CSP", page.status === 200 && /connect-src 'self'/.test(page.headers.get("Content-Security-Policy")));
 ok("api needs the key", (await C.handleCompanion(new Request("https://x/companion/api/today"), env, ctx, hdeps)).status === 401);
 const tr = await C.handleCompanion(new Request("https://x/companion/api/today", { headers: { Authorization: "Bearer k" } }), env, ctx, hdeps);
 ok("api answers with the key", tr.status === 200);
 const capr = await C.handleCompanion(new Request("https://x/companion/api/capture", { method: "POST", headers: { Authorization: "Bearer k", "Content-Type": "application/json" }, body: JSON.stringify({ text: "buy oat milk" }) }), env, ctx, hdeps);
-ok("capture over HTTP", (await capr.json()).processed.context === "@errands");
+const capj = await capr.json();
+ok("capture over HTTP answers at once and sorts in the background (COMPANION-FAST-CAPTURE-1)", capj.ok && capj.sorting === true && capj.processed === null);
+await Promise.all(bg.splice(0));
+const sorted = await env.PERSONAL.prepare("SELECT status, result_json FROM cmp_inbox WHERE id = ?").bind(capj.id).first();
+ok("the background pass filed it", sorted.status === "processed" && JSON.parse(sorted.result_json).context === "@errands");
 const fd = new FormData();
 fd.append("file", new Blob([new Uint8Array([1, 2])], { type: "audio/webm" }), "a.webm");
 const stt = await C.handleTranscription(new Request("https://x/v1/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer k" }, body: fd }), env, ctx, hdeps);
