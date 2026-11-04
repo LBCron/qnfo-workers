@@ -177,3 +177,8 @@ bucket_name = "d-drive"
 # The comments above describe the 21-trigger list this replaced.
 [triggers]
 crons = ["*/10 * * * *"]
+
+# REPO-SNAPSHOT-1 (1.45.0): R2 copy of recent migrations/ so the migration fallback survives GitHub being unreachable.
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "qnfo-backups"

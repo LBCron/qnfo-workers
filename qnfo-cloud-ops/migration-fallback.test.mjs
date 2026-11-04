@@ -13,9 +13,9 @@ const a = src.indexOf("// ---- MIGRATION-FALLBACK-1:BEGIN"), b = src.indexOf("//
 check(a > 0 && b > a, "the pure block is marked");
 const sb = { Date, Math, Number, String, Array, Object, JSON, crypto, TextEncoder, console, WORKER_NAME: "qnfo-cloud-ops", __name: (f) => f };
 vm.createContext(sb);
-const jobStart = src.indexOf("async function mfSha256"), jobEnd = src.indexOf('__name(jobMigrationFallback, "jobMigrationFallback");');
-vm.runInContext(src.slice(a, b) + src.slice(b, jobEnd) + "\n__x = { mfSplit, mfEligible, jobMigrationFallback };", sb);
-const { mfSplit, mfEligible, jobMigrationFallback } = sb.__x;
+const jobStart = src.indexOf("async function mfSha256"), jobEnd = src.indexOf('__name(jobRepoSnapshot, "jobRepoSnapshot");');
+vm.runInContext(src.slice(a, b) + src.slice(b, jobEnd) + "\n__x = { mfSplit, mfEligible, jobMigrationFallback, jobRepoSnapshot };", sb);
+const { mfSplit, mfEligible, jobMigrationFallback, jobRepoSnapshot } = sb.__x;
 sb.ghHeaders = () => ({});
 
 const trig = "CREATE TRIGGER t AFTER INSERT ON x BEGIN INSERT INTO y VALUES (1); END;";
@@ -69,8 +69,27 @@ else {
   const rep2 = await jobMigrationFallback(env, { now, fetch: doFetch });
   check(rep2.applied.length === 0 && rep2.failed.length === 0, "a second tick applies nothing twice and does not retry the failed content", rep2);
   check(db.prepare("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'migration-fallback'").get().n === 1, "one event for the run that did work");
+
+  // REPO-SNAPSHOT-1: snapshot to a fake R2 while GitHub works, then force every GitHub read to fail and apply from the snapshot.
+  const store = new Map();
+  const r2 = { async head(k) { const o = store.get(k); return o ? { customMetadata: o.m } : null; }, async put(k, v, o) { store.set(k, { v, m: o && o.customMetadata, uploaded: new Date("2026-11-04T16:00:00Z") }); },
+    async get(k) { const o = store.get(k); return o ? { text: async () => o.v } : null; },
+    async list({ prefix }) { return { objects: [...store.entries()].filter(([k]) => k.startsWith(prefix)).map(([k, o]) => ({ key: k, uploaded: o.uploaded })) }; } };
+  const blobFetch = async (url, init) => { const u = new URL(url), p = decodeURIComponent(u.pathname); const b = /\/git\/blobs\/(.+)$/.exec(p);
+    if (b) return { ok: true, status: 200, text: async () => files[b[1].replace(/^sha-/, "")] };
+    if (p.endsWith("/git/trees/main:migrations")) return { ok: true, status: 200, json: async () => ({ tree: Object.keys(files).map((path) => ({ path, type: "blob", sha: "sha-" + path })) }) };
+    return { ok: false, status: 404 }; };
+  const snap = await jobRepoSnapshot({}, { now, fetch: blobFetch, r2 });
+  check(snap.copied === 4 && !store.has("repo-snapshot/migrations/2026-10-01-ancient.sql"), "the snapshot keeps the last week of migrations in R2", snap);
+  const snap2 = await jobRepoSnapshot({}, { now, fetch: blobFetch, r2 });
+  check(snap2.copied === 0 && snap2.have === 4, "an unchanged snapshot copies nothing", snap2);
+  db.exec("DELETE FROM migration_runs; DROP TABLE fb_a; DROP TABLE IF EXISTS fb_c");
+  const down = async () => { throw new Error("getaddrinfo ENOTFOUND api.github.com"); };
+  const rep3 = await jobMigrationFallback(env, { now, fetch: down, r2 });
+  check(rep3.source === "r2-snapshot" && rep3.applied.includes("2026-11-04-old-merge.sql"), "with every GitHub read failing, the fallback applies from the R2 snapshot", rep3);
+  check(db.prepare("SELECT COUNT(*) AS n FROM migration_runs WHERE commit_sha = 'r2-snapshot' AND status = 'ok'").get().n >= 1, "the ledger row names the snapshot as its source");
 }
 check(/runs\.push\(jobMigrationFallback\(env\)/.test(src) && /"migration-fallback": jobMigrationFallback/.test(src), "the 10-minute tick and POST /run?job=migration-fallback run it");
-check(versionAtLeast((/var VERSION = "([^"]+)"/.exec(src) || [])[1], "1.44.1"), "VERSION is at least 1.44.1");
+check(versionAtLeast((/var VERSION = "([^"]+)"/.exec(src) || [])[1], "1.45.0"), "VERSION is at least 1.45.0");
 console.log(fails ? fails + " failed" : "all passed");
 if (fails) process.exit(1);

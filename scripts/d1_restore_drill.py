@@ -27,10 +27,10 @@ import continuity_snapshot as CS  # noqa: E402
 
 DRILL_EXPORTS = ["portfolio-state", "qnfo-cms", "ipatent-db"]
 AUDIT_STATE = "qnfo-audit-state"
-DRILL_ROW_CAP = int(os.environ.get("DRILL_ROW_CAP") or 2000)
+DRILL_ROW_CAP = int(os.environ.get("DRILL_ROW_CAP") or 500)
 DRILL_MAX_AGE_DAYS = 6
 SCRATCH_PREFIX = "drill-restore-"
-BUDGET_SEC = float(os.environ.get("DRILL_BUDGET_SEC") or 240)
+BUDGET_SEC = float(os.environ.get("DRILL_BUDGET_SEC") or 840)
 _STARTED = time.time()
 
 
