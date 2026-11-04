@@ -844,10 +844,10 @@ def ensure_bookmark_column(acct, token, ledger_id):
 D1_OVERLOAD_BACKOFF_S = (5, 10, 20, 30, 45)  # D1-429-RETRY-1: "D1 DB is overloaded ... 10 second window" rejects the statement, so a retry is safe
 
 
-def d1(acct, token, db_id, sql, params=None, meta=None):
+def d1(acct, token, db_id, sql, params=None, meta=None, retry=True):
     import time
     import cf_ops_actions as C
-    for wait in D1_OVERLOAD_BACKOFF_S + (None,):
+    for wait in (D1_OVERLOAD_BACKOFF_S if retry else ()) + (None,):
         st, j = C.call("POST", f"/accounts/{acct}/d1/database/{db_id}/query", token, {"sql": sql, "params": params or []}, timeout=90)
         if st != 429 or wait is None:
             break
@@ -954,18 +954,49 @@ def replace_terms(set_part):
     return terms
 
 
+def drop_comments(sql):
+    """sql without "--" line comments and /* */ blocks, string literals and quoted identifiers kept as written."""
+    out, i, n = [], 0, len(sql)
+    while i < n:
+        two, c = sql[i:i + 2], sql[i]
+        if two == "--":
+            while i < n and sql[i] != "\n":
+                i += 1
+        elif two == "/*":
+            j = sql.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            out.append(" ")
+        elif c in "'\"`":
+            j = i + 1
+            while j < n and not (sql[j] == c and sql[j + 1:j + 2] != c):
+                j += 2 if sql[j] == c else 1
+            out.append(sql[i:j + 1])
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def replace_text_probe(stmt):
     """NOOP-UPDATE-1: `UPDATE t SET c = replace(c, 'A', 'B') WHERE k = 1` matches its row and reports changes = 1 even when no row holds 'A', so
-    meta.changes cannot see a replace() that finds nothing. This read-only count asks the live rows the same WHERE and whether any of them holds
-    a text the statement replaces; 0 means the text surgery is a no-op. None when the statement is not that shape."""
+    meta.changes cannot see a replace() that finds nothing. This read-only EXISTS asks the live rows the same WHERE whether any of them holds a
+    text the statement replaces; 0 means the text surgery is a no-op. None when the statement is not that shape: every SET assignment must be a
+    replace() call (a statement that also sets another column changes something whatever the replace() finds), and a trailing comment is
+    dropped first so it cannot swallow the appended condition."""
+    stmt = drop_comments(stmt)
     m = NOOP_UPDATE.match(stmt)
     w = top_where(stmt) if m else -1
     if w < 0:
         return None
-    terms = replace_terms(stmt[:w])
+    set_part = stmt[:w]
+    assigns = _split_top(re.sub(r"(?is)^\s*UPDATE\s+(?:OR\s+\w+\s+)?\"?\w+\"?\s+SET\b", "", set_part, count=1)[:-5])
+    if not assigns or not all(REPLACE_CALL.match(a.split("=", 1)[1].strip()) for a in assigns if "=" in a) or any("=" not in a for a in assigns):
+        return None
+    terms = replace_terms(set_part)
     if not terms:
         return None
-    return 'SELECT COUNT(*) AS n FROM "%s" WHERE (%s) AND (%s)' % (m.group(1), stmt[w:].strip().rstrip(";").strip(), " OR ".join("instr(%s, %s) > 0" % (c, lit) for c, lit in terms))
+    return 'SELECT EXISTS (SELECT 1 FROM "%s" WHERE (%s) AND (%s)) AS n' % (m.group(1), stmt[w:].strip().rstrip(";").strip(), " OR ".join("instr(%s, %s) > 0" % (c, lit) for c, lit in terms))
 
 
 # TRIGGER-COMPILE-CANARY-1 (2026-11-04): a trigger body or a view it reads that no longer compiles fails EVERY write to the table at prepare time,
@@ -1185,7 +1216,7 @@ def apply_file(path, text, acct, token, commit, emit=print):
         no_text = False
         if noop_meta is not None and replace_text_probe(body(s)):
             try:
-                held = d1(acct, token, db_id, replace_text_probe(body(s)))
+                held = d1(acct, token, db_id, replace_text_probe(body(s)), retry=False)  # one attempt: the probe must never cost the statement its time
                 no_text = bool(held) and int(held[0].get("n") or 0) == 0
             except Exception:  # noqa: BLE001 - a probe that cannot run never blocks the statement
                 no_text = False
@@ -1196,7 +1227,7 @@ def apply_file(path, text, acct, token, commit, emit=print):
                 d1(acct, token, db_id, body(s), meta=noop_meta)
             done_n += 1
             if noop_meta is not None and (noop_meta.get("changes") == 0 or no_text):
-                noops.append((done_n, NOOP_UPDATE.match(body(s)).group(1), " ".join(body(s).split())[:160], bool(NOOP_REPLACE.search(body(s))),
+                noops.append((done_n, NOOP_UPDATE.match(body(s)).group(1), " ".join(body(s).split())[:160], bool(NOOP_REPLACE.search(drop_comments(body(s))[:max(top_where(drop_comments(body(s))), 0)])),
                               "found no row holding the text its replace() looks for" if no_text else "changed 0 rows"))
         except Exception as e:  # noqa: BLE001
             # A re-run after a partial apply meets the columns it already added; SQLite has no ADD COLUMN IF NOT EXISTS.

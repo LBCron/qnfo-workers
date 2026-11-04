@@ -1364,9 +1364,43 @@ ok(rc == 0 and "noop_updates" not in j, "a WHERE inside a subquery is not mistak
 ok(M.top_where("UPDATE t SET c = 'a WHERE b', d = (SELECT 1 FROM u WHERE x = 1) WHERE k = 2") == len("UPDATE t SET c = 'a WHERE b', d = (SELECT 1 FROM u WHERE x = 1) WHERE")
    and M.top_where("UPDATE t SET c = 1") == -1 and M.top_where("UPDATE t SET somewhere = 1 WHERE k = 2") == len("UPDATE t SET somewhere = 1 WHERE"),
    "top_where finds the statement's own WHERE, not one in a string, a subquery or an identifier")
-ok(M.replace_text_probe("UPDATE t SET c = replace(c, 'it''s', 'x') WHERE k = 2") == "SELECT COUNT(*) AS n FROM \"t\" WHERE (k = 2) AND (instr(c, 'it''s') > 0)"
+ok(M.replace_text_probe("UPDATE t SET c = replace(c, 'it''s', 'x') WHERE k = 2") == "SELECT EXISTS (SELECT 1 FROM \"t\" WHERE (k = 2) AND (instr(c, 'it''s') > 0)) AS n"
    and M.replace_text_probe("UPDATE t SET c = 'x' WHERE k = 2") is None and M.replace_text_probe("UPDATE t SET c = replace(c, 'a', 'b')") is None,
    "the replace() text probe keeps the WHERE and the quoted literal, and is None for other shapes", M.replace_text_probe("UPDATE t SET c = replace(c, 'it''s', 'x') WHERE k = 2"))
+# NOOP-UPDATE-1 hardening (independent review, 2026-11-04): the probe is one attempt, an EXISTS, comment-safe, and only for statements whose every SET is a replace().
+ok(M.replace_text_probe("UPDATE t SET c = replace(c, 'a', 'b'), n = 'x' WHERE k = 2") is None, "a statement that also sets another column is not probed (it changes something whatever replace() finds)")
+ok(M.replace_text_probe("UPDATE t SET c = replace(c, 'a', 'b') WHERE k = 2 -- only this row") == "SELECT EXISTS (SELECT 1 FROM \"t\" WHERE (k = 2) AND (instr(c, 'a') > 0)) AS n",
+   "a trailing line comment is dropped so it cannot swallow the appended condition", M.replace_text_probe("UPDATE t SET c = replace(c, 'a', 'b') WHERE k = 2 -- only this row"))
+ok(M.replace_text_probe("UPDATE t SET c = replace(c, 'a', 'b'), d = replace(d, 'x', 'y') WHERE k = 2") == "SELECT EXISTS (SELECT 1 FROM \"t\" WHERE (k = 2) AND (instr(c, 'a') > 0 OR instr(d, 'x') > 0)) AS n",
+   "two replace() assignments are probed together")
+ok(M.drop_comments("SELECT '-- not a comment' /* gone */ , 1 -- gone") == "SELECT '-- not a comment'   , 1 ", "drop_comments keeps literals and removes both comment forms", M.drop_comments("SELECT '-- not a comment' /* gone */ , 1 -- gone"))
+rc, j, err = noop_run("noop-where-replace", "UPDATE ops_config SET value = 'x' WHERE replace(key, 'k', 'z') = 'nope-here';" + chr(10), "n11")
+ok(rc == 0 and len(j.get("noop_updates") or []) == 1
+   and [r[0] for r in db.execute("SELECT kind FROM cloud_ops_events WHERE meta LIKE '%noop-where-replace%'").fetchall()] == ["migration-noop-update"],
+   "a replace() only in the WHERE that matched nothing is the plain kind, not the replace class", (j, err))
+# one attempt for the probe: a 429 on the probe is not retried, and the migration still applies
+probe_calls = []
+real_call = C.call
+
+
+def overloaded_probe(method, path, token, body=None, timeout=60):
+    if "SELECT EXISTS" in body["sql"]:
+        probe_calls.append(1)
+        return 429, {"success": False, "errors": [{"message": "D1 DB is overloaded"}]}
+    return real_call(method, path, token, body, timeout)
+
+
+real_backoff = M.D1_OVERLOAD_BACKOFF_S
+M.D1_OVERLOAD_BACKOFF_S = (0, 0, 0)
+C.call = overloaded_probe
+try:
+    db.execute("INSERT OR REPLACE INTO ops_config (key, value) VALUES ('probe429', 'abc')")
+    db.commit()
+    rc, j, err = noop_run("noop-probe-429", "UPDATE ops_config SET value = replace(value, 'zzz', 'y') WHERE key = 'probe429';" + chr(10), "n12")
+finally:
+    C.call = real_call
+    M.D1_OVERLOAD_BACKOFF_S = real_backoff
+ok(rc == 0 and j.get("ok") and len(probe_calls) == 1 and "noop_updates" not in j, "an overloaded probe is tried once (no backoff ladder) and never blocks or fails the migration", (probe_calls, j))
 db.execute("DROP TABLE cloud_ops_events")
 db.commit()
 rc, j, err = noop_run("noop-no-events-table", "UPDATE ops_config SET value = 'x' WHERE key = 'still_no_such_key';\n".replace("\\n", "\n"), "n7")
