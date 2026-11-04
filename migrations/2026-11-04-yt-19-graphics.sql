@@ -1,0 +1,6 @@
+-- YT-GRAPHICS-ROADMAP-1 (2026-11-04, charter pillar reach, program QNFO.REACH). Owner: old Shorts must be upgraded to professional voice AND graphics; voice and script shipped in 0.5.0, graphics are still the Manim templates.
+-- code-task: repo=qnfo-workers path=qnfo-youtube-shorts/container/short_scene.py
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DELETE FROM roadmap_implementation WHERE source = 'yt-shorts-2026' AND item = 'YT-19';
+INSERT INTO roadmap_implementation (item, source, title, artifact_type, artifact_ref, status, evidence) SELECT 'YT-19', 'yt-shorts-2026', 'Professional motion graphics for Shorts: scene variety beyond five themes and eleven templates (kinetic type, animated diagrams drawn per idea, varied transitions, per-paper visual identity under the QNFO in plain language tag)', 'script', 'qnfo-youtube-shorts/container/short_scene.py', 'planned', 'owner 2026-11-04: graphics must be professional and not the same every time; voice and script done in 0.5.0, graphics unchanged; options surveyed in docs/YOUTUBE-PIPELINE.md (Remotion licence, HyperFrames Apache-2.0, Motion Canvas MIT)' WHERE NOT EXISTS (SELECT 1 FROM roadmap_implementation WHERE item = 'YT-19' AND source = 'yt-shorts-2026');

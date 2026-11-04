@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
+import { splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, upgradesFirst, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
 
 const article = {
   title: "Why scientists stop testing ideas", short: "Safe stories pay better than risky guesses.",
@@ -40,7 +40,7 @@ test("narration is capped so the Short stays under a minute", () => {
 test("sentences split for TTS", () => {
   assert.deepEqual(splitSentences("One. Two? Three!  Four"), ["One.", "Two?", "Three!", "Four"]);
 });
-test("weekly cap is 2", () => { assert.equal(capAllows(1), true); assert.equal(capAllows(2), false); });
+test("weekly cap is 28 (YT-CAP-1: 4 a day, inside the API quota)", () => { assert.equal(capAllows(27), true); assert.equal(capAllows(28), false); });
 test("newest paper without a row is chosen", () => {
   const rows = [{ slug: "a" }, { slug: "b" }, { slug: "c" }];
   assert.equal(nextCandidate(rows, ["a"]).slug, "b");
@@ -221,4 +221,10 @@ test("YT-17: the paper outsiders read goes first; unread papers keep newest-firs
   assert.deepEqual(out.map((r) => r.slug), ["old", "older", "mid", "new"]);
   assert.deepEqual(rankByInterest(rows, []).map((r) => r.slug), ["new", "mid", "old", "older"]);
   assert.deepEqual(rankByInterest(rows, null).map((r) => r.slug), ["new", "mid", "old", "older"]);
+});
+
+test("YT-UPGRADE-1: papers with an old-pipeline Short are re-made before new papers, order kept inside each group", () => {
+  const rows = [{ slug: "n1" }, { slug: "o1" }, { slug: "n2" }, { slug: "o2" }];
+  assert.deepEqual(upgradesFirst(rows, { o1: 1, o2: 1 }).map((r) => r.slug), ["o1", "o2", "n1", "n2"]);
+  assert.deepEqual(upgradesFirst(rows, {}).map((r) => r.slug), ["n1", "o1", "n2", "o2"]);
 });

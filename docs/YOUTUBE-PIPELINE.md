@@ -191,3 +191,10 @@ Changes (qnfo-youtube-shorts 0.5.0):
 Reach reality check: even a perfect Short on a channel with 2 subscribers starts with almost no audience. Improving the Short is necessary, not sufficient; the other levers
 (topic choice by what people search for, publishing the same vertical file to the other short-video surfaces, putting the Short on the paper page itself) are in the roadmap rows
 filed with this change.
+
+## Update 2026-11-04 (later): cap and upgrades (YT-CAP-1, YT-UPGRADE-1)
+Owner: "why is there a weekly cap ... new Shorts starting immediately and old Shorts automatically upgraded". The cap of 2 a week was a pacing guess to stay clear of the templated-content policy while the Shorts were poor; it was never a cost
+limit (about USD 0.10 a Short, month stop USD 45, Kokoro voice at no per-character cost; the render runs in the Cloudflare Container, the GitHub runner is only the fallback). It is now 28 a week (4 a day, inside the Data API quota of
+6 uploads a day at 1,600 units). Risk kept in view: YouTube reports channel-level action against mass-produced templated video; the variety rules in the director, the AI disclosure and the retention numbers (once the analytics consent is given) are the guard,
+and the cap is one constant. Upgrades: every Short made before 2026-11-04T21:07Z is re-made with the new voice and script ahead of new papers; its ledger row is kept as `<slug>@v1`. YouTube has no media replace and this grant has no delete scope, so the four old
+videos stay up until the owner deletes them in Studio. Graphics are still the Manim templates and five themes; a professional motion-graphics pass is YT-19.
