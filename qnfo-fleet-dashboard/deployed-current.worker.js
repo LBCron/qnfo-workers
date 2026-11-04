@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.83.3";
+var VERSION = "1.83.4";
+// 1.83.4 NOW-SPLIT-1 (pillar cost; patch): the Money card splits the monthly pace into what the fleet controls and the owner-stated subscription figure.
 // 1.83.3 (merge of PR 6935 onto main 1.83.0): keeps the 1.82.3 dashboard changes of this branch.
 // 1.83.1 (cont.) NOW-URGENT-1: the Now screen turns red only for cards that carry an IDENTITY-BOUND: line; owner-lane cards matched by a keyword alone are listed as optional.
 // 1.83.1 V3-CODE-STATUS-1 (pillar core; patch): the Code screen poll treats every status other than queued/running as final, so an executor status such as timeout or cancelled ends the run instead of polling for 25 minutes.
@@ -3642,7 +3643,7 @@ if(n.ok&&n.items&&n.items.length){o+='<div class="card"><h2>'+(n.count>0?'Needs 
 o+='<div class="card"><h2>Money this month<span class="'+(sp.ok&&sp.pace_vs_budget>1.1?'bad':'')+'">'+(sp.ok&&sp.pace_vs_budget!=null?Math.round(sp.pace_vs_budget*100)+'% of budget pace':'')+'</span></h2>'+sec(sp,'spend');
 if(sp.ok){var pct=sp.budget_month_usd?Math.min(100,Math.round(sp.month_to_date_usd/sp.budget_month_usd*100)):0,bt=sp.pace_vs_budget>1.1?'bad':sp.pace_vs_budget>0.9?'warn':'';
 o+='<div class="big">'+usd(sp.month_to_date_usd)+' <span style="font-size:18px;color:var(--mut)">of '+usd(sp.budget_month_usd)+'</span></div><div class="bar '+bt+'"><div style="width:'+pct+'%"></div></div>';
-o+='<div class="row"><span>Current pace, per month</span><span>'+usd(sp.pace_month_usd)+'</span></div><div class="row"><span>Workers AI per day</span><span>'+usd(sp.workers_ai_daily_usd)+'</span></div><div class="row"><span>External providers per day</span><span>'+usd(sp.external_daily_usd)+'</span></div>'}
+var own=sp.external_daily_usd!=null?sp.external_daily_usd*30:null,fleetOwn=own!=null&&sp.pace_month_usd!=null?sp.pace_month_usd-own:null;o+='<div class="row"><span>Pace at the current rate, per month</span><span>'+usd(sp.pace_month_usd)+'</span></div><div class="row"><span>of which the fleet itself (AI + Cloudflare)</span><span>'+usd(fleetOwn)+'</span></div><div class="row"><span>of which your own subscriptions (unverified figure)</span><span>'+usd(own)+'</span></div><p class="note">Only the fleet part can be cut by the system. The subscriptions part falls when you cancel plans the Code tab replaces.</p>'}
 o+='</div><div class="card"><h2>Is it running?<span class="'+cls(h.newest_heartbeat_age_s,900)+'">'+(h.ok?'last heartbeat '+ago(h.newest_heartbeat_age_s):'')+'</span></h2>'+sec(h,'health');
 if(h.ok){o+='<div class="row"><span>Workers reporting in the last 2 h</span><span>'+h.workers_reporting+' of '+h.workers_total+'</span></div>'+(h.stale_workers.length?'<div class="row"><span>Silent</span><span>'+esc(h.stale_workers.join(', '))+'</span></div>':'')+'<div class="row"><span>Metrics off target</span><span>'+h.metrics_off_target+' of '+h.metrics_total+'</span></div>'}
 $('s-now').innerHTML=o+'</div><p class="note">Updated '+ago(Math.round((Date.now()-Date.parse(d.generated_at))/1000))+' (server). Version '+esc(d.version)+(d.stale?' - showing a cached copy: every source failed on the last read.':'')+'</p>'}
