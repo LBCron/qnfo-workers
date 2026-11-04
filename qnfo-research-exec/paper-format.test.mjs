@@ -49,7 +49,7 @@ test("full public corpus repair converges, preserves versions/status and attribu
   assert.deepEqual({ ...state.lastSweep, at: null }, { rules: "PAPER-CANONICAL-1", at: null, checked: 3, repaired: 0, errors: 0, refused: 0 });
   assert.equal(living.prepare("SELECT COUNT(*) AS n FROM old_bodies").get().n, 3);
   const source = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
-  assert.match(source, /await paperFormatTick\(env\)/);
+  assert.match(source, /await paperFormatTick\(env, \{ startDelayMs: \d+ \}\)/);
 });
 
 test("failed repairs remain visible and are retried on the next sweep", async () => {
@@ -128,6 +128,41 @@ test("keywords and a DOI that only the header held go to the empty columns, the 
   assert.match(row.change_reason, /ORCID, ISNI, contact and dates stay in the ledger copy/);
   const again = await paperFormatTick({ LIVING_PAPER: d1(living), QNFO_AUDIT: d1(audit) }, { batch: 5 });
   assert.equal(again.repaired, 0);
+});
+
+test("a D1 overload on the state read, the page read or the write is waited out and the paper is still rewritten", async () => {
+  const living = new DatabaseSync(":memory:");
+  const audit = new DatabaseSync(":memory:");
+  living.exec(SCHEMA);
+  audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
+  living.prepare("INSERT INTO papers (slug,title,abstract,body_md,version,status) VALUES ('o','Over Paper',?,?,'1.0.0','published')").run(LONG, "---\ntitle: Over Paper\n---\n\n# Over Paper\n\n## Abstract\n\n" + LONG + "\n\n## 1. Intro\n\nBody.\n");
+  const overload = () => { throw new Error("D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window"); };
+  const left = { state: 2, rows: 1, select: 1, update: 1, write: 1 };
+  const a = d1(audit), l = d1(living);
+  const env = {
+    QNFO_AUDIT: { prepare(sql) {
+      const st = a.prepare(sql);
+      if (/SELECT value FROM ops_config/.test(sql) && left.state-- > 0) return { first: async () => overload() };
+      if (/INSERT INTO ops_config/.test(sql) && left.write-- > 0) return { bind: () => ({ run: async () => overload() }) };
+      return st;
+    } },
+    LIVING_PAPER: { prepare(sql) {
+      const st = l.prepare(sql);
+      if (/^SELECT slug FROM papers/.test(sql) && left.rows-- > 0) return { bind: () => ({ all: async () => overload() }) };
+      if (/^SELECT slug,identifier/.test(sql) && left.select-- > 0) return { bind: () => ({ first: async () => overload() }) };
+      if (/^UPDATE papers SET body_md/.test(sql) && left.update-- > 0) return { bind: () => ({ run: async () => overload() }) };
+      return st;
+    } }
+  };
+  const r = await paperFormatTick(env, { batch: 5, retryWaitMs: 1 });
+  assert.equal(r.errors.length, 0);
+  assert.equal(r.repaired, 1);
+  assert.equal(r.retried, 6, "every refused attempt was retried");
+  assert.match(living.prepare("SELECT body_md FROM papers WHERE slug='o'").get().body_md, /^# Over Paper\n\n## Abstract/);
+  assert.equal(JSON.parse(audit.prepare("SELECT value FROM ops_config").get().value).lastSweep.rules, "PAPER-CANONICAL-1");
+  // an overload that does not clear ends the tick with the error, which the scheduled call logs and prints
+  const dead = { QNFO_AUDIT: { prepare: () => ({ first: async () => overload() }) }, LIVING_PAPER: l };
+  await assert.rejects(paperFormatTick(dead, { retryWaitMs: 1 }), /overloaded/);
 });
 
 test("a failed mirror write is kept and retried first thing on the next tick", async () => {
