@@ -94,6 +94,18 @@ jobs:
       - name: Local journeys on main
         if: github.event_name != 'pull_request' && steps.due.outputs.run == '1'
         run: node scripts/ux-journeys/run.mjs --mode local --out ci-status/ux-journeys-local.json --shots /tmp/shots --no-fail
+      # BP26-AXE-1 (trigger 14494 a11y_violations_serious): the real axe-core reading of the public hosts. The static pass in bp26_web.py cannot certify zero, so a
+      # fixed defect never cleared; this step has the browser and axe-core already installed above and writes the metric through the BP26 producer framework.
+      - name: BP26 axe-core on the public hosts (a11y_violations_serious)
+        if: github.event_name != 'pull_request' && steps.due.outputs.run == '1'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BP26_AXE_JSON: /tmp/bp26-axe.json
+        run: |
+          node scripts/bp26_axe.mjs --out "$BP26_AXE_JSON"
+          python3 scripts/bp26_producers.py --only axe_a11y --force
       - name: File and close agent_issues
         if: github.event_name != 'pull_request' && steps.due.outputs.run == '1'
         env:
