@@ -147,6 +147,16 @@ const REAL = [
 }
 
 {
+  // NOOP-SQL-LITERAL-1 (#1001468): a widened IN list in a long SELECT is a condition change even when the literal reads like words.
+  const LONG = SQL_LINE;
+  const { env, calls } = envWith([block(LONG, LONG.replace("status='queued'", "status='queued' AND label IN ('active holding monitoring probed due now')"))]);
+  await addTask(env, "Widen the status filter in the remediation contracts tick so monitoring contracts are probed.", LONG);
+  await tick(env);
+  const t = row(env);
+  ok(t.status === "ready_to_publish" && calls.length === 1 && events(env, "code-task.noop-refused").length === 0, "D6 a widened IN list in a long SQL literal is a real change", { st: t.status, err: t.last_error });
+}
+
+{
   // self-repair.test.mjs's own landing: a SQL cutoff the goal quotes verbatim is inserted inside a string. Code-like, so it passes.
   const CUT = " AND f.created_at >= '2026-10-03T00:00:00Z'";
   const { env, calls } = envWith([block(SQL_LINE, SQL_LINE.replace("status='queued'", "status='queued'" + CUT))]);
