@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.16-codeagent";
+var VERSION = "2.62.17-codeagent";
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -3564,8 +3564,30 @@ async function webSearchTool(env, args) {
       results.push({ title: stripHtml(m[2]), url: href, snippet: stripHtml(m[3]).slice(0, 300) });
       guard++;
     }
-    if (!results.length) return { ok: true, results: [], note: "no results parsed (DDG may have rate-limited or changed markup)" };
-    return { ok: true, results };
+    let pathUsed = "primary";
+    if (!results.length) {
+      pathUsed = "fallback";
+      let fr = null;
+      try {
+        fr = await fetch("https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(q), { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36" }, redirect: "follow" });
+      } catch (fe) {
+        return { ok: false, error: "search fallback fetch failed: " + (fe && fe.message || String(fe)), path: "fallback" };
+      }
+      if (!fr.ok) return { ok: false, error: "search fallback HTTP " + fr.status, path: "fallback" };
+      const lite = await fr.text();
+      const lre = /<a\b[^>]*?href=(["'])([^"']*uddg=[^"']*)\1[^>]*>([\s\S]*?)<\/a>/g;
+      let lm;
+      let lguard = 0;
+      while ((lm = lre.exec(lite)) && lguard < k) {
+        const lraw = lm[2] || "";
+        const lhref = lraw.indexOf("uddg=") >= 0 ? decodeURIComponent(lraw.split("uddg=")[1].split("&")[0]) : lraw;
+        results.push({ title: stripHtml(lm[3]), url: lhref, snippet: "" });
+        lguard++;
+      }
+      if (!results.length) return { ok: false, error: "no results parsed (fallback)", path: "fallback" };
+      return { ok: true, results, path: pathUsed };
+    }
+    return { ok: true, results, path: pathUsed };
   } catch (e) {
     return { ok: false, error: "search failed: " + (e && e.message || String(e)) };
   }

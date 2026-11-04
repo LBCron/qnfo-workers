@@ -97,21 +97,38 @@ r = await tools.githubIssueComment(env, { owner: "QNFO", repo: "qnfo-workers", n
 ok(r.ok === false && /body required/.test(r.error), "a comment with no body is still an argument error", r);
 ok([...src.matchAll(/const repo = fpaRepoArg\(args\);/g)].length === 3, "exactly the three issue tools resolve the repo with fpaRepoArg", [...src.matchAll(/const repo = fpaRepoArg\(args\);/g)].length);
 
-// ---- web_search (1000443)
-responder = () => new Response("<html></html>", { status: 200 });
+// ---- web_search (1000443; bounded lite fallback 1000810)
+const litePage = (n) => new Response('<html><body><a href="/lite/?q=x">nav</a>' + Array.from({ length: n }, (_, i) => (i % 2 ? "<a class='result-link' href='/lite/?uddg=https%3A%2F%2Fexample.com%2F" + i + "'>" : '<a href="https://lite.duckduckgo.com/lite/?uddg=https%3A%2F%2Fexample.com%2F' + i + '" class="result-link">') + "Example " + i + "</a>").join("") + "</body></html>", { status: 200 });
+const isLite = (u) => /lite\.duckduckgo\.com\/lite\//.test(u);
+responder = (u) => isLite(u) ? litePage(2) : new Response("<html></html>", { status: 200 });
 calls = [];
 r = await tools.webSearchTool(env, { query: "roster_capabilities_single_executor qnfo-workers" });
-ok(r.ok === true && calls.length === 1 && calls[0].endsWith(encodeURIComponent("roster_capabilities_single_executor qnfo-workers")), "web_search accepts query as an alias of q", { r, calls });
+ok(r.ok === true && r.path === "fallback" && calls.length === 2 && calls[0].endsWith(encodeURIComponent("roster_capabilities_single_executor qnfo-workers")) && calls[1].endsWith("lite/?q=" + encodeURIComponent("roster_capabilities_single_executor qnfo-workers")), "web_search accepts query as an alias of q and falls back to lite.duckduckgo.com on an empty primary", { r, calls });
+ok(r.ok === true && r.results.length === 2 && r.results[0].url === "https://example.com/0" && r.results[0].title === "Example 0" && r.results[0].snippet === "" && r.results.every((x) => /example\.com/.test(x.url)), "the fallback parses result-link anchors in either attribute order and either quote style, decodes uddg, never returns nav links, and uses an empty snippet", r);
 calls = [];
 r = await tools.webSearchTool(env, { q: "x" });
-ok(r.ok === true && calls[0].endsWith("?q=x"), "q still works", { r, calls });
+ok(r.ok === true && r.path === "fallback" && calls[0].endsWith("?q=x") && calls[1].endsWith("lite/?q=x"), "q still works", { r, calls });
 r = await tools.webSearchTool(env, { q: "first", query: "second" });
-ok(calls[calls.length - 1].endsWith("?q=first"), "q wins when both are given");
+ok(calls[calls.length - 1].endsWith("lite/?q=first"), "q wins when both are given");
 calls = [];
 r = await tools.webSearchTool(env, {});
 ok(r.ok === false && r.error === "q required" && calls.length === 0, "no q and no query keeps the error and makes no request", r);
 r = await tools.webSearchTool(env, { query: "   " });
 ok(r.ok === false && r.error === "q required", "a blank query is still an error", r);
+responder = () => new Response("<html></html>", { status: 200 });
+calls = [];
+r = await tools.webSearchTool(env, { q: "both-empty" });
+ok(r.ok === false && r.path === "fallback" && /no results parsed/.test(r.error) && calls.length === 2, "both parsers empty is an explicit error on the fallback path, never a successful empty result", { r, calls });
+responder = (u) => isLite(u) ? new Response("nope", { status: 503 }) : new Response("<html></html>", { status: 200 });
+r = await tools.webSearchTool(env, { q: "y" });
+ok(r.ok === false && r.path === "fallback" && /fallback HTTP 503/.test(r.error), "a failed fallback fetch is an explicit error on the fallback path", r);
+responder = (u) => isLite(u) ? litePage(20) : new Response("<html></html>", { status: 200 });
+r = await tools.webSearchTool(env, { q: "z" });
+ok(r.ok === true && r.results.length === 5, "the fallback is bounded by k", r);
+responder = () => new Response('<a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fa.example%2F">T</a><a class="result__snippet" href="x">S</a>', { status: 200 });
+calls = [];
+r = await tools.webSearchTool(env, { q: "p" });
+ok(r.ok === true && r.path === "primary" && calls.length === 1 && r.results.length === 1 && r.results[0].url === "https://a.example/", "a primary hit is unchanged and reports path primary with no fallback call", { r, calls });
 
 // ---- logToolEvent (1000394)
 const rows = [];
