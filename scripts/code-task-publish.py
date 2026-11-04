@@ -107,6 +107,22 @@ class MissingTable(RuntimeError):
     i.e. there is nothing to publish; every other D1 failure stays a hard error."""
 
 
+D1_429_BACKOFF_S = (5, 10, 20, 30, 45)
+
+
+def _urlopen_429(req, timeout):
+    """D1-429-RETRY-1: 'D1 DB is overloaded ... 10 second window' (HTTP 429) rejects the statement, so retrying is safe even
+    for the claim compare-and-set; run 41853819173 died on it with 'code-task-publish could not run'."""
+    for wait in D1_429_BACKOFF_S + (None,):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or wait is None:
+                raise
+            print(f"[publish] D1 429 overloaded; retrying in {wait}s", flush=True)
+            time.sleep(wait)
+
+
 class D1Store:
     """Cloudflare D1 over the REST API, same secrets the fleet workflows use (CF_ACCOUNT_ID, CLOUDFLARE_API_TOKEN)."""
 
@@ -125,7 +141,7 @@ class D1Store:
         try:
             for i in range(attempts):
                 try:
-                    with urllib.request.urlopen(req, timeout=D1_TIMEOUT_S) as r:
+                    with _urlopen_429(req, D1_TIMEOUT_S) as r:
                         d = json.load(r)
                     break
                 except (TimeoutError, urllib.error.URLError) as e:
