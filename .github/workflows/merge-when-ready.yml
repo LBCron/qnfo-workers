@@ -9,6 +9,9 @@ name: merge-when-ready
 # QNFO_GH_PAT does the merge because a push made with the workflow token starts no workflow, and canonical-deploy.yml listens to pushes on main.
 # PULL_REQUEST_TARGET AND WORKFLOW_RUN WITH A SECRET ARE SAFE HERE: both run the definition from main, nothing is checked out, and the only value used from the event is the pull
 # request number, an integer, handed over through env. Style: step names colon-free, no heredocs, no inline python, inputs travel through env (workflow-lint.py).
+# LANE-ADVISORY-JOBS-1 (2026-11-04, pillar autonomy): the lane's own jobs (poke, review, lifecycle: "poke / poke", "review / request", "lifecycle / sweep") are advisory and no longer count as
+# checks here. lane-poke runs in one repository-wide concurrency group (cancel-in-progress false: one running, one waiting), and GitHub marks every waiting run that a newer one replaces as
+# cancelled; that cancelled check sat on the pull request head for ever and counted as failed below, so a green pull request (PR 7053, 7057, 2026-11-04) could not merge until another push.
 # Revert: delete this file. The lane keeps merging as before.
 
 on:
@@ -50,7 +53,7 @@ jobs:
             echo "a HOLD comment is on the pull request"
             exit 0
           fi
-          runs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --jq '[.check_runs[] | select((.name | test("^(gate|analyze|Workers Builds|sweep)")) | not) | {name, status, conclusion}]')"
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --jq '[.check_runs[] | select((.name | test("^(gate|analyze|Workers Builds|sweep|(poke|review|lifecycle) / )")) | not) | {name, status, conclusion}]')"
           total="$(printf '%s' "$runs" | jq 'length')"
           pending="$(printf '%s' "$runs" | jq '[.[] | select(.status != "completed")] | length')"
           bad="$(printf '%s' "$runs" | jq '[.[] | select(.status == "completed" and (.conclusion | IN("success", "skipped", "neutral") | not))] | length')"
