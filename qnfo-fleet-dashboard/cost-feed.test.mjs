@@ -17,6 +17,8 @@ function mk(withCounters) {
   CREATE TABLE metric_registry (metric TEXT PRIMARY KEY, last_value TEXT, last_refreshed TEXT, target TEXT);
   INSERT INTO metric_registry VALUES ('research_neurons_per_publication_7d', '15000', '2026-10-21', '<= 20000');
   CREATE VIEW v_cost_forecast AS SELECT 'fleet' AS scope, 100.0 AS mtd_complete_usd, 2.0 AS today_partial_usd, 6.0 AS daily_3d, 7.0 AS daily_7d, 180.0 AS pace_30d_usd, 166.0 AS forecast_month_usd, 31 AS days_in_month, 20 AS complete_days, 300 AS budget_month_usd, 'measured' AS basis;
+  CREATE VIEW v_cost_all_in AS SELECT 140.5 AS mtd_usd, 1290.4 AS forecast_month_usd, 300.0 AS budget_month_usd, 200.0 AS budget_floor_month_usd, 64.9 AS measured_share_pct, 100.0 AS fleet_measured_share_pct, 450.0 AS owner_stated_usd, NULL AS last_usage_at;
+  CREATE VIEW v_cost_lines_month AS SELECT 'cloudflare' AS vendor, 'workers_ai' AS product, 'meter' AS evidence, 100.0 AS mtd_usd, 796.0 AS forecast_month_usd, 26.0 AS rate_daily_usd;
   CREATE TABLE fleet_budget (node_class TEXT PRIMARY KEY, cap INTEGER NOT NULL, target INTEGER NOT NULL, current INTEGER NOT NULL, unit TEXT NOT NULL, updated_at TEXT NOT NULL);
   INSERT INTO fleet_budget VALUES ('ai_spend:fleet', 95, 75, 121, 'usd_30d', '2026-10-19'), ('ai_spend:ops', 20, 10, 5, 'usd_30d', '2026-10-19'), ('workers', 40, 30, 33, 'count', '2026-10-19');`);
   db.exec("INSERT INTO cost_daily VALUES (date('now','-1 day'), 'workers_ai', 1.25), (date('now','-1 day'), 'ai_gateway:openrouter', 0.5), (date('now','-1 day'), 'r2', 9), (date('now','-30 days'), 'workers_ai', 7)");

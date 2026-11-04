@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.89.0";
+var VERSION = "1.90.0";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -3615,7 +3615,14 @@ async function v3Spend(env) {
     forecast_month_usd: c.fleet_forecast_bounded_month_usd, pace_month_usd: c.fleet_pace_30d_usd,
     daily_usd: daily, workers_ai_daily_usd: row("workers_ai"), external_daily_usd: row("direct_providers_external:daily"), plan_daily_usd: row("cloudflare_plan:daily"),
     pace_vs_budget: daily != null && c.fleet_budget_month_usd ? Math.round(daily * 30 / c.fleet_budget_month_usd * 100) / 100 : null,
-    data_age_s: v3Age(((c.budgets || []).filter(function(x) { return x.node_class === "cost:fleet_all_in_month"; })[0] || {}).updated_at)
+    data_age_s: v3Age(((c.budgets || []).filter(function(x) { return x.node_class === "cost:fleet_all_in_month"; })[0] || {}).updated_at),
+    // COST-LEDGER-ALLVENDOR-1: month to date, forecast, budget band, the largest three lines and how much of it is read from a vendor meter or invoice.
+    all_in: c.all_in && c.all_in.forecast_month_usd != null ? {
+      mtd_usd: c.all_in.mtd_usd, forecast_month_usd: c.all_in.forecast_month_usd, budget_month_usd: c.all_in.budget_month_usd, budget_floor_month_usd: c.all_in.budget_floor_month_usd,
+      measured_share_pct: c.all_in.measured_share_pct, fleet_measured_share_pct: c.all_in.fleet_measured_share_pct, owner_stated_usd: c.all_in.owner_stated_usd,
+      top3: (c.all_in_lines || []).slice(0, 3).map(function(l) { return { line: l.vendor + " " + String(l.product).replace(/_/g, " "), usd: l.forecast_month_usd, evidence: l.evidence }; }),
+      data_age_s: v3Age(c.all_in.last_usage_at)
+    } : null
   };
 }
 async function v3Health(env) {
@@ -3854,7 +3861,9 @@ var wk=d.work||{};o+='<div class="card"><h2>Your four numbers</h2><div class="ro
 if(n.ok&&n.items&&n.items.length){o+='<div class="card"><h2>'+(n.count>0?'Needs you':'Optional, not urgent')+'</h2>';n.items.forEach(function(it){o+='<div class="need"><b>'+esc(it.title)+'</b>'+(it.why?'<small>'+esc(it.why)+'</small>':'<small>Sign in to see the detail.</small>')+(!it.key?'<small>Sign in on the Code tab to act on this.</small><div hidden>':'')+'<button data-k="'+esc(it.key)+'" data-h="1" class="pri">Fleet: you do it</button> <button data-k="'+esc(it.key)+'" data-a="snooze">Snooze 7 days</button> <button data-k="'+esc(it.key)+'" data-h="verify">I did it</button> <button data-k="'+esc(it.key)+'" data-a="snooze90">Not needed</button>'+(!it.key?'</div>':'')+'</div>'});o+='</div>'}
 o+='<div class="card"><h2>Money this month<span class="'+(sp.ok&&sp.pace_vs_budget>1.1?'bad':sp.ok?cls(sp.data_age_s,10800):'')+'">'+(sp.ok&&sp.pace_vs_budget!=null?Math.round(sp.pace_vs_budget*100)+'% of budget pace, ':'')+(sp.ok?'updated '+ago(sp.data_age_s):'')+'</span></h2>'+sec(sp,'spend');
 if(sp.ok){var pct=sp.budget_month_usd?Math.min(100,Math.round(sp.month_to_date_usd/sp.budget_month_usd*100)):0,bt=sp.pace_vs_budget>1.1?'bad':sp.pace_vs_budget>0.9?'warn':'';
-o+='<div class="big">'+usd(sp.month_to_date_usd)+' <span style="font-size:18px;color:var(--mut)">of '+usd(sp.budget_month_usd)+'</span></div><div class="bar '+bt+'"><div style="width:'+pct+'%"></div></div>';
+var ai=sp.all_in;if(ai&&ai.budget_month_usd){pct=Math.min(100,Math.round(ai.mtd_usd/ai.budget_month_usd*100));bt=ai.forecast_month_usd>ai.budget_month_usd*1.1?'bad':ai.forecast_month_usd>ai.budget_month_usd*0.9?'warn':''}
+o+='<div class="big">'+usd(ai?ai.mtd_usd:sp.month_to_date_usd)+' <span style="font-size:18px;color:var(--mut)">of '+usd(ai?ai.budget_month_usd:sp.budget_month_usd)+(ai?' all-in so far':'')+'</span></div><div class="bar '+bt+'"><div style="width:'+pct+'%"></div></div>';
+if(ai){o+='<div class="row"><span>All vendors, forecast for the month (target '+usd(ai.budget_floor_month_usd)+' to '+usd(ai.budget_month_usd)+')</span><span>'+usd(ai.forecast_month_usd)+'</span></div><div class="row"><span>Largest three lines</span><span>'+(ai.top3||[]).map(function(t){return esc(t.line)+' '+usd(t.usd)+(t.evidence==='owner-stated'?' (stated)':'')}).join(', ')+'</span></div><div class="row"><span>Read from a vendor meter or invoice</span><span>'+Math.round(ai.measured_share_pct||0)+'% of the total, '+Math.round(ai.fleet_measured_share_pct||0)+'% of the fleet part</span></div>'}
 var own=sp.external_daily_usd!=null?sp.external_daily_usd*30:null;o+='<div class="row"><span>Fleet (AI + Cloudflare) at the current rate, per month</span><span>'+usd(sp.pace_month_usd)+'</span></div><div class="row"><span>Your own subscriptions (figure you gave, unverified)</span><span>'+usd(own)+'</span></div><div class="row"><span>Both together</span><span>'+(sp.pace_month_usd!=null&&own!=null?usd(sp.pace_month_usd+own):'n/a')+'</span></div><p class="note">The budget compares with the fleet line. Only the fleet part can be cut by the system; the subscriptions fall when you cancel plans the Code tab replaces.</p>'}
 o+='</div><div class="card"><h2>Is it running?<span class="'+cls(h.newest_heartbeat_age_s,900)+'">'+(h.ok?'last heartbeat '+ago(h.newest_heartbeat_age_s):'')+'</span></h2>'+sec(h,'health');
 if(h.ok){o+='<div class="row"><span>Workers reporting in the last 2 h</span><span>'+h.workers_reporting+' of '+h.workers_total+'</span></div>'+(h.stale_workers.length?'<div class="row"><span>Silent</span><span>'+esc(h.stale_workers.join(', '))+'</span></div>':'')+'<div class="row"><span>Command line, last run</span><span>'+(h.cmd_last_status?esc(h.cmd_last_status)+', '+ago(h.cmd_last_age_s):'never run: sign in on the Code tab')+'</span></div>'}
@@ -7073,7 +7082,10 @@ var COST_FEED_SQL = {
   daily_14d: "SELECT date, ROUND(SUM(usd), 4) AS usd FROM cost_daily WHERE date >= date('now', '-14 days') AND (source = 'workers_ai' OR instr(source, 'ai_gateway:') = 1 OR instr(source, ':daily') > 0) GROUP BY date ORDER BY date",
   by_model_7d: "SELECT model, SUM(calls) AS calls, SUM(errors) AS errors, SUM(in_tok) AS in_tok, SUM(out_tok) AS out_tok, ROUND(SUM(neurons)) AS neurons, ROUND(SUM(neurons) * " + COST_USD_PER_KNEURON + " / 1000, 4) AS est_usd FROM ai_call_counters WHERE " + COST_WINDOW_SQL + " GROUP BY model ORDER BY SUM(neurons) DESC, SUM(calls) DESC LIMIT 20",
   by_worker_7d: "SELECT worker, SUM(calls) AS calls, SUM(errors) AS errors, ROUND(SUM(neurons)) AS neurons, ROUND(SUM(neurons) * " + COST_USD_PER_KNEURON + " / 1000, 4) AS est_usd, MIN(day) AS first_day, MAX(day) AS last_day FROM ai_call_counters WHERE " + COST_WINDOW_SQL + " GROUP BY worker ORDER BY SUM(neurons) DESC, SUM(calls) DESC LIMIT 20",
-  budgets: "SELECT node_class, cap, target, current, unit, updated_at, CASE WHEN current > cap THEN 1 ELSE 0 END AS breached, cap - current AS headroom FROM fleet_budget WHERE node_class LIKE 'ai_spend:%' OR node_class LIKE '%cost%' OR lower(unit) LIKE '%usd%' ORDER BY breached DESC, node_class"
+  budgets: "SELECT node_class, cap, target, current, unit, updated_at, CASE WHEN current > cap THEN 1 ELSE 0 END AS breached, cap - current AS headroom FROM fleet_budget WHERE node_class LIKE 'ai_spend:%' OR node_class LIKE '%cost%' OR lower(unit) LIKE '%usd%' ORDER BY breached DESC, node_class",
+  // COST-LEDGER-ALLVENDOR-1: the one all-in total (every vendor, an evidence flag per line) and its lines, written hourly by qnfo-infra and qnfo-github-steward.
+  all_in: "SELECT * FROM v_cost_all_in",
+  all_in_lines: "SELECT vendor, product, evidence, mtd_usd, forecast_month_usd, rate_daily_usd FROM v_cost_lines_month ORDER BY forecast_month_usd DESC LIMIT 12"
 };
 async function costFeedData(env) {
   const out = { schema_version: "fleet-cost/v1", usd_per_1000_neurons: COST_USD_PER_KNEURON };
@@ -7090,6 +7102,12 @@ async function costFeedData(env) {
   out.fleet_bound_30d_usd = fl && fl.bound_30d_usd != null ? fl.bound_30d_usd : null;
   out.fleet_month_to_date_usd = fl ? fl.mtd_complete_usd : null;
   out.fleet_budget_month_usd = 300;
+  // COST-LEDGER-ALLVENDOR-1: all_in is one row of v_cost_all_in (null until the ledger migration has applied or when the view cannot be read).
+  const ai = (out.all_in || [])[0] || null;
+  out.all_in = ai;
+  out.all_in_mtd_usd = ai ? ai.mtd_usd : null;
+  out.all_in_forecast_month_usd = ai ? ai.forecast_month_usd : null;
+  out.all_in_measured_share_pct = ai ? ai.measured_share_pct : null;
   out.budgets_breached = (out.budgets || []).filter(function(b) { return Number(b.breached) === 1; }).length;
   // The window is read from the rows, never from intent; all null when the counters were unreadable or empty.
   const wd = (out.by_worker_7d || []).filter(function(r) { return r.first_day && r.last_day; });

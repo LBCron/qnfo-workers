@@ -106,7 +106,7 @@ function infraManifestRoute(url, env) {
 }
 __name(infraManifestRoute, "infraManifestRoute");
 __name2(infraManifestRoute, "infraManifestRoute");
-var VERSION = "1.10.4-ai-gateway-cost"; /* 1.10.3 QNFO.OPS #1 (issue 1000696): route deterministic infra embeddings through the existing AI Gateway with a one-day per-request cache; non-critical calls use their existing cheaper ladder rung, while critical retrieval preserves its model. */ /* 1.10.2 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work collection omits identifiers on the retired prefix; generic paper collection remains unchanged. */ /* 1.9.2 HANDOFFS-VZ-CATCHUP-1 (2026-10-26, pillar autonomy, agent_issues 1000176; patch): the producer indexed 100 handoffs an hour, and 707 handoffs older than 90 minutes were still unindexed on 2026-10-26 (the issue asks for the backlog within 24 hours and a new handoff within 60 minutes), so a fire takes 300 rows while more than one normal batch waits, and the normal 100 when the previous run left a FAILED note, so a batch that cannot finish inside the 120 second timeout cannot repeat itself for ever. prior 1.9.1-codeagent */ /* 1.9.0-handoffs-index HANDOFFS-VZ-PRODUCER-1 (2026-10-26, pillar autonomy, agent_issues 1000176): the handoffs vector index had no working producer. PR 4230 added one inside the 06:30 indexer member that selected handoffs.content, a column the table does not have (summary, pending_work, next_action are the text), so it threw into a catch and logged every night while semantic handoff search stayed frozen at 2026-07. The block is removed; indexHandoffs() runs on every hourly fire, reads the real columns, embeds in chunks of 1000 characters with the model the readers query with, upserts ids handoff:<id>:<chunk> with metadata {doc, id, session_id, ts, summary}, and moves the ops_config watermark handoffs_vz_last_id only after the upsert succeeded (100 handoffs per run, so the 1,706-row backfill is done in about 18 hours and a new handoff is indexed within the hour). A handoff of the personal plane (project, WBS or session label: personal, q08, twin, msgraph, owner-, email-strategic-) is skipped and the watermark moves past it, because scope=research retrieval reads this index (51 of 1,706 rows on 2026-10-26); a failure or a call stalled for 120 s is written to the watermark row's note and the state refresh still runs. */ /* 1.8.5-codeagent */ /* 1.8.3-analytics-untruncated MCP-ANALYTICS-TRUNCATION-1 (2026-10-25, pillar honest-measure): /analytics read aiInferenceAdaptiveGroups with limit 100 over {date, modelId}; the real group set is 437, so Workers AI usage under-reported 7.7x (3,438,429 neurons / $37.8 vs 26,345,487 / $286.5). Total now from a dimension-free aggregate, breakdown from {modelId}, with shown/groups/truncated and the 10k/day free-tier deduction so it matches cost_daily. */ /* 1.8.2-mcp-state-full-lists MCP-STATE-TRUNCATION-1 (2026-10-25, pillar honest-measure): /state returned count=35 with only 30 worker names and count=11 with only 10 D1 rows, so a caller could not tell that five workers and qnfo-audit were omitted -- a silent false census. The list caps are now 60 workers / 25 D1 and both carry shown + truncated, so an omission is visible instead of inferred. */ /* 1.8.1-null-doi-cursor CITATION-PAGINATION-NULL-CURSOR-1 (2026-10-25, pillar reach): stable DOI pagination now traverses legacy rows with NULL created_at using slug-only cursors; the offline test covers 217 records, including the null-timestamp boundary across five pages. */ /* 1.8.0-all-doi-impact CITATION-TRACKING-ALL-DOIS-1 (2026-10-25, pillar reach): the daily impact run queried only the newest 50 (at most 100) DOIs; stable keyset pagination now collects the entire third-party DOI set without changing the cron grid. qnfo-infra/impact.test.mjs covers 217 records across five pages. */ /* 1.7.0-no-registrar NO-REGISTRAR-1 (2026-10-21): the registrar is not named; dead DOIs are recognised by the 10.5281 prefix only */ // 1.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly :30 trigger. The 06:30 run (indexer member + state refresh) and the 18:00 refresh keep their slots on it and are retried hourly, at most 3 times, while their last good run is over 24.5 h old; every other hour runs the state refresh (it ran twice a day). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.5.1 WORKERS-BP-LOGGING-qnfo-infra-1 (2026-10-14, agent_issues 2534, child of 2342, pillar autonomy): the 3 swallowed catches in handleWebhook log as a structured console.error (worker, where, error); control flow unchanged. // 1.5.0 CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, pillar autonomy): scheduled() upserts its fleet_heartbeat row after the run, ok=0 when the work threw. // 1.4.0 SOURCE-VOICE-1 (agent_issues 2468, owner directive 2026-10-13 "Papers shall cite full texts, not merely reference work summaries"; pillar research): a PAPER_VZ hit in /context carries the passage of the paper's body that matched (the indexer's own chunk, from metadata.chunk), after the abstract when one is stored; it was title + status + abstract.slice(0, 220), so a paper with no abstract (269 of 575 published on 2026-10-13) reached qnfo-ai's retrieved context as its title alone. renderContext gives a paper hit up to 1300 characters (300 before). isDeadPrefixDoi was defined only inside the folded indexer member, so the /context enrichment and metaLine threw a ReferenceError on every paper hit and returned "slug <x> (enrich error)"; it is now defined at module scope too. // 1.3.4 WORKERS-STANDARDS-1 (2026-10-12, pillar security): the indexer member compares X-Index-Token in constant time (same accepted value). // 1.3.1 INDEXER-FOLD-1 (#1756): qnfo-paper-indexer runs here as a member (its two jobs on this worker's existing 06:30 trigger, no cron added; /indexer/* read routes).
+var VERSION = "1.11.0-cost-ledger"; /* 1.11.0 COST-LEDGER-ALLVENDOR-1 (pillar cost): hourly all-product Cloudflare cost ledger, usage meters priced into cost_usage_daily and cost_vendor_month. */ /* 1.10.3 QNFO.OPS #1 (issue 1000696): route deterministic infra embeddings through the existing AI Gateway with a one-day per-request cache; non-critical calls use their existing cheaper ladder rung, while critical retrieval preserves its model. */ /* 1.10.2 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work collection omits identifiers on the retired prefix; generic paper collection remains unchanged. */ /* 1.9.2 HANDOFFS-VZ-CATCHUP-1 (2026-10-26, pillar autonomy, agent_issues 1000176; patch): the producer indexed 100 handoffs an hour, and 707 handoffs older than 90 minutes were still unindexed on 2026-10-26 (the issue asks for the backlog within 24 hours and a new handoff within 60 minutes), so a fire takes 300 rows while more than one normal batch waits, and the normal 100 when the previous run left a FAILED note, so a batch that cannot finish inside the 120 second timeout cannot repeat itself for ever. prior 1.9.1-codeagent */ /* 1.9.0-handoffs-index HANDOFFS-VZ-PRODUCER-1 (2026-10-26, pillar autonomy, agent_issues 1000176): the handoffs vector index had no working producer. PR 4230 added one inside the 06:30 indexer member that selected handoffs.content, a column the table does not have (summary, pending_work, next_action are the text), so it threw into a catch and logged every night while semantic handoff search stayed frozen at 2026-07. The block is removed; indexHandoffs() runs on every hourly fire, reads the real columns, embeds in chunks of 1000 characters with the model the readers query with, upserts ids handoff:<id>:<chunk> with metadata {doc, id, session_id, ts, summary}, and moves the ops_config watermark handoffs_vz_last_id only after the upsert succeeded (100 handoffs per run, so the 1,706-row backfill is done in about 18 hours and a new handoff is indexed within the hour). A handoff of the personal plane (project, WBS or session label: personal, q08, twin, msgraph, owner-, email-strategic-) is skipped and the watermark moves past it, because scope=research retrieval reads this index (51 of 1,706 rows on 2026-10-26); a failure or a call stalled for 120 s is written to the watermark row's note and the state refresh still runs. */ /* 1.8.5-codeagent */ /* 1.8.3-analytics-untruncated MCP-ANALYTICS-TRUNCATION-1 (2026-10-25, pillar honest-measure): /analytics read aiInferenceAdaptiveGroups with limit 100 over {date, modelId}; the real group set is 437, so Workers AI usage under-reported 7.7x (3,438,429 neurons / $37.8 vs 26,345,487 / $286.5). Total now from a dimension-free aggregate, breakdown from {modelId}, with shown/groups/truncated and the 10k/day free-tier deduction so it matches cost_daily. */ /* 1.8.2-mcp-state-full-lists MCP-STATE-TRUNCATION-1 (2026-10-25, pillar honest-measure): /state returned count=35 with only 30 worker names and count=11 with only 10 D1 rows, so a caller could not tell that five workers and qnfo-audit were omitted -- a silent false census. The list caps are now 60 workers / 25 D1 and both carry shown + truncated, so an omission is visible instead of inferred. */ /* 1.8.1-null-doi-cursor CITATION-PAGINATION-NULL-CURSOR-1 (2026-10-25, pillar reach): stable DOI pagination now traverses legacy rows with NULL created_at using slug-only cursors; the offline test covers 217 records, including the null-timestamp boundary across five pages. */ /* 1.8.0-all-doi-impact CITATION-TRACKING-ALL-DOIS-1 (2026-10-25, pillar reach): the daily impact run queried only the newest 50 (at most 100) DOIs; stable keyset pagination now collects the entire third-party DOI set without changing the cron grid. qnfo-infra/impact.test.mjs covers 217 records across five pages. */ /* 1.7.0-no-registrar NO-REGISTRAR-1 (2026-10-21): the registrar is not named; dead DOIs are recognised by the 10.5281 prefix only */ // 1.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly :30 trigger. The 06:30 run (indexer member + state refresh) and the 18:00 refresh keep their slots on it and are retried hourly, at most 3 times, while their last good run is over 24.5 h old; every other hour runs the state refresh (it ran twice a day). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.5.1 WORKERS-BP-LOGGING-qnfo-infra-1 (2026-10-14, agent_issues 2534, child of 2342, pillar autonomy): the 3 swallowed catches in handleWebhook log as a structured console.error (worker, where, error); control flow unchanged. // 1.5.0 CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, pillar autonomy): scheduled() upserts its fleet_heartbeat row after the run, ok=0 when the work threw. // 1.4.0 SOURCE-VOICE-1 (agent_issues 2468, owner directive 2026-10-13 "Papers shall cite full texts, not merely reference work summaries"; pillar research): a PAPER_VZ hit in /context carries the passage of the paper's body that matched (the indexer's own chunk, from metadata.chunk), after the abstract when one is stored; it was title + status + abstract.slice(0, 220), so a paper with no abstract (269 of 575 published on 2026-10-13) reached qnfo-ai's retrieved context as its title alone. renderContext gives a paper hit up to 1300 characters (300 before). isDeadPrefixDoi was defined only inside the folded indexer member, so the /context enrichment and metaLine threw a ReferenceError on every paper hit and returned "slug <x> (enrich error)"; it is now defined at module scope too. // 1.3.4 WORKERS-STANDARDS-1 (2026-10-12, pillar security): the indexer member compares X-Index-Token in constant time (same accepted value). // 1.3.1 INDEXER-FOLD-1 (#1756): qnfo-paper-indexer runs here as a member (its two jobs on this worker's existing 06:30 trigger, no cron added; /indexer/* read routes).
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1302,11 +1302,184 @@ async function noteHandoffFailure(env, e) {
   try { await env.AUDIT.prepare("UPDATE ops_config SET note = ?1 WHERE key = ?2").bind("HANDOFFS-VZ-PRODUCER-1: FAILED " + new Date().toISOString() + " " + String(e && e.message || e).slice(0, 200), HANDOFF_WM_KEY).run(); } catch (ne) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "noteHandoffFailure", error: String(ne && ne.message || ne) })); }
 }
 // ---- HANDOFFS-VZ-PRODUCER-1:END
+// ---- COST-LEDGER-ALLVENDOR-1:BEGIN (pillar cost; migrations/2026-11-04-vendor-cost-ledger.sql, docs/COST-LEDGER-ALLVENDOR.md)
+// Owner 2026-11-04: the fleet's monthly cost, all vendors, measured. The Cloudflare billing API answers 403 to every token in reach, so each non-AI Cloudflare
+// product is read from its own usage meter (GraphQL analytics datasets, GET /workers/observability/usage) into cost_usage_daily, then priced from cost_price_book
+// (published unit price, monthly included allowance) into cost_vendor_month: month to date, month forecast and the marginal rate of the last 3 days.
+// Hourly on this worker's existing :30 fire; the last COST_LOOKBACK_DAYS days are rewritten each run (idempotent), 30 days when the table is nearly empty.
+// A dataset that fails is logged and skipped; "Rate limiter budget depleted" (the account's GraphQL budget is shared with the fleet) stops the run until the next fire.
+var COST_LOOKBACK_DAYS = 3;
+var COST_BACKFILL_DAYS = 30;
+var COST_BACKFILL_BELOW_ROWS = 200;
+var COST_GQL_PAUSE_MS = 1200;
+var COST_R2_CLASS_B = { HeadBucket: 1, HeadObject: 1, GetObject: 1, UsageSummary: 1, GetBucketEncryption: 1, GetBucketLocation: 1, GetBucketCors: 1, GetBucketLifecycleConfiguration: 1 };
+var COST_R2_FREE = { DeleteObject: 1, DeleteBucket: 1, AbortMultipartUpload: 1 };
+var COST_KV_ACTIONS = { read: "reads", write: "writes", "delete": "deletes", list: "lists" };
+function costDate(ms) { return new Date(ms).toISOString().slice(0, 10); }
+function costWindow(days, nowMs) {
+  var from = costDate(nowMs - days * 864e5), to = costDate(nowMs + 864e5);
+  return { from: from + "T00:00:00Z", to: to + "T00:00:00Z", fromDate: from, toDate: to };
+}
+// One entry per GraphQL dataset: pick(row) turns a group into { metric: quantity }; groups are summed per date (storage datasets group by date and an id, so the sum is over ids).
+var COST_DATASETS = [
+  { key: "workers", product: "workers", field: "workersInvocationsAdaptive", sel: "sum { requests cpuTimeUs } dimensions { date }",
+    units: { requests: "requests", cpu_ms: "cpu_ms" }, pick: function (r) { var s = r.sum || {}; return { requests: s.requests, cpu_ms: (Number(s.cpuTimeUs) || 0) / 1000 }; } },
+  { key: "d1", product: "d1", field: "d1AnalyticsAdaptiveGroups", dateFilter: true, sel: "sum { rowsRead rowsWritten } dimensions { date }",
+    units: { rows_read: "rows", rows_written: "rows" }, pick: function (r) { var s = r.sum || {}; return { rows_read: s.rowsRead, rows_written: s.rowsWritten }; } },
+  { key: "d1_storage", product: "d1", field: "d1StorageAdaptiveGroups", dateFilter: true, sel: "max { databaseSizeBytes } dimensions { date databaseId }",
+    units: { storage_gb: "GB" }, pick: function (r) { return { storage_gb: (Number((r.max || {}).databaseSizeBytes) || 0) / 1e9 }; } },
+  { key: "do_requests", product: "durable_objects", field: "durableObjectsInvocationsAdaptiveGroups", sel: "sum { requests } dimensions { date }",
+    units: { requests: "requests" }, pick: function (r) { return { requests: (r.sum || {}).requests }; } },
+  { key: "do_duration", product: "durable_objects", field: "durableObjectsPeriodicGroups", sel: "sum { duration rowsRead rowsWritten } dimensions { date }",
+    units: { duration_gb_s: "GB-s", sql_rows_read: "rows", sql_rows_written: "rows" }, pick: function (r) { var s = r.sum || {}; return { duration_gb_s: s.duration, sql_rows_read: s.rowsRead, sql_rows_written: s.rowsWritten }; } },
+  { key: "do_storage", product: "durable_objects", field: "durableObjectsSqlStorageGroups", sel: "max { storedBytes } dimensions { date namespaceId }",
+    units: { sql_storage_gb: "GB" }, pick: function (r) { return { sql_storage_gb: (Number((r.max || {}).storedBytes) || 0) / 1e9 }; } },
+  { key: "r2_ops", product: "r2", field: "r2OperationsAdaptiveGroups", sel: "sum { requests } dimensions { date actionType }",
+    units: { class_a_ops: "requests", class_b_ops: "requests" }, pick: function (r) {
+      var a = String((r.dimensions || {}).actionType || ""), n = Number((r.sum || {}).requests) || 0;
+      if (COST_R2_FREE[a]) return {};
+      return COST_R2_CLASS_B[a] ? { class_b_ops: n } : { class_a_ops: n };
+    } },
+  { key: "r2_storage", product: "r2", field: "r2StorageAdaptiveGroups", sel: "max { payloadSize metadataSize } dimensions { date bucketName }",
+    units: { storage_gb: "GB" }, pick: function (r) { var m = r.max || {}; return { storage_gb: ((Number(m.payloadSize) || 0) + (Number(m.metadataSize) || 0)) / 1e9 }; } },
+  { key: "kv_ops", product: "kv", field: "kvOperationsAdaptiveGroups", sel: "sum { requests } dimensions { date actionType }",
+    units: { reads: "requests", writes: "requests", deletes: "requests", lists: "requests" }, pick: function (r) {
+      var k = COST_KV_ACTIONS[String((r.dimensions || {}).actionType || "")]; var o = {}; if (k) o[k] = (r.sum || {}).requests; return o;
+    } },
+  { key: "kv_storage", product: "kv", field: "kvStorageAdaptiveGroups", sel: "max { byteCount } dimensions { date namespaceId }",
+    units: { storage_gb: "GB" }, pick: function (r) { return { storage_gb: (Number((r.max || {}).byteCount) || 0) / 1e9 }; } },
+  { key: "queues", product: "queues", field: "queueMessageOperationsAdaptiveGroups", sel: "sum { billableOperations } dimensions { date }",
+    units: { operations: "operations" }, pick: function (r) { return { operations: (r.sum || {}).billableOperations }; } },
+  { key: "vectorize_q", product: "vectorize", field: "vectorizeV2QueriesAdaptiveGroups", sel: "sum { queriedVectorDimensions } dimensions { date }",
+    units: { queried_dimensions: "dimensions" }, pick: function (r) { return { queried_dimensions: (r.sum || {}).queriedVectorDimensions }; } },
+  { key: "vectorize_s", product: "vectorize", field: "vectorizeV2StorageAdaptiveGroups", sel: "max { storedVectorDimensions } dimensions { date indexName }",
+    units: { stored_dimensions: "dimensions" }, pick: function (r) { return { stored_dimensions: (r.max || {}).storedVectorDimensions }; } },
+  { key: "containers", product: "containers", field: "containersUsageAdaptiveGroups", sel: "sum { allocatedMemory allocatedDisk cpuTimeSec } dimensions { date }",
+    units: { memory_gib_s: "GiB-s", vcpu_s: "vCPU-s", disk_gb_s: "GB-s" }, pick: function (r) {
+      var s = r.sum || {}; return { memory_gib_s: (Number(s.allocatedMemory) || 0) / 1073741824, vcpu_s: s.cpuTimeSec, disk_gb_s: (Number(s.allocatedDisk) || 0) / 1e9 };
+    } },
+  { key: "browser", product: "browser_rendering", field: "browserRenderingBrowserTimeUsageAdaptiveGroups", sel: "sum { totalSessionDurationMs } dimensions { date }",
+    units: { browser_hours: "hours" }, pick: function (r) { return { browser_hours: (Number((r.sum || {}).totalSessionDurationMs) || 0) / 3600000 }; } }
+];
+function costQuery(accountId, spec, w) {
+  var filter = spec.dateFilter ? 'date_geq: "' + w.fromDate + '", date_lt: "' + w.toDate + '"' : 'datetime_geq: "' + w.from + '", datetime_lt: "' + w.to + '"';
+  return '{ viewer { accounts(filter: {accountTag: "' + accountId + '"}) { ' + spec.field + '(limit: 10000, filter: {' + filter + '}) { ' + spec.sel + ' } } } }';
+}
+// rows -> usage points [{date, product, metric, quantity, unit}]; groups with the same date and metric are added together.
+function costPoints(spec, rows) {
+  var by = {};
+  (rows || []).forEach(function (r) {
+    var d = r.dimensions && r.dimensions.date; if (!d) return;
+    var p = spec.pick(r);
+    Object.keys(p).forEach(function (m) { var q = Number(p[m]); if (!isFinite(q)) return; var k = d + "|" + m; by[k] = (by[k] || 0) + q; });
+  });
+  return Object.keys(by).sort().map(function (k) {
+    var i = k.indexOf("|"), m = k.slice(i + 1);
+    return { date: k.slice(0, i), product: spec.product, metric: m, quantity: by[k], unit: (spec.units || {})[m] || "" };
+  });
+}
+// GET /workers/observability/usage: ABR-adjusted event counts per day and service (logs and traces together).
+function costObservabilityPoints(result) {
+  var by = {};
+  ((result && result.breakdown) || []).forEach(function (b) { var d = String(b.bin || "").slice(0, 10); if (d) by[d] = (by[d] || 0) + (Number(b.count) || 0); });
+  return Object.keys(by).sort().map(function (d) { return { date: d, product: "workers_logs", metric: "events", quantity: by[d], unit: "events" }; });
+}
+// Priced month: book is an array of cost_price_book rows, usage an array of {date, product, metric, quantity, basis} for vendor cloudflare.
+// flow: allowance applies to the month's cumulative usage; the forecast adds the days left at the mean of the last 3 complete days (a spike inside today counts when larger).
+// stock (GB, dimensions): the latest level is billed per month, prorated by days elapsed for the month to date.
+function costRollup(usage, book, month, nowMs) {
+  var parts = month.split("-"), y = Number(parts[0]), mo = Number(parts[1]);
+  var dim = new Date(Date.UTC(y, mo, 0)).getUTCDate(), monthEnd = Date.UTC(y, mo, 1);
+  var closed = nowMs >= monthEnd;
+  var today = closed ? "9999-99-99" : costDate(nowMs);
+  var utcDay = closed ? dim + 1 : new Date(nowMs).getUTCDate();
+  var completeDays = utcDay - 1, observedAt = new Date(nowMs).toISOString().replace(/\.\d+Z$/, "Z");
+  var priceOf = {}; book.forEach(function (b) { priceOf[b.product + "|" + b.metric] = b; });
+  var series = {};
+  usage.forEach(function (u) { var k = u.product + "|" + u.metric; if (priceOf[k]) (series[k] = series[k] || []).push(u); });
+  var money = function (b, qty, withAllowance) { var over = withAllowance ? Math.max(0, qty - Number(b.included_per_month || 0)) : qty; return over / Number(b.block_size || 1) * Number(b.usd_per_block); };
+  var r6 = function (x) { return Math.round(x * 1e6) / 1e6; };
+  return Object.keys(series).sort().map(function (k) {
+    var b = priceOf[k], rows = series[k].slice().sort(function (a, c) { return a.date < c.date ? -1 : 1; });
+    var estimate = rows.some(function (u) { return u.basis === "estimate"; });
+    var row = { month: month, vendor: b.vendor, product: b.product, metric: b.metric, evidence: estimate ? "estimate" : "meter", unit: b.unit, included: Number(b.included_per_month || 0), days_observed: rows.length, note: null, observed_at: observedAt };
+    if (b.kind === "stock") {
+      var level = Number(rows[rows.length - 1].quantity) || 0, monthly = money(b, level, true), frac = Math.min(1, Math.max(0, closed ? 1 : (completeDays + 1) / dim));
+      row.usage_mtd = level; row.usage_projected = level; row.gross_mtd_usd = r6(money(b, level, false) * frac); row.net_mtd_usd = r6(monthly * frac); row.net_forecast_usd = r6(monthly); row.rate_daily_3d_usd = r6(monthly / dim);
+    } else {
+      var past = rows.filter(function (u) { return u.date < today; }), todayRow = rows.filter(function (u) { return u.date === today; })[0];
+      var sumPast = past.reduce(function (s, u) { return s + (Number(u.quantity) || 0); }, 0), todayQ = todayRow ? Number(todayRow.quantity) || 0 : 0;
+      var firstOfWindow = costDate(Date.UTC(y, mo - 1, Math.max(1, completeDays - 2)));
+      var last3 = past.filter(function (u) { return u.date >= firstOfWindow; });
+      var span = Math.min(3, completeDays), avg = span > 0 ? last3.reduce(function (s, u) { return s + (Number(u.quantity) || 0); }, 0) / span : todayQ;
+      var mtd = sumPast + todayQ, projected = closed ? mtd : sumPast + Math.max(avg, todayQ) + Math.max(0, dim - completeDays - 1) * avg;
+      row.usage_mtd = mtd; row.usage_projected = projected; row.gross_mtd_usd = r6(money(b, mtd, false)); row.net_mtd_usd = r6(money(b, mtd, true)); row.net_forecast_usd = r6(money(b, projected, true)); row.rate_daily_3d_usd = r6(money(b, avg, false));
+    }
+    return row;
+  });
+}
+async function costWriteUsage(env, points, nowIso) {
+  var sql = "INSERT INTO cost_usage_daily (date, vendor, product, metric, quantity, unit, basis, observed_at) VALUES (?1, 'cloudflare', ?2, ?3, ?4, ?5, 'meter', ?6) ON CONFLICT(date, vendor, product, metric) DO UPDATE SET quantity = excluded.quantity, unit = excluded.unit, basis = excluded.basis, observed_at = excluded.observed_at";
+  for (var i = 0; i < points.length; i += 50) {
+    await env.AUDIT.batch(points.slice(i, i + 50).map(function (p) { return env.AUDIT.prepare(sql).bind(p.date, p.product, p.metric, p.quantity, p.unit, nowIso); }));
+  }
+}
+async function costWriteMonth(env, rows) {
+  var sql = "INSERT INTO cost_vendor_month (month, vendor, product, metric, evidence, unit, included, usage_mtd, usage_projected, gross_mtd_usd, net_mtd_usd, net_forecast_usd, rate_daily_3d_usd, days_observed, note, observed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16) ON CONFLICT(month, vendor, product, metric) DO UPDATE SET evidence = excluded.evidence, unit = excluded.unit, included = excluded.included, usage_mtd = excluded.usage_mtd, usage_projected = excluded.usage_projected, gross_mtd_usd = excluded.gross_mtd_usd, net_mtd_usd = excluded.net_mtd_usd, net_forecast_usd = excluded.net_forecast_usd, rate_daily_3d_usd = excluded.rate_daily_3d_usd, days_observed = excluded.days_observed, note = excluded.note, observed_at = excluded.observed_at";
+  for (var i = 0; i < rows.length; i += 50) {
+    await env.AUDIT.batch(rows.slice(i, i + 50).map(function (r) { return env.AUDIT.prepare(sql).bind(r.month, r.vendor, r.product, r.metric, r.evidence, r.unit, r.included, r.usage_mtd, r.usage_projected, r.gross_mtd_usd, r.net_mtd_usd, r.net_forecast_usd, r.rate_daily_3d_usd, r.days_observed, r.note, r.observed_at); }));
+  }
+}
+async function costVendorTick(env, nowMs) {
+  nowMs = nowMs || Date.now();
+  if (!env.AUDIT || !env.CF_ACCOUNT) return { skipped: "no AUDIT or CF_ACCOUNT binding" };
+  var nowIso = new Date(nowMs).toISOString().replace(/\.\d+Z$/, "Z");
+  var have = await env.AUDIT.prepare("SELECT COUNT(*) AS n FROM cost_usage_daily WHERE vendor = 'cloudflare'").first();
+  var days = have && Number(have.n) >= COST_BACKFILL_BELOW_ROWS ? COST_LOOKBACK_DAYS : COST_BACKFILL_DAYS;
+  var w = costWindow(days, nowMs), points = [], errors = [], stopped = null;
+  for (var i = 0; i < COST_DATASETS.length && !stopped; i++) {
+    var spec = COST_DATASETS[i];
+    try {
+      var j = await gql(env, costQuery(env.CF_ACCOUNT, spec, w));
+      if (j && j.errors && j.errors.length) throw new Error(String(j.errors[0].message || j.errors[0]).slice(0, 200));
+      var acc = j && j.data && j.data.viewer && j.data.viewer.accounts && j.data.viewer.accounts[0];
+      points = points.concat(costPoints(spec, acc && acc[spec.field]));
+    } catch (e) {
+      var msg = String(e && e.message || e).slice(0, 200);
+      errors.push(spec.key + ": " + msg);
+      if (/rate limit|budget depleted/i.test(msg)) stopped = "graphql rate limit";
+    }
+    await new Promise(function (r) { setTimeout(r, COST_GQL_PAUSE_MS); });
+  }
+  try {
+    var obs = await cf(env, "/workers/observability/usage?from=" + Date.parse(w.from) + "&to=" + nowMs);
+    if (!obs || obs.success === false) throw new Error(JSON.stringify(obs && obs.errors || "no answer").slice(0, 200));
+    points = points.concat(costObservabilityPoints(obs.result));
+  } catch (e) { errors.push("observability: " + String(e && e.message || e).slice(0, 200)); }
+  if (points.length) await costWriteUsage(env, points, nowIso);
+  var book = ((await env.AUDIT.prepare("SELECT vendor, product, metric, kind, unit, included_per_month, usd_per_block, block_size FROM cost_price_book WHERE vendor = 'cloudflare'").all()).results) || [];
+  var months = [costDate(nowMs).slice(0, 7)], d = new Date(nowMs);
+  if (d.getUTCDate() <= 2) months.push(costDate(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).slice(0, 7));
+  var written = 0;
+  for (var m = 0; m < months.length; m++) {
+    var first = months[m] + "-01", next = costDate(Date.UTC(Number(months[m].slice(0, 4)), Number(months[m].slice(5, 7)), 1));
+    var usage = ((await env.AUDIT.prepare("SELECT date, product, metric, quantity, basis FROM cost_usage_daily WHERE vendor = 'cloudflare' AND date >= ?1 AND date < ?2").bind(first, next).all()).results) || [];
+    if (m > 0 && !usage.some(function (u) { return u.date === first; })) continue;
+    var rows = costRollup(usage, book, months[m], nowMs);
+    if (rows.length) { await costWriteMonth(env, rows); written += rows.length; }
+  }
+  if (errors.length) console.error(JSON.stringify({ worker: "qnfo-infra", where: "costVendorTick", errors: errors, stopped: stopped }));
+  return { days: days, points: points.length, month_rows: written, errors: errors, stopped: stopped };
+}
+// ---- COST-LEDGER-ALLVENDOR-1:END
 async function runScheduled(event, env, ctx) {
     // HANDOFFS-VZ-PRODUCER-1: every fire, so a new handoff is indexed within the hour. A failure or a stalled call (120 s, so the refresh below still runs)
     // is logged, written to the watermark row's note and leaves the watermark where it was.
     try { const h = await withTimeout(indexHandoffs(env), Number(env && env.HANDOFFS_VZ_TIMEOUT_MS) || HANDOFF_TIMEOUT_MS, "indexHandoffs"); if (h && (h.indexed || h.skipped_personal)) console.log("[qnfo-infra] handoffs indexed: " + JSON.stringify(h)); }
     catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "indexHandoffs", error: String(e && e.message || e) })); await noteHandoffFailure(env, e); }
+    // COST-LEDGER-ALLVENDOR-1: every fire (hourly :30), after the handoffs; a failure is logged and never fails the fire.
+    try { const c = await withTimeout(costVendorTick(env), Number(env && env.COST_TICK_TIMEOUT_MS) || 200000, "costVendorTick"); if (c && c.errors && c.errors.length) console.log("[qnfo-infra] cost ledger: " + JSON.stringify(c)); }
+    catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "costVendorTick", error: String(e && e.message || e) })); }
     // INDEXER-FOLD-1: the folded qnfo-paper-indexer member's two jobs (its old "0 4" impact collection and "5 6" render
     // metrics) run on this worker's existing 06:30 trigger, impact first, both after the gateway's 06:00 sweep. No cron is
     // added: a newly registered trigger was seen not to fire (PROBER-ON-CAL-TICK-1), and the cron count drops by two. A
@@ -1480,7 +1653,7 @@ var worker_default = {
       return indexerMod.fetch(new Request(iu.toString(), request), indexerEnv(env), {});
     }
     if (path === "/health" && method === "GET") {
-      return new Response(JSON.stringify({ ok: true, worker: "qnfo-infra", version: VERSION, capabilities: ["infra-retrieve", "context", "state-refresh", "analytics", "credential-expiry", "handoffs-index"], limitations: ["every route except /health needs a bearer token", "handoffs are embedded 100 per hourly fire from the ops_config watermark handoffs_vz_last_id (a backlog drains over hours)","state refreshes hourly at :30 (CRON-GRID-1); the indexer member runs on the 06:30 fire"], oracle: { retrieve: "GET /retrieve?q=&scope=&k=", context: "GET /context?q=&scope=&k=" }, bindings: { audit: !!env.AUDIT, graph: !!env.GRAPH, living: !!env.LIVING, personal: !!env.PERSONAL, portfolio: !!env.PORTFOLIO, paper_vz: !!env.PAPER_VZ, notes_vz: !!env.NOTES_VZ, tasks_vz: !!env.TASKS_VZ, log_vz: !!env.LOG_VZ, handoffs_vz: !!env.HANDOFFS_VZ, ipatent_vz: !!env.IPATENT_VZ, infra_vz: !!env.VZ, ai: !!env.AI } }), { headers: { "Content-Type": "application/json", ...cors } });
+      return new Response(JSON.stringify({ ok: true, worker: "qnfo-infra", version: VERSION, capabilities: ["infra-retrieve", "context", "state-refresh", "analytics", "credential-expiry", "handoffs-index", "cost-ledger"], limitations: ["every route except /health needs a bearer token", "handoffs are embedded 100 per hourly fire from the ops_config watermark handoffs_vz_last_id (a backlog drains over hours)","state refreshes hourly at :30 (CRON-GRID-1); the indexer member runs on the 06:30 fire"], oracle: { retrieve: "GET /retrieve?q=&scope=&k=", context: "GET /context?q=&scope=&k=" }, bindings: { audit: !!env.AUDIT, graph: !!env.GRAPH, living: !!env.LIVING, personal: !!env.PERSONAL, portfolio: !!env.PORTFOLIO, paper_vz: !!env.PAPER_VZ, notes_vz: !!env.NOTES_VZ, tasks_vz: !!env.TASKS_VZ, log_vz: !!env.LOG_VZ, handoffs_vz: !!env.HANDOFFS_VZ, ipatent_vz: !!env.IPATENT_VZ, infra_vz: !!env.VZ, ai: !!env.AI } }), { headers: { "Content-Type": "application/json", ...cors } });
     }
     const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
     if (path === "/cred/status" && method === "GET") {
