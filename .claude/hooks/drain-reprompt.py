@@ -13,9 +13,14 @@ LIVE-RECHECK-1 (2026-10-02): the audit table is a reading taken up to ~10 minute
 repo-ahead row whose deploy landed after that reading kept re-prompting (qnfo-ipatent 3.9.2: deployed 11:15:32Z, issue
 written 11:16:25Z still said live 3.9.1, three rounds). A repo-ahead row whose worker's /health now reports the repo
 version is a stale reading, not open work.
+HOOK-REST-CACHE-1 (2026-11-04): one stop-hook run cost up to 33 GitHub REST calls (pulls, one pulls/<n>/files per open PR, issues, autoaudit), and every session
+runs it on every stop; about ten sessions looping 8 rounds spent a large share of the one shared 5000/hour token, which read 0/5000 twice on 2026-11-04 and stalled every
+merge. Reads now go through a disk cache shared by all sessions on the machine: an entry younger than CACHE_TTL_S (default 300) is used with no call, an older one is
+revalidated with If-None-Match (a 304 does not count against the limit), and on any error, 403 rate limit included, the stale entry is used instead of failing.
+DRAIN_CACHE_TTL_S=0 restores a call per read.
 Fails open: any error -> exit 0.
 """
-import glob, json, os, re, sys, urllib.request
+import glob, hashlib, json, os, re, sys, time, urllib.error, urllib.request
 
 MAX_ROUNDS = int(os.environ.get("DRAIN_MAX_ROUNDS", "8"))
 REPO = os.environ.get("DRAIN_REPO", "QNFO/qnfo-workers")
@@ -24,11 +29,48 @@ BAD = ("DRIFT", "CONTENT_DRIFT", "LIVE_ERR", "NO_REPO_VERSION", "NO_LIVE_VERSION
 root = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
 counter = os.path.join(os.environ.get("TMPDIR", "/tmp"), "qnfo-drain-rounds")
 
-def _get(path):
+CACHE_TTL_S = int(os.environ.get("DRAIN_CACHE_TTL_S", "300"))
+CACHE_DIR = os.path.join(os.environ.get("TMPDIR", "/tmp"), "qnfo-drain-cache")
+
+def _fetch(url):
+    """JSON for url through the shared disk cache (HOOK-REST-CACHE-1): fresh entry, else If-None-Match revalidation, else the stale entry on error."""
     tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/{path}",
-        headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json", "User-Agent": "qnfo-drain-hook"})
-    return json.load(urllib.request.urlopen(req, timeout=10))
+    f = os.path.join(CACHE_DIR, hashlib.sha1(url.encode()).hexdigest() + ".json")
+    cached = None
+    try:
+        cached = json.load(open(f))
+        if time.time() - cached["t"] < CACHE_TTL_S:
+            return cached["body"]
+    except Exception:
+        cached = None
+    headers = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json", "User-Agent": "qnfo-drain-hook"}
+    if cached and cached.get("etag"):
+        headers["If-None-Match"] = cached["etag"]
+    try:
+        resp = urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=10)
+        body, etag = json.load(resp), resp.headers.get("ETag")
+    except urllib.error.HTTPError as e:
+        if e.code == 304 and cached:
+            body, etag = cached["body"], cached.get("etag")
+        elif cached:
+            return cached["body"]
+        else:
+            raise
+    except Exception:
+        if cached:
+            return cached["body"]
+        raise
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tmp = f + ".%d" % os.getpid()
+        json.dump({"t": time.time(), "etag": etag, "body": body}, open(tmp, "w"))
+        os.replace(tmp, f)
+    except Exception:
+        pass
+    return body
+
+def _get(path):
+    return _fetch(f"https://api.github.com/repos/{REPO}/{path}")
 
 _PRS = None
 
@@ -64,10 +106,8 @@ def issues():
     tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if not tok:
         return []
-    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/issues?state=open&per_page=100",
-        headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json", "User-Agent": "qnfo-drain-hook"})
     out = []
-    for i in json.load(urllib.request.urlopen(req, timeout=10)):
+    for i in _get("issues?state=open&per_page=100"):
         if "pull_request" in i:
             continue
         if {l["name"] for l in i.get("labels", [])} & REPORT_LABELS:
@@ -90,9 +130,7 @@ def live_audit():
     tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if not tok:
         return None
-    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/issues?state=open&labels=fleet-autoaudit&per_page=1",
-        headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json", "User-Agent": "qnfo-drain-hook"})
-    rows = json.load(urllib.request.urlopen(req, timeout=10))
+    rows = _get("issues?state=open&labels=fleet-autoaudit&per_page=1")
     if not rows:
         return None
     body = rows[0].get("body") or ""
