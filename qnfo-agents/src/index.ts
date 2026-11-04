@@ -284,27 +284,33 @@ const CODE_SESSION_NEURON_BASELINE = "@cf/deepseek-ai/deepseek-v4-flash-0731";
 const CODE_SESSION_NEURON_BUDGET = 100000;
 const CODE_SESSION_SYSTEM = SYSTEM;
 
-async function modelFor(env: Env, purpose?: string) {
+// PREFIX-CACHE-AGENTS-1 (#7067, pillar cost): every step of a turn resends the whole context (system prompt, the qnfo-ops tool catalog and the growing
+// messages: about 22k to 32k input tokens a call, 27.6M tokens and 1,268 calls on 2026-11-04 with cached_tok 0 in ai_spend_ledger). Workers AI keeps a
+// prefix cache and bills cached tokens at a discount, but only when requests of one session reach the same instance, which the x-session-affinity header
+// asks for (createAI option sessionAffinity). A turn's run id (or a code session's name) is the session key: all steps of one turn share it.
+async function modelFor(env: Env, purpose?: string, affinity?: string) {
   let id = DEFAULT_MODEL;
   try {
     const row: any = await env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_model'").first();
     if (row && isDynamicRoute(row.value)) id = row.value;
   } catch (e) { /* ops_config unreadable: the default model */ }
   const metadata = purpose ? { worker: WORKER, purpose } : { worker: WORKER };
-  const ai = createAI({ binding: env.AI, id: "default", metadata } as any);
+  const ses = affinity ? String(affinity).replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 64) : "";
+  const ai = createAI({ binding: env.AI, id: "default", metadata, ...(ses ? { sessionAffinity: "qnfo-agents:" + ses } : {}) } as any);
   return { id, model: (ai as any)(id) };
 }
 
 // AI-METER-1: Workers AI calls made here go straight to env.AI (through AI Gateway), not through qnfo-ai, so ai_spend_ledger never saw
 // them (Cloudflare's meter showed 147.7M input tokens in 24 h for this worker's model against about 3M in the ledger). Each turn now adds its
 // token use to the ledger row (day, workers-ai, qnfo-agents, model); usd comes from cf_model_catalog price_in / price_out (USD per million tokens).
-function usageOf(o: any): { i: number; o: number; n: number } {
-  let i = 0, out = 0, n = 0;
-  const add = (u: any) => { if (!u) return; i += Number(u.inputTokens ?? u.promptTokens ?? 0) || 0; out += Number(u.outputTokens ?? u.completionTokens ?? 0) || 0; n++; };
+function usageOf(o: any): { i: number; o: number; n: number; c: number } {
+  let i = 0, out = 0, n = 0, c = 0;
+  // c = input tokens served from the prefix cache (AI SDK v7 inputTokenDetails.cacheReadTokens; cachedInputTokens in older shapes); PREFIX-CACHE-AGENTS-1 writes it to ai_spend_ledger.cached_tok.
+  const add = (u: any) => { if (!u) return; i += Number(u.inputTokens ?? u.promptTokens ?? 0) || 0; out += Number(u.outputTokens ?? u.completionTokens ?? 0) || 0; c += Number((u.inputTokenDetails && u.inputTokenDetails.cacheReadTokens) ?? u.cachedInputTokens ?? 0) || 0; n++; };
   if (Array.isArray(o && o.steps) && o.steps.length) for (const st of o.steps) add(st.usage); else add(o && (o.totalUsage || o.usage));
-  return { i, o: out, n };
+  return { i, o: out, n, c };
 }
-async function meter(env: Env, modelId: string, u: { i: number; o: number; n: number }) {
+async function meter(env: Env, modelId: string, u: { i: number; o: number; n: number; c?: number }) {
   if (!u.n && !u.i) return;
   try {
     // The AI Gateway route (dynamic/standard) picks the real model, so the catalog has no row for it; price those calls at the model the route
@@ -312,8 +318,8 @@ async function meter(env: Env, modelId: string, u: { i: number; o: number; n: nu
     let p: any = await env.AUDIT_DB.prepare("SELECT price_in, price_out FROM cf_model_catalog WHERE model_id = ?1").bind(modelId).first();
     if (!p) p = await env.AUDIT_DB.prepare("SELECT price_in, price_out FROM cf_model_catalog WHERE model_id = '@cf/deepseek-ai/deepseek-v4.1-flash-1017'").first();
     const usd = (u.i * (Number(p && p.price_in) || 0) + u.o * (Number(p && p.price_out) || 0)) / 1e6;
-    await env.AUDIT_DB.prepare("INSERT INTO ai_spend_ledger (day, provider, caller, model, calls, in_tok, out_tok, usd, downgraded, refused) VALUES (?1,'workers-ai','qnfo-agents',?2,?3,?4,?5,?6,0,0) ON CONFLICT(day, provider, caller, model) DO UPDATE SET calls=calls+excluded.calls, in_tok=in_tok+excluded.in_tok, out_tok=out_tok+excluded.out_tok, usd=usd+excluded.usd")
-      .bind(new Date().toISOString().slice(0, 10), String(modelId).slice(0, 120), u.n, u.i, u.o, usd).run();
+    await env.AUDIT_DB.prepare("INSERT INTO ai_spend_ledger (day, provider, caller, model, calls, in_tok, out_tok, usd, downgraded, refused, cached_tok) VALUES (?1,'workers-ai','qnfo-agents',?2,?3,?4,?5,?6,0,0,?7) ON CONFLICT(day, provider, caller, model) DO UPDATE SET calls=calls+excluded.calls, in_tok=in_tok+excluded.in_tok, out_tok=out_tok+excluded.out_tok, usd=usd+excluded.usd, cached_tok=cached_tok+excluded.cached_tok")
+      .bind(new Date().toISOString().slice(0, 10), String(modelId).slice(0, 120), u.n, u.i, u.o, usd, u.c || 0).run();
   } catch (e) { logErr("meter", e); }
 }
 
@@ -383,7 +389,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
     const proposals: any[] = [];
     let status = "done", result = "", error: string | null = null, steps = 0, used: string[] = [], modelId = DEFAULT_MODEL;
     try {
-      const m = await modelFor(this.env);
+      const m = await modelFor(this.env, undefined, id);
       modelId = m.id;
       const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, runId: id, proposals });
       const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(/^issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
@@ -658,7 +664,7 @@ export class CodeSession extends Agent<Env, State> {
     try {
       const history = (turns || []).slice().reverse().map((x: any) => "User: " + clip(x.prompt, 1200) + "\nAssistant: " + clip(x.answer || "", 1800)).join("\n\n");
       const prompt = (history ? "Conversation so far:\n" + history + "\n\n" : "") + "Scope: " + session.scope + "\nCurrent request:\n" + row.prompt;
-      const routed = await modelFor(this.env, "code-session");
+      const routed = await modelFor(this.env, "code-session", this.name + "-t" + turn);
       routeId = routed.id;
       modelId = routeId;
       const model = routed.model;

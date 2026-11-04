@@ -91,7 +91,11 @@ ok(isDynamicRoute("dynamic/standard") && isDynamicRoute("dynamic/qnfo-agentic"),
 ok(!isDynamicRoute("@cf/zai-org/glm-5.3-flash") && !isDynamicRoute("dynamic/") && !isDynamicRoute("dynamic/standard/v2"), "model overrides reject provider models and malformed dynamic routes");
 const ts = readFileSync(here("./src/index.ts"), "utf8");
 ok(/const DEFAULT_MODEL = "dynamic\/standard";/.test(ts) && /row && isDynamicRoute\(row\.value\)/.test(ts), "agent turns default to dynamic/standard and accept only dynamic-route overrides");
-ok(/modelFor\(this\.env, "code-session"\)/.test(ts) && !/fallback:\s*\[/.test(ts) && !/CODE_SESSION_PRO/.test(ts), "CodeSession shares dynamic routing without a consumer-owned model fallback");
+ok(/modelFor\(this\.env, "code-session"[,)]/.test(ts) && !/fallback:\s*\[/.test(ts) && !/CODE_SESSION_PRO/.test(ts), "CodeSession shares dynamic routing without a consumer-owned model fallback");
+// PREFIX-CACHE-AGENTS-1 (#7067): every model call of a turn carries a session key (x-session-affinity), so the steps of one turn reach the same Workers AI instance and its prefix cache; the cached tokens are recorded in ai_spend_ledger.cached_tok.
+ok(/async function modelFor\(env: Env, purpose\?: string, affinity\?: string\)/.test(ts) && /sessionAffinity: "qnfo-agents:" \+ ses/.test(ts), "modelFor passes a sanitised session key to createAI as sessionAffinity");
+ok(/modelFor\(this\.env, undefined, id\)/.test(ts) && /modelFor\(this\.env, "code-session", this\.name \+ "-t" \+ turn\)/.test(ts), "agent turns key the cache by run id and code sessions by session and turn");
+ok(/cacheReadTokens/.test(ts) && /cached_tok=cached_tok\+excluded\.cached_tok/.test(ts), "the meter records cache-read tokens in ai_spend_ledger.cached_tok");
 ok(/result = String\(out\.text \|\| ""\)\.trim\(\) \|\| lastStepText\(out\.steps\);/.test(ts) && /if \(!result\) \{[\s\S]{0,200}generateText\(\{ model: m\.model[^\n]*FINAL_ANSWER_ASK, abortSignal/.test(ts), "an empty turn gets one more call, without tools");
 ok(/result = result \|\| EMPTY_TEXT;/.test(ts) && EMPTY_TEXT === "(the model returned no text)", "an answer that stays empty still says so");
 ok(/export class CodeSession extends Agent/.test(ts) && /CREATE TABLE IF NOT EXISTS code_session_events/.test(ts), "CodeSession persists session and ordered event state in its Durable Object");
