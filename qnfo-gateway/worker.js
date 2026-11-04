@@ -165,7 +165,7 @@ function formatPaper(source, record) {
 }
 // PAPER-FORMAT-2:END
 // 3.48.7 PAPER-REVISION-QUALITY-1 (2026-11-03, pillar reach): recover split revision titles and record abstracts at public rendering, and reject cached refusals from both summary surfaces.
-var VERSION="3.57.1-codeagent";
+var VERSION="3.58.0-codeagent";
 /* 3.54.2 SEO-404-PATHS-1 follow-up: the paper page script no longer requests /api/paper-context/undefined when the page data block is missing (first path recorded in seo_404_paths). */ /* 3.54.0 SEO-404-PATHS-1 and INDEXNOW-BACKOFF-1 (merged): see the two notes below. GET /api/seo/crawl also returns notFound, the top 50 crawler 404 paths of the window, so the dashboard UX auditor reads them from the open route. INDEXNOW-BACKOFF-1: an IndexNow endpoint that failed its last 6 logged runs is tried once per 3 hours and a 429 is not retried. */ /* SEO-404-PATHS-1 (2026-11-04, pillar reach): a crawler request that answers 404 records its path in living-paper seo_404_paths (day, host, path, n; 500 paths a day, 14 days kept). seo_crawl_log counted 1,875 crawler 404s on 2026-11-02 (qnfo.org, every bot, kind other) and kept no path to fix. */ // 3.52.0 QWAV-DEMOS-1 (2026-11-04, pillar reach; minor: the QWAV page lists the ten interactive demos that only the retired Pages site linked, with a Demos nav item, a hero action and a footer link; the page is now the whole of qwav.org through a qwav.org/* route, so unknown paths redirect home instead of answering 200). Revert: restore 3.51.0. // 3.51.0 earlier history follows: // 3.51.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: every QDS page gains a family bar linking QNFO, QWAV and q08, a Keep exploring module (newest and random papers from the open API, the three family sites, topic chips) and a family line in the footer; QDS 1.1.0; visible ask links use ask.qwav.org per DOMAIN-PLANE-1). Prediction: pages per session on qwav.org and qnfo.org rise and clicks between the three sites become non-zero. Revert: restore 3.50.0. // 3.50.0 earlier history follows: // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports. /* main 3.53.1 */ // 3.53.1 PAPER-TTFB-1 (2026-11-04, pillar reach; patch): a paper page whose plain summary kept failing the readability gate ran two model generations inside every request (17 to 44 s to first byte for a-minimal-generative-grammar-of-coordination..., 1.2 s for its neighbours); the fill now runs after the response and once per PLAIN_RETRY_MS per paper per colo. Revert: restore 3.53.0. // 3.53.0 earlier history follows: // 3.53.0 CROSS-LINK-2 (2026-11-04, pillar reach; minor: papers.qnfo.org index and paper pages, rendered by lpDoc, gain the family bar and a Keep exploring strip linking QWAV, Ask, ideas and q08, so the pages a search lands on lead to the rest of the family). Revert: restore 3.52.0. // 3.52.0 earlier history follows: // 3.52.0 QWAV-DEMOS-1 (2026-11-04, pillar reach; minor: the QWAV page lists the ten interactive demos that only the retired Pages site linked, with a Demos nav item, a hero action and a footer link; the page is now the whole of qwav.org through a qwav.org/* route, so unknown paths redirect home instead of answering 200). Revert: restore 3.51.0. // 3.51.0 earlier history follows: // 3.51.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: every QDS page gains a family bar linking QNFO, QWAV and q08, a Keep exploring module (newest and random papers from the open API, the three family sites, topic chips) and a family line in the footer; QDS 1.1.0; visible ask links use ask.qwav.org per DOMAIN-PLANE-1). Prediction: pages per session on qwav.org and qnfo.org rise and clicks between the three sites become non-zero. Revert: restore 3.50.0. // 3.50.0 earlier history follows: // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -792,8 +792,92 @@ var QDS_JS = `/* QDS behaviour: theme toggle, header state, table of contents, c
 var QDS_FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap">';
 var GA4_MEASUREMENT_ID = "G-LV7RHRVW6R";
 /* GA4-COLLECT-RESTORE-1 (2026-10-25, owner report: Google Analytics is not collecting recent data for qnfo.org): measured from the GA4 Data API, papers.qnfo.org served 84-203 page views a day through 2026-10-12, then the property received 0 rows on 2026-10-13 and 1-8 a day after; no qnfo.org or papers.qnfo.org row exists after 10-12. The Zaraz GA4 action does fire at the edge (debug: 'Action called: Pageview from Google Analytics 4') but issues no request and GA4 stores nothing. ZARAZ-GA4-1 (5e88c1e0, 2026-10-12 14:00) removed this gtag.js on the assumption Zaraz counted every page view once; it counted zero. The direct tag is restored and the Zaraz loader is removed, so gtag.js sends one page view and there is no second counter. */
-var GA4_TAG = '<!-- Google tag (gtag.js) --><script async src="https://www.googletagmanager.com/gtag/js?id=' + GA4_MEASUREMENT_ID + '"><\/script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag("js",new Date());gtag("config","' + GA4_MEASUREMENT_ID + '",{anonymize_ip:true});<\/script>';
-var QDS_GA = GA4_TAG; /* GA4-COLLECT-RESTORE-1 */
+/* BP26-CONSENT-1 (2026-11-04, breach metrics non_essential_cookies_set 3 and third_party_trackers 5, practice BP26-NO-TRACKING-1, agent_issues 4421): the Google tag sets _ga cookies and sends every visit to
+   Google, which ePrivacy Article 5(3) and the GDPR allow only after the visitor agreed. GA4-COLLECT-RESTORE-1 had put it back on every page for every visitor. The page now carries one same-origin loader
+   (/qds-consent.js, QDS_CONSENT_JS below) that injects gtag.js only after the visitor presses Allow: a first visit, a No, an automated browser (navigator.webdriver), Global Privacy Control and Do Not Track
+   send nothing to Google and set no cookie. The choice is kept in localStorage (a preference, not a tracking cookie) and can be changed at /privacy. Cost, stated: GA4 engagedSessions now counts only visitors
+   who pressed Allow; the cookie-free counters (Cloudflare Web Analytics, the UTM click ledger, external-referrer page loads) are unchanged. qnfo-gateway/consent.test.mjs runs the loader against a DOM stub. */
+var GA4_TAG = '<script src="' + QDS_ORIGIN + '/qds-consent.js?v=1" defer><\/script>';
+var QDS_GA = GA4_TAG; /* GA4-COLLECT-RESTORE-1, gated by BP26-CONSENT-1 */
+var QDS_CONSENT_JS = `/* BP26-CONSENT-1: Google Analytics loads only after the visitor presses Allow. Until then no request goes to Google and no cookie is set. Automated browsers, Global Privacy Control and Do Not Track count as No. */
+(function () {
+  var KEY = 'qnfo-analytics-consent', GA_ID = '${GA4_MEASUREMENT_ID}', on = false;
+  function read() { try { return window.localStorage.getItem(KEY); } catch (e) { return null; } }
+  function write(v) { try { window.localStorage.setItem(KEY, v); } catch (e) { /* storage blocked: the choice holds for this page only */ } }
+  function refuses() {
+    var n = window.navigator || {};
+    return n.webdriver === true || n.globalPrivacyControl === true || n.doNotTrack === '1' || window.doNotTrack === '1';
+  }
+  function load() {
+    if (on) return;
+    on = true;
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { window.dataLayer.push(arguments); };
+    window.gtag('js', new Date());
+    window.gtag('config', GA_ID, { anonymize_ip: true });
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+    document.head.appendChild(s);
+  }
+  function clear() {
+    var parts = location.hostname.split('.'), doms = [''], names = document.cookie ? document.cookie.split(';') : [];
+    for (var d = 0; d < parts.length - 1; d++) doms.push('; domain=.' + parts.slice(d).join('.'));
+    for (var i = 0; i < names.length; i++) {
+      var nm = names[i].split('=')[0].trim();
+      if (nm.indexOf('_ga') !== 0) continue;
+      for (var j = 0; j < doms.length; j++) document.cookie = nm + '=; Max-Age=0; path=/' + doms[j];
+    }
+  }
+  function state() {
+    var v = read();
+    var t = refuses() ? 'Analytics is off: your browser asks not to be tracked.' : v === 'granted' ? 'Analytics is on in this browser.' : v === 'denied' ? 'Analytics is off in this browser.' : 'No choice made yet, so analytics is off.';
+    var els = document.querySelectorAll('[data-qds-consent-state]');
+    for (var i = 0; i < els.length; i++) els[i].textContent = t;
+  }
+  function closeBanner() {
+    var b = document.getElementById('qds-consent');
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+  }
+  function choose(v) {
+    write(v);
+    closeBanner();
+    if (v === 'granted') { if (!refuses()) load(); } else clear();
+    state();
+  }
+  function banner() {
+    if (document.getElementById('qds-consent') || !document.body) return;
+    var css = document.createElement('style');
+    css.textContent = '#qds-consent{position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483000;max-width:680px;margin:0 auto;padding:14px 16px;border:1px solid #8a94b8;border-radius:12px;background:#fff;color:#14182e;font:15px/1.45 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.18)}'
+      + '#qds-consent p{margin:0 0 10px}#qds-consent a{color:#1b3fd1;text-decoration:underline}#qds-consent .qc-b{display:flex;gap:10px;flex-wrap:wrap}'
+      + '#qds-consent button{min-height:44px;padding:8px 18px;border:2px solid #14182e;border-radius:8px;background:#fff;color:#14182e;font:inherit;font-weight:600;cursor:pointer}'
+      + '#qds-consent button:focus-visible{outline:3px solid #1b3fd1;outline-offset:2px}'
+      + '@media (prefers-color-scheme:dark){#qds-consent{background:#1b2142;color:#eef1fb;border-color:#8f9ac4}#qds-consent a{color:#aebfff}#qds-consent button{background:#1b2142;color:#eef1fb;border-color:#eef1fb}#qds-consent button:focus-visible{outline-color:#aebfff}}';
+    var b = document.createElement('div');
+    b.id = 'qds-consent';
+    b.setAttribute('role', 'region');
+    b.setAttribute('aria-label', 'Analytics choice');
+    b.innerHTML = '<p>Count visits with Google Analytics? If you allow it, Google sets cookies and counts which pages are read and where visitors come from, so we can tell whether anyone reads the research. If you say no, nothing is sent to Google. <a href="https://qnfo.org/privacy">Privacy notice</a></p>'
+      + '<div class="qc-b"><button type="button" data-qds-consent="granted">Allow analytics</button><button type="button" data-qds-consent="denied">No thanks</button></div>';
+    b.appendChild(css);
+    document.body.appendChild(b);
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-qds-consent]') : null;
+    if (!t) return;
+    e.preventDefault();
+    choose(t.getAttribute('data-qds-consent') === 'granted' ? 'granted' : 'denied');
+  });
+  function start() {
+    var v = read();
+    state();
+    if (refuses()) return;
+    if (v === 'granted') load();
+    else if (v !== 'denied') banner();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+`;
 // PAPER-PAGE-MOBILE-1: citation linkifier, text-node pass only.
 // Never rewrite [n] inside script, style, pre, code, kbd, textarea, title,
 // attributes, JSON, an existing anchor, headings or math delimiters; the
@@ -995,7 +1079,8 @@ function qdsInjectJs() {
 }
 function qdsAsset(kind) {
   const css = kind === "css";
-  return new Response(css ? QDS_CSS : QDS_JS + qdsInjectJs(), { headers: { "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800", "Access-Control-Allow-Origin": "*", "X-QDS-Version": QDS_VERSION } });
+  const consent = kind === "consent"; // BP26-CONSENT-1: the loader changes the legal behaviour of every page, so it is cached for an hour, not a day
+  return new Response(css ? QDS_CSS : consent ? QDS_CONSENT_JS : QDS_JS + qdsInjectJs(), { headers: { "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "Cache-Control": consent ? "public, max-age=3600, stale-while-revalidate=86400" : "public, max-age=86400, stale-while-revalidate=604800", "Access-Control-Allow-Origin": "*", "X-QDS-Version": QDS_VERSION } });
 }
 // ---- QDS-1:END ----
 
@@ -5404,7 +5489,7 @@ function renderPrivacyHTML() {
   const sec = function(h, id, inner) { return '<h2 id="' + id + '">' + h + "</h2>" + inner; };
   const body = '<div class="q-wrap"><article class="q-article"><div><header class="q-article-head"><p class="q-eyebrow">Privacy</p><h1 class="q-h1">What the QNFO sites collect</h1><p class="q-meta">Applies to qnfo.org, papers.qnfo.org, legal.qnfo.org, archive.qnfo.org, ideas.qnfo.org, ask.qwav.tech, ipatent.qnfo.org, qwav.org and qwav.tech. Updated 2 October 2026.</p></header><div class="q-prose">' +
     "<p>QNFO is one researcher, Rowan Brad Quni-Gudzinas, who is responsible for these sites and for this notice. Nothing is sold, and nothing is shared for advertising.</p>" +
-    sec("Visit statistics", "statistics", "<p>Pages load Google Analytics 4 (property G-LV7RHRVW6R), which sets cookies and counts visits, pages and referrers. Cloudflare, which hosts the sites, may also add its Web Analytics beacon, which uses no cookies. When a link carries campaign tags (utm_source, utm_medium, utm_campaign, as links in our posts and digests do), the site counts that page load by day, page, tag values, country and whether the visitor is an automated preview, with no cookie, network address or browser details. These figures are used only to see which pages people read and which posts brought them.</p>") +
+    sec("Visit statistics", "statistics", "<p>Google Analytics 4 (property G-LV7RHRVW6R) loads only if you press Allow analytics on the notice at the foot of a page. It then sets cookies and counts visits, pages and referrers. If you do nothing or press No thanks, nothing is sent to Google and no Google cookie is set; a browser that sends Global Privacy Control or Do Not Track, or that is driven by automation, is treated as No. Your choice is kept in this browser (local storage, not a cookie) and you can change it here at any time: <button type=\"button\" data-qds-consent=\"granted\">Allow analytics</button> <button type=\"button\" data-qds-consent=\"denied\">Turn analytics off</button> <span data-qds-consent-state>Analytics is off unless you allow it.</span> Cloudflare, which hosts the sites, may also add its Web Analytics beacon, which uses no cookies. When a link carries campaign tags (utm_source, utm_medium, utm_campaign, as links in our posts and digests do), the site counts that page load by day, page, tag values, country and whether the visitor is an automated preview, with no cookie, network address or browser details. These figures are used only to see which pages people read and which posts brought them.</p>") +
     sec("Email digest", "digest", "<p>If you subscribe, your email address is stored to send the weekly digest. You confirm by email first, and every digest has an unsubscribe link that removes you. Digest emails carry no tracking pixels.</p>") +
     sec("Ask the corpus", "ask", "<p>Questions you ask and the ratings you give are stored with the answer, without your network address, to measure and improve the answers. A question the papers cannot answer may be added, with no identifier, to the research idea queue that decides what to study next.</p>") +
     sec("Reporting a problem in a paper", "reports", "<p>When you report a typo or a possible error on a paper page, the paper, its version, the passage you selected, the kind of problem and your note are stored, with no name, email or network address. A one-way hash of your network address is kept for up to two days only to limit how many reports one address can send. Reports are checked against the paper by an AI model, and a confirmed one is used to correct the paper in its next version.</p>") +
@@ -8406,6 +8491,7 @@ var gateway_worker_default = {
     // QDS-1: the shared design system, served on every gateway host.
     if (p === "/qds.css") return qdsAsset("css");
     if (p === "/qds.js") return qdsAsset("js");
+    if (p === "/qds-consent.js") return qdsAsset("consent");
     // ARCHIVE-ON-GATEWAY-1 and QWAV-ON-GATEWAY-1: hosts that were undeployable Pages projects.
     if (host === "archive.qnfo.org" || host === "qwav.org" || host === "www.qwav.org" || host === "qwav.tech" || host === "www.qwav.tech") {
       if (host.indexOf("www.") === 0) return new Response(null, { status: 301, headers: { Location: "https://" + host.slice(4) + p + u.search } });

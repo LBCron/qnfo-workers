@@ -115,7 +115,7 @@ const meta = (attr, name) => { const m = new RegExp('<meta ' + attr + '="' + nam
 ok(/<title>Work with me · Rowan Brad Quni-Gudzinas · QNFO<\/title>/.test(html) && (meta("name", "description") || "").length > 80, "title and description");
 ok(/<link rel="canonical" href="https:\/\/qnfo.org\/work-with-me">/.test(html) && meta("property", "og:url") === "https://qnfo.org/work-with-me", "canonical and og:url");
 ok(meta("property", "og:title") && meta("property", "og:description") && meta("property", "og:type") && meta("name", "twitter:card") === "summary_large_image" && meta("property", "og:image") === "https://qnfo.org/og.jpg" && /name="viewport"/.test(html), "OpenGraph, share image (REACH-LAYER-1), Twitter card and viewport");
-ok(/googletagmanager\.com\/gtag\/js\?id=G-LV7RHRVW6R/.test(html) && /gtag\("config","G-LV7RHRVW6R"/.test(html), "direct GA4 gtag.js tag (GA4-COLLECT-RESTORE-1)");
+ok(/<script src="https:\/\/qnfo\.org\/qds-consent\.js\?v=\d+" defer><\/script>/.test(html) && !/googletagmanager|gtag\(/.test(html), "the GA4 tag is behind the consent loader and the page names no tracker host (BP26-CONSENT-1, GA4-COLLECT-RESTORE-1)");
 ok(!/cdn-cgi\/zaraz/.test(html), "no Zaraz loader: the GA4 tag is the only counter (GA4-COLLECT-RESTORE-1)");
 ok(!/cloudflareinsights/.test(html), "no hand-added RUM beacon (the zone injects one; two would double count)");
 ok(/prepared with an AI-assisted research pipeline; the author is responsible for the content\./i.test(text), "the STRATEGY 2.5 AI disclosure line");
