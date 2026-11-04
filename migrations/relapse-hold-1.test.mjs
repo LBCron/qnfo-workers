@@ -8,6 +8,7 @@ const rd = (f) => readFileSync(new URL("./" + f, import.meta.url), "utf8").repla
 const sqlNew = rd("2026-11-04-relapse-hold-1.sql");
 const sqlAutoclose = rd("2026-11-03-monitoring-pass-autoclose.sql");
 const sqlFamily = rd("2026-11-01-family-probe-at-birth.sql");
+const sqlMeasure = rd("2026-11-04-relapse-hold-1-measure.sql");
 
 let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? "  -- " + JSON.stringify(x).slice(0, 400) : "")); } };
@@ -34,6 +35,8 @@ CREATE TABLE decision_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT DEFAULT
 CREATE TABLE capability_ledger (capability TEXT PRIMARY KEY, provenance TEXT, prerequisites TEXT, reliability REAL, acquired_at TEXT, last_exercised_at TEXT, evidence TEXT);
 CREATE TABLE metric_improvement_now (owner TEXT, verdict TEXT, bp26 INTEGER);
 CREATE TABLE fleet_issue_dispatch (fingerprint TEXT PRIMARY KEY, category TEXT, state TEXT, payload TEXT);
+CREATE TABLE decision_predictions (id INTEGER PRIMARY KEY AUTOINCREMENT, decision_id INTEGER NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL, op TEXT NOT NULL, value REAL, value2 REAL, due_at TEXT NOT NULL, origin TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), scored_at TEXT, observed TEXT, matched INTEGER, UNIQUE (decision_id, subject, op));
+CREATE TABLE decision_outcomes (id INTEGER PRIMARY KEY AUTOINCREMENT, decision_id INTEGER NOT NULL, ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), observed_outcome TEXT NOT NULL, matched INTEGER NOT NULL, evidence TEXT NOT NULL, actor TEXT NOT NULL);
 INSERT INTO control_registry (control, location, kind, disposition, evidence) VALUES ('autoclose-hysteresis', 'x', 'hold', 'keep', 'x');
 CREATE TRIGGER birth AFTER INSERT ON agent_issues WHEN NEW.status = 'open'
 BEGIN
@@ -291,6 +294,38 @@ ok(!/CREATE (OR REPLACE )?TRIGGER[^\n]*\bON agent_issues\b/i.test(sqlNew.replace
   ok(one(db, "SELECT COUNT(*) n FROM bak_20261104_relapse_hold").n === before, "re-applying keeps the backup rows");
   ok(!one(db, "SELECT old_value v FROM bak_20261104_relapse_hold WHERE kind = 'trigger' AND record_key = 'remediation_verification_autoclose_ins'").v.includes("v_issue_close_hold"), "the backup still holds the pre-change trigger text");
   ok(one(db, "SELECT COUNT(*) n FROM decision_log WHERE action LIKE 'RELAPSE-HOLD-1:%'").n === 1 && one(db, "SELECT COUNT(*) n FROM agent_issues WHERE title LIKE 'ROADMAP-1: QNFO.OPS #relapse-%'").n === 3 && one(db, "SELECT COUNT(*) n FROM metric_registry WHERE metric = 'issue_relapse_families_7d'").n === 1, "re-applying duplicates no decision, issue or metric");
+}
+
+// ---------------------------------------------------------------------------------------------------------------- measurement loop
+{
+  ok(/^-- APPLY-BY: ci$/m.test(sqlMeasure) && /^-- DB: qnfo-audit$/m.test(sqlMeasure) && /^-- Rollback: .+/m.test(sqlMeasure), "measure migration opts in with headers");
+  const db = world({ applyNew: true });
+  db.exec(sqlMeasure);
+  const did = one(db, "SELECT id FROM decision_log WHERE action LIKE 'RELAPSE-HOLD-1:%'").id;
+  const preds = all(db, "SELECT subject, op, value FROM decision_predictions WHERE decision_id = ? AND origin = 'seeded' ORDER BY id", did);
+  ok(preds.length === 5 && preds.some((p) => p.subject === "closure_branching_ratio_24h" && p.op === "<" && p.value === 0.45) && preds.some((p) => p.subject === "closure_branching_ratio_24h" && p.op === "<=" && p.value === 0.35)
+     && preds.some((p) => p.subject === "remediation_latest_pass_pct_7d" && p.op === ">=" && p.value === 60), "five seeded predictions: ratio at 24 h and 7 d, relapse families, and both guards", preds);
+  const iss = one(db, "SELECT id, description FROM agent_issues WHERE title LIKE 'RELAPSE-HOLD-1 measure:%'");
+  ok(iss && iss.description.includes("decision_outcomes"), "the measure issue is filed with its reading and revert instructions");
+  const c = one(db, "SELECT * FROM remediation_contracts WHERE class = ?", "issue-" + iss.id);
+  ok(c.status === "active" && c.verify_transport === "d1-query" && c.module === "relapse-hold-measure" && !c.verify_probe.includes(";"), "its contract is active on a probe without a semicolon", c);
+  let r = one(db, c.verify_probe);
+  ok(r.expected === "ok" && /^pending: 0 of 5 predictions scored, the last due 20/.test(r.observed), "before any scoring the probe defers", r);
+  db.prepare("INSERT INTO decision_outcomes (decision_id, observed_outcome, matched, evidence, actor) VALUES (?, 'closure_branching_ratio_24h <= 0.35: observed 0.5 (miss)', 0, 'e', 'calibration-scorer')").run(did);
+  r = one(db, c.verify_probe);
+  ok(/^missed: closure_branching_ratio_24h/.test(r.observed), "a scored miss fails the probe with the reading", r);
+  db.prepare("INSERT INTO decision_outcomes (decision_id, observed_outcome, matched, evidence, actor) VALUES (?, 'all (match)', 1, 'e', 'calibration-scorer')").run(did);
+  r = one(db, c.verify_probe);
+  ok(r.observed === "ok", "the latest scored outcome decides: a match passes", r);
+
+  const doers = all(db, "SELECT title, description FROM agent_issues WHERE title LIKE 'ROADMAP-1: QNFO.OPS #relapse-%' ORDER BY title");
+  const tags = doers.map((d) => (d.description.match(/"contains": "([^"]+)"/) || [])[1]);
+  ok(doers.length === 3 && new Set(tags).size === 3 && tags.every((t) => t.startsWith("RELAPSE-HOLD-1 ")), "the three closer doers each carry their own code-probe tag", tags);
+  ok(doers.every((d, i) => d.description.includes("Tag the change with the comment text " + tags[i] + ".")), "each description tells the doer its tag");
+
+  const before = one(db, "SELECT COUNT(*) n FROM decision_predictions").n;
+  db.exec(sqlMeasure);
+  ok(one(db, "SELECT COUNT(*) n FROM decision_predictions").n === before && one(db, "SELECT COUNT(*) n FROM agent_issues WHERE title LIKE 'RELAPSE-HOLD-1 measure:%'").n === 1, "re-applying seeds and files nothing twice");
 }
 
 console.log(pass + " passed, " + fail + " failed");
