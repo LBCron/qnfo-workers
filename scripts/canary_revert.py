@@ -360,9 +360,11 @@ def create_pr(branch, title, body):
     """-> (ok, pull request url or the error). Created with the fleet user credential when QNFO_GH_PAT is set, because a pull request opened with GITHUB_TOKEN starts
     none of the workflows the lane waits for."""
     env = dict(os.environ)
-    if os.environ.get("QNFO_GH_PAT"):
+    has_pat = bool(os.environ.get("QNFO_GH_PAT"))
+    if has_pat:
         env["GH_TOKEN"] = os.environ["QNFO_GH_PAT"]
     repo = os.environ.get("GITHUB_REPOSITORY") or "QNFO/qnfo-workers"
+    no_pat = "" if has_pat else " (opened with GITHUB_TOKEN because QNFO_GH_PAT is not set: no workflow runs on it, so the lane cannot merge it, merge it by hand)"  # found by the gate's own review of #7215
     try:
         r = subprocess.run(["gh", "pr", "create", "--repo", repo, "--base", "main", "--head", branch, "--title", title, "--body", body],
                            env=env, capture_output=True, text=True, timeout=90)
@@ -370,11 +372,11 @@ def create_pr(branch, title, body):
         return False, type(e).__name__ + " " + str(e)[:160]
     out = (r.stdout or "").strip().splitlines()
     if r.returncode == 0 and out:
-        return True, out[-1]
+        return True, out[-1] + no_pat
     err = (r.stderr or r.stdout or "").strip()
     m = re.search(r"https://github\.com/\S+/pull/\d+", err)
     if m and "already exists" in err:
-        return True, m.group(0)
+        return True, m.group(0) + no_pat
     return False, err[:200]
 
 

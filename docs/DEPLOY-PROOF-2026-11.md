@@ -142,3 +142,16 @@ its push had failed (`{"error": ..., "sha": ...}`): an error is now a `...-CANAR
 * After 7 days: counts of `canary-functional` rows (ok / fail / inconclusive), `DEPLOY-PROBE-*` issues, reverts, and `review-gate` rows (cost, High findings, how many a human overruled) against the
   7-day baseline above; flip `REVIEW_GATE_MODE` to `hold` when the false-positive run and the week agree.
 * Workers on `scripts/probes-allowlist.txt` shrink by one line each time a PR declares probes for them.
+
+### Live observe-mode data, first 45 minutes after #7207 merged (cloud_ops_events kind review-gate)
+
+12 pull request heads reviewed by the gate in the `lane` job (PR 7210 to 7242): 4 got a High (7213, 7215, 7216, 7233; v1 rules, observe mode, nothing held), 8 none; 1 run had a model fail
+(glm unparseable, PR 7211, `status partial`); cost $0.0497 in all (mean $0.004, range $0.002 to $0.010); wall time 9 to 95 s per head, inside the lane's 4-minute step cap; no merge was delayed.
+The review of this work's own #7215 is the one verdict checked end to end: its High (glm) said the ruleset's `Workers Builds` check never reports on a revert pull request, so it could never merge
+- **refuted** by the next drill (#7234 merged in 59 s); a Medium said GitHub queues every push run when `cancel-in-progress` is false - **wrong**, GitHub keeps one pending run and replaces older
+pending ones; a Medium said the merge push would not deploy if GITHUB_TOKEN merged - **moot**, the lane merges with the PAT (drill 2 deployed it); a Medium said `create_pr` silently falls back
+to GITHUB_TOKEN when `QNFO_GH_PAT` is unset - **right**, fixed in the follow-up (the outcome now says no workflow runs on such a pull request and to merge it by hand). One real finding in four, one
+false High: the gate is a useful second reader and a poor judge, which is what the agreement rule and observe mode encode.
+
+`SELECT * FROM v_deploy_proof_7d` (migration 2026-11-05-deploy-proof-7d-view.sql) is the seven-day read-out the owner brief asked for: probe runs and failures, reverts, failures filed, canary
+failures, review-gate runs and cost, and `WORKFLOW-FAILED-1` issues as the red-main proxy. Read it again on 2026-11-11 against the baseline in section (a).

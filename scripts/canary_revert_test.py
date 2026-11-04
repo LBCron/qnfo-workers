@@ -595,6 +595,14 @@ class RevertThroughPullRequest(unittest.TestCase):
             cr.subprocess.run = real_run
             os.environ.pop("QNFO_GH_PAT", None)
         self.assertTrue(all(tok == "pat-value" for _, tok in calls), "the pull request is opened with QNFO_GH_PAT so the lane's workflows run on it")
+        # the gate's own review of #7215: without the PAT the pull request is opened with GITHUB_TOKEN and nothing runs on it; say so instead of claiming a revert in flight
+        answers.extend([R(0, "https://github.com/QNFO/qnfo-workers/pull/2\n")])
+        cr.subprocess.run = lambda cmd, **k: answers.pop(0)
+        try:
+            ok_, msg_ = cr.create_pr("b", "t", "body")
+        finally:
+            cr.subprocess.run = real_run
+        self.assertTrue(ok_ and msg_.startswith("https://github.com/QNFO/qnfo-workers/pull/2") and "QNFO_GH_PAT is not set" in msg_ and "merge it by hand" in msg_, msg_)
         self.assertEqual(calls[0][0][:3], ["gh", "pr", "create"])
 
 
