@@ -1,12 +1,7 @@
 {
-  "audited_at": "2026-11-04 03:49:14",
-  "d1_write_failures": [
-    [
-      "qnfo-evolve",
-      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
-    ]
-  ],
-  "d1_writes_ok": 128,
+  "audited_at": "2026-11-04 03:54:58",
+  "d1_write_failures": [],
+  "d1_writes_ok": 129,
   "guard": {
     "_guard_rc": 0,
     "ahead": [],
@@ -1875,5 +1870,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
