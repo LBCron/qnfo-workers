@@ -117,5 +117,11 @@
    "taps": 2,
    "typing": 0
   }
+ },
+ "papers": {
+  "paper-with-short": {
+   "taps": 0,
+   "typing": 0
+  }
  }
 }

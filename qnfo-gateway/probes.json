@@ -8,6 +8,21 @@
         "data-brand=\"qnfo\"",
         "<title>QNFO"
       ]
+    },
+    {
+      "url": "https://papers.qnfo.org/api/paper-videos",
+      "status": 200,
+      "contains": [
+        "\"items\""
+      ]
+    }
+  ],
+  "d1": [
+    {
+      "binding": "AUDIT",
+      "explain": [
+        "SELECT slug, video_id, title, duration_s, uploaded_at FROM youtube_videos WHERE state = 'uploaded' AND video_id IS NOT NULL AND (privacy IS NULL OR privacy = 'public') ORDER BY id"
+      ]
     }
   ]
 }
