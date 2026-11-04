@@ -1,7 +1,12 @@
 {
-  "audited_at": "2026-11-04 14:34:58",
-  "d1_write_failures": [],
-  "d1_writes_ok": 129,
+  "audited_at": "2026-11-04 14:39:41",
+  "d1_write_failures": [
+    [
+      "qnfo-auditor",
+      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
+    ]
+  ],
+  "d1_writes_ok": 128,
   "guard": {
     "_guard_rc": 0,
     "ahead": [],
@@ -606,7 +611,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.37.2-codeagent",
+        "version": "0.37.3-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -636,7 +641,7 @@
       },
       {
         "dir": "qnfo-fleet-dashboard",
-        "version": "1.81.4",
+        "version": "1.82.0",
         "worker": "qnfo-fleet-dashboard"
       },
       {
@@ -1288,9 +1293,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.37.2-codeagent",
+      "before": "0.37.3-codeagent",
       "http": 200,
-      "live": "0.37.2-codeagent",
+      "live": "0.37.3-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1426,9 +1431,9 @@
       "worker": "qnfo-fleet-control"
     },
     "qnfo-fleet-dashboard": {
-      "before": "1.81.4",
+      "before": "1.82.0",
       "http": 200,
-      "live": "1.81.4",
+      "live": "1.82.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-fleet-dashboard"
@@ -1870,5 +1875,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 1
 }
