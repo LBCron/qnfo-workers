@@ -53,6 +53,8 @@ const emptyLength = { choices: [{ message: { content: "", reasoning_content: "Le
 }
 
 // 2. stubs
+// REASONING-PING-1 (1.6.13): the ping is 16 tokens, and 512 for a reasoning-only id (thinking, reasoner), which cannot answer in 16.
+const isPingBody = (b) => b && (b.max_tokens === 16 || (b.max_tokens === 512 && /thinking|reasoner/.test(String(b.model))));
 function mkEnv(o) {
   o = o || {};
   const sql = [], ai = [], router = [];
@@ -97,12 +99,12 @@ function mkEnv(o) {
         router.push({ url: String(url), body });
         if (/\/health$/.test(String(url))) return new Response(JSON.stringify({ status: "ok", version: "t" }), { status: 200 });
         if (/\/v1\/models$/.test(String(url))) return new Response(JSON.stringify({ data: [] }), { status: 200 });
-        if (o.router5xx && body.max_tokens === 16) return new Response(JSON.stringify({ error: "router timeout" }), { status: o.router5xx });
+        if (o.router5xx && isPingBody(body)) return new Response(JSON.stringify({ error: "router timeout" }), { status: o.router5xx });
         const reply = body.max_tokens === 256 ? (scripted[body.model] || good) : { choices: [{ message: { content: "OK" }, finish_reason: "stop" }] };
         // o.downgrade: the spend governor answers the 16-token ping with another model (the router did not honour no_downgrade). o.honour models
         // qnfo-ai 5.37.0: a request with no_downgrade: true and at most 512 output tokens from this caller is never swapped.
         const honoured = !!o.honour && body.no_downgrade === true && body.max_tokens > 0 && body.max_tokens <= 512;
-        const served = (!honoured && o.downgrade && body.max_tokens === 16 && o.downgrade[body.model]) || body.model;
+        const served = (!honoured && o.downgrade && isPingBody(body) && o.downgrade[body.model]) || body.model;
         return new Response(JSON.stringify(Object.assign({ model: served }, reply)), { status: 200 });
       }
     },

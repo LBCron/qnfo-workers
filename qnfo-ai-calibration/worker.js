@@ -3,7 +3,7 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 var PROBER_CRON = "*/20 * * * *";
 
 // worker.js
-var VERSION = "1.6.12";
+var VERSION = "1.6.13";
 /* 1.6.6 MODEL-PROBE-FALLBACK-1 (2026-11-01, pillar cost): retain router 5xx as route failures while using direct confirmation for known model IDs before updating model health. */ /* 1.6.1 BUDGET-PROBE-REFRESH-1 (2026-10-19, pillar cost, agent_issues 2828 and 2829 closeout): the prober member skipped an ok row for 9 hours after its last probe (PROBE_OK_INTERVAL_MS), so the rows BUDGET-PROBE-1 exists for kept the verdict of the OLD ping-only probe after the 12:25Z deploy: glm-5.3-flash (last probed 12:00:37Z, 0.506 error share over 6,346 calls) and qwen3.8-27b (09:30:42Z, 0.763 over 118) were still ok, and eight other rows were probed only as their own 9 hours lapsed. An ok row whose last probe predates BUDGET_PROBE_SINCE_MS (the 1.6.0 deploy) is now due on the next tick, once; after that probe it carries a budget-shaped verdict and the 9-hour interval applies again. The sweep already probes every model on its full tick. Tests: budget-probe.test.mjs. */ /* 1.6.0 BUDGET-PROBE-1 (2026-10-19, pillar cost, agent_issues 2829 path A): ai_model_health stops reading ok for a model that answers a one-token ping and an empty reply to a real request (glm-5.3-flash 0.53 error share over 5,991 calls, qwen3.8-27b 0.77 over 105, both ok). Both writers of status ok, the sweep (probeBudgetCompletion) and the folded prober member 2.3.16 (applyBudgetProbe), keep the cheap ping and send text models one more request: a trivial sum, max_tokens 256, a DONE marker; empty content (finish_reason length) or no marker is a failed probe on the existing degraded then failing path, with no new status value. Models with a Workers AI id are probed through env.AI.run by both writers (probeBudgetDirect): the router's small-answer lane (reasoning_effort low or none at max_tokens <= 2048) would hide the empty reply; only deepseek-v4-flash and -thinking use the router. ai_calibration_config budget_probe = off reverts to the ping-only verdict without a deploy (control_registry ai-calibration-budget-probe-switch); fm-health-ok-but-empty detects ok rows with a 0.5 error share. */
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -297,6 +297,16 @@ async function truthReport(env, nowMs) {
   return { ok: true, window_days: 7, rows: all.length, excluded_served_by_other: all.length - kept.length, models: t.models, pairs: t.pairs };
 }
 // ---- CALIBRATION-TASK-TRUTH-1:END ----
+// REASONING-PING-1 (1.6.13, issue 6178 / agent_issues 1001002): the 16-token ping can never be answered by a reasoning-only id. qnfo-ai keeps a reply
+// only when message.content has text (extractWAContent drops a reasoning_content-only reply, runTurnBudgeted's good() needs content), so a model that
+// spends all 16 tokens thinking comes back as an empty leg and the router answers 504 router_timeout after about 2 s. deepseek-v4-flash-thinking read
+// http=504 echo=false on 91 of 91 sweeps from 2026-11-01, 128 consecutive failures and an open [ai-cal] issue, while deepseek-v4-flash, which shares
+// its family and route, passed. Such an id gets 512 tokens, the most the router still honours no_downgrade for (qnfo-ai 5.37.0, max_tokens <= 512).
+var REASONING_ONLY_RE = /thinking|reasoner/i;
+function pingMaxTokens(model) {
+  return REASONING_ONLY_RE.test(String(model || "")) ? 512 : 16;
+}
+__name(pingMaxTokens, "pingMaxTokens");
 async function probeCompletion(env, model) {
   // Ensure retired workers are not counted as degraded
   // Flip any live 'qnfo-workers' entry to retired so roster_members_degraded excludes it
@@ -327,7 +337,7 @@ async function probeCompletion(env, model) {
       // max_tokens <= 512, so this 16-token ping reaches the model it names. Where the router still swaps it for glm-5.3-flash (flag not
       // honoured, ceiling exceeded, caller not identified, older router) this returns "downgraded"; the sweep treats that as inconclusive
       // (SPEND-DOWNGRADE-INCONCLUSIVE-1).
-      { model, messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 16, stream: false, hedge: false, no_downgrade: true },
+      { model, messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: pingMaxTokens(model), stream: false, hedge: false, no_downgrade: true },
       45e3,
       "QNFO_AI"
     );
@@ -798,12 +808,22 @@ async function gatewayFailureSweep(env, t0) {
     }
   }
   try {
+    // GW-FAIL-STATUS-SCOPE-1 (1.6.13, issue 6808 / agent_issues 1001463): a "[gw-fail] <status> <model>" title names one status of one model, but this
+    // read counted every non-transient class of the model. "[gw-fail] 499 dynamic/value" therefore stayed open for ever because the same model also
+    // logs 400 and 504 rows (the calibration probes themselves), although its own status had gone quiet (499 is client-closed since 1.6.10). The
+    // read is scoped to the title's status (?3, 0 = any), and the ledger rows are read too: closeIssue resolves the ledger, which has no agent_issues
+    // row until the escalation mirrors it.
     var openTitles = await env.QNFO_AUDIT.prepare("SELECT id, title FROM agent_issues WHERE title LIKE '[gw-fail]%' AND status = 'open'").all();
-    for (var oi = 0; oi < (openTitles.results || []).length; oi++) {
-      var ttl = openTitles.results[oi].title;
+    var openLedger = await env.QNFO_AUDIT.prepare("SELECT title FROM issue_ledger WHERE status = 'open' AND source = 'qnfo-ai-calibration' AND fingerprint LIKE 'gwfail:%'").all();
+    var gwTitles = {};
+    (openTitles.results || []).concat(openLedger.results || []).forEach(function(row) { if (row && row.title) gwTitles[row.title] = 1; });
+    var gwTitleList = Object.keys(gwTitles);
+    for (var oi = 0; oi < gwTitleList.length; oi++) {
+      var ttl = gwTitleList[oi];
       var modelPart = ttl.replace(/^\[gw-fail\] \d+ /, "");
+      var statusPart = /^\[gw-fail\] (\d+) /.exec(ttl);
       try {
-        var recent = await env.QNFO_AUDIT.prepare("SELECT COUNT(*) AS c FROM ai_gateway_failures WHERE model = ?1 AND error_class NOT IN ('rate-capacity','unfunded','spend-limited','client-closed') AND ts > ?2").bind(modelPart, t0 - 24 * 3600 * 1e3).first();
+        var recent = await env.QNFO_AUDIT.prepare("SELECT COUNT(*) AS c FROM ai_gateway_failures WHERE model = ?1 AND (?3 = 0 OR status = ?3) AND error_class NOT IN ('rate-capacity','unfunded','spend-limited','client-closed') AND ts > ?2").bind(modelPart, t0 - 24 * 3600 * 1e3, statusPart ? Number(statusPart[1]) : 0).first();
         if (!recent || Number(recent.c || 0) === 0) await closeIssue(env, ttl, "no non-transient failures for 24h");
       } catch (e) {
       }
