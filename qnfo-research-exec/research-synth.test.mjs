@@ -1,0 +1,30 @@
+// RESEARCH-SYNTH-1: related deferred proposals merge into one synthesis row with a full-text ledger; duplicate corrections collapse; off stops it.
+import { DatabaseSync } from "node:sqlite";
+import assert from "node:assert/strict";
+import { ideaSynthesisTick, synthClusters } from "./worker.js";
+const db = new DatabaseSync(":memory:");
+db.exec("CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, score REAL, decision TEXT, status TEXT, stage TEXT, context TEXT, created_at TEXT, error TEXT, UNIQUE(source, source_id)); CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);");
+function stmt(sql) { let a = []; const o = { bind(...x) { a = x; return o; }, async run() { const r = db.prepare(sql).run(...a); return { meta: { changes: Number(r.changes) } }; }, async first() { return db.prepare(sql).get(...a) || null; }, async all() { return { results: db.prepare(sql).all(...a) }; } }; return o; }
+const env = { QNFO_AUDIT: { prepare: stmt } };
+const ins = db.prepare("INSERT INTO research_queue (id,source,source_id,idea,score,status,stage,context,created_at) VALUES (?,?,?,?,?,'deferred','ground','[]','2026-10-01T00:00:00Z')");
+ins.run("p1", "proposal", "1", "Born rule as Haar measure on p-adic balls. Quantum probability emerges from ultrametric measure on p-adic balls.", 0.59);
+ins.run("p2", "proposal", "2", "Ultrametric p-adic measure and the Born rule. Quantum probabilities follow from Haar measure on p-adic ball structure.", 0.5);
+ins.run("p3", "proposal", "3", "Fine-structure constant as a degenerate cross-ratio of physical scales.", 0.58);
+ins.run("r1", "remediation", "errata:1", "Correct the published paper 'stacked-ring-review' for erratum A", 0.95);
+ins.run("r2", "remediation", "errata:2", "Correct the published paper 'stacked-ring-review' for erratum B", 0.9);
+const r = await ideaSynthesisTick(env);
+assert.equal(r.clusters, 1); assert.equal(r.merged, 2); assert.equal(r.remediation_merged, 1);
+const st = (id) => db.prepare("SELECT * FROM research_queue WHERE id=?").get(id);
+assert.equal(st("p1").status, "merged"); assert.equal(st("p2").status, "merged"); assert.equal(st("p3").status, "deferred");
+assert.equal(st("r1").status, "deferred"); assert.equal(st("r2").status, "merged");
+assert.match(st("r1").idea, /erratum B/, "merged correction text is kept in the survivor");
+const syn = db.prepare("SELECT * FROM research_queue WHERE source_id LIKE 'synth:%'").get();
+assert.equal(syn.status, "deferred"); assert.match(syn.idea, /Haar measure on p-adic balls/); assert.match(syn.idea, /ultrametric measure|Haar measure on p-adic ball structure/);
+assert.ok(syn.score > 0.59);
+assert.equal(db.prepare("SELECT count(*) n FROM research_queue_merge_ledger").get().n, 3, "every merged row's text is in the ledger");
+const again = await ideaSynthesisTick(env);
+assert.equal(again.clusters, 0, "idempotent");
+db.prepare("INSERT INTO ops_config VALUES ('research_synth','off')").run();
+assert.equal((await ideaSynthesisTick(env)).skipped, "off");
+assert.equal(synthClusters([{ idea: "alpha beta gamma delta" }, { idea: "epsilon zeta eta theta" }], 0.3, 5).length, 0);
+console.log("research-synth: all assertions passed");
