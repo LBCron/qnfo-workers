@@ -2,8 +2,8 @@ name = "personal-watch"
 main = "worker.js"
 # charter-pillar: personal
 # WATCH-1 (2026-10-29): watch.q08.org, a curated no-algorithm video queue. Stateless: no bindings, no cron, no store.
-# compat-advance: reviewed 2026-11-04 (compat-risk-scan clean: no process.env, node globals, node: imports, numeric timers, websockets or Durable Objects; nodejs_compat 2026-08-04 default is harmless here)
-compatibility_date = "2026-10-25"
+# compat-advance: reviewed 2026-11-05 (compat-risk-scan clean: no process.env, node globals, node: imports, numeric timers, websockets or Durable Objects; nodejs_compat 2026-08-04 default is harmless here; no COMPAT_FLIPS entry after 2026-10-01)
+compatibility_date = "2026-11-04"
 compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
 

@@ -1,7 +1,7 @@
 // personal-watch: watch.q08.org, a hand-picked, algorithm-free video queue for the owner (personal plane).
 // WATCH-1 (2026-10-29, pillar personal): curated entertainment from readable source lists, with explicit device-local feedback.
 // Likes, recent watches, and blocked channels stay in the browser; the worker keeps no per-user state.
-var VERSION = "1.1.0";
+var VERSION = "1.1.1";
 
 var YT = [
   // [channel id, name, mood]. Moods: wonder (science/ideas), craft (making/engineering), weird (odd/dark/old), funny, calm.

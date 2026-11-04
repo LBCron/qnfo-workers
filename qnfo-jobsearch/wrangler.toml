@@ -9,8 +9,11 @@ main = "worker.js"
 # default on (worker.js has no node: import, no typeof process/Buffer branch, and its setTimeout ids are only passed to clearTimeout
 # or discarded, never read as numbers); 2026-10-01 Durable Object eviction (no Durable Object here). /ops/deploy keeps the date only
 # when /health answers with the deployed VERSION and otherwise restores the previous date.
-# compat-advance: reviewed 2026-10-28
-compatibility_date = "2026-10-10"
+# COMPAT-ADVANCE-WAVE-5 (2026-11-05, agent_issues 1000583): the live date 2026-10-10 is 25 days behind and moves to 2026-11-04. Reviewed against
+# qnfo-ops COMPAT_FLIPS: the newest default change is 2026-10-01 (Durable Objects, none here), so no flip lies between the two dates;
+# scripts/compat-risk-scan.mjs qnfo-jobsearch reads clean (no node: import, no numeric timer, no websocket, no Durable Object).
+# compat-advance: reviewed 2026-11-05
+compatibility_date = "2026-11-04"
 compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
 

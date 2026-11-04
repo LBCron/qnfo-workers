@@ -10,7 +10,11 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
 
 const config = readFileSync(join(here, "wrangler.toml"), "utf8");
-ok(/^compatibility_date\s*=\s*"2026-10-25"\s*$/m.test(config), "compatibility date matches the current fleet default");
+// A minimum, not an exact date: the date advances with each COMPAT-ADVANCE wave (a pinned literal broke on every advance).
+const compatDate = (/^compatibility_date\s*=\s*"(\d{4}-\d{2}-\d{2})"\s*$/m.exec(config) || [])[1] || "";
+const compatReviewed = (/^#\s*compat-advance:\s*reviewed\s+(\d{4}-\d{2}-\d{2})/m.exec(config) || [])[1] || "";
+ok(compatDate >= "2026-10-25", "compatibility date is at or after the 2026-10-25 fleet baseline: " + compatDate);
+ok(compatReviewed >= compatDate, "a compat-advance review line is dated on or after the declared date: " + compatReviewed);
 const traces = config.split(/^\s*\[/m).find((section) => section.startsWith("observability.traces]")) || "";
 ok(/^enabled\s*=\s*true\s*$/m.test(traces), "Workers traces are explicitly enabled, not just logs");
 
