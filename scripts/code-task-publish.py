@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import glob
 import json
 import os
 import re
@@ -666,6 +667,26 @@ def rebase_edits(repo_dir, path, ctx, base):
     return files, note, None
 
 
+VERSION_LINE_RE = re.compile(r'(var VERSION = ")(\d+)\.(\d+)\.(\d+)([^"]*")')
+
+
+def regenerate_twin(repo_dir, wdir, src, mir):
+    """Run the directory's inline-*.mjs, bump var VERSION (patch +1) in its worker.js and copy it to the mirror. None on success."""
+    for tool in sorted(glob.glob(os.path.join(repo_dir, wdir, "inline-*.mjs"))):
+        r = subprocess.run(["node", os.path.relpath(tool, repo_dir)], cwd=repo_dir, capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            return os.path.basename(tool) + " failed: " + ((r.stderr or r.stdout) or "")[:200]
+    text = open(os.path.join(repo_dir, src), encoding="utf-8").read()
+    m = VERSION_LINE_RE.search(text)
+    if not m:
+        return src + " has no var VERSION line to bump"
+    bumped = text[:m.start()] + m.group(1) + "%s.%s.%d" % (m.group(2), m.group(3), int(m.group(4)) + 1) + m.group(5) + text[m.end():]
+    with open(os.path.join(repo_dir, src), "w", encoding="utf-8", newline="") as fh:
+        fh.write(bumped)
+    shutil.copyfile(os.path.join(repo_dir, src), os.path.join(repo_dir, mir))
+    return None
+
+
 def mirror_section(patch, path, mirror):
     """The source's section of the patch rewritten for its mirror: the same hunks, the three header lines under the mirror's
     path. Other files' sections (a multi-file task's companions) are left out. None when the source has no section."""
@@ -780,16 +801,26 @@ def publish_one(task, repo_dir, base, pr, delegate=False):
                     shutil.copyfile(os.path.join(repo_dir, path), os.path.join(repo_dir, mirror))
                     files = set(files) | {mirror}
                     task["_carried"] = {"patch": patch + ("" if patch.endswith("\n") else "\n") + section, "mirror": mirror}
-        # COMPANION-REGENERATE-1 (2026-11-04, pillar autonomy): personal-api/worker.js carries companion.js inlined, and the parity
-        # suite (companion.test.mjs "worker.js carries the current companion.js") fails for any edit of companion.js alone. Those
-        # tasks ended FOLD-PAIR-TASK-1 / needs_human and were never redone (12 of 27 product tasks in a week). The publisher now runs
-        # personal-api/inline-companion.mjs after applying a companion.js edit and stages worker.js and its mirror with it.
-        if path == "personal-api/companion.js" and shutil.which("node") and os.path.isfile(os.path.join(repo_dir, "personal-api/inline-companion.mjs")):
-            gen = subprocess.run(["node", "personal-api/inline-companion.mjs"], cwd=repo_dir, capture_output=True, text=True, timeout=120)
-            if gen.returncode != 0:
-                git(repo_dir, "reset", "-q", "--hard")
-                return "publish_failed", None, "COMPANION-REGENERATE-1: inline-companion.mjs failed: " + (gen.stderr or gen.stdout)[:200], None
-            files = set(files) | {"personal-api/worker.js", "personal-api/deployed-current.worker.js"}
+        # MODULE-TWIN-CARRY-1 (2026-11-04, pillar personal; supersedes COMPANION-REGENERATE-1): a task on a source module of a worker
+        # (personal-api/companion.js, inlined into personal-api/worker.js) leaves the worker out of step: the parity suite fails, and the
+        # merge runner needs <dir>/worker.js with its VERSION bump and mirror in the pull request. The publisher runs the directory's
+        # inline-*.mjs, bumps VERSION, copies the mirror and carries those two sections in the parked patch (as MIRROR-CARRY-1 does for a
+        # mirror), so the runner's integrity check still judges every file against the verified patch. 9 of 10 personal-api tasks failed at
+        # the runner's scope check before this.
+        mod = re.match(r"^([a-z0-9][a-z0-9-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)\.(?:js|mjs)$", path)
+        if mod and mod.group(2) not in ("worker", "deployed-current.worker") and not mirror and shutil.which("node"):
+            twin_src, twin_mir = mod.group(1) + "/worker.js", mod.group(1) + "/deployed-current.worker.js"
+            if os.path.isfile(os.path.join(repo_dir, twin_src)) and os.path.isfile(os.path.join(repo_dir, twin_mir)):
+                terr = regenerate_twin(repo_dir, mod.group(1), twin_src, twin_mir)
+                if terr:
+                    git(repo_dir, "reset", "-q", "--hard")
+                    git(repo_dir, "clean", "-qfd")
+                    return "publish_failed", None, "MODULE-TWIN-CARRY-1: " + terr, None
+                diff = git(repo_dir, "diff", "--no-color", "--", twin_src, twin_mir).stdout
+                if diff.strip():
+                    files = set(files) | {twin_src, twin_mir}
+                    prior = (task.get("_carried") or {}).get("patch") or patch
+                    task["_carried"] = {"patch": prior + ("" if prior.endswith("\n") else "\n") + diff, "mirror": twin_mir}
         # VERIFY-DEFER-PUBLISHER-1: a JavaScript task the orchestrator could not verify is parsed here or not pushed at all.
         if ctx.get("verify_deferred") and any(f.endswith((".js", ".mjs")) for f in files) and not shutil.which("node"):
             git(repo_dir, "reset", "-q", "--hard")
@@ -1735,6 +1766,24 @@ def selftest():
     check("an unreadable in-flight list publishes ungated and says so, never stopping the loop",
           row(base_store, "ct_laneread0002")["status"] == "published" and not r.get("held") and any("PUBLISH-LANE-SERIAL-1" in x for x in logs), (r, logs))
 
+    # MODULE-TWIN-CARRY-1: the twin is regenerated by the directory's inline script, VERSION bumped, mirror equal to the source
+    if shutil.which("node"):
+        td = tempfile.mkdtemp(prefix="twin-")
+        os.makedirs(os.path.join(td, "wk"))
+        with open(os.path.join(td, "wk", "worker.js"), "w") as fh:
+            fh.write('var VERSION = "1.2.3-x"; // note\nbody\n')
+        with open(os.path.join(td, "wk", "inline-mod.mjs"), "w") as fh:
+            fh.write('import fs from "node:fs";\nfs.appendFileSync("wk/worker.js", "// inlined\\n");\n')
+        shutil.copyfile(os.path.join(td, "wk", "worker.js"), os.path.join(td, "wk", "deployed-current.worker.js"))
+        err = regenerate_twin(td, "wk", "wk/worker.js", "wk/deployed-current.worker.js")
+        src_t = open(os.path.join(td, "wk", "worker.js")).read()
+        mir_t = open(os.path.join(td, "wk", "deployed-current.worker.js")).read()
+        check("MODULE-TWIN-CARRY-1: the inline script runs, VERSION is bumped by one patch and the mirror equals the source",
+              err is None and 'var VERSION = "1.2.4-x"; // note' in src_t and "// inlined" in src_t and src_t == mir_t, (err, src_t))
+        with open(os.path.join(td, "wk", "worker.js"), "w") as fh:
+            fh.write("no version here\n")
+        check("MODULE-TWIN-CARRY-1: a worker.js with no VERSION line is reported, not guessed",
+              "no var VERSION" in (regenerate_twin(td, "wk", "wk/worker.js", "wk/deployed-current.worker.js") or ""))
     print(f"\nselftest: {len(fails)} failure(s)")
     return 1 if fails else 0
 

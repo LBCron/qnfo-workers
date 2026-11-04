@@ -113,9 +113,10 @@ ok(atLeast(h.version, "0.18.29"), "health: 0.18.29+", { version: h.version });
 // ===== 4. MERGE-SCOPE-PARITY-1: enqueue refuses what the merge runner refuses =====
 {
   FILES["fx-rel/wellbeing.js"] = "export const a = 1;\n";
+  FILES["fx-rel/wellbeing.test.mjs"] = "export const a = 1;\n";
   const { env } = envWith([]);
-  const m = await addTask(env, "fx-rel/wellbeing.js");
-  ok(!m.ok && /outside the merge runner's auto-merge scope/.test(m.error || "") && /^session task/.test(m.error || ""), "a module file in qnfo-workers is a session task at enqueue", m);
+  const m = await addTask(env, "fx-rel/wellbeing.test.mjs");
+  ok(!m.ok && /outside the merge runner's auto-merge scope/.test(m.error || "") && /^session task/.test(m.error || ""), "a test file in qnfo-workers is a session task at enqueue", m);
   const t = await addTask(env, "fx-rel/wrangler.toml");
   ok(!t.ok, "a wrangler.toml is refused too", t);
   const d = await addTask(env, "docs/NOTES.md");

@@ -193,7 +193,7 @@ ok(W.cmBump('const VERSION = "1.0.0";\n', "-r") === null && W.cmBump('var VERSIO
 
 // ================================================================ 2. scope, required checks, provenance
 ok(J(W.cmScope(PATH)).kind === "worker" && J(W.cmScope("docs/a/b.md")).kind === "doc" && J(W.cmScope("qnfo-x/README.md")).kind === "doc" && J(W.cmScope("scripts/cf_ops_actions.py")).kind === "script" && J(W.cmScope("scripts/drift-check.mjs")).kind === "script" && J(W.cmScope("scripts/fleet-autoaudit.py")).kind === "script", "worker.js, docs/**.md, <dir>/README.md and fleet scripts are in scope (SCOPE-SCRIPTS-1)");
-ok(["scripts/deploy_gate.py", "scripts/mirror-guard.py", "scripts/version-bump-guard.py", "scripts/workflow-lint.py", "scripts/run-suites.mjs", "scripts/canary_revert.py", "scripts/canonical_deploy.py", "scripts/raw_put.py", "scripts/remediation_consumer.py", "scripts/secret_lock.py", "scripts/fold_worker_selftest.py", "scripts/cf_ops_delete_worker_test.py", "scripts/probe-semicolon.test.mjs", "scripts/mention-radar-test.mjs", "scripts/x.sh", "scripts/sub/x.py", ".github/workflows/a.yml", "qnfo-x/wrangler.toml", "migrations/a.test.mjs", "migrations/a.sql.bak", "mind/wrangler.toml.bak", "qnfo-x/a.test.mjs", "qnfo-x/registry.js", "docs/../x.md"].every((p) => !W.cmScope(p).ok), "gates, guards, suites, deploy primitives, the loop's runners, workflows, configs, tests and other modules are out of scope");
+ok(["scripts/deploy_gate.py", "scripts/mirror-guard.py", "scripts/version-bump-guard.py", "scripts/workflow-lint.py", "scripts/run-suites.mjs", "scripts/canary_revert.py", "scripts/canonical_deploy.py", "scripts/raw_put.py", "scripts/remediation_consumer.py", "scripts/secret_lock.py", "scripts/fold_worker_selftest.py", "scripts/cf_ops_delete_worker_test.py", "scripts/probe-semicolon.test.mjs", "scripts/mention-radar-test.mjs", "scripts/x.sh", "scripts/sub/x.py", ".github/workflows/a.yml", "qnfo-x/wrangler.toml", "migrations/a.test.mjs", "migrations/a.sql.bak", "mind/wrangler.toml.bak", "qnfo-x/a.test.mjs", "qnfo-x/inline-x.mjs", "docs/../x.md"].every((p) => !W.cmScope(p).ok), "gates, guards, suites, deploy primitives, the loop's runners, workflows, configs, tests and other modules are out of scope");
 // MERGE-SCOPE-DATA-SURFACES-1 (agent_issues 100617): the two surfaces the loop is asked to remediate but could never merge.
 ok(J(W.cmScope("migrations/2026-10-22-close-channel-required.sql")).ok === true && J(W.cmScope("migrations/2026-10-22-close-channel-required.sql")).kind === "migration", "a migration file auto-merges (a file without the MIGRATION-RUNNER-1 header is inert)");
 ok(J(W.cmScope("mind/data/entries-a.json")).ok === true && J(W.cmScope("mind/data/entries-a.json")).kind === "mind-data" && J(W.cmScope("mind/wrangler.toml")).ok === true && J(W.cmScope("mind/wrangler.toml")).kind === "mind-data", "the q08-mind content and config surface auto-merges");
@@ -1266,6 +1266,32 @@ sandbox.aiRunAttr = async () => null;
 
   rv = await arrange(null);   // main's file unreadable (404): this gate does not decide
   ok(gh.merges.length === 1, "main's file missing: the gate does not block", rv.decided);
+}
+
+// ---- MODULE-SOURCE-SCOPE-1: a worker's source module merges as that worker's change, with worker.js, its VERSION bump and its mirror
+{
+  const SRCM = DIR + "/companion.js", SB = "export function hi() {\n  return 1;\n}\n", SN = SB.replace("return 1", "return 11");
+  const scS = J(W.cmScope(SRCM)), scW = J(W.cmScope(PATH));
+  ok(scW.ok === true && scW.kind === "worker" && scW.src === undefined, "single-file worker: a worker.js task keeps its scope unchanged (no module source)", scW);
+  ok(scS.ok === true && scS.kind === "worker" && scS.src === PATH && scS.mirror === MIRROR && scS.worker === DIR, "multi-file worker: <dir>/companion.js is in scope as that worker's change, carrying worker.js and the mirror", scS);
+  const outside = ["qnfo-observability/fleet.js", "qnfo-autonomy-scorer/helper.js", DIR + "/companion.test.mjs", DIR + "/inline-companion.mjs", DIR + "/build.mjs", "scripts/helper.js", "docs/x.js", "migrations/x.js", "mind/x.js", "workers/" + DIR + "/x.js", DIR + "/sub/x.js", DIR + "/wrangler.toml", ".github/workflows/x.js"];
+  ok(outside.every((x) => !W.cmScope(x).ok), "paths outside the worker (a control-plane worker's module, tests, build scripts, reserved directories, nested paths, config) stay out of scope", outside.filter((x) => W.cmScope(x).ok));
+  const MPATCH2 = W.hunkPatch(SRCM, SB, SN) + W.hunkPatch(PATH, BASE, NEXT) + W.hunkPatch(MIRROR, BASE, NEXT);
+  const mt2 = () => task({ path: SRCM, status: "branch_pushed", pr_url: null, ctx: JSON.stringify({ base: SB, patch: MPATCH2 }) });
+  gh.contents["mbs:" + SRCM] = SB; gh.contents["mbs:" + PATH] = BASE; gh.contents["mbs:" + MIRROR] = BASE;
+  gh.contents["hs:" + SRCM] = SN; gh.contents["hs:" + PATH] = NEXT; gh.contents["hs:" + MIRROR] = NEXT; gh.contents["hs:" + DIR + "/wrangler.toml"] = 'name = "qnfo-demo"\nmain = "worker.js"\n';
+  gh.contents["main:" + PATH] = BASE;
+  const ims = J(await W.cmIntegrity(env, mt2(), "hs", [SRCM, PATH, MIRROR], scS, "mbs"));
+  ok(ims.ok === true && ims.version_to === "1.2.4-codeagent" && ims.revertible === true, "multi-file worker: module, worker.js and mirror each equal the verified patch on the merge base; the VERSION and the revert follow worker.js", ims);
+  const imn = J(await W.cmIntegrity(env, mt2(), "hs", [SRCM], scS, "mbs"));
+  ok(imn.ok === false && /not the files of the verified patch/.test(imn.why), "a module change without worker.js and its mirror is refused: the pull request files must be the verified patch files", imn);
+  const imn2 = J(await W.cmIntegrity(env, task({ path: SRCM, status: "branch_pushed", pr_url: null, ctx: JSON.stringify({ base: SB, patch: W.hunkPatch(SRCM, SB, SN) }) }), "hs", [SRCM], scS, "mbs"));
+  ok(imn2.ok === false && /must also carry/.test(imn2.why), "a module-only patch (no worker.js, no mirror) is refused with the reason", imn2);
+  gh.contents["hs2:" + SRCM] = SN; gh.contents["hs2:" + PATH] = NEXT + "// pushed\n"; gh.contents["hs2:" + MIRROR] = NEXT; gh.contents["hs2:" + DIR + "/wrangler.toml"] = 'name = "qnfo-demo"\n';
+  const imx2 = J(await W.cmIntegrity(env, mt2(), "hs2", [SRCM, PATH, MIRROR], scS, "mbs"));
+  ok(imx2.ok === false && /worker\.js at the PR head hs2 is not the verified patch/.test(imx2.why), "other content pushed into the carried worker.js is refused: the check that PR files match the verified patch stays", imx2);
+  const imo = J(await W.cmIntegrity(env, mt2(), "hs", [SRCM, PATH, MIRROR, "qnfo-other/worker.js"], scS, "mbs"));
+  ok(imo.ok === false && /not the files of the verified patch/.test(imo.why), "a file outside the worker in the pull request is refused", imo);
 }
 
 console.log(`code-merge.test: ${passed} passed, ${failed} failed`);

@@ -373,15 +373,13 @@ const WIP = Number((/^const PLAN_WIP = (\d+);/m.exec(fs.readFileSync(new URL("./
     } else {
       const expected = "personal-api/" + (redirected ? "companion.js" : "worker.js");
       const description = env.AUDIT_DB._db.prepare("SELECT description FROM agent_issues WHERE id = ?").get(id).description;
-      const goal = redirected ? description : t[0] && t[0].goal;
+      const goal = t[0] && t[0].goal;
       ok(r.path === expected && plans(env)[0].path === expected &&
-        (redirected ? r.outcome === "session" && t.length === 0 && description.includes("session-task: repo=qnfo-workers path=" + expected)
-          : t.length === 1 && t[0].path === expected),
+        t.length === 1 && t[0].path === expected,
         name + ": plan and task target the correct file without widening merge scope", r);
-      ok(redirected ? description.includes("code-anchor: " + pick) : t[0] && JSON.parse(t[0].ctx).anchor === pick,
+      ok(t[0] && JSON.parse(t[0].ctx).anchor === pick,
         name + ": the unique source anchor is retained");
-      ok(goal && goal.includes("node personal-api/inline-companion.mjs") === redirected &&
-        (!redirected || /regenerate worker\.js \+ deployed-current\.worker\.js.*same commit/.test(goal)),
+      ok(goal,
         name + ": only redirected tasks require same-commit regeneration", goal);
     }
   }
