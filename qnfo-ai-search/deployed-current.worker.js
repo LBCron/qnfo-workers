@@ -29,7 +29,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.12.14-codeagent";
+var VERSION = "2.12.15-codeagent";
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
 async function callModelWithRetry(url, payload, timeoutMs = 20000) {
@@ -43,7 +43,8 @@ async function callModelWithRetry(url, payload, timeoutMs = 20000) {
       // every retried model call re-runs the ask path's D1 writes (spend ledger, events), and
       // retries fired back-to-back aligned the whole fleet's second attempt into the same window.
       // Space the single retry out before issuing it.
-      await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 500)));
+      let retryDelay = 2000 + Math.floor(Math.random() * 1000);
+await new Promise((r) => setTimeout(r, retryDelay));
       try {
         return await fetchWithTimeout(url, payload, timeoutMs);
       } catch (e2) {
