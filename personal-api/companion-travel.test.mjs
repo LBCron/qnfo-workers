@@ -93,7 +93,7 @@ console.log("\n[quiet hours and check-ins follow the traveller]");
   ok("at home 03:30Z is 05:30 local: quiet hours", homePlan.plan.skip === "quiet-hours", homePlan.plan);
   stay("Bangkok", "TH", "2026-10-12", "2026-10-16");
   const away = await C.companionTick(env, {}, { nowIso: at, dryRun: true });
-  ok("the same instant in Bangkok is 10:30: the morning check-in is planned", away.plan.kind === "cmp-checkin", away.plan);
+  ok("the same instant in Bangkok is 10:30: not quiet hours (mood check-ins are off by default, so the plan may be nothing-useful)", away.plan.skip !== "quiet-hours", away.plan);
   const night = await C.companionTick(env, {}, { nowIso: "2026-10-14T18:30:00Z", dryRun: true });
   ok("and 18:30Z is 01:30 there: quiet, though it is 20:30 at home", night.plan.skip === "quiet-hours", night.plan);
   const fixed = C.planNudge(Object.assign({}, await C.gatherState(env, "2026-10-14T16:30:00Z"), { pushReady: true }));

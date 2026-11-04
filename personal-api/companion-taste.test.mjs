@@ -18,7 +18,8 @@ function d1(db) {
     async first() { return db.prepare(sql).get(...args) ?? null; } }; return api; } };
 }
 const raw = new DatabaseSync(":memory:");
-const env = { PERSONAL: d1(raw) };
+const r2 = new Map();
+const env = { PERSONAL: d1(raw), MEDIA: { async put(k, v) { r2.set(k, v); }, async get(k) { return r2.has(k) ? { body: r2.get(k) } : null; } } };
 await C.ensureSchema(env.PERSONAL);
 
 console.log("[pure taste]");
@@ -68,5 +69,21 @@ ok("on-device speech recognition with a local-processing request", html.includes
 ok("thumbs on events, to-dos, suggestions, mail and nudges", ["'event'", "'radar'", "'todo'", "'mail'", "'nudge'"].every((k) => html.includes("thumbs(" + k) || html.includes("kind||" + k) || html.includes("'" + k.slice(1, -1) + "'")) && html.includes("/companion/api/feedback"));
 ok("More keeps secondary tabs behind one button", html.includes('id="nav-more"') && /class="sec"/.test(html));
 ok("taste pane on the Data tab", html.includes('id="taste"') && html.includes("Take back"));
+console.log("[photo]");
+{
+  let visionCalls = 0;
+  const pdeps = Object.assign({}, hdeps, { vision: async () => { visionCalls++; return { ok: true, text: "What it is: a parking permit letter" }; }, llm: async () => null });
+  const fd = new FormData();
+  fd.append("file", new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }), "photo.jpg");
+  fd.append("text", "Code: ABC-123");
+  const res = await C.handleCompanion(new Request("https://x/companion/api/capture", { method: "POST", headers: { Authorization: "Bearer k" }, body: fd }), env, ctx, pdeps);
+  const j = await res.json();
+  ok("a photo is stored and answered before any vision call", j.ok && j.kind === "image" && j.sorting === true && visionCalls === 0, j);
+  await Promise.all(bg.splice(0));
+  const row = raw.prepare("SELECT raw_text, status FROM cmp_inbox WHERE id = ?").get(j.id);
+  ok("the description is written afterwards and keeps the text the phone read", visionCalls === 1 && /Code: ABC-123/.test(row.raw_text) && /parking permit/.test(row.raw_text) && row.status === "processed", row);
+}
+ok("page shrinks and reads photos on the phone", C.PAGE_HTML.includes("prepImage") && C.PAGE_HTML.includes("TextDetector") && C.PAGE_HTML.includes("BarcodeDetector") && C.PAGE_HTML.includes("1280"));
+ok("manifest has voice, photo and note shortcuts and the page opens them", C.MANIFEST.shortcuts.length === 3 && C.PAGE_HTML.includes("h==='voice'"));
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

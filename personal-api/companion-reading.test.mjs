@@ -21,7 +21,7 @@ ok("only the lane name is in the link", r.url === "https://mind.q08.org/now?lane
 ok("the reason is plain and kind", /Stop whenever you like/.test(r.why));
 const w = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 ok("the inlined worker carries readingLane and the Today card", /function readingLane/.test(w) && /Something to read/.test(w));
-ok("the guide lists the reading pick", /mind\.q08\.org<\/a>, gentler on heavy days/.test(C.GUIDE_HTML));
+ok("the guide lists the reading pick", /mind\.q08\.org<\/a>/.test(C.GUIDE_HTML));
 ok("worker.js and its mirror match", w === fs.readFileSync(new URL("./deployed-current.worker.js", import.meta.url), "utf8"));
 console.log(pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);

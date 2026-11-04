@@ -1,0 +1,49 @@
+name: build-me-apk
+
+# COMPANION-APK-1 (2026-11-04, pillar personal, owner: "make it an APK"). Builds android-me/ (a Trusted Web Activity around
+# me.q08.org/companion) with the runner's own JDK, Android SDK and Gradle, and attaches the debug-signed APK as an artifact.
+# No cron (SCHEDULE-EVENT-NEVER-FIRES-1). No release keystore: that is the owner's signing identity and is never minted here.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'android-me/**'
+      - '.github/workflows/build-me-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-me-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the debug APK
+        run: |
+          set -euo pipefail
+          java -version
+          gradle --version | head -3
+          gradle -p android-me --no-daemon --console=plain assembleDebug
+          ls -l android-me/app/build/outputs/apk/debug/
+
+      - name: Check the APK declares the companion URL
+        run: |
+          set -euo pipefail
+          APK=android-me/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -p "$APK" AndroidManifest.xml > /tmp/am.bin
+          { strings -a /tmp/am.bin; strings -a -el /tmp/am.bin; } | grep -q "me.q08.org"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: me-companion-apk
+          path: android-me/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30

@@ -1737,6 +1737,29 @@ export async function transcribe(env, bytes) {
   } catch (e) { errors.push("whisper:" + String(e && e.message || e).slice(0, 120)); }
   return { ok: false, error: errors.join(" | ") };
 }
+const PHOTO_PROMPT = "This photo was captured into a personal notes inbox. First copy any visible text verbatim. Then, on a line starting 'What it is:', say in one sentence what it shows (receipt, whiteboard, handwritten note, poster, screen, place, food...). Do not guess beyond what is visible.";
+export async function describeImage(env, deps, bytes, mime) {
+  return deps.vision(env, [{ type: "text", text: PHOTO_PROMPT }, { type: "image_url", image_url: { url: "data:" + mime + ";base64," + toB64(bytes) } }]);
+}
+// Photos stored by the fast path: describe each from its stored copy, keep any text the phone already read on-device, then sort it.
+export async function describeImages(env, deps, limit) {
+  if (!(deps && deps.vision) || !env.MEDIA) return [];
+  const rows = await all(env.PERSONAL, "SELECT * FROM cmp_inbox WHERE kind = 'image' AND status = 'unprocessed' AND media_key IS NOT NULL AND COALESCE(attempts, 0) < 3 AND COALESCE(result_json, '') NOT LIKE '%\"described\"%' ORDER BY ts LIMIT ?", limit || 3);
+  const out = [];
+  for (const r of rows) {
+    try {
+      const ob = await env.MEDIA.get(r.media_key);
+      if (!ob) { await env.PERSONAL.prepare("UPDATE cmp_inbox SET attempts = 3 WHERE id = ?").bind(r.id).run(); continue; }
+      const bytes = new Uint8Array(await new Response(ob.body).arrayBuffer());
+      const v = await describeImage(env, deps, bytes, r.mime || "image/jpeg");
+      const text = v && v.ok ? (r.raw_text ? r.raw_text + "\n\n" : "") + v.text : r.raw_text;
+      await env.PERSONAL.prepare("UPDATE cmp_inbox SET raw_text = ?, result_json = ? WHERE id = ?").bind(text || null, JSON.stringify({ described: !!(v && v.ok), note: v && v.ok ? undefined : "image description failed: " + (v && v.error || "no vision") }), r.id).run();
+      if (text) out.push(await processItem(env, deps, Object.assign({}, r, { raw_text: text })));
+      else await env.PERSONAL.prepare("UPDATE cmp_inbox SET attempts = 3 WHERE id = ?").bind(r.id).run();
+    } catch (e) { out.push({ ok: false, id: r.id, error: String(e && e.message || e).slice(0, 160) }); }
+  }
+  return out;
+}
 export async function capture(env, deps, input) {
   const stamp = clientStamp(input && input.at);
   const now = stamp || nowIso(), id = rid("inb"), day = dayKey(now);
@@ -1754,11 +1777,9 @@ export async function capture(env, deps, input) {
     kind = "image"; mime = s(input.mime, 60) || "image/jpeg";
     mediaKey = "companion/img/" + day + "/" + id + "." + (IMG_EXT[mime] || "bin");
     if (env.MEDIA) await env.MEDIA.put(mediaKey, input.image, { httpMetadata: { contentType: mime } });
-    if (deps && deps.vision) {
-      const v = await deps.vision(env, [
-        { type: "text", text: "This photo was captured into a personal notes inbox. First copy any visible text verbatim. Then, on a line starting 'What it is:', say in one sentence what it shows (receipt, whiteboard, handwritten note, poster, screen, place, food...). Do not guess beyond what is visible." },
-        { type: "image_url", image_url: { url: "data:" + mime + ";base64," + toB64(input.image) } }
-      ]);
+    // COMPANION-PHOTO-1: the route stores the photo and answers at once; the description is written afterwards (describeImages).
+    if (deps && deps.vision && !(input && input.deferVision)) {
+      const v = await describeImage(env, deps, input.image, mime);
       if (v && v.ok) text = (text ? text + "\n\n" : "") + v.text; else note = "image description failed: " + (v && v.error || "no vision");
     }
   }
@@ -2358,7 +2379,8 @@ export async function handleCompanion(request, env, ctx, deps) {
     if (r === "dashboard" && m === "GET") return J(await dashboard(env));
     if (r === "capture" && m === "POST") {
       // COMPANION-FAST-CAPTURE-1: the note is stored and answered at once; sorting it (a model call) happens after the reply.
-      const out = await capture(env, deps, Object.assign(await readCapture(request), { defer: true }));
+      const out = await capture(env, deps, Object.assign(await readCapture(request), { defer: true, deferVision: true }));
+      if (out.ok && out.kind === "image" && ctx && ctx.waitUntil) { out.sorting = true; ctx.waitUntil(describeImages(env, deps, 3).catch((e) => console.error(JSON.stringify({ evt: "companion:describe", error: String(e && e.message || e).slice(0, 200) })))); }
       // Risk language still gets the fixed lines in this very reply (rule 6), before any sorting.
       if (out.ok && out.text && crisisSignal(out.text).level >= 2) out.processed = { ok: true, type: "inbox", crisis: crisisText(await loadCfg(env)) };
       if (out.ok && out.text && !out.duplicate && ctx && ctx.waitUntil) { out.sorting = true; ctx.waitUntil(processInbox(env, deps, 5).catch((e) => console.error(JSON.stringify({ evt: "companion:sort", error: String(e && e.message || e).slice(0, 200) })))); }
@@ -2451,7 +2473,13 @@ export async function handleCompanion(request, env, ctx, deps) {
 export const MANIFEST = {
   name: "Companion", short_name: "Companion", start_url: "/companion", scope: "/companion", display: "standalone",
   background_color: "#f6f4ef", theme_color: "#2f5d50", description: "Rowan's personal companion",
-  icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }]
+  icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }],
+  // COMPANION-APK-1: long-press the home-screen icon to go straight to a voice note, a photo or a typed note.
+  shortcuts: [
+    { name: "Voice note", url: "/companion#voice", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] },
+    { name: "Photo note", url: "/companion#photo", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] },
+    { name: "Quick note", url: "/companion#note", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] }
+  ]
 };
 export const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#2f5d50"/><circle cx="48" cy="44" r="20" fill="none" stroke="#f6f4ef" stroke-width="7"/><path d="M30 74c5-6 11-9 18-9s13 3 18 9" fill="none" stroke="#f6f4ef" stroke-width="7" stroke-linecap="round"/></svg>';
 export const SW_JS = `// COMPANION-OFFLINE-1: only the page shell is cached (HTML, manifest, icon: no personal data). API calls are never cached or
@@ -2798,8 +2826,12 @@ document.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target&&e.
 // COMPANION-NO-TYPING-1: Dictate records on the phone and the server writes the words; the text lands in the box for one tap to send.
 var dict=null;function dictate(btn,target){if(dict){dict.r.stop();return}if(!navigator.mediaDevices||!window.MediaRecorder){alert('This browser cannot record. Voice note on Capture works on most phones.');return}navigator.mediaDevices.getUserMedia({audio:true}).then(function(st){var ch=[],r=new MediaRecorder(st),label=btn.textContent;dict={r:r};r.ondataavailable=function(e){ch.push(e.data)};r.onstop=function(){st.getTracks().forEach(function(t){t.stop()});dict=null;btn.classList.remove('sel');btn.textContent='Writing it down...';btn.disabled=true;var b=new Blob(ch,{type:r.mimeType||'audio/webm'});fetch('/companion/api/dictate',{method:'POST',headers:Object.assign(hdrs(),{'Content-Type':b.type}),body:b}).then(function(x){return x.json()}).then(function(j){var box=$(target);if(j.ok){box.value=(box.value.trim()?box.value.trim()+' ':'')+j.text}else alert(j.error||'Could not write that down.')}).catch(function(e){alert('Could not write that down: '+e.message)}).then(function(){btn.disabled=false;btn.textContent=label})};r.start();btn.textContent='Stop';btn.classList.add('sel')}).catch(function(e){alert('Microphone not available: '+e.message)})}
 function quickJournal(btn){$('j-text').value=btn.textContent;btn.classList.add('sel');addJournal()}
-function capImg(inp){if(inp.files&&inp.files[0])upload(inp.files[0],inp.files[0].name);inp.value=''}
-function upload(blob,name){var te=textEl(),o=outEl();var f=new FormData();f.append('file',blob,name);f.append('text',te.value.trim());o.innerHTML='';say(o,'Listening/looking...');api('/companion/api/capture',{method:'POST',body:f}).then(function(r){te.value='';showCap(r)}).catch(function(e){say(o,e.message)})}
+// COMPANION-PHOTO-1: the photo is shrunk on the phone (about 150 KB instead of several MB) and read there for text and codes where the browser has
+// TextDetector / BarcodeDetector; what it reads travels with the photo and the description follows in the background.
+function readOnDevice(bmp){var jobs=[];try{if(window.TextDetector)jobs.push(new TextDetector().detect(bmp).then(function(r){return r.map(function(x){return x.rawValue}).join(' ')}))}catch(e){warn(e)}try{if(window.BarcodeDetector)jobs.push(new BarcodeDetector().detect(bmp).then(function(r){return r.map(function(x){return 'Code: '+x.rawValue}).join('\\n')}))}catch(e){warn(e)}return Promise.all(jobs.map(function(p){return p.catch(function(){return ''})})).then(function(a){return a.filter(Boolean).join('\\n').trim()})}
+function prepImage(file){if(!window.createImageBitmap)return Promise.resolve({blob:file,text:''});return createImageBitmap(file).then(function(bmp){var k=Math.min(1,1280/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);return Promise.all([readOnDevice(bmp),new Promise(function(res){c.toBlob(res,'image/jpeg',0.8)})]).then(function(r){return {blob:r[1]||file,text:r[0]}})}).catch(function(e){warn(e);return {blob:file,text:''}})}
+function capImg(inp){var f=inp.files&&inp.files[0];inp.value='';if(!f)return;var o=outEl();o.innerHTML='';say(o,'Reading the photo...');prepImage(f).then(function(p){upload(p.blob,'photo.jpg',p.text)})}
+function upload(blob,name,extra){var te=textEl(),o=outEl();var f=new FormData();f.append('file',blob,name);f.append('text',[te.value.trim(),extra||''].filter(Boolean).join('\\n'));o.innerHTML='';say(o,'Listening/looking...');api('/companion/api/capture',{method:'POST',body:f}).then(function(r){te.value='';showCap(r)}).catch(function(e){say(o,e.message)})}
 function inbox(){api('/companion/api/inbox').then(function(r){var b=$('inbox');b.innerHTML='';(r.items||[]).slice(0,15).forEach(function(i){var res={};try{res=JSON.parse(i.result_json||'{}')}catch(e){warn(e)}b.appendChild(el('div',{cls:'item'},[el('div',{cls:'grow'},[el('div',{text:(i.raw_text||'(no text)').slice(0,160)}),el('div',{cls:'mute',text:i.ts.slice(0,16).replace('T',' ')+' · '+i.kind+' · '+(res.type||i.status)})])]))})})}
 var hist=[];try{hist=JSON.parse(sessionStorage.getItem('cmp-hist')||'[]')}catch(e){warn(e)}
 function drawChat(){var b=$('msgs');b.innerHTML='';hist.forEach(function(m){b.appendChild(el('div',{cls:'msg '+(m.role==='user'?'me':'it'),text:m.content}))});window.scrollTo(0,document.body.scrollHeight)}
@@ -2907,7 +2939,7 @@ var views={today:load,focus:loadFocus,capture:inbox,talk:drawChat,do:loadDo,lear
 function toggleMore(){var n=document.querySelector('nav');var o=n.classList.toggle('open');$('nav-more').setAttribute('aria-expanded',o?'true':'false')}
 function go(v){document.querySelector('nav').classList.remove('open');$('composer').classList.toggle('hide',v!=='today');Array.prototype.forEach.call(document.querySelectorAll('.v'),function(s){s.classList.add('hide')});$('v-'+v).classList.remove('hide');Array.prototype.forEach.call(document.querySelectorAll('nav button'),function(b){b.classList.toggle('on',b.getAttribute('data-v')===v)});views[v]()}
 Array.prototype.forEach.call(document.querySelectorAll('nav button[data-v]'),function(b){b.onclick=function(){go(b.getAttribute('data-v'))}});
-function fromHash(){var h=location.hash.slice(1);if(!h)return;var q={};h.split('&').forEach(function(x){var p=x.split('=');q[p[0]]=decodeURIComponent(p[1]||'')});history.replaceState(null,'','/companion');if(q.week!==undefined){go('today');setTimeout(function(){var w=$('week');if(w)w.scrollIntoView()},800);return}if(q.mood!==undefined){go('today');setTimeout(function(){var m=$('mood-card');if(m)m.scrollIntoView()},800);return}if(q.n&&(q.a==='done'||q.a==='no'))api('/companion/api/nudge',{json:{id:Number(q.n),state:q.a==='done'?'done':'declined'}}).then(load)}
+function fromHash(){var h=location.hash.slice(1);if(!h)return;if(h==='voice'||h==='photo'||h==='note'){history.replaceState(null,'','/companion');go('today');setTimeout(function(){if(h==='voice')qcMic();else if(h==='photo')$('qc-img').click();else $('qc-text').focus()},600);return}var q={};h.split('&').forEach(function(x){var p=x.split('=');q[p[0]]=decodeURIComponent(p[1]||'')});history.replaceState(null,'','/companion');if(q.week!==undefined){go('today');setTimeout(function(){var w=$('week');if(w)w.scrollIntoView()},800);return}if(q.mood!==undefined){go('today');setTimeout(function(){var m=$('mood-card');if(m)m.scrollIntoView()},800);return}if(q.n&&(q.a==='done'||q.a==='no'))api('/companion/api/nudge',{json:{id:Number(q.n),state:q.a==='done'?'done':'declined'}}).then(load)}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/companion/sw.js',{scope:'/companion'}).catch(warn);
 fromHash();go('today')
 window.addEventListener('hashchange',fromHash);
