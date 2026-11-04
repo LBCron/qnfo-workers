@@ -120,6 +120,10 @@ jobs:
 
       - name: Commit repaired sources (race-safe, bounded retry)
         if: github.actor != 'github-actions[bot]'
+        # MAIN-PUSH-POLICY-3 (2026-11-04): push_head.sh code opens the pull request through the REST API and reads GH_TOKEN or GITHUB_TOKEN; a step gets neither unless it sets one,
+        # so a landing ended 'no token to open a pull request' with the change stranded on its branch (apply-pending-patches run 41917344297).
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name  "qnfo-fleet-bot"

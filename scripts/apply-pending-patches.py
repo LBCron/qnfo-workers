@@ -138,6 +138,36 @@ def revert_paths(root: Path, codes: dict) -> list:
     return sorted(codes)
 
 
+# VERSION-FLOOR-1 (2026-11-04, pillar autonomy): a one-shot patcher written weeks ago names its own VERSION as a literal. toolbudget-do-loop-parity-1-patch.py (2026-09-30) still
+# matched its anchor on 2026-11-04 and would have landed through a pull request with qnfo-ops VERSION "2.62.20-tool-arg-alias" replaced by "2.38.14-do-loop-budget-parity"
+# (and a second final round the file already had); the same class put stale whole-file copies on main on 2026-10-19 (see PR-GUARD-FIXES-1). A patch that lowers the numeric core
+# of any worker bundle's VERSION is reverted and reported, never landed.
+VERSION_DECL = re.compile(r'^[ \t]*(?:var|const|let)\s+VERSION\s*=\s*"([^"\n]*)"', re.M)
+
+
+def version_core(text):
+    """(major, minor, patch) of the first VERSION declaration at the start of a line, or None."""
+    m = VERSION_DECL.search(text or "")
+    nums = re.match(r"(\d+)\.(\d+)\.(\d+)", m.group(1)) if m else None
+    return tuple(int(x) for x in nums.groups()) if nums else None
+
+
+def version_downgrades(root: Path, paths) -> list:
+    """[(path, committed core, new core)] for each worker bundle in `paths` whose VERSION core is lower than the committed one."""
+    out = []
+    for p in sorted(paths):
+        if not (p.endswith("/worker.js") or p.endswith("/deployed-current.worker.js")):
+            continue
+        fp = root / p
+        if not fp.is_file():
+            continue
+        new = version_core(fp.read_text(encoding="utf-8", errors="replace"))
+        old = version_core(git(root, "show", "HEAD:" + p))
+        if new and old and new < old:
+            out.append((p, ".".join(map(str, old)), ".".join(map(str, new))))
+    return out
+
+
 def classify(text: str, rc: int) -> str:
     low = text.lower()
     if rc != 0:
@@ -354,6 +384,14 @@ RETIRED_APPLIERS = [
         "evidence": ("qnfo-ops/worker.js", "SAME-ZONE-FETCH-FALLBACK-1"),
         "reason": "obsolete: it only re-anchored 8 appliers on exact qnfo-ops VERSION literals; all 8 now report already-applied (e.g. samezone-fetch-fallback's SAME-ZONE-FETCH-FALLBACK-1 is in qnfo-ops)",
     },
+    # VERSION-FLOOR-1 (2026-11-04): its anchor (the closing `if (!finalText) finalText = "(tool loop did not converge ..."` line) survives, so it still reported `landed`, but the DO/WS
+    # session loop already runs the final no-tools round (opsAgentChat with BUDGET_EXHAUSTED_DIRECTIVE) and records the bail as "do-session"; applying it adds a second round and writes
+    # VERSION 2.38.14 over 2.62.x. The evidence token is the existing bail record, verified present in the tree.
+    {
+        "script": "toolbudget-do-loop-parity-1-patch.py",
+        "evidence": ("qnfo-ops/worker.js", 'logToolBudgetBail(this.env, "do-session", 0, "", maxIters, false)'),
+        "reason": "superseded: the DO/WS session loop already has the final no-tools round and the do-session bail record; the applier's anchor line survives but applying it duplicates the round and lowers the VERSION",
+    },
 ]
 
 
@@ -459,8 +497,15 @@ def main() -> int:
         elif rc == 0 and not changed:
             verdict = "already-applied"
         elif rc == 0 and changed:
-            verdict = "landed"
-            landed.append(path.name)
+            down = version_downgrades(root, delta or _porcelain_paths(root))
+            if down:
+                reverted = revert_paths(root, delta or _porcelain_paths(root))
+                reverted_any.append({"script": path.name, "paths": reverted, "version_downgrade": [list(d) for d in down]})
+                verdict = "version-downgrade-reverted"
+                print("  VERSION-FLOOR-1 " + path.name + " would lower " + ", ".join("%s %s -> %s" % d for d in down) + "; reverted")
+            else:
+                verdict = "landed"
+                landed.append(path.name)
 
         results.append(
             {
