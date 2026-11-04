@@ -1,7 +1,12 @@
 {
-  "audited_at": "2026-11-04 14:57:52",
-  "d1_write_failures": [],
-  "d1_writes_ok": 129,
+  "audited_at": "2026-11-04 15:02:21",
+  "d1_write_failures": [
+    [
+      "personal-events-radar",
+      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
+    ]
+  ],
+  "d1_writes_ok": 128,
   "guard": {
     "_guard_rc": 0,
     "ahead": [],
@@ -581,12 +586,12 @@
       },
       {
         "dir": "qnfo-agents",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "worker": "qnfo-agents"
       },
       {
         "dir": "qnfo-ai",
-        "version": "5.44.4-codeagent",
+        "version": "5.45.0-codeagent",
         "worker": "qnfo-ai"
       },
       {
@@ -606,7 +611,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.37.3-codeagent",
+        "version": "0.37.4-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -1104,17 +1109,17 @@
       "worker": "qnfo-agent-ws"
     },
     "qnfo-agents": {
-      "before": "0.4.0",
+      "before": "0.5.0",
       "http": 200,
-      "live": "0.4.0",
+      "live": "0.5.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-agents"
     },
     "qnfo-ai": {
-      "before": "5.44.4-codeagent",
+      "before": "5.45.0-codeagent",
       "http": 200,
-      "live": "5.44.4-codeagent",
+      "live": "5.45.0-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai"
@@ -1288,9 +1293,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.37.3-codeagent",
+      "before": "0.37.4-codeagent",
       "http": 200,
-      "live": "0.37.3-codeagent",
+      "live": "0.37.4-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1870,5 +1875,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 1
 }
