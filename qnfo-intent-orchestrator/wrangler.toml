@@ -1,5 +1,6 @@
 name = "qnfo-intent-orchestrator"
 main = "worker.js"
+# charter-pillar: autonomy
 # COMPAT-DATE-DECLARED-APPLY-1 canary (qnfo-ops 2.42.0). The canonical deploy applies the date below on this worker's next
 # deploy because of the review line, keeps it only when /health then answers with the deployed VERSION, and otherwise
 # uploads 2026-08-01 again. Reviewed against the compatibility flags page, defaults between 2026-08-01 and 2026-10-10:

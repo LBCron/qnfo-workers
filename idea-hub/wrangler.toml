@@ -1,5 +1,6 @@
 name = "idea-hub"
 main = "worker.js"
+# charter-pillar: research
 account_id = "edb167b78c9fb901ea5bca3ce58ccc4b"
 compatibility_date = "2026-10-10"
 compatibility_flags = ["global_fetch_strictly_public"]

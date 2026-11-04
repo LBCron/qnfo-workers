@@ -292,6 +292,7 @@ and [the machine-readable catalog](agent-catalog.json).
 ## Component documentation
 
 - [agent-orchestrator](../agent-orchestrator/README.md) - `agent-orchestrator/README.md`
+- [Me (Android app)](../android-me/README.md) - `android-me/README.md`
 - [Fleet Consolidation Plan — 2026-09-13](../audits/2026-09-13-FLEET-CONSOLIDATION-PLAN.md) - `audits/2026-09-13-FLEET-CONSOLIDATION-PLAN.md`
 - [ROTATE-EXPOSED-CREDENTIALS-1 — execution runbook (#1676, CRITICAL)](../audits/2026-10-01-credential-rotation-runbook.md) - `audits/2026-10-01-credential-rotation-runbook.md`
 - [QNFO QUNIVERSE — MASTER BUILD-OUT BACKLOG v2](../audits/2026-10-01-master-build-out-backlog-v2.md) - `audits/2026-10-01-master-build-out-backlog-v2.md`

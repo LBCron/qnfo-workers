@@ -51,6 +51,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/agent-orchestrator/README.md"
     },
     {
+      "path": "android-me/README.md",
+      "title": "Me (Android app)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/android-me/README.md"
+    },
+    {
       "path": "audits/2026-09-13-FLEET-CONSOLIDATION-PLAN.md",
       "title": "Fleet Consolidation Plan — 2026-09-13",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/audits/2026-09-13-FLEET-CONSOLIDATION-PLAN.md"

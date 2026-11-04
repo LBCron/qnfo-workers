@@ -24,7 +24,9 @@ WHAT IT CHECKS (fail closed; exit 1 on any violation)
   C5 CHARTER-VERSION-PARITY-1 the "Charter X.Y.Z," header line equals CHARTER_VERSION in the worker.
   C4 PORTFOLIO-DOC-SHAPE-1 docs/PORTFOLIO.md exists and carries exactly one PORTFOLIO-LIVE:BEGIN and one
                             PORTFOLIO-LIVE:END marker in that order (PORTFOLIO-LOOP-1 splices between them).
-  A1 (advisory, never fails) count of existing deployable directories still missing the line.
+  C6 CHARTER-PILLAR-EVERY-TOML-1 (TP-3.9, issue 6796) every live worker directory (a wrangler.toml and no RETIRED or FOLDED marker)
+                            declares `# charter-pillar: <key>` with a key from C2, not only a directory added in the range.
+                            The 27 that lacked it landed their declarations in the same change.
 
 USAGE
   python3 scripts/charter-guard.py                     # C1 + C2 + A1
@@ -197,7 +199,13 @@ def main(argv: list[str]) -> int:
             errs.append("C4 PORTFOLIO-LIVE:END precedes PORTFOLIO-LIVE:BEGIN")
 
     missing = [d for d in deployable_dirs() if pillar_line(os.path.join(ROOT, d, "wrangler.toml")) is None]
-    print(f"charter-guard: pillars={wp} deployable_dirs={len(deployable_dirs())} missing_pillar_line={len(missing)} (advisory)")
+    print(f"charter-guard: pillars={wp} deployable_dirs={len(deployable_dirs())} missing_pillar_line={len(missing)}")
+    for d in missing:
+        errs.append(f"C6 live worker directory {d}/ declares no '# charter-pillar: <key>' in wrangler.toml (keys: {sorted(keys)})")
+    for d in deployable_dirs():
+        key = pillar_line(os.path.join(ROOT, d, "wrangler.toml"))
+        if key is not None and key not in keys:
+            errs.append(f"C6 live worker directory {d}/ names unknown pillar '{key}' (keys: {sorted(keys)})")
     if errs:
         for e in errs:
             fail(e)

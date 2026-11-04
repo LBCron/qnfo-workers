@@ -21,7 +21,8 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

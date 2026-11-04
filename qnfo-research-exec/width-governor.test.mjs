@@ -216,7 +216,7 @@ const aenv = (script) => { G.reset(); waits.length = 0; const calls = []; return
 }
 globalThis.setTimeout = realSet;
 
-// ---- 3. the revise chain: glm-5.3-flash, gpt-oss-120b, kimi-k2.6 last --------------------------------------------------------
+// ---- 3. the revise chain: gpt-oss-120b first since RESEARCH-REVISE-RELIABLE-1 (0.48.0), glm-5.3-flash second, kimi-k2.6 last ----
 const SENT = "The derivation in this paragraph restates an input value with its source and shows the arithmetic step that follows from it. ";
 const sec = (h, n) => "## " + h + "\n\n" + SENT.repeat(n) + "\n\n";
 const UNIQUE = "The coupling constant takes the value 0.5000 in the baseline configuration of the model studied here.";
@@ -239,27 +239,27 @@ const row = { id: "r1", context: "{}", recover_count: 0, source: "idea-hub", sta
 {
   const t = renv((n) => n === 1 ? "[]" : GOOD(n));
   const res = await stageRevise(t.env, Object.assign({}, row));
-  ok(res.ok === true && res.stage === "revise->review" && t.calls.length === 2 && t.calls[0] === GLM && t.calls[1] === OSS, "an edit from gpt-oss-120b, the second model, ends the chain: kimi-k2.6 is never called", t.calls);
+  ok(res.ok === true && res.stage === "revise->review" && t.calls.length === 2 && t.calls[0] === OSS && t.calls[1] === GLM, "an edit from glm-5.3-flash, the second model, ends the chain: kimi-k2.6 is never called", t.calls);
 }
 {
   const t = renv((n) => n === 1 ? "I cannot find a suitable edit." : GOOD(n));
   const res = await stageRevise(t.env, Object.assign({}, row));
-  ok(res.ok === true && res.stage === "revise->review" && JSON.stringify(t.calls) === JSON.stringify([GLM, OSS]), "an answer with no JSON list at all goes to gpt-oss-120b, not kimi-k2.6", t.calls);
+  ok(res.ok === true && res.stage === "revise->review" && JSON.stringify(t.calls) === JSON.stringify([OSS, GLM]), "an answer with no JSON list at all goes to glm-5.3-flash, not kimi-k2.6", t.calls);
 }
 {
   const t = renv((n) => n < 3 ? "[]" : GOOD(n));
   const res = await stageRevise(t.env, Object.assign({}, row));
-  ok(res.ok === true && res.stage === "revise->review" && JSON.stringify(t.calls) === JSON.stringify([GLM, OSS, KIMI]), "kimi-k2.6 is the third and last call, and its edit is applied", t.calls);
+  ok(res.ok === true && res.stage === "revise->review" && JSON.stringify(t.calls) === JSON.stringify([OSS, GLM, KIMI]), "kimi-k2.6 is the third and last call, and its edit is applied", t.calls);
 }
 {
   const t = renv(() => "[]");
   const res = await stageRevise(t.env, Object.assign({}, row));
-  ok(res.ok === false && res.withheld === "revise-noop" && JSON.stringify(t.calls) === JSON.stringify([GLM, OSS, KIMI]), "three empty answers fail the pass as before, after exactly one kimi-k2.6 call", t.calls);
+  ok(res.ok === false && res.withheld === "revise-noop" && JSON.stringify(t.calls) === JSON.stringify([OSS, GLM, KIMI]), "three empty answers fail the pass as before, after exactly one kimi-k2.6 call", t.calls);
 }
 {
   const t = renv(() => "[]", { research_kimi_last_resort: "off" });
   const res = await stageRevise(t.env, Object.assign({}, row));
-  ok(res.ok === false && res.withheld === "revise-noop" && JSON.stringify(t.calls) === JSON.stringify([GLM, OSS]) && t.calls.indexOf(KIMI) < 0, "ops_config research_kimi_last_resort = off drops kimi-k2.6 from the chain", t.calls);
+  ok(res.ok === false && res.withheld === "revise-noop" && JSON.stringify(t.calls) === JSON.stringify([OSS, GLM]) && t.calls.indexOf(KIMI) < 0, "ops_config research_kimi_last_resort = off drops kimi-k2.6 from the chain", t.calls);
 }
 
 globalThis.setTimeout = realSet;

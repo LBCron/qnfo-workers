@@ -1,5 +1,6 @@
 name = "qnfo-subscribers"
 main = "worker.js"
+# charter-pillar: reach
 # COMPAT-ADVANCE-WAVE-2 (2026-10-12, metric workers_compat_date_behind, qnfo-ops COMPAT-DATE-DECLARED-APPLY-1): the date moves
 # from 2026-08-01 to 2026-10-10 on the next canonical deploy. Reviewed against qnfo-ops COMPAT_FLIPS between the two dates:
 # 2026-08-04 nodejs_compat default on (this worker reads no timer id as a number, has no typeof process/Buffer branch and

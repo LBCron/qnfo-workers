@@ -20,6 +20,10 @@ vm.runInContext(kw + "\n" + block + "\nthis.api = { breachDoctorTick, bdValidate
 const api = cx.api;
 const db = new DatabaseSync(":memory:");
 db.exec(ddl);
+// The tick takes the single-flight loop_lock (BREACH-DOCTOR-1 S6); the extracted DDL does not create it, and without it the tick
+// stopped at "no such table: loop_lock" and closed nothing.
+db.exec("CREATE TABLE IF NOT EXISTS loop_lock (k TEXT PRIMARY KEY, holder TEXT, expires_at TEXT)");
+db.exec("CREATE TABLE IF NOT EXISTS issue_plans (issue_id INTEGER PRIMARY KEY, planned_at TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT, task_id TEXT, path TEXT, model TEXT, attempts INTEGER DEFAULT 1)");
 db.exec(base);
 db.exec(fix);
 db.exec(`CREATE VIEW v_issue_age_ladder AS

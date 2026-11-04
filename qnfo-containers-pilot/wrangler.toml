@@ -33,6 +33,7 @@
 
 name = "qnfo-containers-pilot"
 main = "worker.js"
+# charter-pillar: core
 # COMPAT-ADVANCE-PILOT-1 (2026-10-13, COMPAT-EXPOSURE-1, metric workers_compat_date_behind): the live date 2026-08-01 sat
 # behind two Cloudflare default changes, nodejs_compat on by default (2026-08-04; this worker already declares it) and
 # durable_object_io_tasks_prevent_eviction (2026-10-01: a Durable Object with I/O in flight is not evicted, which keeps

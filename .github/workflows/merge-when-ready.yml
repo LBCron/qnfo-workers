@@ -22,6 +22,7 @@ permissions:
 jobs:
   merge:
     if: ${{ github.event_name == 'pull_request_target' || (github.event_name == 'check_suite' && github.event.check_suite.conclusion == 'success' && github.event.check_suite.pull_requests[0].number != null) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0].number != null) }}
+    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     concurrency:
