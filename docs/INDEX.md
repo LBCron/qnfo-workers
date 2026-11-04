@@ -107,8 +107,6 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Output quality ledger (OUTPUT-QUALITY-LEDGER-1)](OUTPUT-QUALITY-LEDGER.md) - `docs/OUTPUT-QUALITY-LEDGER.md`
 - [Paper authoring guidelines: the plain-language standard (PLAIN-STANDARD-1)](PAPER-AUTHORING-GUIDELINES.md) - `docs/PAPER-AUTHORING-GUIDELINES.md`
 - [Paper ledger and withdrawal guard (PAPER-LEDGER-1, PAPER-WITHDRAW-GUARD-1)](PAPER-LEDGER.md) - `docs/PAPER-LEDGER.md`
-- [Paper ledger and withdrawal guard (PAPER-LEDGER-1, PAPER-WITHDRAW-GUARD-1)](PAPER-LEDGER.md) - `docs/PAPER-LEDGER.md`
-- [Paper ledger and withdrawal guard (PAPER-LEDGER-1, PAPER-WITHDRAW-GUARD-1)](PAPER-LEDGER.md) - `docs/PAPER-LEDGER.md`
 - [PATCH artifact dispositions (PATCH-ARTIFACTS-RECONCILED-1)](PATCH-ARTIFACT-DISPOSITIONS-2026-10-01.md) - `docs/PATCH-ARTIFACT-DISPOSITIONS-2026-10-01.md`
 - [Pi integration](PI-INTEGRATION.md) - `docs/PI-INTEGRATION.md`
 - [PIPELINE-FLOW-POLICY-1](PIPELINE-FLOW-POLICY-1.md) - `docs/PIPELINE-FLOW-POLICY-1.md`
