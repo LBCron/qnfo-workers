@@ -35,26 +35,27 @@ export function summarize({ runs, now, hours = 24, since = null }) {
   const from = Math.max(now - hours * 3600 * 1000, since ? Date.parse(since) : 0);
   const consume = [], noHeavy = [], heavyStarts = [], timeouts = [];
   let counted = 0;
+  // The API gives a skipped job a start and an end (the same second), and a job cancelled while it queued behind a newer run a few seconds or minutes: neither is a run
+  // of that job. `ran` drops the skipped ones; `finished` is a job that ended on its own, success or failure.
+  const ran = (j) => j.started_at && j.completed_at && j.conclusion !== "skipped";
+  const finished = (j) => ran(j) && (j.conclusion === "success" || j.conclusion === "failure");
+  // A job cancelled after running to within a minute of its cap was killed by the cap (the 30-minute cancellations of 2026-11-04), not superseded by a newer run.
+  const capped = (j) => ran(j) && j.conclusion === "cancelled" && CAPS_MIN[j.name] && minutes(j.started_at, j.completed_at) >= Math.min(CAPS_MIN[j.name], LEGACY_CAP_MIN) - 1;
   for (const r of runs || []) {
     if (!(Date.parse(r.created_at) >= from)) continue;
-    const ran = (j) => j.started_at && j.completed_at;
     const jobs = (r.jobs || []).filter(ran);
-    const c = jobs.find((j) => j.name === "consume");
-    if (!c) continue; // a run whose consume job never ran (skipped by the gate) says nothing about speed
+    for (const j of jobs) {
+      if (j.name === "heavy" && finished(j)) heavyStarts.push(Date.parse(j.started_at));
+      if (capped(j)) timeouts.push({ run: r.id, job: j.name, minutes: r1(minutes(j.started_at, j.completed_at)) });
+    }
+    const c = jobs.find((j) => j.name === "consume" && (finished(j) || capped(j)));
+    if (!c) continue; // a run whose consume job never ran (skipped by the gate) or was superseded says nothing about speed
     counted++;
     consume.push(minutes(c.started_at, c.completed_at));
-    const heavy = jobs.find((j) => j.name === "heavy");
-    if (heavy) heavyStarts.push(Date.parse(heavy.started_at));
-    else {
+    if (!jobs.some((j) => j.name === "heavy")) {
       const begin = Math.min(...jobs.map((j) => Date.parse(j.started_at)));
       const end = Math.max(...jobs.map((j) => Date.parse(j.completed_at)));
       noHeavy.push((end - begin) / 60000);
-    }
-    for (const j of jobs) {
-      const cap = CAPS_MIN[j.name];
-      if (!cap || j.conclusion !== "cancelled") continue;
-      const ranMin = minutes(j.started_at, j.completed_at);
-      if (ranMin >= Math.min(cap, LEGACY_CAP_MIN) - 1) timeouts.push({ run: r.id, job: j.name, minutes: r1(ranMin) });
     }
   }
   heavyStarts.sort((a, b) => a - b);
@@ -148,6 +149,17 @@ function selftest() {
   // A run whose consume job was skipped (the gate said no) says nothing about speed.
   s = summarize({ runs: after.concat([{ id: 400, created_at: at(10), jobs: [job("cadence-gate", 10, 0.3), { name: "consume", status: "completed", conclusion: "skipped", started_at: null, completed_at: null }] }]), now, hours: 24 });
   ok(s.runs_with_consume === 24, "a gated-out run is not counted", s);
+  // The live API shape (run 41925387088 on main): a skipped job carries a start and an end of the same second. It is neither a heavy run nor a consume job.
+  const skippedJob = (name, startAgo) => ({ name, status: "completed", conclusion: "skipped", started_at: at(startAgo), completed_at: at(startAgo) });
+  const live = [run(500, 300, [job("consume", 300, 5.6), job("sweeps", 300, 3.2), job("audits", 300, 10.5), skippedJob("heavy", 300)])];
+  s = summarize({ runs: live, now, hours: 24 });
+  ok(s.runs_with_consume === 1 && s.heavy_runs === 0 && s.median_consume_min === 5.6 && s.median_run_min_no_heavy >= 10.5 && s.median_run_min_no_heavy < 11 && s.ok === true, "a skipped heavy job is not a heavy run, and the run is as long as its longest job", s);
+  const mixed = live.concat([
+    run(501, 200, [job("consume", 200, 3, "cancelled"), job("sweeps", 200, 5), skippedJob("heavy", 200)]),               // superseded while it queued: not a consume run
+    run(502, 150, [skippedJob("consume", 150), skippedJob("sweeps", 150), skippedJob("heavy", 150)]),                     // the gate said no
+    run(503, 100, [job("consume", 100, 2, "cancelled"), job("heavy", 100, 24)])]);                                        // consume superseded, heavy finished: heavy counts, run does not
+  s = summarize({ runs: mixed, now, hours: 24 });
+  ok(s.runs_with_consume === 1 && s.heavy_runs === 1 && s.timeouts.length === 0 && s.median_consume_min === 5.6, "superseded and gated-out runs do not enter the medians; a finished heavy job counts whichever run it sits in", s);
   ok(median([3, 1, 2]) === 2 && median([1, 2, 3, 4]) === 2.5 && median([]) === null, "median");
   console.log(fail ? "consumer-run-timing selftest: " + fail + " FAILED" : "consumer-run-timing selftest: ok");
   return fail ? 1 : 0;
