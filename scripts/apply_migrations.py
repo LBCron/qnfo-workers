@@ -844,7 +844,7 @@ def ensure_bookmark_column(acct, token, ledger_id):
 D1_OVERLOAD_BACKOFF_S = (5, 10, 20, 30, 45)  # D1-429-RETRY-1: "D1 DB is overloaded ... 10 second window" rejects the statement, so a retry is safe
 
 
-def d1(acct, token, db_id, sql, params=None):
+def d1(acct, token, db_id, sql, params=None, meta=None):
     import time
     import cf_ops_actions as C
     for wait in D1_OVERLOAD_BACKOFF_S + (None,):
@@ -855,6 +855,8 @@ def d1(acct, token, db_id, sql, params=None):
     if st != 200 or not j.get("success", False):
         raise RuntimeError("D1 HTTP " + str(st) + ": " + json.dumps(j.get("errors") or j)[:300])
     res = j.get("result") or []
+    if meta is not None:
+        meta.update((res[0].get("meta") if res else None) or {})
     return (res[0].get("results") if res else []) or []
 
 
@@ -866,6 +868,112 @@ def d1(acct, token, db_id, sql, params=None):
 # trigger chain can reach the new trigger's table, and drops the trigger at once if any of them is refused.
 TRIGGER_ON = re.compile(r'(?is)^\s*CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?\s+(?:BEFORE|AFTER|INSTEAD\s+OF)?\s*(?:INSERT|UPDATE|DELETE)\b.*?\bON\s+"?(\w+)"?')
 WRITE_TARGET = re.compile(r'(?is)\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+"?(\w+)"?')
+# NOOP-UPDATE-1 (2026-11-04, from session:spend-enforce): ISSUE-PROBE-CAP-1 and CAP-2 both applied "ok" in migration_runs, but their
+# UPDATE fleet_tasks SET steps = replace(steps, ...) WHERE ... matched 0 rows (the live text had moved on), so the cap never existed while
+# decision_log said it did, and about 1.2 M neurons a day ran uncapped for a day. D1 returns meta.changes for every statement and d1()
+# used to drop it. A top-level UPDATE with a WHERE that changed 0 rows is now reported (JSON key noop_updates, a ::warning annotation and a
+# cloud_ops_events row), never failed: a replay or a guard that is already satisfied legitimately matches nothing. A file that expects it
+# says so with a `-- NOOP-OK: <why>` line. kind migration-noop-replace is the text-surgery class the incident belonged to (detector
+# fm-migration-noop-replace reads it).
+NOOP_UPDATE = re.compile(r'(?is)^\s*UPDATE\s+(?:OR\s+\w+\s+)?"?(\w+)"?\s+SET\b.*\bWHERE\b')
+NOOP_OK = re.compile(r'(?im)^\s*--\s*NOOP-OK\b')
+NOOP_REPLACE = re.compile(r'(?i)\breplace\s*\(')
+def top_where(sql):
+    """Index just after the first top-level WHERE (outside quotes and parentheses), or -1."""
+    depth, quote, i, n = 0, None, 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if quote:
+            if c == quote:
+                if i + 1 < n and sql[i + 1] == quote:
+                    i += 2
+                    continue
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and c in "Ww" and sql[i:i + 5].upper() == "WHERE" and (i == 0 or not (sql[i - 1].isalnum() or sql[i - 1] == "_")) \
+                and (i + 5 >= n or not (sql[i + 5].isalnum() or sql[i + 5] == "_")):
+            return i + 5
+        i += 1
+    return -1
+
+
+def call_args(sql, open_idx):
+    """The top-level arguments of the call whose '(' is at open_idx (quotes and nested parentheses respected), or None."""
+    depth, quote, start, args, i, n = 0, None, open_idx + 1, [], open_idx, len(sql)
+    while i < n:
+        c = sql[i]
+        if quote:
+            if c == quote:
+                if i + 1 < n and sql[i + 1] == quote:
+                    i += 2
+                    continue
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                args.append(sql[start:i].strip())
+                return args
+        elif c == "," and depth == 1:
+            args.append(sql[start:i].strip())
+            start = i + 1
+        i += 1
+    return None
+
+
+REPLACE_COL = re.compile(r'^"?\w+"?$')
+REPLACE_LIT = re.compile(r"^'(?:[^']|'')*'$")
+REPLACE_CALL = re.compile(r"(?is)^replace\s*\(")
+
+
+def replace_terms(set_part):
+    """[(column, 'quoted text')] for every replace(column, 'text', ...) in a SET clause, following replace(replace(column, ...), ...) chains;
+    None when a call's target is not a plain column or its search text is not a literal (then nothing is probed, so nothing is guessed)."""
+    terms = []
+    for m in re.finditer(r"(?i)\breplace\s*\(", set_part):
+        args = call_args(set_part, m.end() - 1)
+        if not args or len(args) != 3 or not REPLACE_LIT.match(args[1]):
+            return None
+        col = args[0]
+        while REPLACE_CALL.match(col):
+            inner = call_args(col, REPLACE_CALL.match(col).end() - 1)
+            if not inner:
+                return None
+            col = inner[0]
+        if not REPLACE_COL.match(col):
+            return None
+        terms.append((col, args[1]))
+    return terms
+
+
+def replace_text_probe(stmt):
+    """NOOP-UPDATE-1: `UPDATE t SET c = replace(c, 'A', 'B') WHERE k = 1` matches its row and reports changes = 1 even when no row holds 'A', so
+    meta.changes cannot see a replace() that finds nothing. This read-only count asks the live rows the same WHERE and whether any of them holds
+    a text the statement replaces; 0 means the text surgery is a no-op. None when the statement is not that shape."""
+    m = NOOP_UPDATE.match(stmt)
+    w = top_where(stmt) if m else -1
+    if w < 0:
+        return None
+    terms = replace_terms(stmt[:w])
+    if not terms:
+        return None
+    return 'SELECT COUNT(*) AS n FROM "%s" WHERE (%s) AND (%s)' % (m.group(1), stmt[w:].strip().rstrip(";").strip(), " OR ".join("instr(%s, %s) > 0" % (c, lit) for c, lit in terms))
+
+
+# TRIGGER-COMPILE-CANARY-1 (2026-11-04): a trigger body or a view it reads that no longer compiles fails EVERY write to the table at prepare time,
+# whatever the trigger's WHEN says. outcome_northstar_tick (migrations/2026-11-04-outcome-northstar.sql) read ask_feedback.created_at, a column that
+# does not exist, so every INSERT INTO fleet_tick failed with "no such column: created_at" from 16:43:47Z to 16:58:44Z: no 10-minute fixer ran for 24
+# minutes. The canary compiled the zero-row INSERT probe on fleet_tick and saw the error, but only "nested too deep" was acted on. A compile-class
+# error now refuses the trigger too, unless it is already there without this trigger (a latent fault elsewhere, reported as an advisory).
+TRIGGER_COMPILE_ERR = re.compile(r"no such (?:column|table|function|collation sequence)|ambiguous column name|syntax error|misuse of aggregate", re.I)
 ADD_COLUMN = re.compile(r"(?is)^\s*ALTER\s+TABLE\s+\S+\s+ADD\s+(?:COLUMN\s+)?")
 
 
@@ -922,6 +1030,8 @@ def depth_canary(acct, token, db_id, table, advisory=None):
             except Exception as e:  # noqa: BLE001
                 if "nested too deep" in str(e) or "too many levels of trigger" in str(e):
                     return q[:120] + " -> " + str(e)[:200]
+                if TRIGGER_COMPILE_ERR.search(str(e)):
+                    return "TRIGGER-COMPILE-1: " + q[:120] + " -> " + str(e)[:200]
         if cols:
             ins = 'INSERT INTO "%s" (%s) SELECT %s FROM "%s" WHERE 0' % (
                 name, ", ".join('"%s"' % c for c in cols), ", ".join('"%s"' % c for c in cols), name)
@@ -931,6 +1041,23 @@ def depth_canary(acct, token, db_id, table, advisory=None):
                 msg = str(e)
                 if ("nested too deep" in msg or "too many levels of trigger" in msg) and advisory is not None:
                     advisory.append(ins[:120] + " -> " + msg[:120])
+                elif TRIGGER_COMPILE_ERR.search(msg):
+                    return "TRIGGER-COMPILE-1: " + ins[:120] + " -> " + msg[:200]
+    return None
+
+
+def tick_compile_error(acct, token, db_id):
+    """TRIGGER-COMPILE-CANARY-1 (2026-11-04): None when a zero-row INSERT into fleet_tick compiles, else the compile-class error text.
+
+    SQLite compiles every AFTER INSERT trigger body, and the views they read, when the INSERT is prepared, so one missing column in a view the tick
+    triggers read fails every tick insert even though no trigger was created or changed (a CREATE OR REPLACE of the view is enough). A table that
+    does not exist (another database) or an error of another class is not a verdict."""
+    try:
+        d1(acct, token, db_id, "INSERT INTO fleet_tick (source) SELECT 'migration-canary' WHERE 0")
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        if TRIGGER_COMPILE_ERR.search(msg) and "no such table: main.fleet_tick" not in msg and "no such table: fleet_tick" not in msg:
+            return msg[:200]
     return None
 
 
@@ -999,7 +1126,7 @@ def apply_file(path, text, acct, token, commit, emit=print):
     # 225, 227 and 228 (one sha256, 21:56-22:02Z) were this: three short insert outages on cloud_ops_events. Such a file
     # runs again only when its content changes (a new sha256).
     depth = d1(acct, token, ledger_id, "SELECT id FROM migration_runs WHERE file = ?1 AND sha256 = ?2 AND status = 'error' "
-               "AND instr(COALESCE(error, ''), 'D1-TRIGGER-DEPTH-1') > 0 ORDER BY id DESC LIMIT 1", [path, sha])
+               "AND (instr(COALESCE(error, ''), 'D1-TRIGGER-DEPTH-1') > 0 OR instr(COALESCE(error, ''), 'TRIGGER-COMPILE-1') > 0) ORDER BY id DESC LIMIT 1", [path, sha])
     if depth:
         emit(json.dumps({"file": path, "ok": False, "refused": "D1-TRIGGER-DEPTH-RETRY-1: this content was refused by the depth "
                          "canary in migration_runs " + str(depth[0].get("id")) + "; change the file to run it again", "sha256": sha[:12]}))
@@ -1029,11 +1156,22 @@ def apply_file(path, text, acct, token, commit, emit=print):
     # trying to adjust.
     trigger_snapshot = {}
     advisories = []
+    noops = []
     try:
         for r in d1(acct, token, db_id, "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'"):
             trigger_snapshot[(r.get("name") or "").lower()] = r.get("sql")
     except Exception:  # noqa: BLE001
         trigger_snapshot = {}
+    # TRIGGER-COMPILE-CANARY-1: a file that creates, drops or alters anything could break the fleet_tick insert through a view its triggers read, so
+    # the insert is probed before and after; only a fault the file brought makes it fail, and the views it created or changed are put back.
+    tick_baseline_ok, view_snapshot = None, {}
+    if info["db"] == "qnfo-audit" and re.search(r"(?im)^\s*(?:CREATE|DROP|ALTER)\s", text):
+        try:
+            tick_baseline_ok = tick_compile_error(acct, token, db_id) is None
+            for r in d1(acct, token, db_id, "SELECT name, sql FROM sqlite_master WHERE type = 'view'"):
+                view_snapshot[(r.get("name") or "").lower()] = (r.get("name"), r.get("sql"))
+        except Exception:  # noqa: BLE001
+            tick_baseline_ok, view_snapshot = None, {}
     for s in statements(text):
         if not checked and DESTRUCTIVE.match(body(s)):
             why = backup_missing()
@@ -1043,9 +1181,23 @@ def apply_file(path, text, acct, token, commit, emit=print):
         # D1-TRIGGER-DEPTH-RESTORE-1: the definition this statement may replace, captured before the file ran.
         tm = TRIGGER_ON.match(body(s))
         prior = trigger_snapshot.get(tm.group(1).lower()) if tm else None
+        noop_meta = {} if (NOOP_UPDATE.match(body(s)) and not NOOP_OK.search(text)) else None
+        no_text = False
+        if noop_meta is not None and replace_text_probe(body(s)):
+            try:
+                held = d1(acct, token, db_id, replace_text_probe(body(s)))
+                no_text = bool(held) and int(held[0].get("n") or 0) == 0
+            except Exception:  # noqa: BLE001 - a probe that cannot run never blocks the statement
+                no_text = False
         try:
-            d1(acct, token, db_id, body(s))
+            if noop_meta is None:
+                d1(acct, token, db_id, body(s))
+            else:
+                d1(acct, token, db_id, body(s), meta=noop_meta)
             done_n += 1
+            if noop_meta is not None and (noop_meta.get("changes") == 0 or no_text):
+                noops.append((done_n, NOOP_UPDATE.match(body(s)).group(1), " ".join(body(s).split())[:160], bool(NOOP_REPLACE.search(body(s))),
+                              "found no row holding the text its replace() looks for" if no_text else "changed 0 rows"))
         except Exception as e:  # noqa: BLE001
             # A re-run after a partial apply meets the columns it already added; SQLite has no ADD COLUMN IF NOT EXISTS.
             if ADD_COLUMN.match(body(s)) and "duplicate column name" in str(e):
@@ -1071,8 +1223,47 @@ def apply_file(path, text, acct, token, commit, emit=print):
                         restored = " The definition this file replaced was restored, so the table is as it was."
                     except Exception as e:  # noqa: BLE001
                         restored = " RESTORE FAILED, the table is without this trigger: " + str(e)[:120]
+                compile_class = refused.startswith("TRIGGER-COMPILE-1")
+                if compile_class:
+                    # TRIGGER-COMPILE-CANARY-1: with this trigger gone (and the prior one back), does the same probe still fail? Then the fault was already
+                    # there: put the trigger back, say so, and carry on; only a fault this trigger brought is a refusal.
+                    still = None
+                    try:
+                        still = depth_canary(acct, token, db_id, tm.group(2), None)
+                    except Exception:  # noqa: BLE001
+                        still = None
+                    if still and still.startswith("TRIGGER-COMPILE-1"):
+                        try:
+                            d1(acct, token, db_id, body(s))
+                            advisories.append("pre-existing compile error on " + tm.group(2) + " (not caused by trigger " + tm.group(1) + "): " + still[:160])
+                            continue
+                        except Exception as e:  # noqa: BLE001
+                            restored += " RE-CREATE FAILED: " + str(e)[:120]
+                    return record_failure(path, sha, commit, info, acct, token, ledger_id, "statement " + str(done_n) + " (trigger " + tm.group(1) +
+                                          "): TRIGGER-COMPILE-1, an insert, update or delete on " + tm.group(2) + " no longer compiles with this trigger (a column, table or "
+                                          "function its body or a view it reads does not have), so every write to the table would fail; the trigger was dropped at once: "
+                                          + refused + restored, emit, done_n)
                 return record_failure(path, sha, commit, info, acct, token, ledger_id, "statement " + str(done_n) + " (trigger " + tm.group(1) +
                                       "): D1-TRIGGER-DEPTH-1, a write now nests deeper than D1's limit, so the trigger was dropped at once: " + refused + restored, emit, done_n)
+    if tick_baseline_ok:
+        tick_err = tick_compile_error(acct, token, db_id)
+        if tick_err:
+            restored_views = []
+            try:
+                for r in d1(acct, token, db_id, "SELECT name, sql FROM sqlite_master WHERE type = 'view'"):
+                    key = (r.get("name") or "").lower()
+                    before = view_snapshot.get(key)
+                    if before is None or before[1] != r.get("sql"):
+                        d1(acct, token, db_id, 'DROP VIEW IF EXISTS "%s"' % r.get("name"))
+                        if before is not None:
+                            d1(acct, token, db_id, before[1])
+                        restored_views.append(r.get("name"))
+            except Exception as e:  # noqa: BLE001
+                restored_views.append("RESTORE FAILED: " + str(e)[:100])
+            fixed = tick_compile_error(acct, token, db_id) is None
+            return record_failure(path, sha, commit, info, acct, token, ledger_id, "statement " + str(done_n) + ": TRIGGER-COMPILE-1, INSERT INTO fleet_tick compiled before this "
+                                  "file and fails after it (" + tick_err + "): every tick insert would fail. Views created or changed by the file were put back (" + ", ".join(restored_views or ["none"])
+                                  + "); the insert compiles again: " + ("yes" if fixed else "NO, repair at once"), emit, done_n)
     try:
         d1(acct, token, ledger_id, "INSERT INTO migration_runs (file, sha256, commit_sha, db, status, statements, applied_by, bookmark, bookmark_source) VALUES (?1, ?2, ?3, ?4, 'ok', ?5, 'ci:apply-migrations', ?6, ?7)",
            [path, sha, commit or "", info["db"], str(done_n), bookmark, "apply-time" if bookmark else ""])
@@ -1087,8 +1278,25 @@ def apply_file(path, text, acct, token, commit, emit=print):
         # than vetoing the file. A run carrying this key means the table's insert path is at or past D1's compile limit and
         # is worth reading even though the migration succeeded.
         applied["advisory"] = advisories
+    if noops:
+        applied["noop_updates"] = ["statement %d: UPDATE %s %s: %s" % (n, t, w, h) for n, t, h, _r, w in noops]
+        report_noop_updates(path, sha, noops, acct, token, ledger_id)
     emit(json.dumps(applied))
     return 0
+
+
+def report_noop_updates(path, sha, noops, acct, token, db_id):
+    """NOOP-UPDATE-1: best effort, never fails the run. One cloud_ops_events row per statement, and a workflow annotation on stderr."""
+    for n, table, head, is_replace, why in noops:
+        msg = ("NOOP-UPDATE-1: " + path + " statement " + str(n) + " (UPDATE " + table + ") applied and " + why + ", so what it meant to change did not change"
+               + (" (a replace() on live text that no longer matches)" if is_replace else "") + "; add a '-- NOOP-OK: <why>' line if that is intended")
+        print("::warning file=" + path.replace("%", "%25").replace(",", "%2C").replace(":", "%3A") + "::" + msg.replace("%", "%25").replace(chr(10), "%0A"), file=sys.stderr)
+        try:
+            d1(acct, token, db_id, "INSERT OR IGNORE INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%SZ','now'), ?2, ?3, ?4, 'apply-migrations', 'warn')",
+               ["noop-update-" + sha[:12] + "-" + str(n), "migration-noop-replace" if is_replace else "migration-noop-update", msg[:900],
+                json.dumps({"file": path, "sha256": sha[:12], "statement": n, "table": table, "head": head})])
+        except Exception as e:  # noqa: BLE001
+            print("noop report " + path + " failed: " + str(e)[:160], file=sys.stderr)
 
 
 # CLOSE-CHANNEL-REQUIRED-1 (agent_issues 100419): this close wrote no close_channel, so MIGRATION-APPLY-FAILED-1 issue 1000212 closed with

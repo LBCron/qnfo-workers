@@ -53,7 +53,7 @@ def fake_call(method, path, token, body=None, timeout=60):
         cur = db.execute(q, {"p" + str(i + 1): v for i, v in enumerate(params)}) if params else db.execute(sql)
         rows = [dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()] if cur.description else []
         db.commit()
-        return 200, {"success": True, "result": [{"results": rows}]}
+        return 200, {"success": True, "result": [{"results": rows, "meta": {"changes": max(cur.rowcount, 0)}}]}
     except sqlite3.Error as e:
         return 400, {"success": False, "errors": [{"message": str(e)}]}
 
@@ -358,6 +358,72 @@ ok(rc == 0 and '"advisory"' in out[-1] and db.execute("SELECT 1 FROM sqlite_mast
 ok(db.execute("SELECT status FROM migration_runs WHERE file = 'migrations/ins.sql'").fetchone() == ("ok",),
    "and the run is recorded ok", db.execute("SELECT status FROM migration_runs WHERE file = 'migrations/ins.sql'").fetchone())
 C.call = real_call
+
+# TRIGGER-COMPILE-CANARY-1 (2026-11-04): a trigger whose body reads a column that does not exist fails every insert into its table at prepare time (the
+# fleet_tick outage 16:43-16:58Z: outcome_northstar_tick read ask_feedback.created_at). The canary's zero-row INSERT probe sees it; it now refuses the trigger.
+db.execute("CREATE TABLE tk (src TEXT)")
+db.execute("CREATE TABLE ask_fb (event_id TEXT, ts TEXT)")
+db.commit()
+cc_bad = """-- compile canary
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DROP TRIGGER IF EXISTS tk_bad; DROP VIEW IF EXISTS v_bad_cc
+CREATE VIEW IF NOT EXISTS v_bad_cc AS SELECT count(*) AS value FROM ask_fb WHERE created_at >= datetime('now', '-7 day');
+CREATE TRIGGER IF NOT EXISTS tk_bad AFTER INSERT ON tk WHEN strftime('%M', 'now') < '10' BEGIN INSERT INTO ticks (s) SELECT value FROM v_bad_cc; END;
+INSERT OR REPLACE INTO ops_config (key, value) VALUES ('after_cc', '1');
+"""
+rc = M.apply_file("migrations/cc_bad.sql", cc_bad, "a", "t", "cc1", emit)
+ok(rc == 1 and "TRIGGER-COMPILE-1" in out[-1] and "no such column" in out[-1] and not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'tk_bad'").fetchone()
+   and not db.execute("SELECT 1 FROM ops_config WHERE key = 'after_cc'").fetchone(),
+   "a trigger whose body no longer compiles is dropped at once and the file stops", out[-1])
+try:
+    db.execute("INSERT INTO tk (src) VALUES ('after the refusal')")
+    insert_ok = True
+except Exception as e:  # noqa: BLE001
+    insert_ok = False
+ok(insert_ok, "and inserts into its table work again")
+n_cc = len(calls)
+rc = M.apply_file("migrations/cc_bad.sql", cc_bad, "a", "t", "cc1b", emit)
+created_cc = [q for q in calls[n_cc:] if q.lstrip().upper().startswith("CREATE TRIGGER")]
+ok(rc == 1 and "D1-TRIGGER-DEPTH-RETRY-1" in out[-1] and not created_cc, "the same content is not re-run after a compile refusal", (out[-1], created_cc))
+
+# A fault that was already there (a broken trigger written by someone else) is not blamed on the new trigger: it is reported and the file applies.
+db.execute("CREATE TABLE tk2 (src TEXT)")
+db.execute("CREATE TRIGGER tk2_old AFTER INSERT ON tk2 BEGIN INSERT INTO ticks (s) SELECT missing_col FROM tk2; END")
+db.commit()
+cc_pre = """-- pre-existing compile fault
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DROP TRIGGER IF EXISTS tk2_new
+CREATE TRIGGER tk2_new AFTER INSERT ON tk2 BEGIN INSERT INTO ticks (s) VALUES ('new'); END;
+"""
+rc = M.apply_file("migrations/cc_pre.sql", cc_pre, "a", "t", "cc2", emit)
+ok(rc == 0 and "pre-existing compile error" in out[-1] and db.execute("SELECT 1 FROM sqlite_master WHERE name = 'tk2_new'").fetchone() is not None,
+   "a compile fault that predates the trigger is an advisory, and the trigger stays", out[-1])
+
+# TRIGGER-COMPILE-CANARY-1, second route: no trigger is created, a VIEW that an existing fleet_tick trigger reads is replaced with one that does not compile.
+db.execute("CREATE TABLE IF NOT EXISTS fleet_tick (id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT)")
+db.execute("CREATE VIEW v_late AS SELECT s AS v FROM ticks")
+db.execute("CREATE TRIGGER ft_user AFTER INSERT ON fleet_tick BEGIN INSERT INTO ticks (s) SELECT v FROM v_late; END")
+db.commit()
+cc_view = """-- view breaks the tick
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- BACKUP: ops_config
+-- Rollback: DROP VIEW IF EXISTS v_late
+DROP VIEW IF EXISTS v_late;
+CREATE VIEW v_late AS SELECT missing_col AS v FROM ticks;
+INSERT OR REPLACE INTO ops_config (key, value) VALUES ('after_cc_view', '1');
+"""
+rc = M.apply_file("migrations/cc_view.sql", cc_view, "a", "t", "cc3", emit)
+view_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'v_late'").fetchone()
+try:
+    db.execute("INSERT INTO fleet_tick (source) VALUES ('after the view refusal')")
+    tick_ok = True
+except Exception as e:  # noqa: BLE001
+    tick_ok = False
+ok(rc == 1 and "TRIGGER-COMPILE-1" in out[-1] and "fleet_tick" in out[-1] and "v_late" in out[-1] and view_sql is not None and "s AS v" in view_sql[0] and tick_ok,
+   "a file that breaks the tick insert through a view is failed and the view is put back", (out[-1], view_sql, tick_ok))
 addcol = """-- add column twice
 -- APPLY-BY: ci
 -- DB: qnfo-audit
@@ -1247,6 +1313,65 @@ try:
 finally:
     db.close()
     db = shared_db
+
+# NOOP-UPDATE-1: a guarded UPDATE that changed 0 rows is reported (JSON, ::warning, cloud_ops_events), never failed; NOOP-OK silences it; d1(meta=) returns D1's meta.
+db.execute("CREATE TABLE IF NOT EXISTS cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT)")
+db.execute("INSERT OR REPLACE INTO ops_config (key, value) VALUES ('noop_probe', 'old text here')")
+db.commit()
+NOOP_HEAD = """-- NOOP-UPDATE-1 test
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: UPDATE ops_config SET value = 'old text here' WHERE key = 'noop_probe';
+"""
+
+
+def noop_run(name, sql_body, commit):
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        rc = M.apply_file("migrations/" + name + ".sql", NOOP_HEAD + sql_body, "a", "t", commit, emit)
+    return rc, json.loads(out[-1]), err.getvalue()
+
+
+m0 = {}
+M.d1("a", "t", "db", "UPDATE ops_config SET value = value WHERE key = 'noop_probe'", meta=m0)
+ok(m0.get("changes") == 1, "d1(meta=) hands back D1's meta.changes", m0)
+rc, j, err = noop_run("noop-hit", "UPDATE ops_config SET value = replace(value, 'old', 'new') WHERE key = 'noop_probe';\n", "n1")
+ok(rc == 0 and j.get("ok") and "noop_updates" not in j and not db.execute("SELECT COUNT(*) FROM cloud_ops_events").fetchone()[0],
+   "an UPDATE that changed a row reports nothing", (j, err))
+rc, j, err = noop_run("noop-replace-miss", "UPDATE ops_config SET value = replace(value, 'old', 'newer') WHERE key = 'noop_probe';\n", "n2")
+ok(rc == 0 and j.get("ok") and len(j.get("noop_updates") or []) == 1 and "UPDATE ops_config found no row holding the text its replace() looks for" in j["noop_updates"][0]
+   and j["statements"] == 1, "an unguarded replace() whose text no row holds (meta.changes says 1) applies ok, is reported in the JSON and does not fail the run", j)
+ok("::warning file=migrations/noop-replace-miss.sql::NOOP-UPDATE-1" in err and "replace() on live text" in err, "...and raises a workflow warning annotation on stderr", err)
+ev = db.execute("SELECT kind, status, job, meta FROM cloud_ops_events WHERE kind = 'migration-noop-replace'").fetchall()
+ok(len(ev) == 1 and ev[0][1] == "warn" and ev[0][2] == "apply-migrations" and json.loads(ev[0][3])["table"] == "ops_config", "...and writes one warn event of the replace class", ev)
+rc, j, err = noop_run("noop-plain-miss", "UPDATE ops_config SET value = 'x' WHERE key = 'no_such_key';\n".replace("\\n", "\n"), "n3")
+ok(rc == 0 and len(j.get("noop_updates") or []) == 1 and db.execute("SELECT COUNT(*) FROM cloud_ops_events WHERE kind = 'migration-noop-update'").fetchone()[0] == 1,
+   "a plain guarded UPDATE that matched nothing is the other kind, migration-noop-update", (j, err))
+rc, j, err = noop_run("noop-ok", "-- NOOP-OK: replay of a guard that is already satisfied\nUPDATE ops_config SET value = 'x' WHERE key = 'no_such_key';\n".replace("\\n", "\n"), "n4")
+ok(rc == 0 and j.get("ok") and "noop_updates" not in j and "::warning" not in err, "a file with a NOOP-OK line expects the empty update and is not reported", (j, err))
+rc, j, err = noop_run("noop-insert-only", "INSERT OR REPLACE INTO ops_config (key, value) VALUES ('noop_probe2', 'v');\n".replace("\\n", "\n"), "n5")
+ok(rc == 0 and "noop_updates" not in j, "an INSERT is never reported", j)
+n_events = db.execute("SELECT COUNT(*) FROM cloud_ops_events").fetchone()[0]
+rc, j, err = noop_run("noop-replace-miss", "UPDATE ops_config SET value = replace(value, 'old', 'newer') WHERE key = 'noop_probe';\n", "n6")
+ok(rc == 0 and j.get("already_applied") and db.execute("SELECT COUNT(*) FROM cloud_ops_events").fetchone()[0] == n_events, "the same content is not applied or reported twice", (j, n_events))
+rc, j, err = noop_run("noop-guarded", "UPDATE ops_config SET value = replace(value, 'old', 'x') WHERE key = 'noop_probe' AND instr(value, 'old') > 0;\n", "n8")
+ok(rc == 0 and len(j.get("noop_updates") or []) == 1 and j["statements"] == 1, "a text-guarded replace() that matched nothing (the ISSUE-PROBE-CAP case) is reported once", j)
+rc, j, err = noop_run("noop-chain-hit", "UPDATE ops_config SET value = replace(replace(value, 'zzz', 'y'), 'new', 'NEW') WHERE key = 'noop_probe';\n", "n9")
+ok(rc == 0 and "noop_updates" not in j and db.execute("SELECT value FROM ops_config WHERE key = 'noop_probe'").fetchone()[0] == "NEW text here",
+   "a replace() chain where one text is present changes the row and reports nothing", j)
+rc, j, err = noop_run("noop-subquery-where", "UPDATE ops_config SET value = (SELECT 'q' FROM ops_config WHERE key = 'noop_probe') WHERE key = 'noop_probe';\n", "n10")
+ok(rc == 0 and "noop_updates" not in j, "a WHERE inside a subquery is not mistaken for the statement's own", j)
+ok(M.top_where("UPDATE t SET c = 'a WHERE b', d = (SELECT 1 FROM u WHERE x = 1) WHERE k = 2") == len("UPDATE t SET c = 'a WHERE b', d = (SELECT 1 FROM u WHERE x = 1) WHERE")
+   and M.top_where("UPDATE t SET c = 1") == -1 and M.top_where("UPDATE t SET somewhere = 1 WHERE k = 2") == len("UPDATE t SET somewhere = 1 WHERE"),
+   "top_where finds the statement's own WHERE, not one in a string, a subquery or an identifier")
+ok(M.replace_text_probe("UPDATE t SET c = replace(c, 'it''s', 'x') WHERE k = 2") == "SELECT COUNT(*) AS n FROM \"t\" WHERE (k = 2) AND (instr(c, 'it''s') > 0)"
+   and M.replace_text_probe("UPDATE t SET c = 'x' WHERE k = 2") is None and M.replace_text_probe("UPDATE t SET c = replace(c, 'a', 'b')") is None,
+   "the replace() text probe keeps the WHERE and the quoted literal, and is None for other shapes", M.replace_text_probe("UPDATE t SET c = replace(c, 'it''s', 'x') WHERE k = 2"))
+db.execute("DROP TABLE cloud_ops_events")
+db.commit()
+rc, j, err = noop_run("noop-no-events-table", "UPDATE ops_config SET value = 'x' WHERE key = 'still_no_such_key';\n".replace("\\n", "\n"), "n7")
+ok(rc == 0 and j.get("ok") and len(j.get("noop_updates") or []) == 1 and "noop report" in err and db.execute("SELECT status FROM migration_runs WHERE file = 'migrations/noop-no-events-table.sql'").fetchone()[0] == "ok",
+   "an unwritable event row never fails the migration", (rc, j, err))
 
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
