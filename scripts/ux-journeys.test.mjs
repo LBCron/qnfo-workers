@@ -1,7 +1,7 @@
 // scripts/ux-journeys.test.mjs (UX-JOURNEYS-1): the pure half of the phone journey check (grading, screen findings, regressions),
 // plus the shape of budgets.json and of every journey module. No browser; runs in the offline suites (scripts/run-suites.mjs).
 import fs from "node:fs";
-import { grade, screenFindings, regressions, exitCode, journeyTitle, screensTitle, isForeignConsoleError } from "./ux-journeys/lib.mjs";
+import { grade, screenFindings, regressions, exitCode, journeyTitle, screensTitle, isForeignConsoleError, shouldRetryJourney, LIVE_TRIES } from "./ux-journeys/lib.mjs";
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) { pass++; console.log("  ok   " + n); } else { fail++; console.log("  FAIL " + n + (x !== undefined ? "  -> " + JSON.stringify(x) : "")); } };
 
@@ -17,6 +17,11 @@ ok("more taps than the budget is harder", grade({ ok: true, taps: 4, typing: 0 }
 ok("typing where the budget allows none is harder", grade({ ok: true, taps: 1, typing: 1 }, { taps: 3 }).status === "harder");
 ok("within budget is ok", grade({ ok: true, taps: 3, typing: 1 }, { taps: 3, typing: 1 }).status === "ok");
 ok("no budget yet is new, not a failure", grade({ ok: true, taps: 3, typing: 0 }, undefined).status === "new");
+
+// ROOT-CAUSE-1 (agent_issues 1001847): a live journey that did not finish is tried again once before it is reported; harder, ok and local runs are never retried.
+ok("a broken live journey gets one retry, then is reported", shouldRetryJourney("broken", "live", 1) && !shouldRetryJourney("broken", "live", LIVE_TRIES) && LIVE_TRIES === 2);
+ok("harder, ok and new live results are never retried", ["harder", "ok", "new"].every((s) => !shouldRetryJourney(s, "live", 1)));
+ok("the deterministic local harness is never retried", !shouldRetryJourney("broken", "local", 1));
 
 const f = screenFindings({ label: "today", overflowPx: 30, narrowOverflowPx: 0, smallTargets: [{ name: "x", w: 20, h: 20 }], emptyOverlays: [{ name: "#toast", w: 388, h: 20 }],
   axe: [{ id: "color-contrast", impact: "serious", nodes: 2, help: "h" }, { id: "region", impact: "moderate", nodes: 1, help: "h" }] });

@@ -16,6 +16,17 @@ export const MIN_TARGET_PX = 24;
  */
 export const isForeignConsoleError = (text) => /status of 401/.test(text) || /^%c%[do] font-size:0;color:transparent(?: (?:NaN|\{\}))?$/.test(String(text).trim());
 
+// ROOT-CAUSE-1 (agent_issues 1001847): 14 reopens of UX-JOURNEY-1 issues in 7 days came from one run flipping an issue: a single transient live failure
+// (a 502, a slow D1 answer) filed it and the next single pass closed it. A live journey that did not finish is therefore run once more in a fresh phone
+// context, and only a second failure counts. A harder journey (too many taps) is deterministic and is never retried; the local harness is deterministic too.
+export const LIVE_TRIES = 2;
+/**
+ * @param {string} status grade status of the attempt that just ran
+ * @param {string} mode "live" or "local"
+ * @param {number} attempt 1-based number of the attempt that just ran
+ */
+export const shouldRetryJourney = (status, mode, attempt) => status === "broken" && mode === "live" && attempt < LIVE_TRIES;
+
 /** Stable issue title of one journey, so a repeat finding refreshes one open issue and a pass closes it. */
 export const journeyTitle = (app, id) => "UX-JOURNEY-1: " + app + " / " + id;
 /** Stable issue title of an app's screen findings (fit, tap size, accessibility, console errors). */

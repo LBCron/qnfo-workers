@@ -12,12 +12,31 @@ Needs CLOUDFLARE_ACCOUNT_ID (or CF_ACCOUNT_ID) and CLOUDFLARE_API_TOKEN; without
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 DB_ID = os.environ.get("QNFO_AUDIT_DB_ID", "35e2e573-92f3-46ac-83c6-22f6429fc5e5")
 OPEN = "status NOT IN ('closed','resolved','wontfix')"
 NOW = "CAST(strftime('%s','now') AS INTEGER) * 1000"
 CHANNEL = "auto:ux-journeys"
+# ROOT-CAUSE-1 (agent_issues 1001847, FM-3 close-on-single-pass): UX-JOURNEY-1 issues were reopened 14 times across 5 issues in 7 days because one passing run
+# closed an issue and the next flaky run filed it again. A close now needs two passing runs at least DWELL_MS apart: the first leaves the marker line below in
+# the description, the second closes. A failing run rewrites the description (refresh), which drops the marker and restarts the dwell.
+DWELL_MS = 30 * 60 * 1000
+MARK = "ux-pass-seen: "
+
+
+def close_gate(desc, now_ms):
+    """('note', new_description) on the first pass, ('wait', None) inside the dwell, ('close', None) once the marker is DWELL_MS old. Pure, for the selftest."""
+    desc = desc or ""
+    for line in desc.splitlines():
+        if line.startswith(MARK):
+            try:
+                seen = int(line[len(MARK):].strip())
+            except ValueError:
+                break
+            return ("close", None) if now_ms - seen >= DWELL_MS else ("wait", None)
+    return ("note", desc.rstrip() + "\n" + MARK + str(now_ms))
 
 
 def journey_title(app, jid):
@@ -70,7 +89,7 @@ def apply(actions, dry):
     failed = 0
     for act, title, desc, prio in actions:
         try:
-            rows = d1(acct, token, DB_ID, "SELECT id FROM agent_issues WHERE title = ?1 AND " + OPEN + " LIMIT 1", [title]) or []
+            rows = d1(acct, token, DB_ID, "SELECT id, description FROM agent_issues WHERE title = ?1 AND " + OPEN + " LIMIT 1", [title]) or []
             if act == "file":
                 if rows:
                     d1(acct, token, DB_ID, "UPDATE agent_issues SET description = ?2, updated_at = " + NOW + " WHERE id = ?1", [int(rows[0]["id"]), desc])
@@ -81,6 +100,14 @@ def apply(actions, dry):
                     print("filed " + title)
             elif rows:
                 iid = int(rows[0]["id"])
+                gate, noted = close_gate(rows[0].get("description"), int(time.time() * 1000))
+                if gate == "note":
+                    d1(acct, token, DB_ID, "UPDATE agent_issues SET description = ?2 WHERE id = ?1 AND " + OPEN, [iid, noted])
+                    print("pass noted, closes after the next pass %d min later: %s" % (DWELL_MS // 60000, title))
+                    continue
+                if gate == "wait":
+                    print("pass inside the %d min dwell: %s" % (DWELL_MS // 60000, title))
+                    continue
                 d1(acct, token, DB_ID, "INSERT INTO issue_triage (issue_id, rc, owner, sla_due_at, close_evidence) SELECT ?1, 'UX-JOURNEYS-1', 'ux-journeys', datetime('now'), ?2 "
                    "WHERE NOT EXISTS (SELECT 1 FROM issue_triage WHERE issue_id = ?1)", [iid, desc])
                 d1(acct, token, DB_ID, "UPDATE issue_triage SET close_evidence = ?2 WHERE issue_id = ?1", [iid, desc])
@@ -105,6 +132,14 @@ def selftest():
             ("file", "UX-SCREENS-1: companion (local)", "medium"), ("close", "UX-JOURNEY-1: public / q", None), ("close", "UX-SCREENS-1: public (local)", None)]
     assert got == want, got
     assert "did not finish" in p[0][2] and "tap X" in p[0][2]
+    # dwell: first pass leaves a marker, a second pass inside 30 min waits, one after it closes, and a failing refresh (new description) restarts the dwell
+    t0 = 1_000_000_000_000
+    g, d = close_gate("UX-JOURNEY-1 ... failed", t0)
+    assert g == "note" and d.endswith(MARK + str(t0)) and d.startswith("UX-JOURNEY-1 ... failed\n"), (g, d)
+    assert close_gate(d, t0 + DWELL_MS - 1) == ("wait", None)
+    assert close_gate(d, t0 + DWELL_MS) == ("close", None)
+    assert close_gate("UX-JOURNEY-1 ... failed again", t0 + 10 * DWELL_MS)[0] == "note"
+    assert close_gate(None, t0)[0] == "note" and close_gate(MARK + "garbage", t0)[0] == "note"
     print("selftest ok (%d actions)" % len(p))
     return 0
 

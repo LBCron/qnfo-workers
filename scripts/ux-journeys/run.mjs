@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { PHONE, NARROW_WIDTH, MIN_TARGET_PX, grade, screenFindings, summarise, exitCode, isForeignConsoleError } from "./lib.mjs";
+import { PHONE, NARROW_WIDTH, MIN_TARGET_PX, grade, screenFindings, summarise, exitCode, isForeignConsoleError, shouldRetryJourney } from "./lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith("--") ? a.concat([[x.slice(2), all[i + 1] && !all[i + 1].startsWith("--") ? all[i + 1] : "1"]]) : a), []));
@@ -120,33 +120,43 @@ for (const f of appFiles) {
   const start = async () => (MODE === "local" && app.startLocal ? app.startLocal() : { base: app.liveBase, close: async () => {} });
   const out = { app: app.name, base: MODE === "live" ? app.liveBase : "local harness", journeys: [], screenFindings: [] };
   for (const j of journeys) {
-    const env = await start();
-    const ctx = await browser.newContext({ ...PHONE, bypassCSP: true, permissions: [] });
-    if (MODE === "local") await ctx.grantPermissions(["microphone"], { origin: env.base }).catch(() => {});
-    // The local harness reaches nothing outside itself. Live pages load as a visitor's phone would load them (fonts, analytics),
-    // so a blocked request never shows up as a false console error.
-    if (MODE === "local") await ctx.route("**/*", (route) => (new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort()));
-    const page = await ctx.newPage();
-    const run = { app: app.name, id: j.id, title: j.title, taps: 0, typing: 0, steps: [], screens: [], consoleErrors: [], pageErrors: [], badResponses: [], ok: false, error: null };
-    page.on("console", (m) => { if (m.type() === "error" && !isForeignConsoleError(m.text())) run.consoleErrors.push(m.text().slice(0, 200)); });
-    page.on("pageerror", (e) => run.pageErrors.push(String(e.message || e).slice(0, 200)));
-    page.on("response", (r) => {
-      if (r.status() >= 500 || r.status() === 404) run.badResponses.push(r.status() + " " + r.url().slice(0, 160));
-      // A script URL answered with an HTML page (a catch-all route) makes the browser throw "Unexpected token '<'".
-      else if (r.request().resourceType() === "script" && /text\/html/i.test(r.headers()["content-type"] || "")) run.badResponses.push("script answered with an HTML page: " + r.url().slice(0, 160));
-    });
-    const t0 = Date.now();
-    try { await j.run(driver(page, env.base, run, args.shots), env); run.ok = true; }
-    catch (e) { run.error = String(e.message || e).split("\n")[0].slice(0, 300); if (args.shots) await page.screenshot({ path: path.join(args.shots, (app.name + "-" + j.id + "-FAILED").replace(/[^\w.-]+/g, "_") + ".png") }).catch(() => {}); }
-    run.ms = Date.now() - t0;
-    run.grade = grade(run, (budgets[app.name] || {})[j.id]);
-    for (const s of run.screens) for (const x of screenFindings(s)) if (!out.screenFindings.includes(x)) out.screenFindings.push(x);
-    for (const c of run.consoleErrors) { const x = "console error in " + j.id + ": " + c; if (!out.screenFindings.includes(x)) out.screenFindings.push(x); }
-    for (const b of run.badResponses) { const x = "HTTP " + b + " during " + j.id; if (!out.screenFindings.includes(x)) out.screenFindings.push(x); }
-    out.journeys.push(run);
-    console.log((run.grade.status === "ok" ? "  ok    " : "  " + run.grade.status.toUpperCase().padEnd(6)) + app.name + " / " + j.id + "  taps=" + run.taps + " typed=" + run.typing + "  " + run.grade.reasons.join("; "));
-    await ctx.close();
-    await env.close();
+    // UX-JOURNEY-1 ROOT-CAUSE-1: a live journey that did not finish gets one more try in a fresh phone context; only a repeat failure is reported (lib.mjs shouldRetryJourney).
+    for (let attempt = 1; ; attempt++) {
+      const env = await start();
+      const ctx = await browser.newContext({ ...PHONE, bypassCSP: true, permissions: [] });
+      if (MODE === "local") await ctx.grantPermissions(["microphone"], { origin: env.base }).catch(() => {});
+      // The local harness reaches nothing outside itself. Live pages load as a visitor's phone would load them (fonts, analytics),
+      // so a blocked request never shows up as a false console error.
+      if (MODE === "local") await ctx.route("**/*", (route) => (new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort()));
+      const page = await ctx.newPage();
+      const run = { app: app.name, id: j.id, title: j.title, taps: 0, typing: 0, steps: [], screens: [], consoleErrors: [], pageErrors: [], badResponses: [], ok: false, error: null, attempts: attempt };
+      page.on("console", (m) => { if (m.type() === "error" && !isForeignConsoleError(m.text())) run.consoleErrors.push(m.text().slice(0, 200)); });
+      page.on("pageerror", (e) => run.pageErrors.push(String(e.message || e).slice(0, 200)));
+      page.on("response", (r) => {
+        if (r.status() >= 500 || r.status() === 404) run.badResponses.push(r.status() + " " + r.url().slice(0, 160));
+        // A script URL answered with an HTML page (a catch-all route) makes the browser throw "Unexpected token '<'".
+        else if (r.request().resourceType() === "script" && /text\/html/i.test(r.headers()["content-type"] || "")) run.badResponses.push("script answered with an HTML page: " + r.url().slice(0, 160));
+      });
+      const t0 = Date.now();
+      try { await j.run(driver(page, env.base, run, args.shots), env); run.ok = true; }
+      catch (e) { run.error = String(e.message || e).split("\n")[0].slice(0, 300); if (args.shots) await page.screenshot({ path: path.join(args.shots, (app.name + "-" + j.id + "-FAILED").replace(/[^\w.-]+/g, "_") + ".png") }).catch(() => {}); }
+      run.ms = Date.now() - t0;
+      run.grade = grade(run, (budgets[app.name] || {})[j.id]);
+      if (shouldRetryJourney(run.grade.status, MODE, attempt)) {
+        console.log("  retry " + app.name + " / " + j.id + "  attempt " + attempt + " did not finish: " + run.grade.reasons.join("; "));
+        await ctx.close();
+        await env.close();
+        continue;
+      }
+      for (const s of run.screens) for (const x of screenFindings(s)) if (!out.screenFindings.includes(x)) out.screenFindings.push(x);
+      for (const c of run.consoleErrors) { const x = "console error in " + j.id + ": " + c; if (!out.screenFindings.includes(x)) out.screenFindings.push(x); }
+      for (const b of run.badResponses) { const x = "HTTP " + b + " during " + j.id; if (!out.screenFindings.includes(x)) out.screenFindings.push(x); }
+      out.journeys.push(run);
+      console.log((run.grade.status === "ok" ? "  ok    " : "  " + run.grade.status.toUpperCase().padEnd(6)) + app.name + " / " + j.id + "  taps=" + run.taps + " typed=" + run.typing + (attempt > 1 ? " (attempt " + attempt + ")" : "") + "  " + run.grade.reasons.join("; "));
+      await ctx.close();
+      await env.close();
+      break;
+    }
   }
   report.apps.push(out);
 }
