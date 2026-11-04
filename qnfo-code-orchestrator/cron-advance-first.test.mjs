@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+const a = src.indexOf("async function runTick(env)");
+const body = src.slice(a, src.indexOf("var schedDefault", a));
+const adv = body.indexOf("UPDATE fleet_crons SET last_fired");
+assert.ok(adv > 0 && adv < body.indexOf("INSERT INTO fleet_runs") && adv < body.indexOf("execMod.fetch"), "next_fire advances before dispatch");
+assert.equal(body.split("UPDATE fleet_crons SET last_fired").length - 1, 1);
+assert.ok(body.includes("ORDER BY last_fired IS NOT NULL, last_fired ASC"), "never-fired crons go first");
+assert.ok(body.includes("status IN ('running','queued') AND started_at <"), "orphaned runs are closed");
+console.log("ok");

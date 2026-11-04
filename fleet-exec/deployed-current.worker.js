@@ -183,7 +183,7 @@ return execDefault;
 
 // fleet-scheduler v0.1.0 - dynamic cron dispatcher
 // Per-minute tick reads fleet_crons from qnfo-audit D1, dispatches due jobs to fleet-executor.
-var VERSION = "1.0.5-cron-tick-5m-1"; // CRON-TICK-5M-1: redeploy so raw_put applies the declared */5 tick
+var VERSION = "1.0.6-cron-advance-first-1"; // CRON-ADVANCE-FIRST-1 (folded source; mirrors the host)
 
 function json(obj, status) {
   return new Response(JSON.stringify(obj), { status: status || 200, headers: { "content-type": "application/json" } });
@@ -230,7 +230,12 @@ function nextFire(expr, from) {
 async function runTick(env) {
   const now = new Date();
   const nowIso = now.toISOString();
-  const due = await env.AUDIT.prepare("SELECT * FROM fleet_crons WHERE enabled = 1 AND (next_fire IS NULL OR next_fire <= ?1)").bind(nowIso).all();
+  // CRON-ADVANCE-FIRST-1: a run killed mid-task (D1 overload, invocation limit) never reached the post-run
+  // UPDATE, so its cron stayed due and re-fired every tick (135 orphan management-personas rows on 2026-11-04)
+  // while crons behind it in the loop starved (domain-managers never fired). Orphans are closed, never-fired
+  // crons go first, and next_fire advances BEFORE dispatch (at most once per slot).
+  try { await env.AUDIT.prepare("UPDATE fleet_runs SET status = 'failed', finished_at = ?1, error = 'orphaned: invocation ended before the run finished (CRON-ADVANCE-FIRST-1)' WHERE status IN ('running','queued') AND started_at < ?2").bind(nowIso, new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()).run(); } catch (e) { console.error("orphan-reap failed: " + String(e && e.message || e).slice(0, 200)); }
+  const due = await env.AUDIT.prepare("SELECT * FROM fleet_crons WHERE enabled = 1 AND (next_fire IS NULL OR next_fire <= ?1) ORDER BY last_fired IS NOT NULL, last_fired ASC").bind(nowIso).all();
   const fired = [];
   for (let i = 0; i < due.results.length; i++) {
     const row = due.results[i];
@@ -238,6 +243,7 @@ async function runTick(env) {
     // Defensive: a malformed cron_expr yields nextFire()===null; falling back to null
     // would re-match "next_fire IS NULL" every tick and fire once per minute forever.
     const nextIso = next ? next.toISOString() : new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    await env.AUDIT.prepare("UPDATE fleet_crons SET last_fired = ?1, next_fire = ?2, updated_at = ?1 WHERE name = ?3").bind(nowIso, nextIso, row.name).run();
     await env.AUDIT.prepare("INSERT INTO fleet_runs (task_id, cron_name, status, started_at) VALUES (?1, ?2, 'queued', ?3)").bind(row.task_id, row.name, nowIso).run();
     try {
       const resp = await execMod.fetch(new Request("https://fleet-executor/run", {
@@ -249,7 +255,6 @@ async function runTick(env) {
     } catch (err) {
       fired.push({ name: row.name, task: row.task_id, dispatch_error: String(err && err.message ? err.message : err).slice(0, 200) });
     }
-    await env.AUDIT.prepare("UPDATE fleet_crons SET last_fired = ?1, next_fire = ?2, updated_at = ?1 WHERE name = ?3").bind(nowIso, nextIso, row.name).run();
   }
   return fired;
 }
