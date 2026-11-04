@@ -199,6 +199,7 @@ jobs:
           if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/adversarial-workers-guard\.py$|^\.github/workflows/adversarial-workers-guard\.yml$' files.txt; then echo 'adversarial_workers_guard=true' >> "$GITHUB_OUTPUT"; else echo 'adversarial_workers_guard=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^docs/|^CLAUDE\.md$|^AGENTS\.md$|^llms\.txt$|^\.github/(copilot-instructions\.md|agents/)|^[^/]+/README\.md$|^scripts/build-agent-catalog\.mjs$' files.txt; then echo 'docs_catalog=true' >> "$GITHUB_OUTPUT"; else echo 'docs_catalog=false' >> "$GITHUB_OUTPUT"; fi
 
       # ---- identity-guard: steps of .github/workflows/identity-guard.yml ----
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -287,6 +288,12 @@ jobs:
         if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
         run: python3 scripts/canonical_deploy_skip_test.py
 
+      # FLEET-SHARED-LIBRARY-1 catalog: docs/INDEX.md and docs/agent-catalog.json hash every tracked system document, so a pull request that adds or edits one must regenerate them
+      # (docs/agent-library.test.mjs was red on main 2026-11-04 after four doc additions and a CLAUDE.md edit, because only the post-merge sweep checked it).
+      - name: Agent documentation catalog is current (run node scripts/build-agent-catalog.mjs when this fails)
+        if: ${{ !cancelled() && steps.f.outputs.docs_catalog == 'true' }}
+        run: node scripts/build-agent-catalog.mjs --check
+
   # migration, charter and the small offline suites, each only when its paths change
   suites:
     # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
@@ -308,6 +315,7 @@ jobs:
           if grep -qE '^qnfo-code-orchestrator/|^\.github/workflows/code-loop-test\.yml$' files.txt; then echo 'code_loop_test=true' >> "$GITHUB_OUTPUT"; else echo 'code_loop_test=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^migrations/|^scripts/apply_migrations\.py$|^\.github/workflows/migration-guard\.yml$' files.txt; then echo 'migration_guard=true' >> "$GITHUB_OUTPUT"; else echo 'migration_guard=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^qnfo-github-steward/|^migrations/2026-10-18-(tracker|portfolio)-sync\.sql$|^\.github/workflows/steward-test\.yml$' files.txt; then echo 'steward_test=true' >> "$GITHUB_OUTPUT"; else echo 'steward_test=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^\.github/workflows/|^scripts/(merge-when-ready-advisory|request-copilot-review|copilot-pr-lifecycle|github-settings-actions|workflow-lint)[^/]*$|^scripts/github-main-ruleset\.json$|^migrations/(pr-guard-fixes|2026-11-04-push-guard)|^qnfo-fleet-dashboard/worker\.js$' files.txt; then echo 'workflow_pins=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_pins=false' >> "$GITHUB_OUTPUT"; fi
 
       # ---- migration-guard: steps of .github/workflows/migration-guard.yml ----
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -590,3 +598,20 @@ jobs:
       - name: Exception-class closes need a measured recurrence and a passing probe
         if: ${{ !cancelled() && steps.f.outputs.backlog_exec_test == 'true' }}
         run: node --no-warnings qnfo-backlog-exec/exception-close.test.mjs
+
+      # PR-CHECK-CAP-5-1 follow-up: the suites that pin the workflow files, the ruleset config and the guard detectors ran only in the post-merge sweep (deploy-gate left the pull request
+      # path), so a workflow change turned main red (ten suites on 2026-11-04, issue 7070). They take about 20 s together; the slow ones (version-bump-guard 48 s, migration-guard 19 s)
+      # stay in the sweep. The dashboard worker.js is in the filter because worker-observability.test.mjs extracts functions from it by name.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.workflow_pins == 'true' }}
+        with:
+          node-version: "22"
+
+      - name: Suites that pin the workflow files and the guard detectors
+        if: ${{ !cancelled() && steps.f.outputs.workflow_pins == 'true' }}
+        run: |
+          fail=0
+          for s in scripts/workflow-lint.test.mjs scripts/merge-when-ready-advisory.test.mjs scripts/request-copilot-review.test.mjs scripts/copilot-pr-lifecycle.test.mjs scripts/github-settings-actions.test.mjs migrations/pr-guard-fixes.test.mjs migrations/domain-plane-inventory-issues.test.mjs qnfo-fleet-dashboard/worker-observability.test.mjs; do
+            node --no-warnings "$s" || fail=1
+          done
+          exit "$fail"
