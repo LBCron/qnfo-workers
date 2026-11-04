@@ -1,13 +1,15 @@
 {
-  "audited_at": "2026-11-04 14:39:41",
-  "d1_write_failures": [
-    [
-      "qnfo-auditor",
-      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
-    ]
-  ],
-  "d1_writes_ok": 128,
+  "audited_at": "2026-11-04 14:46:50",
+  "d1_write_failures": [],
+  "d1_writes_ok": 130,
   "guard": {
+    "_drift_confirm": {
+      "first_pass": [
+        "qnfo-ai"
+      ],
+      "refreshed": true,
+      "second_pass": []
+    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -591,7 +593,7 @@
       },
       {
         "dir": "qnfo-ai",
-        "version": "5.44.3-codeagent",
+        "version": "5.44.4-codeagent",
         "worker": "qnfo-ai"
       },
       {
@@ -749,6 +751,11 @@
     "unmanaged_truncated": false,
     "unmanaged_workers": [
       {
+        "http": 404,
+        "version": null,
+        "worker": "career-engine"
+      },
+      {
         "http": 200,
         "route_drift": true,
         "version": null,
@@ -807,6 +814,14 @@
       "note": "NOT_DEPLOYED",
       "retired": "FOLDED",
       "worker": "calendar-api"
+    },
+    "career-engine": {
+      "before": null,
+      "http": 404,
+      "live": null,
+      "match": 0,
+      "note": "UNMANAGED_NO_HEALTH",
+      "worker": "career-engine"
     },
     "ci-status": {
       "before": null,
@@ -1117,9 +1132,9 @@
       "worker": "qnfo-agents"
     },
     "qnfo-ai": {
-      "before": "5.44.3-codeagent",
+      "before": "5.44.4-codeagent",
       "http": 200,
-      "live": "5.44.3-codeagent",
+      "live": "5.44.4-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai"
@@ -1875,5 +1890,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
