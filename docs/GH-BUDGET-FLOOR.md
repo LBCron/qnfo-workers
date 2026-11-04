@@ -25,5 +25,7 @@ Revert: set `GH_BUDGET_FLOOR=0`.
 ## Follow-ups owed
 
 - Metric `github_pat_budget_floor_hits_24h` (count of `GH-BUDGET-YIELD` lines in 24 h; guard, target 0 stalls) needs a `metric_registry` row, a trigger and a `metric_breach_cause` mapping in one migration (METRIC-CAUSE-AT-REGISTRATION-1).
-- A 5-minute sample of `core.remaining` in the fleet tick, so the hourly minimum is measured.
+- DONE (GH-BUDGET-MIN-1, qnfo-cloud-ops 1.45.0): the existing 10-minute `GET /rate_limit` sample (GH-TOKEN-WATCH-1; not 30) keeps the lowest value per UTC hour in `scheduler_state gh_budget_min24`
+  and writes the 24-hour minimum to metric `github_pat_budget_min_24h` (guard, target >= 600, trigger lt 600, cause `code-loop`, detector `fm-github-pat-budget-min`).
+  Blind spot: only the watch's samples with its own token (GH_TOKEN, per-user bucket); a drain and recovery inside one 10-minute gap is still invisible.
 - Wire `request-copilot-review` (add checkout) and the sweep parts of `copilot-pr-lifecycle`.
