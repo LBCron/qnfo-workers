@@ -52,7 +52,7 @@ function fakeGitHub(opts = {}) {
     if (method === "GET" && path === "/apps/qnfo-fleet") return opts.noFleetApp || opts.appsViaInstallations ? json(404, { message: "Not Found" }) : json(200, { id: 424242, slug: "qnfo-fleet" });
     if (method === "GET" && path.startsWith("/orgs/QNFO/installations")) return json(200, { installations: opts.noFleetApp ? [] : [{ app_slug: "qnfo-fleet", app_id: 424242 }] });
     if (method === "GET" && path.startsWith("/repos/QNFO/qnfo-workers/pulls?")) return json(200, [{ head: { sha: "aaa" } }, { head: { sha: "bbb" } }]);
-    if (method === "GET" && /\/commits\/(aaa|bbb)\/check-runs/.test(path)) return json(200, { check_runs: (opts.contexts || ["gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard", "CodeQL"]).map((name) => ({ name })) });
+    if (method === "GET" && /\/commits\/(aaa|bbb)\/check-runs/.test(path)) return json(200, { check_runs: (opts.contexts || ["deploy-gate / gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard", "CodeQL"]).map((name) => ({ name })) });
     if (method === "GET" && path.startsWith("/repos/QNFO/qnfo-workers/activity?")) return json(200, [
       ...Array.from({ length: 3 }, () => ({ activity_type: "push", actor: { login: "github-actions[bot]" } })),
       { activity_type: "pr_merge", actor: { login: "qnfo-fleet[bot]" } }, { activity_type: "push", actor: { login: "qnfo-fleet[bot]" } },
@@ -100,36 +100,36 @@ const wfRoot = mkdtempSync(join(tmpdir(), "gh-settings-"));
 mkdirSync(join(wfRoot, ".github", "workflows"), { recursive: true });
 mkdirSync(join(wfRoot, "scripts"), { recursive: true });
 const wf = (name, text) => writeFileSync(join(wfRoot, ".github", "workflows", name), text);
-wf("deploy-gate.yml", "name: deploy-gate\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\njobs:\n  gate:\n    runs-on: ubuntu-latest\n    steps: []\n");
+wf("deploy-gate.yml", "name: deploy-gate\non:\n  push:\n    branches: [main]\n  workflow_call:\njobs:\n  gate:\n    runs-on: ubuntu-latest\n    steps: []\n");
 wf("version-bump-guard.yml", "name: version-bump-guard\non:\n  push:\n    branches: [main]\n  workflow_call:\njobs:\n  guard:\n    runs-on: ubuntu-latest\n    steps: []\n");
 wf("mirror-guard.yml", "name: mirror-guard\n# comment\non:\n  push:\n    branches: [main]\n  # comment inside\n  workflow_call:\n  workflow_dispatch:\njobs:\n  mirror-guard:\n    runs-on: ubuntu-latest\n    steps: []\n");
 wf("identity-guard.yml", "name: identity-guard\non:\n  workflow_call:\njobs:\n  identity-guard:\n    name: identity-guard\n    runs-on: ubuntu-latest\n    steps: []\n");
-const prChecks = (trigger) => "name: pr-checks\non:\n" + trigger + "jobs:\n  version-bump-guard:\n    uses: ./.github/workflows/version-bump-guard.yml\n  mirror-guard:\n    uses: ./.github/workflows/mirror-guard.yml\n  identity-guard:\n    uses: ./.github/workflows/identity-guard.yml\n";
+const prChecks = (trigger) => "name: pr-checks\non:\n" + trigger + "jobs:\n  deploy-gate:\n    uses: ./.github/workflows/deploy-gate.yml\n  version-bump-guard:\n    uses: ./.github/workflows/version-bump-guard.yml\n  mirror-guard:\n    uses: ./.github/workflows/mirror-guard.yml\n  identity-guard:\n    uses: ./.github/workflows/identity-guard.yml\n";
 wf("pr-checks.yml", prChecks("  pull_request:\n    paths:\n      - '*/worker.js'\n"));
 const cfg = JSON.parse(readFileSync(join(repoRoot, "scripts", "github-main-ruleset.json"), "utf8"));
 writeFileSync(join(wfRoot, "scripts", "github-main-ruleset.json"), JSON.stringify(cfg));
 
 // workflow check detection
 const wc = workflowChecks(wfRoot);
-ok(wc.find((w) => w.context === "version-bump-guard / guard").filtered === true && wc.find((w) => w.context === "gate").filtered === false, "a pull_request paths filter is detected, a branches filter is not", wc);
+ok(wc.find((w) => w.context === "version-bump-guard / guard").filtered === true && wc.find((w) => w.context === "deploy-gate / gate").filtered === true, "a pull_request paths filter is detected on the caller of a reusable workflow", wc);
 ok(wc.find((w) => w.context === "mirror-guard / mirror-guard").onPr && wc.find((w) => w.context === "identity-guard / identity-guard").onPr, "a trigger block with comments and a job name still resolves");
 let pr = checkProblems(cfg, wfRoot);
-ok(pr.length === 3 && pr.every((x) => /paths filter/.test(x)), "the path-filtered caller makes its three guard checks problems: " + pr.join(" | "));
+ok(pr.length === 4 && pr.every((x) => /paths filter/.test(x)), "the path-filtered caller makes its four guard checks problems: " + pr.join(" | "));
 wf("pr-checks.yml", prChecks("  pull_request:\n"));
 ok(checkProblems(cfg, wfRoot).length === 0, "the same workflow without a pull_request paths filter has no problem");
-ok(checkProblems({ ...cfg, required_checks: ["gate", "nonesuch"] }, wfRoot).some((p) => /nonesuch.*no workflow job/.test(p)), "a check no job produces is a problem");
+ok(checkProblems({ ...cfg, required_checks: ["deploy-gate / gate", "nonesuch"] }, wfRoot).some((p) => /nonesuch.*no workflow job/.test(p)), "a check no job produces is a problem");
 
 // the real repository: the committed config names checks real pull_request jobs always produce
 const real = checkProblems(loadConfig(repoRoot), repoRoot);
 ok(real.length === 0, "the committed config's required checks are produced by unfiltered pull_request workflows in this repository", real);
-ok(JSON.stringify(loadConfig(repoRoot).required_checks) === JSON.stringify(["gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard"]), "the declared checks are the four named in agent_issues 2927");
+ok(JSON.stringify(loadConfig(repoRoot).required_checks) === JSON.stringify(["deploy-gate / gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard"]), "the declared checks are the four named in agent_issues 2927");
 
 // payload
 const desired = buildRuleset(cfg, [{ slug: "qnfo-fleet", actor_id: 424242 }]);
 ok(desired.name === "main-gate" && desired.enforcement === "active" && desired.conditions.ref_name.include[0] === "~DEFAULT_BRANCH", "the ruleset targets the default branch by name main-gate");
 ok(desired.rules.map((r) => r.type).join() === "deletion,non_fast_forward,pull_request,required_status_checks", "rules: no deletion, no force push, pull request, required checks");
 const rsc = desired.rules.find((r) => r.type === "required_status_checks").parameters;
-ok(rsc.required_status_checks.map((c) => c.context).join() === "gate,version-bump-guard / guard,mirror-guard / mirror-guard,identity-guard / identity-guard" && rsc.strict_required_status_checks_policy === false, "the four contexts, not strict (strict would stall every PR whenever main moves)");
+ok(rsc.required_status_checks.map((c) => c.context).join() === "deploy-gate / gate,version-bump-guard / guard,mirror-guard / mirror-guard,identity-guard / identity-guard" && rsc.strict_required_status_checks_policy === false, "the four contexts, not strict (strict would stall every PR whenever main moves)");
 ok(desired.rules.find((r) => r.type === "pull_request").parameters.required_approving_review_count === 0, "no approving review is required (one account authors every pull request)");
 ok(desired.bypass_actors.some((b) => b.actor_type === "RepositoryRole" && b.actor_id === 5) && desired.bypass_actors.some((b) => b.actor_id === 424242 && b.actor_type === "Integration") && desired.bypass_actors.every((b) => b.bypass_mode === "always") && desired.bypass_actors.length === 2, "the admin role and the fleet app bypass, nothing else", desired.bypass_actors);
 ok(rulesetDiff(null, desired)[0].startsWith("absent") && rulesetDiff(JSON.parse(JSON.stringify(desired)), desired).length === 0 && rulesetDiff({ ...desired, enforcement: "disabled" }, desired).length === 1, "rulesetDiff: absent, equal, one change");
@@ -141,7 +141,7 @@ let g = fakeGitHub({ read403: true });
 let res = await run("report", "dry", wfRoot, g.fetchImpl, { GITHUB_TOKEN: "ghs_session" });
 const prot = res.matrix.find((x) => x.call === "GET branches/main/protection");
 ok(prot.status === 403 && prot.message === "Resource not accessible by integration" && res.classic_protection === "unreadable" && /^no: /.test(res.token_can_administer), "report records the refused call with its status and GitHub's own words", prot);
-ok(res.credential === "GITHUB_TOKEN" && res.contexts_seen_on_recent_pr_heads.gate === 2 && res.rules_on_main.join() === "deletion,non_fast_forward" && res.pushers_last_100["github-actions[bot]"].push === 3 && res.unlisted_direct_pushers.length === 0, "report reads the rules, the contexts seen and the pushers of main", res);
+ok(res.credential === "GITHUB_TOKEN" && res.contexts_seen_on_recent_pr_heads["deploy-gate / gate"] === 2 && res.rules_on_main.join() === "deletion,non_fast_forward" && res.pushers_last_100["github-actions[bot]"].push === 3 && res.unlisted_direct_pushers.length === 0, "report reads the rules, the contexts seen and the pushers of main", res);
 ok(g.st.log.every((c) => c.method === "GET"), "report only reads");
 g = fakeGitHub();
 res = await run("report", "dry", wfRoot, g.fetchImpl, { GH_ADMIN_TOKEN: "pat_admin", GITHUB_TOKEN: "ghs_x" });
@@ -154,7 +154,7 @@ g = fakeGitHub();
 res = await run("ruleset-main", "live", wfRoot, g.fetchImpl, { GH_ADMIN_TOKEN: "pat_admin" });
 ok(!res.ok && res.problems.some((p) => /guard.*paths filter/.test(p)) && !g.st.log.some((c) => c.method !== "GET") && /live refused/.test(res.note), "live refuses and writes nothing while a required check is path-filtered", res.problems);
 wf("pr-checks.yml", prChecks("  pull_request:\n"));
-g = fakeGitHub({ contexts: ["gate", "mirror-guard / mirror-guard", "identity-guard / identity-guard"] });
+g = fakeGitHub({ contexts: ["deploy-gate / gate", "mirror-guard / mirror-guard", "identity-guard / identity-guard"] });
 res = await run("ruleset-main", "live", wfRoot, g.fetchImpl, { GH_ADMIN_TOKEN: "pat_admin" });
 ok(!res.ok && res.problems.some((p) => /version-bump-guard . guard. was not seen/.test(p)) && !g.st.log.some((c) => c.method !== "GET"), "live refuses while a required context was never seen on a recent pull request head");
 g = fakeGitHub({ noFleetApp: true });

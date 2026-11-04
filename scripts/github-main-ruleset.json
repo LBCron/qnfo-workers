@@ -5,7 +5,7 @@
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
-  "required_checks": ["gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard"],
+  "required_checks": ["deploy-gate / gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard"],
   "strict_required_status_checks_policy": false,
   "pull_request": {
     "required_approving_review_count": 0,
