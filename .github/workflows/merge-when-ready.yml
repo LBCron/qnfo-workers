@@ -1,0 +1,65 @@
+name: merge-when-ready
+
+# MERGE-WHEN-READY-1 (2026-11-04, pillar autonomy; owner directive: "As soon as something's ready, merge it ... PRs need to be closed at max 2 hours"). Measured 2026-11-04 on the last
+# 55 merged pull requests: median 8 minutes, p90 354 minutes, worst 1,314 (Copilot and qnfo-fleet[bot] pull requests). The checks take 70 to 390 seconds; the rest was the stale-PR
+# lane's idle wait and its queue. This workflow merges a ready pull request the moment its checks conclude, event-driven (no polling, no runner minutes spent waiting).
+# READY MEANS: open, not a draft, into main, no label hold, no comment starting HOLD:, and every check run on the head sha that is not in the slow list has concluded green,
+# with at least 4 of them present. The slow list is the advisory gate (deploy-gate runs the full suites after the merge, MERGE-STREAMLINE-1), CodeQL (analyze) and Workers Builds.
+# A failed or still running check ends the job quietly; the next guard that concludes runs it again. The merge is pinned to the checked head sha, so a push in between is refused.
+# QNFO_GH_PAT does the merge because a push made with the workflow token starts no workflow, and canonical-deploy.yml listens to pushes on main.
+# PULL_REQUEST_TARGET AND WORKFLOW_RUN WITH A SECRET ARE SAFE HERE: both run the definition from main, nothing is checked out, and the only value used from the event is the pull
+# request number, an integer, handed over through env. Style: step names colon-free, no heredocs, no inline python, inputs travel through env (workflow-lint.py).
+# Revert: delete this file. The lane keeps merging as before.
+
+on:
+  workflow_run:
+    workflows: [version-bump-guard, mirror-guard, identity-guard, version-compare, migration-guard, model-floor-guard, adversarial-workers-guard, charter-guard]
+    types: [completed]
+  pull_request_target:
+    types: [ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  merge:
+    if: ${{ github.event_name == 'pull_request_target' || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0].number != null) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: merge-when-ready-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+    steps:
+      - name: Merge the pull request when every fast check is green
+        run: |
+          set -u
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          state="$(printf '%s' "$pr" | jq -r '.state')"
+          draft="$(printf '%s' "$pr" | jq -r '.draft')"
+          base="$(printf '%s' "$pr" | jq -r '.base.ref')"
+          sha="$(printf '%s' "$pr" | jq -r '.head.sha')"
+          held="$(printf '%s' "$pr" | jq -r '[.labels[].name] | index("hold") != null')"
+          if [ "$state" != "open" ] || [ "$draft" != "false" ] || [ "$base" != "main" ] || [ "$held" != "false" ]; then
+            echo "not ready: state=$state draft=$draft base=$base held=$held"
+            exit 0
+          fi
+          holds="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '[.[] | select(.body | startswith("HOLD:"))] | length')"
+          if [ "$holds" != "0" ]; then
+            echo "a HOLD comment is on the pull request"
+            exit 0
+          fi
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --jq '[.check_runs[] | select((.name | test("^(gate|analyze|Workers Builds|sweep)")) | not) | {name, status, conclusion}]')"
+          total="$(printf '%s' "$runs" | jq 'length')"
+          pending="$(printf '%s' "$runs" | jq '[.[] | select(.status != "completed")] | length')"
+          bad="$(printf '%s' "$runs" | jq '[.[] | select(.status == "completed" and (.conclusion | IN("success", "skipped", "neutral") | not))] | length')"
+          echo "checks=$total pending=$pending failed=$bad"
+          if [ "$total" -lt 4 ] || [ "$pending" != "0" ] || [ "$bad" != "0" ]; then
+            echo "waiting for a later guard to conclude, or a check failed"
+            exit 0
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$sha" || echo "::notice::merge refused, the lane keeps the pull request"

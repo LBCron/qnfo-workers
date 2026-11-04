@@ -31,11 +31,8 @@ on:
     paths-ignore:
       - 'ci-status/**'
       - 'audits/**'
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - 'ci-status/**'
-      - 'audits/**'
+  # MERGE-WHEN-READY-1 (2026-11-04): no pull_request trigger. The three analyze jobs averaged 258 s (max 361 s) on every PR and are not a merge condition;
+  # the same scan runs on the push to main and weekly. Revert: restore the pull_request block (branches: [main], the same paths-ignore).
   schedule:
     - cron: '17 4 * * 1'
   workflow_dispatch:
