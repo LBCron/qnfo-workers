@@ -20,7 +20,9 @@ const root = join(here, "..");
 const yml = readFileSync(join(root, ".github", "workflows", "migration-guard.yml"), "utf8");
 
 // ---- the workflow itself ----
-ok(/^on:\n  pull_request:\n    branches: \[main\]\n    paths:\n      - 'migrations\/\*\*'/m.test(yml), "it runs on pull requests that touch migrations");
+// PR-CHECK-CAP-5-1: the guard's steps run on a pull request as steps of the `suites` job in pr-checks.yml, gated by the migrations path flag; this file keeps the step source.
+const prChecks = readFileSync(join(root, ".github", "workflows", "pr-checks.yml"), "utf8");
+ok(/migration_guard=true/.test(prChecks) && /\^migrations\//.test(prChecks) && /steps\.f\.outputs\.migration_guard == 'true'/.test(prChecks) && /apply_migrations\.py --check/.test(prChecks) && /view_premerge\.py/.test(prChecks), "it runs on pull requests that touch migrations");
 ok(/^  migration-guard:$/m.test(yml), "the job is named migration-guard (the lane reads checks by name; `guard` is version-bump-guard's)");
 ok(!/continue-on-error/.test(yml), "no step is advisory: a refusal fails the check");
 ok(/permissions:\n  contents: read\n/.test(yml) && !/(pull-requests|issues|actions|id-token): write/.test(yml), "the token is read-only");
