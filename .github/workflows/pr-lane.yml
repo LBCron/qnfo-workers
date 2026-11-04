@@ -1,0 +1,47 @@
+name: pr-lane
+
+# THREE-PR-WORKFLOWS-1 (2026-11-04): the pull request lane in one workflow. Runs from main (pull_request_target and workflow_run both do), checks nothing out, and passes the
+# QNFO_GH_PAT only to merge-when-ready, which merges after pr-checks concludes green. Before this file, lane-poke, request-copilot-review, copilot-pr-lifecycle and
+# merge-when-ready were four separate workflows started by each PR event, and merge-when-ready ran once per guard that finished.
+# Revert: restore the trigger blocks in those four files and delete this file.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, review_requested, assigned, edited]
+  workflow_run:
+    workflows: [pr-checks]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    if: ${{ github.event_name == 'pull_request_target' }}
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: write
+    uses: ./.github/workflows/copilot-pr-lifecycle.yml
+    secrets: inherit
+
+  review:
+    if: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && contains(fromJSON('["opened","reopened","ready_for_review"]'), github.event.action) }}
+    permissions:
+      pull-requests: write
+    uses: ./.github/workflows/request-copilot-review.yml
+    secrets: inherit
+
+  poke:
+    if: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && contains(fromJSON('["opened","reopened","ready_for_review","edited"]'), github.event.action)) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && !startsWith(github.event.workflow_run.head_branch, 'copilot/')) }}
+    permissions: {}
+    uses: ./.github/workflows/lane-poke.yml
+
+  merge:
+    if: ${{ (github.event_name == 'pull_request_target' && github.event.action == 'ready_for_review' && github.event.pull_request.base.ref == 'main') || github.event_name == 'workflow_run' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/merge-when-ready.yml
+    secrets: inherit

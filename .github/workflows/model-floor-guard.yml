@@ -13,6 +13,7 @@ name: model-floor-guard
 # Step names are colon-free (WORKFLOW-YAML-LINT-1).
 
 on:
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -23,13 +24,6 @@ on:
   # MODEL-FLOOR-PREMERGE-1 (2026-10-19, agent_issues 100121): the guard only ran after a merge, so PR 2753 put a banned model into main
   # and every later push went red until a fix merged. A pull request now runs the repo-source scan in diff mode (--base): it fails only
   # for a violation the change adds, so debt already on main never blocks an unrelated pull request. No token, no live sweep.
-  pull_request:
-    branches: [main]
-    paths:
-      - "*/worker.js"
-      - "*/deployed-current.worker.js"
-      - "scripts/model-floor-guard.mjs"
-      - ".github/workflows/model-floor-guard.yml"
   # FLOOR-WATCH-1 (2026-10-17): the scan used to run only when its own two files changed or weekly, so a
   # worker that reintroduced a sub-frontier model was invisible for up to seven days. Every worker change
   # now scans the repo sources at once; the live-bundle sweep stays daily + weekly + manual.

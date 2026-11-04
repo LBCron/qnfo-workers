@@ -12,15 +12,8 @@ name: merge-when-ready
 # Revert: delete this file. The lane keeps merging as before.
 
 on:
-  workflow_run:
-    workflows: [version-bump-guard, mirror-guard, identity-guard, version-compare, migration-guard, model-floor-guard, adversarial-workers-guard, charter-guard]
-    types: [completed]
+  workflow_call:
   # 2026-11-04: a check outside that list (workflow-lint's lint job) can be the last to conclude, and then no workflow_run fires; a concluded check suite is the catch-all.
-  check_suite:
-    types: [completed]
-  pull_request_target:
-    types: [ready_for_review]
-    branches: [main]
 
 permissions:
   contents: read

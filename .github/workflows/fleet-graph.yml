@@ -20,6 +20,7 @@ name: fleet-graph
 #           writes the same schema to a local SQLite file.
 
 on:
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -30,14 +31,6 @@ on:
       - 'migrations/**'
       - 'scripts/**'
       - '.github/workflows/**'
-  pull_request:
-    paths:
-      - 'scripts/fleet_graph.mjs'
-      - 'scripts/fleet_graph_repos.mjs'
-      - 'repos.json'
-      - 'docs/**'
-      - '.github/workflows/fleet-graph.yml'
-      - 'qnfo-memory-mcp/**'
   workflow_dispatch:
   repository_dispatch:
     types: [fleet-graph-tick]
@@ -47,7 +40,7 @@ permissions:
 
 # The graph is idempotent (a diff against D1), so a newer main push supersedes a running build; PR runs group per PR.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  group: fleet-graph-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
   cancel-in-progress: true
 
 jobs:

@@ -13,7 +13,9 @@ name: workflow-lint
 # scripts/workflow-lint.py is the checker; it is also runnable standalone.
 
 on:
+  workflow_call:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/**'
       - 'scripts/workflow-lint.py'
@@ -23,13 +25,6 @@ on:
       - 'scripts/*.py'
       - 'scripts/status_unchanged.py'
       - 'scripts/status_unchanged_test.py'
-  pull_request:
-    paths:
-      - '.github/workflows/**'
-      - 'scripts/*.py'
-      - 'scripts/secret-mutation-allowlist.txt'
-      - 'scripts/status_unchanged.py'
-      - 'scripts/status_unchanged_test.py'
   workflow_dispatch:
 
 permissions:
@@ -37,7 +32,7 @@ permissions:
 
 # GHA-AUDIT-1: a newer push to a PR cancels the superseded run; push runs are grouped per sha and never cancel.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: workflow-lint-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

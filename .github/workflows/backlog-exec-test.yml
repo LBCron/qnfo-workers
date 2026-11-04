@@ -5,10 +5,7 @@ name: backlog-exec-test
 # node:sqlite) on every PR/push that touches the worker.
 
 on:
-  pull_request:
-    paths:
-      - "qnfo-backlog-exec/**"
-      - ".github/workflows/backlog-exec-test.yml"
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -21,7 +18,7 @@ permissions:
 
 # GHA-AUDIT-1: a newer push to a PR cancels the superseded run; push runs are grouped per sha and never cancel.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: backlog-exec-test-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

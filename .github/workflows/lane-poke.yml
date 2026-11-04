@@ -15,29 +15,11 @@ name: lane-poke
 # never the one that is dropped.
 
 on:
-  pull_request:
-    # edited: an author releases a hold written in the body or the title by editing it (PR-MERGE-SLA-10M-1: the lane refused a pull request whose body quoted a
-    # hold phrase until the cron tick after the body was fixed, 2026-10-26 08:09 to 08:19).
-    types: [opened, reopened, ready_for_review, edited]
-    branches: [main]
+  workflow_call:
   # A "resolved" or "hold released" comment releases a HOLD: comment (STALE-PR-LANE-READS-HOLDS-1), and a person's comment is the only other event that changes
   # whether the lane may merge. Bot comments (preview deploys, status notes) are skipped in the job condition.
   issue_comment:
     types: [created]
-  workflow_run:
-    # COPILOT-PR-LIFECYCLE-1: the checks of a Copilot pull request finish under the Copilot actor, and GitHub holds a run triggered by that actor for approval, so this
-    # workflow never started for them and left 98 runs `action_required` in a day. The 10-minute lane tick is their wake-up; no poke is lost.
-    branches-ignore:
-      - "copilot/**"
-    workflows:
-      - deploy-gate
-      - mirror-guard
-      - version-bump-guard
-      - version-compare
-      - workflow-lint
-      - charter-guard
-      - adversarial-workers-guard
-    types: [completed]
   workflow_dispatch:
 
 permissions: {}

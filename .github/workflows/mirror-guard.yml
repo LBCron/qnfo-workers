@@ -7,9 +7,8 @@ name: mirror-guard
 # that a pre-push/pre-deploy check can miss.
 
 on:
+  workflow_call:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
   # MIRROR-GUARD-RACE-1 (2026-10-17): a push-to-main run races mirror-sync.yml, which
   # regenerates AND COMMITS the lagging mirror on that same push. The push run therefore
@@ -26,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: mirror-guard-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

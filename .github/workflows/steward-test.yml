@@ -5,12 +5,7 @@ name: steward-test
 # SQL (node:sqlite, the migrations themselves) against a scripted GitHub; they gate every PR/push that touches the worker.
 
 on:
-  pull_request:
-    paths:
-      - "qnfo-github-steward/**"
-      - "migrations/2026-10-18-tracker-sync.sql"
-      - "migrations/2026-10-18-portfolio-sync.sql"
-      - ".github/workflows/steward-test.yml"
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -24,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: steward-test-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

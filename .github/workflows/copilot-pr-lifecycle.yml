@@ -20,8 +20,7 @@ name: copilot-pr-lifecycle
 # Style: step names colon-free, no heredocs, no inline python, inputs travel through env (workflow-lint.py).
 
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, review_requested, assigned]
+  workflow_call:
   workflow_run:
     workflows: ["remediation-consumer"]
     types: [completed]

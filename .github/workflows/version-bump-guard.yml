@@ -23,7 +23,9 @@ name: version-bump-guard
 # violation, and never evaluated a diff. The install step is REQUIRED, not cosmetic.
 
 on:
+  workflow_call:
   push:
+    branches: [main]
     paths:
       - '*/worker.js'
       - '*/deployed-current.worker.js'
@@ -34,7 +36,6 @@ on:
   # required check of the main ruleset; GitHub does not run a workflow whose paths a pull request leaves alone, and a required check that
   # never runs stays "Expected" for ever, so a migrations-only or docs-only pull request could never merge. With no worker bundle in the
   # range the version guard prints "nothing to check" and exits 0 (verified), so the filter saved only runner minutes.
-  pull_request:
   workflow_dispatch:
 
 permissions:

@@ -10,10 +10,7 @@ name: research-code
 # No cron (SCHEDULE-EVENT-NEVER-FIRES-1). No unquoted colon in a step name (WORKFLOW-YAML-LINT-1).
 
 on:
-  pull_request:
-    paths:
-      - 'research-code/**'
-      - '.github/workflows/research-code.yml'
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -24,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: research-code-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

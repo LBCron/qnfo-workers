@@ -9,19 +9,14 @@ name: migration-guard
 # The job is named migration-guard on purpose: the lane reads checks by name, and `guard` is version-bump-guard's.
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'migrations/**'
-      - 'scripts/apply_migrations.py'
-      - '.github/workflows/migration-guard.yml'
+  workflow_call:
 
 permissions:
   contents: read
 
 # a superseded pull request head is cancelled (GHA-AUDIT-1)
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: migration-guard-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:

@@ -6,10 +6,7 @@ name: code-loop-test
 # A red run on main is filed by ci-watchdog (it is on that workflow's watch list).
 
 on:
-  pull_request:
-    paths:
-      - "qnfo-code-orchestrator/**"
-      - ".github/workflows/code-loop-test.yml"
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -22,7 +19,7 @@ permissions:
 
 # GHA-AUDIT-1: a newer push to a PR cancels the superseded run; push runs are grouped per sha and never cancel.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: code-loop-test-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

@@ -12,15 +12,12 @@ name: fleet-telemetry-probe
 # every 6 hours (the age of the committed ci-status/fleet-telemetry.json), so it keeps running with no session at all.
 # A pull request that changes the probe still runs it once for review.
 on:
+  workflow_call:
   workflow_run:
     workflows: ["canonical-deploy"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
-  pull_request:
-    paths:
-      - scripts/fleet_telemetry_probe.py
-      - .github/workflows/fleet-telemetry-probe.yml
 
 permissions:
   contents: write

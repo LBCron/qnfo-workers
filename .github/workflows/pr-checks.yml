@@ -1,0 +1,143 @@
+name: pr-checks
+
+# THREE-PR-WORKFLOWS-1 (2026-11-04, owner directive: "when a PR is ready for merge, a maximum of three workflows can run. That's it.").
+# A pull request now starts exactly three workflows: pr-checks (this file: every guard and test, one run), deploy-gate (the advisory suites, also the merge queue), and
+# pr-lane (poke, Copilot review and lifecycle, merge). The guards below are the same files as before, now `workflow_call` workflows; each keeps its push-to-main trigger.
+# Path filters moved into the `changes` job (a pull_request trigger path filter cannot apply to a called workflow). Four guards ran on every pull request before and still do.
+# Revert: restore the `pull_request:` trigger block in each called file and delete this file and pr-lane.yml.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      adversarial_workers_guard: ${{ steps.f.outputs.adversarial_workers_guard }}
+      backlog_exec_test: ${{ steps.f.outputs.backlog_exec_test }}
+      charter_guard: ${{ steps.f.outputs.charter_guard }}
+      code_loop_test: ${{ steps.f.outputs.code_loop_test }}
+      copilot_setup_steps: ${{ steps.f.outputs.copilot_setup_steps }}
+      fleet_graph: ${{ steps.f.outputs.fleet_graph }}
+      migration_guard: ${{ steps.f.outputs.migration_guard }}
+      model_floor_guard: ${{ steps.f.outputs.model_floor_guard }}
+      research_code: ${{ steps.f.outputs.research_code }}
+      steward_test: ${{ steps.f.outputs.steward_test }}
+      workflow_lint: ${{ steps.f.outputs.workflow_lint }}
+    steps:
+      - name: Match changed files to guards
+        id: f
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' > files.txt
+          wc -l < files.txt
+          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/adversarial-workers-guard\.py$|^\.github/workflows/adversarial-workers-guard\.yml$' files.txt; then echo 'adversarial_workers_guard=true' >> "$GITHUB_OUTPUT"; else echo 'adversarial_workers_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^qnfo-backlog-exec/|^\.github/workflows/backlog-exec-test\.yml$' files.txt; then echo 'backlog_exec_test=true' >> "$GITHUB_OUTPUT"; else echo 'backlog_exec_test=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^docs/(QUNIVERSE-CHARTER|PORTFOLIO)\.md$|^qnfo-fleet-control/|^migrations/2026-10-02-(metric-closed-loop|performance-loop)\.sql$|^scripts/charter-guard\.py$|^[^/]+/wrangler\.toml$|^\.github/workflows/charter-guard\.yml$' files.txt; then echo 'charter_guard=true' >> "$GITHUB_OUTPUT"; else echo 'charter_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^qnfo-code-orchestrator/|^\.github/workflows/code-loop-test\.yml$' files.txt; then echo 'code_loop_test=true' >> "$GITHUB_OUTPUT"; else echo 'code_loop_test=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^\.github/workflows/copilot-setup-steps\.yml$' files.txt; then echo 'copilot_setup_steps=true' >> "$GITHUB_OUTPUT"; else echo 'copilot_setup_steps=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^scripts/fleet_graph(_repos)?\.mjs$|^repos\.json$|^docs/|^qnfo-memory-mcp/|^\.github/workflows/fleet-graph\.yml$' files.txt; then echo 'fleet_graph=true' >> "$GITHUB_OUTPUT"; else echo 'fleet_graph=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^migrations/|^scripts/apply_migrations\.py$|^\.github/workflows/migration-guard\.yml$' files.txt; then echo 'migration_guard=true' >> "$GITHUB_OUTPUT"; else echo 'migration_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^research-code/|^\.github/workflows/research-code\.yml$' files.txt; then echo 'research_code=true' >> "$GITHUB_OUTPUT"; else echo 'research_code=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^qnfo-github-steward/|^migrations/2026-10-18-(tracker|portfolio)-sync\.sql$|^\.github/workflows/steward-test\.yml$' files.txt; then echo 'steward_test=true' >> "$GITHUB_OUTPUT"; else echo 'steward_test=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
+
+  version-bump-guard:
+    needs: changes
+    uses: ./.github/workflows/version-bump-guard.yml
+    secrets: inherit
+
+  version-compare:
+    needs: changes
+    uses: ./.github/workflows/version-compare.yml
+    secrets: inherit
+
+  identity-guard:
+    needs: changes
+    uses: ./.github/workflows/identity-guard.yml
+    secrets: inherit
+
+  mirror-guard:
+    needs: changes
+    uses: ./.github/workflows/mirror-guard.yml
+    secrets: inherit
+
+  adversarial-workers-guard:
+    needs: changes
+    if: ${{ needs.changes.outputs.adversarial_workers_guard == 'true' }}
+    uses: ./.github/workflows/adversarial-workers-guard.yml
+    secrets: inherit
+
+  backlog-exec-test:
+    needs: changes
+    if: ${{ needs.changes.outputs.backlog_exec_test == 'true' }}
+    uses: ./.github/workflows/backlog-exec-test.yml
+    secrets: inherit
+
+  charter-guard:
+    needs: changes
+    if: ${{ needs.changes.outputs.charter_guard == 'true' }}
+    uses: ./.github/workflows/charter-guard.yml
+    secrets: inherit
+
+  code-loop-test:
+    needs: changes
+    if: ${{ needs.changes.outputs.code_loop_test == 'true' }}
+    uses: ./.github/workflows/code-loop-test.yml
+    secrets: inherit
+
+  copilot-setup-steps:
+    needs: changes
+    if: ${{ needs.changes.outputs.copilot_setup_steps == 'true' }}
+    uses: ./.github/workflows/copilot-setup-steps.yml
+    secrets: inherit
+
+  fleet-graph:
+    needs: changes
+    if: ${{ needs.changes.outputs.fleet_graph == 'true' }}
+    uses: ./.github/workflows/fleet-graph.yml
+    secrets: inherit
+
+  migration-guard:
+    needs: changes
+    if: ${{ needs.changes.outputs.migration_guard == 'true' }}
+    uses: ./.github/workflows/migration-guard.yml
+    secrets: inherit
+
+  model-floor-guard:
+    needs: changes
+    if: ${{ needs.changes.outputs.model_floor_guard == 'true' }}
+    uses: ./.github/workflows/model-floor-guard.yml
+    secrets: inherit
+
+  research-code:
+    needs: changes
+    if: ${{ needs.changes.outputs.research_code == 'true' }}
+    uses: ./.github/workflows/research-code.yml
+    secrets: inherit
+
+  steward-test:
+    needs: changes
+    if: ${{ needs.changes.outputs.steward_test == 'true' }}
+    uses: ./.github/workflows/steward-test.yml
+    secrets: inherit
+
+  workflow-lint:
+    needs: changes
+    if: ${{ needs.changes.outputs.workflow_lint == 'true' }}
+    uses: ./.github/workflows/workflow-lint.yml
+    secrets: inherit

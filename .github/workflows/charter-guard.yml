@@ -15,16 +15,7 @@ name: charter-guard
 # Writes no ci-status artifact, so no commit-back step is needed (ARTIFACT-STAGING-1).
 
 on:
-  pull_request:
-    paths:
-      - 'docs/QUNIVERSE-CHARTER.md'
-      - 'docs/PORTFOLIO.md'
-      - 'qnfo-fleet-control/**'
-      - 'migrations/2026-10-02-metric-closed-loop.sql'
-      - 'migrations/2026-10-02-performance-loop.sql'
-      - 'scripts/charter-guard.py'
-      - '*/wrangler.toml'
-      - '.github/workflows/charter-guard.yml'
+  workflow_call:
   push:
     branches: [main]
     paths:

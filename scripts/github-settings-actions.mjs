@@ -92,6 +92,15 @@ export function workflowChecks(root) {
       if (k) { cur = { workflow: f, job: k[1], context: k[1], onPr, filtered }; out.push(cur); continue; }
       const n = /^    name:\s*(.+?)\s*$/.exec(line);
       if (n && cur && !/\$\{\{/.test(n[1])) cur.context = n[1].replace(/^["']|["']$/g, "");
+      const u = /^    uses:\s*\.\/\.github\/workflows\/([A-Za-z0-9_.-]+\.ya?ml)\s*$/.exec(line);
+      if (u && cur) cur.uses = u[1];
+    }
+  }
+  // THREE-PR-WORKFLOWS-1: a job that calls a reusable workflow reports its callee's jobs as "<caller job> / <callee job>".
+  const base = out.filter((w) => !w.uses);
+  for (const w of out.filter((x) => x.uses)) {
+    for (const c of base.filter((b) => b.workflow === w.uses)) {
+      out.push({ workflow: w.workflow, job: c.job, context: w.job + " / " + c.context, onPr: w.onPr, filtered: w.filtered });
     }
   }
   return out;

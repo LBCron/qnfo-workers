@@ -19,9 +19,7 @@ name: request-copilot-review
 # Style: step names colon-free, no heredocs, no inline python, inputs travel through env (workflow-lint.py).
 
 on:
-  pull_request_target:
-    types: [opened, reopened, ready_for_review]
-    branches: [main]
+  workflow_call:
 
 permissions:
   pull-requests: write
