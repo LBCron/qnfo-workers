@@ -128,7 +128,7 @@ async function collectGatewayCostReport(env, month) {
   const endDate = new Date(Date.UTC(Number(match[1]), Number(match[2]), 1));
   const start = startDate.toISOString(), end = endDate.toISOString();
   const filters = [
-    { key: "created_at", operator: "geq", value: [start] }
+    { key: "created_at", operator: "geq", value: [start] },
     { key: "created_at", operator: "lt", value: [end] }
   ];
   const gateways = [];
