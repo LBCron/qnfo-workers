@@ -339,6 +339,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [q08-signal-engine](../q08-signal-engine/README.md) - `q08-signal-engine/README.md`
 - [qnfo-agent-ws](../qnfo-agent-ws/README.md) - `qnfo-agent-ws/README.md`
 - [qnfo-agents](../qnfo-agents/README.md) - `qnfo-agents/README.md`
+- [qnfo-agents/releases/0.7.2.md](../qnfo-agents/releases/0.7.2.md) - `qnfo-agents/releases/0.7.2.md`
 - [qnfo-ai-calibration](../qnfo-ai-calibration/README.md) - `qnfo-ai-calibration/README.md`
 - [qnfo-ai-search (ask.qwav.tech)](../qnfo-ai-search/README.md) - `qnfo-ai-search/README.md`
 - [Chatbox (Windows) — Full QNFO Setup](../qnfo-ai/CHATBOX-SETUP.md) - `qnfo-ai/CHATBOX-SETUP.md`
@@ -376,6 +377,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-fleet-dashboard](../qnfo-fleet-dashboard/README.md) - `qnfo-fleet-dashboard/README.md`
 - [qnfo-fleet-deploy — fleet self-heal control plane](../qnfo-fleet-deploy/README.md) - `qnfo-fleet-deploy/README.md`
 - [qnfo-gateway — QNFO site router (papers.qnfo.org, ideas, archive, ipatent, graph-api, legal)](../qnfo-gateway/README.md) - `qnfo-gateway/README.md`
+- [qnfo-gateway 3.55.0-codeagent (2026-11-04)](../qnfo-gateway/releases/3.55.0-codeagent.md) - `qnfo-gateway/releases/3.55.0-codeagent.md`
 - [qnfo-github-steward](../qnfo-github-steward/README.md) - `qnfo-github-steward/README.md`
 - [qnfo-idea-factory — QNFO Ideas (ideas.qnfo.org)](../qnfo-idea-factory/README.md) - `qnfo-idea-factory/README.md`
 - [qnfo-intent-orchestrator](../qnfo-intent-orchestrator/README.md) - `qnfo-intent-orchestrator/README.md`
