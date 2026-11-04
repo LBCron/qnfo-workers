@@ -11,7 +11,7 @@ const patched = src + "\nexport { upstreamChat as __upstream, twinChatModels as 
 const mod = await import("data:text/javascript;base64," + Buffer.from(patched).toString("base64"));
 let pass = 0, fail = 0;
 const ok = (c, m, extra) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (extra !== undefined ? " :: " + JSON.stringify(extra) : "")); } };
-const FLASH = "@cf/zai-org/glm-5.3-flash", DS = "@cf/deepseek-ai/deepseek-v4-pro-0813";
+const FLASH = "@cf/zai-org/glm-5.3-flash", DS = "@cf/deepseek-ai/deepseek-v4-flash-0731";
 const day = new Date().toISOString().slice(0, 10);
 
 function mkEnv(behaviour) {

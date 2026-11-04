@@ -84,6 +84,6 @@ console.log("[photo]");
   ok("the description is written afterwards and keeps the text the phone read", visionCalls === 1 && /Code: ABC-123/.test(row.raw_text) && /parking permit/.test(row.raw_text) && row.status === "processed", row);
 }
 ok("page shrinks and reads photos on the phone", C.PAGE_HTML.includes("prepImage") && C.PAGE_HTML.includes("TextDetector") && C.PAGE_HTML.includes("BarcodeDetector") && C.PAGE_HTML.includes("1280"));
-ok("manifest has voice, photo and note shortcuts and the page opens them", C.MANIFEST.shortcuts.length === 3 && C.PAGE_HTML.includes("h==='voice'"));
+ok("manifest has voice, photo and note shortcuts and the page opens them", C.MANIFEST.shortcuts.length >= 3 && ["#voice", "#photo", "#note"].every((h) => C.MANIFEST.shortcuts.some((x) => x.url === "/companion" + h)) && C.PAGE_HTML.includes("h==='voice'"));
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

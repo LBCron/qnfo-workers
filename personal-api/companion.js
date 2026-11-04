@@ -92,7 +92,7 @@
 //  31. AI use is a number he can see: GET /companion/api/ai-use reads today's and this week's personal-api Workers AI calls
 //      from qnfo-audit.ai_call_counters (counts only) and prices them at Workers AI list price; Focus and Data show it.
 
-export const COMPANION_VERSION = "1.18.0";
+export const COMPANION_VERSION = "1.19.0";
 export const TZ = "Europe/Amsterdam";
 export const CONTEXTS = [
   { name: "@home", hint: "chores, cooking, things in the flat" },
@@ -986,6 +986,14 @@ export function planNudge(st) {
     if (due && !kindsToday.has("cmp-deadline")) return mk("cmp-deadline", "Due " + String(due.due).slice(0, 10) + ": " + due.title + ".", due.minutes || 0, 240, "task-deadline", { action_id: due.id });
     const rec = (st.recommendations || []).find((r) => r.start && String(r.start).slice(0, 10) >= st.day && !recentAsks.some((a) => a.includes(r.title + " — " + r.start)));
     if (rec && h >= 10 && h < 19 && !kindsToday.has("cmp-discovery")) return mk("cmp-discovery", rec.title + " — " + rec.start + (rec.where ? " · " + rec.where : "") + ". " + rec.why + " Not booked.", 0, 240, "personal-event-match");
+    // COMPANION-ONE-THING-PUSH-1 (2026-11-04): with check-ins off the phone went silent from 2 Nov (nothing due, no event match),
+    // while open next actions waited and idle time is the hard part. Once a day, midday, after two quiet hours and nothing done
+    // yet: one concrete thing from the list, with Did it / Not today. A plain offer, never a feelings question.
+    const idle0 = st.lastUserIso ? (nowMs - new Date(st.lastUserIso).getTime()) / 60000 : Infinity;
+    if (h >= 11 && h < 17 && idle0 >= 120 && !(st.actionsDoneToday > 0) && !kindsToday.has("cmp-next") && !retired.has("cmp-next")) {
+      const action = chooseAction((st.nextActions || []).filter((a) => !a.due || String(a.due).slice(0, 10) <= st.day), mood.today === null || mood.today === undefined ? "medium" : energyFor(mood));
+      if (action) return mk("cmp-next", "One thing for now: " + action.title + " (" + (action.minutes || 15) + " min). Did it or Not today, one tap.", action.minutes || 15, 240, "one-thing-practical", { action_id: action.id });
+    }
     return { skip: "nothing-useful" };
   }
   const lightDay = events.length >= LIGHT_DAY_EVENTS;
@@ -1784,6 +1792,13 @@ export async function capture(env, deps, input) {
     }
   }
   if (!text && !mediaKey) return { ok: false, error: "nothing to capture: send text, audio or an image" };
+  // COMPANION-CAPTURE-DEDUPE-1 (2026-11-04): the same words saved twice within 30 minutes (or the title of a photo just sorted,
+  // as happened three times on 4 Nov) are the same note: answer with the earlier item, store nothing, spend no sorting call.
+  if (kind === "text" && text.trim().length >= 3) {
+    const since = new Date(Date.parse(now) - 30 * 60000).toISOString(), norm = text.trim().toLowerCase();
+    const prev = await one(env.PERSONAL, "SELECT id, result_json FROM cmp_inbox WHERE ts >= ? AND (lower(trim(raw_text)) = ? OR lower(json_extract(result_json, '$.title')) = ?) ORDER BY ts DESC LIMIT 1", since, norm, norm).catch(() => null);
+    if (prev) { let r0 = null; try { r0 = JSON.parse(prev.result_json || "null"); } catch (e) { r0 = null; } return { ok: true, duplicate: true, id: prev.id, kind: "text", text: "", media_key: null, note: null, processed: r0 && r0.type ? Object.assign({ ok: true }, r0) : null }; }
+  }
   await env.PERSONAL.prepare("INSERT INTO cmp_inbox (id, ts, kind, raw_text, media_key, mime, status, source, result_json) VALUES (?,?,?,?,?,?, 'unprocessed', ?, ?)")
     .bind(id, now, kind, text || null, mediaKey, mime, s(input && input.source, 40) || "companion", note ? JSON.stringify({ note }) : null).run();
   let processed = null;
@@ -1792,18 +1807,42 @@ export async function capture(env, deps, input) {
   }
   return { ok: true, id, kind, text, media_key: mediaKey, note, processed };
 }
+// COMPANION-CLARIFY-SHORT-1 (2026-11-04, agent_issues 1001688): a sorting call averaged about 6,300 input tokens. A note of six
+// words or fewer that starts with a verb is a next action, and a bare yes / thanks / ok is nothing to keep: both are sorted by rules.
+const FILLER = /^(yes|yeah|yep|no|nope|ok|okay|thanks|thank you|thank you very much|cheers|hi|hello|test|testing)[.!? ]*$/i;
+export function shortClarify(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  if (FILLER.test(t)) return { type: "trash", title: t.slice(0, 60), why: "a bare reply with nothing to keep" };
+  if (t.split(/\s+/).length <= 6 && VERB_START.test(t)) { const h = heuristicClarify(t); if (h.type === "action") return h; }
+  return null;
+}
 export async function clarify(env, deps, text) {
+  const quick = shortClarify(text);
+  if (quick) return Object.assign(quick, { by: "rules" });
   if (deps && deps.llm) {
     try { const out = await deps.llm(env, CLARIFY_SYSTEM, "Captured item:\n" + String(text).slice(0, 3000), 400); if (out) return Object.assign(parseClarify(out, text), { by: "model" }); } catch (e) { /* fall through */ }
   }
   return Object.assign(heuristicClarify(text), { by: "rules" });
+}
+// COMPANION-DUE-WORDS-1 (2026-11-04): "Go to Foam today" was saved as "Go to Foam" with no date, so it never came up as due.
+// A capture that says today/tonight/tomorrow (or vandaag/vanavond/morgen) gets that date when the sorter left it empty. No model.
+export function dueFromWords(text, today) {
+  const t = String(text || "").toLowerCase();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(today || ""))) return "";
+  if (/\b(day after tomorrow|overmorgen)\b/.test(t)) return addDays(today, 2);
+  if (/\b(tomorrow|tmrw|morgen)\b/.test(t) && !/\bmorgen(s|ochtend)?\s+(vroeg)?\b(?=.*\bvandaag\b)/.test(t)) return addDays(today, 1);
+  if (/\b(today|tonight|this (morning|afternoon|evening)|vandaag|vanavond|vanmiddag|vanochtend)\b/.test(t)) return today;
+  return "";
 }
 export async function processItem(env, deps, row) {
   const text = s(row.raw_text, 8000);
   await env.PERSONAL.prepare("UPDATE cmp_inbox SET attempts = COALESCE(attempts, 0) + 1 WHERE id = ?").bind(row.id).run();
   const sig = crisisSignal(text);
   const c = await clarify(env, deps, text);
+  if ((c.type === "action" || c.type === "someday") && !c.due) { const d = dueFromWords(text, await localDay(env, nowIso())); if (d) { c.due = d; if (c.type === "someday") c.type = "action"; } }
   const res = { type: c.type, title: c.title, by: c.by, why: c.why };
+  if (c.due) res.due = c.due;
   if (c.type === "action" || c.type === "someday") {
     const a = await addAction(env, { title: c.title, context: c.context, energy: c.energy, minutes: c.minutes, due: c.due, project: c.project, gtd: c.type === "someday" ? "someday" : "next", inbox_id: row.id, notes: text.length > c.title.length + 20 ? text.slice(0, 1000) : null });
     res.action_id = a.id; res.context = c.context;
@@ -2279,10 +2318,91 @@ export async function doEnsure(agent) {
 export async function doTick(agent, deps, opts) {
   const keys = await doKeys(agent);
   const res = await companionTick(agent.env, Object.assign({}, deps, { keys, pushed: pushedStore(agent) }), opts);
+  try {
+    const lastCheck = await agent.storage.get("cmp_selfcheck_at");
+    if (!lastCheck || Date.now() - Number(lastCheck) >= 55 * 60000) { await agent.storage.put("cmp_selfcheck_at", Date.now()); res.selfcheck = await selfCheck(agent.env); }
+  } catch (e) { console.error(JSON.stringify({ evt: "companion:selfcheck", error: String(e && e.message || e).slice(0, 200) })); }
   await agent.storage.put("cmp_last_tick", { at: nowIso(), plan: res.plan, sent: res.sent ? res.sent.kind : null });
   // RED-TEAM-1: the heartbeat also lands in D1, so /today can say when reach-outs have stalled instead of going quiet.
   try { await agent.env.PERSONAL.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES ('cmp_last_tick', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(JSON.stringify(nowIso()), nowIso()).run(); } catch (e) { console.error(JSON.stringify({ evt: "companion:heartbeat", error: String(e && e.message || e).slice(0, 200) })); }
   return res;
+}
+// COMPANION-SELFCHECK-1 (2026-11-04, owner: "What are you missing? ... ALWAYS AND AUTOMATICALLY"): once an hour the companion
+// checks itself with plain D1 reads (no model) and keeps one fleet issue per problem: filed when a check goes bad, closed with the
+// measurement when it recovers. The phone was silent for two days on 2-4 Nov and nothing noticed; this is what notices next time.
+export const SELF_CHECKS = ["push-silence", "push-failing", "inbox-stuck", "feelings-ask", "duplicate-captures", "fleet-asks-waiting"];
+export async function selfCheckState(env, nowIso0) {
+  const now = nowIso0 || nowIso(), ms = Date.parse(now), ago = (h) => new Date(ms - h * 3600e3).toISOString();
+  const db = env.PERSONAL, cfg = await loadCfg(env), out = {};
+  const subs = await one(db, "SELECT COUNT(*) AS n, MAX(failures) AS f, MAX(last_ok) AS last_ok, MAX(last_error) AS err FROM cmp_push_subs");
+  const nSubs = Number(subs && subs.n) || 0;
+  const openNext = Number((await one(db, "SELECT COUNT(*) AS n FROM tasks WHERE status = 'open' AND COALESCE(gtd, 'next') = 'next'") || {}).n) || 0;
+  const lastPush = await one(db, "SELECT MAX(sent_at) AS at FROM companion_nudges WHERE outcome LIKE '%\"via\":\"push\"%' AND outcome NOT LIKE '%\"ok\":0%'");
+  const lastAt = lastPush && lastPush.at ? lastPush.at : null;
+  const silentH = lastAt ? Math.round((ms - Date.parse(lastAt)) / 3600e3) : null;
+  out["push-silence"] = { bad: nSubs > 0 && openNext > 0 && !isPaused(cfg, ms) && (silentH === null || silentH > 48), detail: "phone push subscriptions " + nSubs + ", open next actions " + openNext + ", last push that reached the phone " + (lastAt || "never") + (silentH !== null ? " (" + silentH + " h ago)" : "") };
+  out["push-failing"] = { bad: nSubs > 0 && (Number(subs.f) || 0) >= 3, detail: "highest failure count " + (Number(subs && subs.f) || 0) + ", last ok " + (subs && subs.last_ok || "never") + (subs && subs.err ? ", last error " + String(subs.err).slice(0, 120) : "") };
+  const stuck = await one(db, "SELECT COUNT(*) AS n, MIN(ts) AS oldest FROM cmp_inbox WHERE status = 'unprocessed' AND ts < ?", ago(1));
+  out["inbox-stuck"] = { bad: (Number(stuck && stuck.n) || 0) > 0, detail: (Number(stuck && stuck.n) || 0) + " notes unsorted for over an hour, oldest " + (stuck && stuck.oldest || "none") };
+  const feel = cfg.wellbeing_prompts === true ? [] : await all(db, "SELECT id, kind, ask FROM companion_nudges WHERE sent_at >= ? AND kind NOT IN ('cmp-care', 'care') AND (lower(ask) LIKE '%how are you%' OR lower(ask) LIKE '%how''s it landing%' OR lower(ask) LIKE '%feel%' OR lower(ask) LIKE '%mood%')", ago(24));
+  out["feelings-ask"] = { bad: feel.length > 0, detail: feel.length + " feelings questions sent in 24 h while check-ins are off" + (feel[0] ? " (first: " + feel[0].kind + " #" + feel[0].id + ")" : "") };
+  const dup = await one(db, "SELECT COUNT(*) AS n FROM cmp_inbox a JOIN cmp_inbox b ON a.id < b.id AND a.kind = 'text' AND b.kind = 'text' AND lower(trim(a.raw_text)) = lower(trim(b.raw_text)) AND abs(julianday(a.ts) - julianday(b.ts)) * 1440 <= 30 WHERE a.ts >= ? AND b.ts >= ?", ago(24), ago(24));
+  out["duplicate-captures"] = { bad: (Number(dup && dup.n) || 0) > 0, detail: (Number(dup && dup.n) || 0) + " notes saved twice within 30 minutes in the last 24 h" };
+  const asks = await one(db, "SELECT COUNT(*) AS n FROM cmp_inbox WHERE status = 'processed' AND ts < ? AND ts >= ? AND json_extract(result_json, '$.type') = 'project' AND json_extract(result_json, '$.to_fleet') IS NULL AND (lower(raw_text) LIKE '%quniverse%' OR lower(raw_text) LIKE '%cuniverse%' OR lower(raw_text) LIKE '%fleet%' OR lower(raw_text) LIKE '%cloudflare%' OR lower(raw_text) LIKE '%worker%')", ago(24), ago(24 * 7));
+  out["fleet-asks-waiting"] = { bad: (Number(asks && asks.n) || 0) > 0, detail: (Number(asks && asks.n) || 0) + " dictated notes about the Quniverse kept only as personal projects for over a day (Send to the Quniverse not tapped)" };
+  return out;
+}
+const SELF_FIX = {
+  "push-silence": "Read planNudge in personal-api/companion.js: find why every tick returns a skip while open next actions exist (companion_nudges, wellbeing_config cmp_last_tick), and make one useful push reach the phone.",
+  "push-failing": "The phone subscription keeps failing: check sendPush (VAPID, payload encryption) and cmp_push_subs.last_error; a 404 or 410 subscription is dropped and the Today card asks for notifications again.",
+  "inbox-stuck": "processInbox leaves notes unsorted: check the sorter call (clarify) and cmp_inbox.attempts; a note that fails three times is sorted by heuristicClarify.",
+  "feelings-ask": "A feelings question went out with check-ins off (owner rule, PR 6436): find the planNudge or ladder path that sent it and gate it on cfg.wellbeing_prompts === true.",
+  "duplicate-captures": "COMPANION-CAPTURE-DEDUPE-1 in capture() did not catch a repeat: check the 30-minute lookup.",
+  "fleet-asks-waiting": "The owner dictated asks about the Quniverse that only exist as personal projects. Keep the Send to the Quniverse button visible on Today until each is sent or hidden."
+};
+export async function selfCheck(env, nowIso0) {
+  const state = await selfCheckState(env, nowIso0), res = { filed: [], closed: [], bad: [] };
+  if (!env.AUDIT) return Object.assign(res, { state, error: "no AUDIT binding" });
+  const now = nowIso0 || nowIso(), stamp = now.replace("T", " ").slice(0, 19);
+  for (const key of SELF_CHECKS) {
+    const c = state[key], title = "COMPANION-SELFCHECK-1:" + key;
+    const open = await one(env.AUDIT, "SELECT id FROM agent_issues WHERE title = ? AND status != 'closed' ORDER BY id DESC LIMIT 1", title).catch(() => null);
+    if (c.bad) {
+      res.bad.push(key);
+      if (!open) {
+        try {
+          await env.AUDIT.prepare("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) VALUES (?, ?, 'personal-api:companion-selfcheck', 'personal', ?, 'open', ?, ?)")
+            .bind(title, "Found by the companion's hourly self-check (COMPANION-SELFCHECK-1, personal-api " + COMPANION_VERSION + "): " + c.detail + ". " + SELF_FIX[key] + " The self-check closes this issue on its own when the check recovers. Pillar personal.\ncode-task: repo=qnfo-workers path=personal-api/companion.js", key === "push-silence" || key === "feelings-ask" ? "high" : "medium", stamp, stamp).run();
+          res.filed.push(key);
+        } catch (e) { console.error(JSON.stringify({ evt: "companion:selfcheck-file", key, error: String(e && e.message || e).slice(0, 200) })); }
+      }
+    } else if (open) {
+      try {
+        await env.AUDIT.prepare("UPDATE issue_triage SET triage_state = 'closed', close_evidence = ? WHERE issue_id = ?").bind("COMPANION-SELFCHECK-1 measured " + now + ": " + c.detail + ".", open.id).run();
+        res.closed.push(key);
+      } catch (e) { console.error(JSON.stringify({ evt: "companion:selfcheck-close", key, error: String(e && e.message || e).slice(0, 200) })); }
+    }
+  }
+  try { await env.PERSONAL.prepare("INSERT INTO wellbeing_config (key, value, updated_at) VALUES ('cmp_selfcheck', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(JSON.stringify({ at: now, bad: res.bad }), now).run(); } catch (e) { /* the issue rows are the record */ }
+  return Object.assign(res, { state });
+}
+// COMPANION-TO-FLEET-1 (2026-11-04, agent_issues 1001687): the owner dictates asks about the Quniverse into the companion. One tap on a
+// sorted project sends that note, in the owner's own words, to the fleet's issue list. Only on that tap: personal notes stay personal.
+export async function sendToFleet(env, id) {
+  const row = await one(env.PERSONAL, "SELECT id, ts, raw_text, result_json FROM cmp_inbox WHERE id = ?", s(id, 80));
+  if (!row || !row.raw_text) return { ok: false, error: "note not found" };
+  let res = {}; try { res = JSON.parse(row.result_json || "{}") || {}; } catch (e) { res = {}; }
+  if (res.to_fleet) return { ok: true, issue_id: res.to_fleet, already: true };
+  if (!env.AUDIT) return { ok: false, error: "the fleet is not reachable from here" };
+  const stamp = nowIso().replace("T", " ").slice(0, 19);
+  const slug = String(res.title || row.raw_text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "ask";
+  const title = "OWNER-VOICE-" + String(row.ts).slice(0, 10) + ":" + slug;
+  const r = await env.AUDIT.prepare("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) VALUES (?, ?, 'personal-api:owner-voice', 'owner-ask', 'high', 'open', ?, ?)")
+    .bind(title, "The owner dictated this to the companion on " + String(row.ts).slice(0, 16).replace("T", " ") + " UTC and sent it to the Quniverse with one tap (COMPANION-TO-FLEET-1). Their words: \"" + s(row.raw_text, 3000) + "\"", stamp, stamp).run();
+  const issueId = r && r.meta ? r.meta.last_row_id : null;
+  res.to_fleet = issueId || true;
+  await env.PERSONAL.prepare("UPDATE cmp_inbox SET result_json = ? WHERE id = ?").bind(JSON.stringify(res), row.id).run();
+  return { ok: true, issue_id: issueId };
 }
 // Called from PersonalTwinAgent.alarm(); returns the next alarm time for the companion role, or null.
 export async function doAlarm(agent, deps) {
@@ -2386,6 +2506,8 @@ export async function handleCompanion(request, env, ctx, deps) {
       if (out.ok && out.text && !out.duplicate && ctx && ctx.waitUntil) { out.sorting = true; ctx.waitUntil(processInbox(env, deps, 5).catch((e) => console.error(JSON.stringify({ evt: "companion:sort", error: String(e && e.message || e).slice(0, 200) })))); }
       return J(out, out.ok ? 200 : 400);
     }
+    if (r === "to-fleet" && m === "POST") { const b = await body(); const out = await sendToFleet(env, b.id); return J(out, out.ok ? 200 : 400); }
+    if (r === "selfcheck" && m === "GET") { await ensureSchema(env.PERSONAL); return J(Object.assign({ ok: true }, await selfCheckState(env))); }
     if (r === "feedback" && m === "POST") { const out = await recordFeedback(env, await body()); return J(out, out.ok ? 200 : 400); }
     if (r === "feedback" && m === "GET") { await ensureSchema(env.PERSONAL); return J(await tasteSummary(env)); }
     if (r === "inbox" && m === "GET") return J({ ok: true, items: await all(env.PERSONAL, "SELECT id, ts, kind, raw_text, media_key, status, result_json FROM cmp_inbox ORDER BY ts DESC LIMIT 50") });
@@ -2478,7 +2600,8 @@ export const MANIFEST = {
   shortcuts: [
     { name: "Voice note", url: "/companion#voice", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] },
     { name: "Photo note", url: "/companion#photo", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] },
-    { name: "Quick note", url: "/companion#note", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] }
+    { name: "Quick note", url: "/companion#note", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] },
+    { name: "Give me one thing", url: "/companion#focus", icons: [{ src: "/companion/icon.svg", sizes: "any", type: "image/svg+xml" }] }
   ]
 };
 export const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#2f5d50"/><circle cx="48" cy="44" r="20" fill="none" stroke="#f6f4ef" stroke-width="7"/><path d="M30 74c5-6 11-9 18-9s13 3 18 9" fill="none" stroke="#f6f4ef" stroke-width="7" stroke-linecap="round"/></svg>';
@@ -2691,6 +2814,8 @@ table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{text-align:left;
 .tr{display:flex;gap:8px;align-items:flex-start;margin:6px 0}.tr>.g{flex:1;min-width:0}.tb{display:flex;gap:0;flex:none}
 .tbtn{border:0;background:none;padding:6px 9px;font-size:1.05rem;line-height:1;opacity:.5;border-radius:8px;min-width:40px;min-height:40px}.tbtn.sel{opacity:1;background:var(--acc2)}
 #toast{position:fixed;left:12px;right:12px;bottom:calc(64px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;justify-content:space-between;z-index:5}
+#toast.hide{display:none}
+a{display:inline-block;padding:4px 0;min-height:24px}
 #toast button{background:none;border:0;color:var(--bg);font-weight:700;text-decoration:underline}
 #composer{position:sticky;top:0;z-index:3;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}#composer input#qc-text{flex:1;min-width:0}
 #composer .mic.sel{background:var(--warn2);border-color:var(--warn)}
@@ -2711,9 +2836,9 @@ nav .sec{display:none}nav.open{flex-wrap:wrap}nav.open .sec{display:block;flex:1
 <section id="v-talk" class="v hide"><h1>Talk</h1><p class="mute">You are talking with an AI, not a person.</p><div id="msgs"></div>
  <div class="card"><textarea id="chat-in" placeholder="Tap Dictate and speak, then Send."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="dictate(this,'chat-in')">Dictate</button><button id="chat-send" onclick="sendChat()">Send</button><button onclick="clearChat()">New conversation</button></div></div></section>
 <section id="v-do" class="v hide"><h1>Next actions</h1><div id="do"></div>
- <div class="card"><h2>Add</h2><input id="a-title" placeholder="Next action, starting with a verb"><div class="row" style="margin-top:8px"><select id="a-ctx" class="grow" aria-label="Context"></select><select id="a-en" class="grow" aria-label="Energy needed"><option value="low">low energy</option><option value="medium">medium</option><option value="high">high</option></select><input id="a-min" aria-label="Minutes" type="number" min="1" value="15" style="width:90px"></div><div class="row" style="margin-top:8px"><button class="p" onclick="addAction()">Add</button></div></div></section>
+ <div class="card"><h2>Add</h2><div class="mute">One tap adds it:</div><div class="row" style="margin-top:6px;flex-wrap:wrap"><button onclick="presetAction('Tidy one surface',10,'low','@home')">Tidy one surface</button><button onclick="presetAction('A ten-minute walk outside',10,'low','@outside')">10-minute walk</button><button onclick="presetAction('Reply to one message',5,'low','@phone')">Reply to one message</button><button onclick="presetAction('One Quniverse task',15,'medium','@computer')">One Quniverse task</button></div><div class="mute" style="margin-top:10px">Or say your own:</div><div class="row" style="margin-top:6px"><input id="a-title" class="grow" placeholder="Next action" aria-label="Next action"><button onclick="dictate(this,'a-title')">Dictate</button></div><div class="row" style="margin-top:8px"><select id="a-ctx" class="grow" aria-label="Context"></select><select id="a-en" class="grow" aria-label="Energy needed"><option value="low">low energy</option><option value="medium">medium</option><option value="high">high</option></select></div><div class="row" style="margin-top:8px" role="group" aria-label="Minutes"><input id="a-min" type="hidden" value="15"><button class="amin" onclick="setMin(this,5)">5 min</button><button class="amin sel" onclick="setMin(this,15)">15 min</button><button class="amin" onclick="setMin(this,30)">30 min</button></div><div class="row" style="margin-top:8px"><button class="p" onclick="addAction()">Add</button></div></div></section>
 <section id="v-learn" class="v hide"><h1>Review</h1><div id="learn"></div>
- <div class="card"><h2>New card</h2><input id="c-front" placeholder="Question"><textarea id="c-back" placeholder="Answer" style="margin-top:8px;min-height:60px"></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="addCard()">Add card</button></div></div></section>
+ <div class="card"><h2>New card</h2><div class="row"><input id="c-front" class="grow" placeholder="Question" aria-label="Question"><button onclick="dictate(this,'c-front')">Dictate</button></div><div class="row" style="margin-top:8px"><textarea id="c-back" class="grow" placeholder="Answer" aria-label="Answer" style="min-height:60px"></textarea><button onclick="dictate(this,'c-back')">Dictate</button></div><div class="row" style="margin-top:8px"><button class="p" onclick="addCard()">Add card</button></div></div></section>
 <section id="v-journal" class="v hide"><h1>Journal</h1><div class="card"><h2>One tap</h2><div class="row" id="j-quick"><button class="chip" onclick="quickJournal(this)">Got something done</button><button class="chip" onclick="quickJournal(this)">Went outside</button><button class="chip" onclick="quickJournal(this)">Talked to someone</button><button class="chip" onclick="quickJournal(this)">Learned something</button><button class="chip" onclick="quickJournal(this)">Rested, and that was fine</button><button class="chip" onclick="quickJournal(this)">Hard day</button></div><h2 style="margin-top:12px">Or say it</h2><textarea id="j-text" placeholder="Tap Dictate and speak. One line is enough."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="dictate(this,'j-text')">Dictate</button><button onclick="addJournal()">Keep it</button></div><div id="j-out"></div></div><div class="card"><h2>Recent</h2><div id="journal"></div></div></section>
 <section id="v-data" class="v hide"><h1>Patterns, plan and privacy</h1><div id="taste"></div><div id="dash"></div><div id="plan" class="card"></div><div id="gp"></div><div id="priv"></div></section>
 </main>
@@ -2722,6 +2847,8 @@ nav .sec{display:none}nav.open{flex-wrap:wrap}nav.open .sec{display:block;flex:1
 <script>
 var VERSION='__VERSION__';
 ${OFFLINE_JS}
+// FOCUS-CMP-1: the Focus screen ranks options with the same pure focusOptions the server uses; CMP exists only server-side otherwise.
+var CMP={focusOptions:${focusOptions.toString()}};
 var qstore=null,flushing=false;try{qstore=CMPQ.idb(window.indexedDB)}catch(e){console.warn('companion: no offline queue',e)}
 function $(i){return document.getElementById(i)}
 function warn(e){try{console.warn('companion:',e&&e.message||e)}catch(x){console.log(x)}}
@@ -2784,7 +2911,7 @@ function renderAgenda(v,t){var a=t.agenda;if(!a)return;
  else dc.appendChild(el('div',{text:a.calendar.state==='none'||a.calendar.state==='no-client'||a.calendar.state==='unknown'?'Nothing on your calendar that I can see. Your Google Calendar is not connected yet, so this only shows what you have told me.':'Nothing planned today. That leaves room.'}));
  if(a.calendar.feeds&&a.calendar.feeds.length)dc.appendChild(el('div',{cls:'mute',style:'margin-top:8px',text:'Calendars: '+a.calendar.feeds.map(function(f){return f.label+(f.ok?'':' (not answering)')}).join(', ')}));
  v.appendChild(dc);
- if((t.next_actions||[]).length){var nc=el('div',{cls:'card'},[el('h2',{text:'To do'})]);t.next_actions.slice(0,5).forEach(function(x){var row=el('div',{cls:'item'},[el('div',{cls:'grow',text:x.title+(x.minutes?' ('+x.minutes+' min)':'')}),el('button',{text:'Done',onclick:function(){api('/companion/api/actions/done',{json:{id:x.id}}).then(function(){row.remove()}).catch(warn)}}),thumbs('todo',x.title,row,x.id)]);nc.appendChild(row)});nc.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{text:'All next actions',onclick:function(){go('do')}})]));v.appendChild(nc)}
+ var todoList=(t.next_actions||[]).filter(function(x){return !(t.one_thing&&x.id===t.one_thing.id)});if(todoList.length){var nc=el('div',{cls:'card'},[el('h2',{text:'To do'})]);todoList.slice(0,5).forEach(function(x){var row=el('div',{cls:'item'},[el('div',{cls:'grow',text:x.title+(x.minutes?' ('+x.minutes+' min)':'')}),el('button',{text:'Done',onclick:function(){api('/companion/api/actions/done',{json:{id:x.id}}).then(function(){row.remove()}).catch(warn)}}),thumbs('todo',x.title,row,x.id)]);nc.appendChild(row)});nc.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{text:'All next actions',onclick:function(){go('do')}})]));v.appendChild(nc)}
  if(a.soon.length){var sc=el('div',{cls:'card'},[el('h2',{text:'Coming up this week'})]);a.soon.forEach(function(e){sc.appendChild(evRow(e,true))});v.appendChild(sc)}
  if(a.radar.length){var rc=el('div',{cls:'card'},[el('h2',{text:'Worth a look'}),el('div',{cls:'mute',text:'Ideas only. None of these are booked.'})]);a.radar.forEach(function(e){rc.appendChild(evRow(e,true,'radar'));if(e.why)rc.appendChild(el('div',{cls:'mute',text:e.why}));if(e.url&&/^https?:\\/\\//i.test(e.url))rc.appendChild(el('a',{href:e.url,text:'Event details',rel:'noreferrer'}))});v.appendChild(rc)}
  var mc=el('div',{cls:'card'},[el('h2',{text:'In your inbox'})]);
@@ -2802,7 +2929,9 @@ function who5Form(box){api('/companion/api/who5').then(function(q){box.innerHTML
  q.items.forEach(function(it,i){box.appendChild(el('div',{text:it,style:'margin-top:10px'}));var r=el('div',{cls:'row scale'});q.scale.forEach(function(w,j){r.appendChild(el('button',{onclick:function(){ans[i]=j;Array.prototype.forEach.call(r.children,function(c,k){c.classList.toggle('sel',k===j)})}},[String(j),el('small',{text:w})]))});box.appendChild(r)});
  var out=el('div');box.appendChild(el('div',{cls:'row',style:'margin-top:10px'},[el('button',{cls:'p',text:'Save',onclick:function(){if(ans.indexOf(null)>=0){say(out,'One answer per line, please.');return}api('/companion/api/who5',{json:{items:ans}}).then(function(r){out.innerHTML='';say(out,r.reply||r.error)})}})]));box.appendChild(out)})}
 function renderOffline(){var v=$('v-today');v.innerHTML='';v.appendChild(el('h1',{text:'No signal, still here.'}));v.appendChild(el('div',{cls:'card'},[el('div',{text:'I cannot reach the server right now. You can still tap your mood, capture a thought or write a journal line: I keep it on this phone and send it when you are online.'}),el('div',{cls:'row',style:'margin-top:8px'},[el('button',{text:'Try again',onclick:load})])]));v.appendChild(moodCard({mood:null}));showPending()}
-function load(){api('/companion/api/today').then(function(t){renderToday(t);flushQueue()}).catch(function(e){warn(e);if(CMPQ.isNetworkError(e))renderOffline()})}
+// COMPANION-TO-FLEET-1: dictated asks about the Quniverse wait on Today with one Send button each, until sent.
+function fleetAsks(){api('/companion/api/inbox').then(function(r){var v=$('v-today'),old=$('fleet-asks');if(old)old.remove();var items=(r.items||[]).filter(function(i){var res={};try{res=JSON.parse(i.result_json||'{}')}catch(e){}return res.type==='project'&&!res.to_fleet&&/quniverse|cuniverse|fleet|cloudflare|worker/i.test(i.raw_text||'')}).slice(0,3);if(!items.length||!v)return;var c=el('div',{cls:'card',id:'fleet-asks'},[el('h2',{text:'For the Quniverse'}),el('div',{cls:'mute',text:'You said these about the Quniverse. One tap sends each to the fleet to build.'})]);items.forEach(function(i){var res={};try{res=JSON.parse(i.result_json||'{}')}catch(e){}c.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('div',{cls:'grow',text:res.title||(i.raw_text||'').slice(0,120)}),el('button',{cls:'p',text:'Send',onclick:function(){var bt=this;bt.disabled=true;api('/companion/api/to-fleet',{json:{id:i.id}}).then(function(x){bt.textContent=x.ok?'Sent':'Not sent'})}})]))});v.appendChild(c)}).catch(warn)}
+function load(){api('/companion/api/today').then(function(t){renderToday(t);flushQueue();fleetAsks()}).catch(function(e){warn(e);if(CMPQ.isNetworkError(e))renderOffline()})}
 function outEl(){return $('v-capture').classList.contains('hide')?$('qc-out'):$('cap-out')}
 function textEl(){return $('v-capture').classList.contains('hide')?$('qc-text'):$('cap-text')}
 function capText(){var te=textEl(),t=te.value.trim();if(!t)return;var o=outEl();o.innerHTML='';say(o,'Saving...');api('/companion/api/capture',{json:{text:t}}).then(function(r){te.value='';showCap(r)}).catch(function(e){o.innerHTML='';say(o,e.message,true)})}
@@ -2813,18 +2942,23 @@ var rec=null,chunks=[];function toggleRec(){if(rec){rec.stop();return}navigator.
 // he talks and are saved the moment he stops: no upload, no server transcription, no waiting. A browser without it records and uploads as before.
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition,sr=null,srBase='',srLocal=true;
 function qcMic(){if(sr){sr.stop();return}
- srRetry=false;
- if(!SR){go('capture');toggleRec();return}
+ srRetry=false;srFail=false;
+ if(dict){dict.r.stop();return}
+ if(!SR){qcRec();return}
  var te=textEl(),mic=$('qc-mic'),o=outEl();srBase=te.value.trim();
- try{sr=new SR();sr.lang=navigator.language||'en-US';sr.interimResults=true;sr.continuous=true;if(srLocal)sr.processLocally=true}catch(e){sr=null;warn(e);go('capture');toggleRec();return}
+ try{sr=new SR();sr.lang=navigator.language||'en-US';sr.interimResults=true;sr.continuous=true;if(srLocal)sr.processLocally=true}catch(e){sr=null;warn(e);qcRec();return}
  sr.onresult=function(e){var s='';for(var i=0;i<e.results.length;i++)s+=e.results[i][0].transcript;te.value=(srBase?srBase+' ':'')+s.trim()};
- sr.onerror=function(e){var retry=srLocal&&(e.error==='language-not-supported'||e.error==='service-not-allowed');if(retry){srLocal=false;srRetry=true;sr=null;mic.classList.remove('sel');setTimeout(qcMic,50);return}if(e.error!=='no-speech'&&e.error!=='aborted'){o.innerHTML='';say(o,'Voice did not work here ('+e.error+'). Type it, or use the photo/Capture view.',true)}};
- sr.onend=function(){sr=null;mic.classList.remove('sel');mic.setAttribute('aria-label','Speak a note');if(textEl().value.trim()&&!srRetry)capText()};
+ sr.onerror=function(e){var retry=srLocal&&(e.error==='language-not-supported'||e.error==='service-not-allowed');if(retry){srLocal=false;srRetry=true;sr=null;mic.classList.remove('sel');setTimeout(qcMic,50);return}if(e.error!=='aborted')srFail=true};
+ sr.onend=function(){sr=null;mic.classList.remove('sel');mic.setAttribute('aria-label','Speak a note');if(srRetry)return;if(textEl().value.trim()&&!srFail){capText();return}
+  // COMPANION-VOICE-FALLBACK-1: the phone heard nothing or refused: record instead and let the server write it down (the path that works everywhere).
+  srFail=false;o.innerHTML='';say(o,'Did not catch that on the phone. Recording now: say it again, then tap the mic to stop.');qcRec()};
  try{sr.start();mic.classList.add('sel');mic.setAttribute('aria-label','Stop and save')}catch(e){sr=null;warn(e)}}
-var srRetry=false;
+var srRetry=false,srFail=false;
+function qcRec(){var mic=$('qc-mic');dictate(mic,'qc-text',capText)}
 document.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target&&e.target.id==='qc-text'){e.preventDefault();capText()}});
 // COMPANION-NO-TYPING-1: Dictate records on the phone and the server writes the words; the text lands in the box for one tap to send.
-var dict=null;function dictate(btn,target){if(dict){dict.r.stop();return}if(!navigator.mediaDevices||!window.MediaRecorder){alert('This browser cannot record. Voice note on Capture works on most phones.');return}navigator.mediaDevices.getUserMedia({audio:true}).then(function(st){var ch=[],r=new MediaRecorder(st),label=btn.textContent;dict={r:r};r.ondataavailable=function(e){ch.push(e.data)};r.onstop=function(){st.getTracks().forEach(function(t){t.stop()});dict=null;btn.classList.remove('sel');btn.textContent='Writing it down...';btn.disabled=true;var b=new Blob(ch,{type:r.mimeType||'audio/webm'});fetch('/companion/api/dictate',{method:'POST',headers:Object.assign(hdrs(),{'Content-Type':b.type}),body:b}).then(function(x){return x.json()}).then(function(j){var box=$(target);if(j.ok){box.value=(box.value.trim()?box.value.trim()+' ':'')+j.text}else alert(j.error||'Could not write that down.')}).catch(function(e){alert('Could not write that down: '+e.message)}).then(function(){btn.disabled=false;btn.textContent=label})};r.start();btn.textContent='Stop';btn.classList.add('sel')}).catch(function(e){alert('Microphone not available: '+e.message)})}
+var dict=null;function dictateLine(btn,target){dictate(btn,target,null,'\\n')}
+function dictate(btn,target,after,sep){if(dict){dict.r.stop();return}if(!navigator.mediaDevices||!window.MediaRecorder){alert('This browser cannot record. Voice note on Capture works on most phones.');return}navigator.mediaDevices.getUserMedia({audio:true}).then(function(st){var ch=[],r=new MediaRecorder(st),label=btn.textContent;dict={r:r};r.ondataavailable=function(e){ch.push(e.data)};r.onstop=function(){st.getTracks().forEach(function(t){t.stop()});dict=null;btn.classList.remove('sel');btn.textContent='Writing it down...';btn.disabled=true;var b=new Blob(ch,{type:r.mimeType||'audio/webm'});fetch('/companion/api/dictate',{method:'POST',headers:Object.assign(hdrs(),{'Content-Type':b.type}),body:b}).then(function(x){return x.json()}).then(function(j){var box=$(target);if(j.ok){box.value=(box.value.trim()?box.value.trim()+(sep||' '):'')+j.text;if(after&&box.value.trim())after()}else alert(j.error||'Could not write that down.')}).catch(function(e){alert('Could not write that down: '+e.message)}).then(function(){btn.disabled=false;btn.textContent=label})};r.start();btn.textContent='Stop';btn.classList.add('sel')}).catch(function(e){alert('Microphone not available: '+e.message)})}
 function quickJournal(btn){$('j-text').value=btn.textContent;btn.classList.add('sel');addJournal()}
 // COMPANION-PHOTO-1: the photo is shrunk on the phone (about 150 KB instead of several MB) and read there for text and codes where the browser has
 // TextDetector / BarcodeDetector; what it reads travels with the photo and the description follows in the background.
@@ -2832,7 +2966,7 @@ function readOnDevice(bmp){var jobs=[];try{if(window.TextDetector)jobs.push(new 
 function prepImage(file){if(!window.createImageBitmap)return Promise.resolve({blob:file,text:''});return createImageBitmap(file).then(function(bmp){var k=Math.min(1,1280/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);return Promise.all([readOnDevice(bmp),new Promise(function(res){c.toBlob(res,'image/jpeg',0.8)})]).then(function(r){return {blob:r[1]||file,text:r[0]}})}).catch(function(e){warn(e);return {blob:file,text:''}})}
 function capImg(inp){var f=inp.files&&inp.files[0];inp.value='';if(!f)return;var o=outEl();o.innerHTML='';say(o,'Reading the photo...');prepImage(f).then(function(p){upload(p.blob,'photo.jpg',p.text)})}
 function upload(blob,name,extra){var te=textEl(),o=outEl();var f=new FormData();f.append('file',blob,name);f.append('text',[te.value.trim(),extra||''].filter(Boolean).join('\\n'));o.innerHTML='';say(o,'Listening/looking...');api('/companion/api/capture',{method:'POST',body:f}).then(function(r){te.value='';showCap(r)}).catch(function(e){say(o,e.message)})}
-function inbox(){api('/companion/api/inbox').then(function(r){var b=$('inbox');b.innerHTML='';(r.items||[]).slice(0,15).forEach(function(i){var res={};try{res=JSON.parse(i.result_json||'{}')}catch(e){warn(e)}b.appendChild(el('div',{cls:'item'},[el('div',{cls:'grow'},[el('div',{text:(i.raw_text||'(no text)').slice(0,160)}),el('div',{cls:'mute',text:i.ts.slice(0,16).replace('T',' ')+' · '+i.kind+' · '+(res.type||i.status)})])]))})})}
+function inbox(){api('/companion/api/inbox').then(function(r){var b=$('inbox');b.innerHTML='';(r.items||[]).slice(0,15).forEach(function(i){var res={};try{res=JSON.parse(i.result_json||'{}')}catch(e){warn(e)}b.appendChild(el('div',{cls:'item'},[el('div',{cls:'grow'},[el('div',{text:(i.raw_text||'(no text)').slice(0,160)}),el('div',{cls:'mute',text:i.ts.slice(0,16).replace('T',' ')+' · '+i.kind+' · '+(res.type||i.status)+(res.to_fleet?' · sent to the Quniverse':'')})]),res.type==='project'&&!res.to_fleet?el('button',{text:'Send to the Quniverse',onclick:function(){var bt=this;bt.disabled=true;api('/companion/api/to-fleet',{json:{id:i.id}}).then(function(x){bt.textContent=x.ok?'Sent':'Not sent';if(x.ok)setTimeout(inbox,800)}).catch(function(){bt.disabled=false})}}):null]))})})}
 var hist=[];try{hist=JSON.parse(sessionStorage.getItem('cmp-hist')||'[]')}catch(e){warn(e)}
 function drawChat(){var b=$('msgs');b.innerHTML='';hist.forEach(function(m){b.appendChild(el('div',{cls:'msg '+(m.role==='user'?'me':'it'),text:m.content}))});window.scrollTo(0,document.body.scrollHeight)}
 function sendChat(){var t=$('chat-in').value.trim();if(!t)return;hist.push({role:'user',content:t});$('chat-in').value='';drawChat();$('chat-send').disabled=true;
@@ -2868,6 +3002,8 @@ function drawFocus(){var b=$('focus');b.innerHTML='';var time=el('div',{cls:'car
 var CTX=[];function loadDo(){api('/companion/api/actions').then(function(r){CTX=r.contexts||[];var s=$('a-ctx');if(!s.options.length)CTX.forEach(function(c){s.appendChild(el('option',{value:c.name,text:c.name}))});var b=$('do');b.innerHTML='';var groups={};(r.actions||[]).forEach(function(a){var g=a.gtd==='next'?(a.context||'@anywhere'):a.gtd;(groups[g]=groups[g]||[]).push(a)});
  Object.keys(groups).sort(function(x,y){return (x[0]==='@'?0:1)-(y[0]==='@'?0:1)||x.localeCompare(y)}).forEach(function(g){var c=el('div',{cls:'card'},[el('h2',{text:g})]);groups[g].forEach(function(a){var it=el('div',{cls:'item'},[el('div',{cls:'grow'},[el('div',{text:a.title}),el('div',{cls:'mute',text:(a.minutes||15)+' min · '+(a.energy||'low')+' energy'+(a.due?' · due '+a.due:'')})]),el('button',{text:'Done',onclick:function(){api('/companion/api/actions/done',{json:{id:a.id}}).then(function(){it.remove()})}}),a.gtd!=='next'?el('button',{text:'Now',onclick:function(){api('/companion/api/actions/move',{json:{id:a.id,gtd:'next'}}).then(loadDo)}}):el('button',{text:'Later',onclick:function(){api('/companion/api/actions/move',{json:{id:a.id,gtd:'someday'}}).then(loadDo)}})]);c.appendChild(it)});b.appendChild(c)});
  if(!(r.actions||[]).length)b.appendChild(el('div',{cls:'card mute',text:'Nothing here yet. Anything you capture that is a task lands here, sorted by where you can do it.'}))})}
+function setMin(b,n){$('a-min').value=n;document.querySelectorAll('.amin').forEach(function(x){x.classList.toggle('sel',x===b)})}
+function presetAction(t,min,en,ctx){api('/companion/api/actions',{json:{title:t,context:ctx,energy:en,minutes:min}}).then(function(){loadDo()})}
 function addAction(){var t=$('a-title').value.trim();if(!t)return;api('/companion/api/actions',{json:{title:t,context:$('a-ctx').value,energy:$('a-en').value,minutes:Number($('a-min').value)||15}}).then(function(){$('a-title').value='';loadDo()})}
 var due=[],show=false;function loadLearn(){api('/companion/api/cards/due').then(function(r){due=r.cards||[];show=false;drawCard()})}
 function drawCard(){var b=$('learn');b.innerHTML='';if(!due.length){b.appendChild(el('div',{cls:'card mute',text:'Nothing due. Cards come back just before you would forget them.'}));return}var c=due[0];var k=el('div',{cls:'card'},[el('div',{cls:'mute',text:due.length+' due'}),el('div',{cls:'flash',text:c.front})]);
@@ -2918,7 +3054,7 @@ function showGp(r){var p=$('gp-print');p.innerHTML='';
 function discreetRow(){var sel=el('select',{cls:'grow'});[['care','Hide care notes on the lock screen'],['all','Hide every note on the lock screen'],['off','Show full text on the lock screen']].forEach(function(o){sel.appendChild(el('option',{value:o[0],text:o[1]}))});api('/companion/api/today').then(function(t){sel.value=t.discreet_push||'care'}).catch(warn);sel.onchange=function(){api('/companion/api/settings',{json:{discreet_push:sel.value}}).catch(warn)};return el('div',{cls:'row',style:'margin-top:10px'},[sel])}
 function emailRow(){var sel=el('select',{cls:'grow'});[['off','No e-mail from the companion (notifications and this page only)'],['daily','One morning e-mail a day'],['all','E-mail every nudge and question too']].forEach(function(o){sel.appendChild(el('option',{value:o[0],text:o[1]}))});api('/companion/api/today').then(function(t){sel.value=t.email_mode||'off'}).catch(warn);sel.onchange=function(){api('/companion/api/settings',{json:{email_mode:sel.value}}).catch(warn)};return el('div',{cls:'row',style:'margin-top:10px'},[sel])}
 function loadPlan(){api('/companion/api/safety-plan').then(function(p){var b=$('plan');b.innerHTML='';b.appendChild(el('h2',{text:'My safety plan'}));b.appendChild(el('div',{cls:'mute',text:'For a hard moment, written in a calm one. Your own words, one per line. If you ever write something that worries me, I show you these with the crisis lines.'}));var tas={};
- p.fields.forEach(function(f){b.appendChild(el('div',{text:f[1],style:'margin-top:10px'}));var ta=el('textarea',{style:'min-height:56px'});ta.value=(p[f[0]]||[]).join('\\n');tas[f[0]]=ta;b.appendChild(ta)});
+ p.fields.forEach(function(f){b.appendChild(el('div',{text:f[1],style:'margin-top:10px'}));var ta=el('textarea',{style:'min-height:56px',id:'sp-'+f[0]});ta.value=(p[f[0]]||[]).join('\\n');tas[f[0]]=ta;b.appendChild(ta);b.appendChild(el('button',{text:'Dictate',onclick:function(){dictateLine(this,'sp-'+f[0])}}))});
  var out=el('div');b.appendChild(el('div',{cls:'row',style:'margin-top:8px'},[el('button',{cls:'p',text:'Save my plan',onclick:function(){var o={};Object.keys(tas).forEach(function(k){o[k]=tas[k].value.split(/\\r?\\n/)});api('/companion/api/safety-plan',{json:o}).then(function(r){out.innerHTML='';say(out,r.ok?'Saved. It stays private, in your own account.':r.error)})}})]));b.appendChild(out)})}
 function b64ToU8(s){var p=s.replace(/-/g,'+').replace(/_/g,'/');var b=atob(p+'==='.slice((p.length+3)%4));var o=new Uint8Array(b.length);for(var i=0;i<b.length;i++)o[i]=b.charCodeAt(i);return o}
 function isHome(){try{return window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}catch(e){return false}}
@@ -2939,7 +3075,9 @@ var views={today:load,focus:loadFocus,capture:inbox,talk:drawChat,do:loadDo,lear
 function toggleMore(){var n=document.querySelector('nav');var o=n.classList.toggle('open');$('nav-more').setAttribute('aria-expanded',o?'true':'false')}
 function go(v){document.querySelector('nav').classList.remove('open');$('composer').classList.toggle('hide',v!=='today');Array.prototype.forEach.call(document.querySelectorAll('.v'),function(s){s.classList.add('hide')});$('v-'+v).classList.remove('hide');Array.prototype.forEach.call(document.querySelectorAll('nav button'),function(b){b.classList.toggle('on',b.getAttribute('data-v')===v)});views[v]()}
 Array.prototype.forEach.call(document.querySelectorAll('nav button[data-v]'),function(b){b.onclick=function(){go(b.getAttribute('data-v'))}});
-function fromHash(){var h=location.hash.slice(1);if(!h)return;if(h==='voice'||h==='photo'||h==='note'){history.replaceState(null,'','/companion');go('today');setTimeout(function(){if(h==='voice')qcMic();else if(h==='photo')$('qc-img').click();else $('qc-text').focus()},600);return}var q={};h.split('&').forEach(function(x){var p=x.split('=');q[p[0]]=decodeURIComponent(p[1]||'')});history.replaceState(null,'','/companion');if(q.week!==undefined){go('today');setTimeout(function(){var w=$('week');if(w)w.scrollIntoView()},800);return}if(q.mood!==undefined){go('today');setTimeout(function(){var m=$('mood-card');if(m)m.scrollIntoView()},800);return}if(q.n&&(q.a==='done'||q.a==='no'))api('/companion/api/nudge',{json:{id:Number(q.n),state:q.a==='done'?'done':'declined'}}).then(load)}
+function fromHash(){var h=location.hash.slice(1);if(!h)return;if(h==='focus'){history.replaceState(null,'','/companion');go('focus');return}if(h==='voice'||h==='photo'||h==='note'){history.replaceState(null,'','/companion');go('today');setTimeout(function(){if(h==='voice')qcMic();else if(h==='photo')$('qc-img').click();else $('qc-text').focus()},600);return}var q={};h.split('&').forEach(function(x){var p=x.split('=');q[p[0]]=decodeURIComponent(p[1]||'')});history.replaceState(null,'','/companion');if(q.week!==undefined){go('today');setTimeout(function(){var w=$('week');if(w)w.scrollIntoView()},800);return}if(q.mood!==undefined){go('today');setTimeout(function(){var m=$('mood-card');if(m){m.scrollIntoView();return}
+// MOOD-HASH-1: with mood prompts off Today has no mood card, so a check-in tap would land on nothing to answer: show the one-tap scale on top.
+api('/companion/api/today').then(function(t){var v=$('v-today'),c=moodCard(t);v.insertBefore(c,v.children[1]||null);c.scrollIntoView()}).catch(warn)},800);return}if(q.n&&(q.a==='done'||q.a==='no'))api('/companion/api/nudge',{json:{id:Number(q.n),state:q.a==='done'?'done':'declined'}}).then(load)}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/companion/sw.js',{scope:'/companion'}).catch(warn);
 fromHash();go('today')
 window.addEventListener('hashchange',fromHash);
