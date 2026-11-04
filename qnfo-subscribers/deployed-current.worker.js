@@ -2,7 +2,7 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "1.5.7-codeagent"; /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
+var VERSION = "1.5.8-codeagent"; /* 1.5.8 CRON-D1-RETRY-1 (pillar autonomy; patch): the fleet_heartbeat upsert retries transient D1 errors (overloaded, timeout, reset) with backoff, so a short D1 overload no longer leaves the worker looking silent to CRON-WATCH-1 (worker-silent:qnfo-subscribers). */ /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
 // 1.2.0 (2026-10-12, pillar reach, issue 1753) SUBSCRIBE-FUNNEL-1: every step of the sign-up
 // funnel is counted in qnfo-audit.subscribe_funnel (day, stage, source, n; a counter, never an address): box and page views,
 // submits by outcome (accepted, honeypot, invalid, rate-limited, suppressed, repeat), confirmation mails sent or failed,
@@ -671,11 +671,22 @@ function subscribersScheduled(event, env, ctx) {
         console.error(JSON.stringify({ event: "subscriber_attribution_failed", error: String(e && e.message || e).slice(0, 200) }));
       }
       try {
-        await env.AUDIT.prepare("INSERT INTO fleet_heartbeat (worker, version, ts, ok) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(worker) DO UPDATE SET version=excluded.version, ts=excluded.ts, ok=excluded.ok").bind("qnfo-subscribers", VERSION, (/* @__PURE__ */ new Date()).toISOString(), ok).run();
+        await d1Transient(() => env.AUDIT.prepare("INSERT INTO fleet_heartbeat (worker, version, ts, ok) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(worker) DO UPDATE SET version=excluded.version, ts=excluded.ts, ok=excluded.ok").bind("qnfo-subscribers", VERSION, (/* @__PURE__ */ new Date()).toISOString(), ok).run());
       } catch (e) {
         console.error(JSON.stringify({ event: "fleet_heartbeat_write_failed", error: String(e && e.message || e).slice(0, 200) }));
       }
     })());
+}
+var D1_TRANSIENT_RE = /D1_ERROR: (?:D1 DB (?:storage operation exceeded timeout|is overloaded|reset because)|Internal error (?:while starting up |in )?D1 DB storage|Network connection lost|Replica disconnected from primary)/i;
+// CRON-D1-RETRY-1: run an idempotent D1 statement up to 4 times, backing off 200 ms, 400 ms, 800 ms, on a transient D1 error only.
+async function d1Transient(fn) {
+  for (var attempt = 0; ; attempt++) {
+    try { return await fn(); }
+    catch (e) {
+      if (attempt >= 3 || !D1_TRANSIENT_RE.test(String(e && e.message || e))) throw e;
+      await new Promise(function (resolve) { setTimeout(resolve, 200 * Math.pow(2, attempt)); });
+    }
+  }
 }
 var SUBSCRIBERS_DIGEST_CRON = "0 16 * * 1";
 // ---- CRON-GRID-1:BEGIN (owner directive 2026-10-19: "ALL CRON TICKS SHALL BE MEASURED IN 5-MINUTE INTERVALS, AND NO CRON

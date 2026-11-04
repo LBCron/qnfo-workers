@@ -26,6 +26,7 @@ function makeEnv(opts) {
         async run() {
           if (/INSERT INTO fleet_heartbeat/.test(sql)) {
             if (opts.hbThrows) throw new Error("d1 down");
+            if (opts.hbTransient && (opts.hbSeen = (opts.hbSeen || 0) + 1) <= opts.hbTransient) throw new Error("D1_ERROR: D1 DB is overloaded. Requests queued for too long.: SQLITE_ERROR");
             beats.push({ sql, args });
           }
           return { meta: { changes: 1 } };
@@ -71,6 +72,12 @@ const d = await runScheduled({ hbThrows: true });
 ok(!d.threw, "heartbeat D1 failure does not throw out of scheduled()", d.threw && String(d.threw));
 ok(d.beats.length === 0, "no row when the write fails");
 ok(d.errs.some((e) => /fleet_heartbeat_write_failed/.test(e)), "heartbeat failure logged with console.error", d.errs);
+
+// CRON-D1-RETRY-1: two transient D1 overload errors are retried and the heartbeat still lands; a persistent one is logged, never thrown
+const e1 = await runScheduled({ hbTransient: 2 });
+ok(!e1.threw && e1.beats.length === 1 && e1.beats[0].args[3] === 1, "heartbeat lands after two transient D1 overload errors", e1.beats.length);
+const e2 = await runScheduled({ hbTransient: 9 });
+ok(!e2.threw && e2.beats.length === 0 && e2.errs.some((e) => /fleet_heartbeat_write_failed/.test(e)), "a persistent transient error is logged after 4 attempts, not thrown");
 
 // source: write sits after runDigest inside the scheduled handler, uses AUDIT only
 const sched = src.slice(src.indexOf("async scheduled("));
