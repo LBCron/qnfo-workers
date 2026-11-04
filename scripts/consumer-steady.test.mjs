@@ -1,4 +1,4 @@
-// FM-5 suite: runs scripts/remediation_consumer_steady_test.py (a steady passing contract backs off to 2 hours, never beyond 120 minutes).
+// FM-5 suite: runs scripts/remediation_consumer_steady_test.py (a steady passing contract backs off to 90 minutes (FM-DRIFT-1), never beyond the 90-minute drift bound).
 // Run: node scripts/consumer-steady.test.mjs
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
