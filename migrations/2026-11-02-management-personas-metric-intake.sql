@@ -30,6 +30,7 @@ SELECT p.issue_id, p.planned_at, p.detail
 FROM issue_plans p
 WHERE 0;
 
+-- Limit the number of rows processed per migration run to avoid DB overload.
 INSERT OR IGNORE INTO bak_20261102_mp_metric_intake_plans
 SELECT p.issue_id, p.planned_at, p.detail
 FROM issue_plans p
@@ -56,7 +57,8 @@ WHERE a.status = 'open'
     FROM ops_config
     WHERE key = 'code_merge_trusted_sources'
       AND instr(value, 'management-personas|METRIC-UNMEASURED-1:') > 0
-  );
+  )
+LIMIT 100;  -- <<< throttling to protect D1 DB
 
 UPDATE issue_plans
 SET planned_at = '2000-01-01T00:00:00Z',
