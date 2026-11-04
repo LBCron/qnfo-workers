@@ -552,7 +552,8 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.19-codeagent";
+var VERSION = "2.62.20-tool-arg-alias";
+/* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -2845,6 +2846,11 @@ __name222(emailRespond, "emailRespond");
 __name2222(emailRespond, "emailRespond");
 __name22222(emailRespond, "emailRespond");
 __name222222(emailRespond, "emailRespond");
+// OPS-USER-CODE-ERROR-1: an exception thrown by the caller's own JavaScript (TypeError, ReferenceError, SyntaxError) is the caller's bug, not a fleet failure.
+var OPS_USER_CODE_RE = /TypeError|ReferenceError|SyntaxError|RangeError|is not a function|is not defined|is not iterable|Unexpected (token|end|identifier)|Cannot read propert|Cannot destructure|Invalid or unexpected/;
+function opsUserCodeHint(msg) {
+  return "Your code threw: " + String(msg).slice(0, 160) + ". Check the shape of values you call .map/.forEach on (a fetch().json() may be an object, not an array), await every promise, and print intermediate values with console.log.";
+}
 async function runCodeTool(env, args) {
   const code = String(args && args.code || "");
   if (!code.trim()) return { ok: false, error: "code required" };
@@ -2858,9 +2864,10 @@ async function runCodeTool(env, args) {
     const resp = await worker.getEntrypoint().fetch("https://code-exec.invalid/");
     const j = await resp.json();
     if (j && j.ok) return { ok: true, output: j.stdout || j.return_value || "", stdout: j.stdout || "", stderr: j.stderr || "", warnings: j.warnings || "", return_value: j.return_value || "", elapsed_ms: j.elapsed_ms, truncated: !!j.truncated };
-    return { ok: false, error: String(j && j.error || "code worker error"), stack: j && j.stack || "", elapsed_ms: j && j.elapsed_ms };
+    return { ok: false, error: String(j && j.error || "code worker error"), user_code_error: !!(j && j.error), hint: j && j.error ? opsUserCodeHint(j.error) : void 0, stack: j && j.stack || "", elapsed_ms: j && j.elapsed_ms };
   } catch (e) {
-    return { ok: false, error: "code worker error: " + String(e && e.message || e).slice(0, 2e3) };
+    var cm2 = String(e && e.message || e).slice(0, 2e3);
+    return { ok: false, error: "code worker error: " + cm2, user_code_error: OPS_USER_CODE_RE.test(cm2), hint: OPS_USER_CODE_RE.test(cm2) ? opsUserCodeHint(cm2) : void 0 };
   }
 }
 __name(runCodeTool, "runCodeTool");
@@ -3961,7 +3968,30 @@ async function githubProjectsList(env, args) {
   }) };
 }
 var FPA_GRAPH_OPS = ["find", "node", "impact", "path", "worker", "resource", "findings", "freshness"];
+// OPS-ARG-ALIAS-1: a caller-input mistake (missing or mis-named argument) is answered with a self-correcting hint and arg_error:true, never as a tool malfunction.
+function opsArgPick(args, keys) {
+  for (var i = 0; i < keys.length; i++) {
+    var v = args && args[keys[i]];
+    if (v != null && typeof v !== "object" && String(v).trim() !== "") return String(v).trim();
+  }
+  return "";
+}
+function opsArgError(error, hint) { return { ok: false, arg_error: true, error: error, hint: hint }; }
+var FPA_GRAPH_OP_ALIASES = { search: "find", lookup: "find", get: "node", show: "node", dependents: "impact", dependencies: "impact", blast_radius: "impact", route: "path", bindings: "worker", table: "resource", drift: "findings", age: "freshness", status: "freshness" };
+function fpaGraphArgs(args) {
+  var a = Object.assign({}, args || {});
+  var q = opsArgPick(a, ["query", "filter", "q", "search", "name", "text", "term"]);
+  if (q) a.query = q;
+  var id = opsArgPick(a, ["id", "node", "node_id", "target"]);
+  if (id) a.id = id;
+  var op = String(a.op || a.operation || a.action || "").trim().toLowerCase();
+  if (FPA_GRAPH_OP_ALIASES[op]) op = FPA_GRAPH_OP_ALIASES[op];
+  if (!op) op = a.from && a.to ? "path" : a.severity ? "findings" : a.worker ? "worker" : a.id ? (a.depth || a.direction ? "impact" : "node") : a.query ? "find" : "freshness";
+  a.op = op;
+  return a;
+}
 async function fleetGraphTool(env, args) {
+  args = fpaGraphArgs(args);
   if (args && typeof args.query === "string") {
     const wildcards = (args.query.match(/[%_]/g) || []).length;
     if (args.query.length > 100 || wildcards > 10) {
@@ -3969,7 +3999,7 @@ async function fleetGraphTool(env, args) {
     }
   }
   const op = String(args && args.op || "").trim();
-  if (FPA_GRAPH_OPS.indexOf(op) < 0) return { ok: false, error: "op must be one of " + FPA_GRAPH_OPS.join(", ") };
+  if (FPA_GRAPH_OPS.indexOf(op) < 0) return opsArgError("op must be one of " + FPA_GRAPH_OPS.join(", "), "Send {op:'find', query:'<text>'} to look up an id, {op:'node', id}, {op:'impact', id}, or {op:'freshness'}; a missing op is inferred from the other arguments.");
   if (!env.MEMORY) return { ok: false, error: "MEMORY binding (qnfo-memory-mcp) missing" };
   const qp = new URLSearchParams();
   ["id", "query", "depth", "direction", "from", "to", "worker", "severity", "kind", "limit"].forEach(function(k) {
@@ -4307,8 +4337,8 @@ __name2222(githubCreateBranch, "githubCreateBranch");
 __name22222(githubCreateBranch, "githubCreateBranch");
 async function cfWorkerRead(env, args) {
   if (!env.CF_API_TOKEN) return { ok: false, error: "CF_API_TOKEN not configured" };
-  const worker = String(args && args.worker || "").trim();
-  if (!worker) return { ok: false, error: "worker name required" };
+  const worker = String(args && (args.worker || args.name || args.worker_name || args.workerName || args.script || args.script_name || args.scriptName) || "").trim();
+  if (!worker) return { ok: false, arg_error: true, error: "worker name required", hint: "Send {worker:'<script name>'}; name, worker_name and script are accepted as aliases." };
   const maxChars = Math.min(Math.max(parseInt(args && args.maxChars, 10) || 8e3, 500), 4e4);
   try {
     const metaR = await fetch(
@@ -5269,10 +5299,10 @@ async function cfFetchRetry(url, init, opts) {
 __name(cfFetchRetry, "cfFetchRetry");
 async function cfWorkerDeploy(env, args) {
   if (!env.CF_API_TOKEN) return { ok: false, error: "CF_API_TOKEN not configured" };
-  const worker = String(args && args.worker || "").trim();
+  const worker = String(args && (args.worker || args.name || args.worker_name || args.workerName || args.script || args.script_name || args.scriptName) || "").trim();
   const content = String(args && args.content || "").trim();
   const versionNote = String(args && args.version || "").trim();
-  if (!worker) return { ok: false, error: "worker name required" };
+  if (!worker) return { ok: false, arg_error: true, error: "worker name required", hint: "Send {worker:'<script name>'}; name, worker_name and script are accepted as aliases." };
   if (!content) return { ok: false, error: "content (JS source) required" };
   // CONTAINER-CONFIG-DROPPED-1 (2026-09-29, issue #1485): refuse to deploy a worker
   // that declares [[containers]]. Cloudflare stores that block as script-level config,
@@ -5629,8 +5659,8 @@ __name2222(cfWorkerDeploy, "cfWorkerDeploy");
 __name22222(cfWorkerDeploy, "cfWorkerDeploy");
 async function cfWorkerBindings(env, args) {
   if (!env.CF_API_TOKEN) return { ok: false, error: "CF_API_TOKEN not configured" };
-  const worker = String(args && args.worker || "").trim();
-  if (!worker) return { ok: false, error: "worker name required" };
+  const worker = String(args && (args.worker || args.name || args.worker_name || args.workerName || args.script || args.script_name || args.scriptName) || "").trim();
+  if (!worker) return { ok: false, arg_error: true, error: "worker name required", hint: "Send {worker:'<script name>'}; name, worker_name and script are accepted as aliases." };
   try {
     const resp = await fetch(
       "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/workers/scripts/" + encodeURIComponent(worker) + "/bindings",
@@ -5825,11 +5855,11 @@ __name222(workspaceEdit, "workspaceEdit");
 __name2222(workspaceEdit, "workspaceEdit");
 __name22222(workspaceEdit, "workspaceEdit");
 async function workspaceGrep(env, args) {
-  const pattern = String(args && args.pattern || "").trim();
-  const prefix = String(args && args.prefix || "").replace(/^\/+/, "").replace(/\.\./g, "");
+  const pattern = String(args && (args.pattern || args.query || args.regex || args.q || args.search || args.text || args.term) || "").trim();
+  const prefix = String(args && (args.prefix || args.path || args.dir || args.directory) || "").replace(/^\/+/, "").replace(/\.\./g, "");
   const maxResults = Math.min(Math.max(parseInt(args && args.maxResults, 10) || 50, 1), 200);
   const ctxN = Math.min(Math.max(parseInt(args && args.contextLines, 10) || 0, 0), 5);
-  if (!pattern) return { ok: false, error: "pattern required" };
+  if (!pattern) return { ok: false, arg_error: true, error: "pattern required", hint: "Send {pattern:'<regex>', prefix:'<dir>'}; query, regex and search are accepted as aliases of pattern." };
   if (!env.BACKUPS_R2) return { ok: false, error: "BACKUPS_R2 binding missing" };
   let re;
   try {
@@ -6051,9 +6081,10 @@ async function runCodeNet(env, args) {
     const resp = await worker.getEntrypoint().fetch("https://code-exec-net.invalid/");
     const j = await resp.json();
     if (j && j.ok) return { ok: true, output: j.stdout || j.return_value || "", stdout: j.stdout || "", stderr: j.stderr || "", return_value: j.return_value || "", elapsed_ms: j.elapsed_ms };
-    return { ok: false, error: j && j.error || "code worker error", elapsed_ms: j && j.elapsed_ms };
+    return { ok: false, error: j && j.error || "code worker error", user_code_error: !!(j && j.error), hint: j && j.error ? opsUserCodeHint(j.error) : void 0, elapsed_ms: j && j.elapsed_ms };
   } catch (e) {
-    return { ok: false, error: "run_code_net: " + String(e && e.message || e).slice(0, 1e3) };
+    var cm = String(e && e.message || e).slice(0, 1e3);
+    return { ok: false, error: "run_code_net: " + cm, user_code_error: OPS_USER_CODE_RE.test(cm), hint: OPS_USER_CODE_RE.test(cm) ? opsUserCodeHint(cm) : void 0 };
   }
 }
 __name(runCodeNet, "runCodeNet");
@@ -6788,7 +6819,7 @@ __name(logAuditTrail, "logAuditTrail");
 async function logToolEvent(env, name, args, res, ms) {
   if (!env.QNFO_AUDIT) return;
   try {
-    await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(randId("evt-"), iso(), "ops_ai_tool", name, redactedSnippet({ /* OPS-TOOL-META-ERROR-FIRST-1, OPS-TOOL-MAILBOX-LOGIN-LINKS-1 */ error: res && !res.ok ? String(res.error || res.err || "").slice(0, 300) : void 0, resultOk: !!(res && res.ok), ms, args }, 600), "qnfo-ops", res && (res.ok || res.not_found) ? "ok" : res && res.rejected ? "rejected" : "error").run();
+    await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(randId("evt-"), iso(), "ops_ai_tool", name, redactedSnippet({ /* OPS-TOOL-META-ERROR-FIRST-1, OPS-TOOL-MAILBOX-LOGIN-LINKS-1 */ error: res && !res.ok ? String(res.error || res.err || "").slice(0, 300) : void 0, resultOk: !!(res && res.ok), ms, args }, 600), "qnfo-ops", res && (res.ok || res.not_found) ? "ok" : res && (res.rejected || res.arg_error || res.user_code_error) ? "rejected" : "error").run();
     await logAuditTrail(env, name, args, res);
   } catch (e) {
   }
@@ -8797,6 +8828,7 @@ function edcRow(ev, ingestedAt) {
     exc: JSON.stringify([{ name: nm.slice(0, 60), message: edcRedact(msg, 300) }])
   };
 }
+var EDC_BATCH = 25;
 async function errorDetailCapture(env, windowMs) {
   if (!env.CF_API_TOKEN || !env.QNFO_AUDIT) return { ran: false, reason: "CF_API_TOKEN or QNFO_AUDIT missing" };
   var to = Date.now(), from = to - (windowMs || EDC_WINDOW_MS);
@@ -8825,20 +8857,28 @@ async function errorDetailCapture(env, windowMs) {
   var res = j && j.result || {}, evs = res.events && (Array.isArray(res.events) ? res.events : res.events.events) || [];
   out.events = evs.length;
   var ingestedAt = iso();
-  for (var i = 0; i < evs.length; i++) {
-    var row = edcRow(evs[i], ingestedAt);
-    if (!row) continue;
+  // EDC-BATCH-1: up to 200 single-row inserts in one tick overloaded D1 ("D1 DB is overloaded", 3 loop-breaker recurrences, #6860). Rows go in batches of 25 (one D1 round trip each); an overload stops the
+  // remaining writes at once and is recorded as a deferral (status ok), because INSERT OR IGNORE on event_hash re-captures the same events on the next tick's overlapping window.
+  var edcRows = [];
+  for (var i = 0; i < evs.length; i++) { var row = edcRow(evs[i], ingestedAt); if (row) edcRows.push(row); }
+  var edcSql = "INSERT OR IGNORE INTO worker_logs (event_hash, ts_ms, ingested_at, script_name, event_type, outcome, url, method, status, cpu_ms, wall_ms, logs_json, exceptions_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12)";
+  for (var b = 0; b < edcRows.length; b += EDC_BATCH) {
+    var chunk = edcRows.slice(b, b + EDC_BATCH);
     try {
-      var ins = await env.QNFO_AUDIT.prepare("INSERT OR IGNORE INTO worker_logs (event_hash, ts_ms, ingested_at, script_name, event_type, outcome, url, method, status, cpu_ms, wall_ms, logs_json, exceptions_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12)")
-        .bind(row.hash, row.ts, row.ingestedAt, row.script, row.type, row.outcome, row.url, row.method, row.status, row.cpu, row.wall, row.exc).run();
-      if (ins && ins.meta && ins.meta.changes) { out.inserted++; out.scripts[row.script] = (out.scripts[row.script] || 0) + 1; }
+      var rs = await env.QNFO_AUDIT.batch(chunk.map(function(r) { return env.QNFO_AUDIT.prepare(edcSql).bind(r.hash, r.ts, r.ingestedAt, r.script, r.type, r.outcome, r.url, r.method, r.status, r.cpu, r.wall, r.exc); }));
+      for (var k = 0; k < chunk.length; k++) {
+        var m = rs && rs[k] && rs[k].meta;
+        if (m && m.changes) { out.inserted++; out.scripts[chunk[k].script] = (out.scripts[chunk[k].script] || 0) + 1; }
+      }
     } catch (e) {
-      out.write_error = String(e && e.message || e).slice(0, 160);
+      var wm = String(e && e.message || e).slice(0, 160);
+      if (/overloaded|too many resources|rate limit|timed out/i.test(wm)) { out.deferred = edcRows.length - b; out.write_deferred = wm; break; }
+      out.write_error = wm;
     }
   }
   try {
     var st = out.error || out.write_error ? "error" : "ok";
-    var txt = "error capture: http " + out.http + ", " + out.events + " error event(s) in " + Math.round((to - from) / 6e4) + " min, " + out.inserted + " new worker_logs row(s) across " + Object.keys(out.scripts).length + " worker(s)" + (out.error ? "; " + out.error : "") + (out.write_error ? "; write: " + out.write_error : "");
+    var txt = "error capture: http " + out.http + ", " + out.events + " error event(s) in " + Math.round((to - from) / 6e4) + " min, " + out.inserted + " new worker_logs row(s) across " + Object.keys(out.scripts).length + " worker(s)" + (out.error ? "; " + out.error : "") + (out.write_error ? "; write: " + out.write_error : "") + (out.write_deferred ? "; deferred " + out.deferred + " row(s) to the next tick: " + out.write_deferred : "");
     await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'error-capture-tick', ?3, ?4, 'qnfo-ops', ?5)")
       .bind(randId("evt-"), iso(), txt.slice(0, 500), JSON.stringify(out).slice(0, 2000), st).run();
   } catch (e) { console.error(JSON.stringify({ evt: "ops:errorDetailCapture:caught", error: String((e && e.message) || e) })); }

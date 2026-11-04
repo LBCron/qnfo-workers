@@ -113,7 +113,7 @@ for (const msg of ["D1_ERROR: Network connection lost.", "D1_ERROR: D1 DB is ove
   ok(i0 > 0 && src.indexOf("const out = { ok: false, db: bind, error: msg };", i0 + 10) < 0, "the anchor line occurs exactly once");
   ok(i1 > i0 && i1 < i2 && i1 - i0 < 120, "the marker sits directly after the out object, ahead of the schema hint", [i0, i1, i2]);
   ok(src.slice(i0, i2).indexOf("/syntax error|SQLITE_CONSTRAINT|datatype mismatch|unrecognized token|too many terms in compound SELECT|LIKE or GLOB pattern too complex|Wrong number of parameter bindings/i.test(msg)) out.rejected = true;") > 0, "the statement is the one the issue names");
-  ok(/res && \(res\.ok \|\| res\.not_found\) \? "ok" : res && res\.rejected \? "rejected" : "error"/.test(src), "logToolEvent still maps a rejected result to status rejected (and a not_found result to ok, TOOL-MISS-NOT-FAILURE-1)");
+  ok(/res && \(res\.ok \|\| res\.not_found\) \? "ok" : res && \(res\.rejected \|\| res\.arg_error \|\| res\.user_code_error\) \? "rejected" : "error"/.test(src), "logToolEvent still maps a rejected result to status rejected (and a not_found result to ok, TOOL-MISS-NOT-FAILURE-1)");
   ok(src.indexOf('else if (name === "ops_d1_query") res = await d1Query(env, args);') > 0, "execTool hands the d1Query result to logToolEvent unchanged");
 }
 ok(mirror === src, "the deployed-current mirror is identical to worker.js");

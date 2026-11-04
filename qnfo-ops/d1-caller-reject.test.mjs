@@ -17,7 +17,7 @@ const d1Write = new Function("DB_MAP", src.slice(a, b) + "\nreturn d1Write;")({ 
 
 // The status logToolEvent derives from the result (same expression as worker.js logToolEvent).
 const statusOf = (res) => (res && (res.ok || res.not_found) ? "ok" : res && res.rejected ? "rejected" : "error");
-ok(/res && \(res\.ok \|\| res\.not_found\) \? "ok" : res && res\.rejected \? "rejected" : "error"/.test(src), "logToolEvent still maps rejected results to status rejected (and a not_found result to ok, TOOL-MISS-NOT-FAILURE-1)");
+ok(/res && \(res\.ok \|\| res\.not_found\) \? "ok" : res && \(res\.rejected \|\| res\.arg_error \|\| res\.user_code_error\) \? "rejected" : "error"/.test(src), "logToolEvent still maps rejected results to status rejected (and a not_found result to ok, TOOL-MISS-NOT-FAILURE-1)");
 
 const db = new DatabaseSync(":memory:");
 db.exec("CREATE TABLE issue_triage (issue_id INTEGER PRIMARY KEY, rc TEXT, triage_state TEXT, owner TEXT, sla_due_at TEXT NOT NULL, triaged_at TEXT); INSERT INTO issue_triage VALUES (1924, 'AUTOTRIAGE-1', 'triaged', 'qnfo-ops', '2026-10-03', '2026-10-03');");
