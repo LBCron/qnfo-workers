@@ -10,6 +10,7 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
 
 const config = readFileSync(join(here, "wrangler.toml"), "utf8");
+ok(/^compatibility_date\s*=\s*"2026-10-25"\s*$/m.test(config), "compatibility date matches the current fleet default");
 const traces = config.split(/^\s*\[/m).find((section) => section.startsWith("observability.traces]")) || "";
 ok(/^enabled\s*=\s*true\s*$/m.test(traces), "Workers traces are explicitly enabled, not just logs");
 

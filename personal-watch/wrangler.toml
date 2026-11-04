@@ -2,7 +2,7 @@ name = "personal-watch"
 main = "worker.js"
 # charter-pillar: personal
 # WATCH-1 (2026-10-29): watch.q08.org, a curated no-algorithm video queue. Stateless: no bindings, no cron, no store.
-compatibility_date = "2026-10-10"
+compatibility_date = "2026-10-25"
 compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
 
