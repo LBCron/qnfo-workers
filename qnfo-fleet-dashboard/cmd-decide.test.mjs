@@ -837,14 +837,14 @@ const preview100140 = async (e, C) => (await (await cmd(e.env, "approve 100140",
     return x;
   };
   const e = mkStatus();
-  const strangerPage = async () => await (await call(e.env, "/")).text();
+  const strangerPage = async () => await (await call(e.env, "/overview")).text();
   const strangerJson = async () => await (await call(e.env, "/api/status")).text();
   const leak = (t) => ({ dec: /class="dec"|data-dec=|data-fleet-cmd="approve |data-fleet-cmd="decline |data-fleet-fill="approve |Approve all|Decide each part/.test(t), item: t.indexOf(ITEM) >= 0, fleetTick: t.indexOf("window.fleetTick=function") >= 0 });
   const none = { dec: false, item: false, fleetTick: false };
   const s0 = await strangerPage();
   ok(JSON.stringify(leak(s0)) === JSON.stringify(none) && /id="st-needs"/.test(s0) && /id="st-hero"/.test(s0) && s0.includes('href="/classic#queue">Act on it<'), "T24 a stranger's home page lists the cards with 'Act on it' and carries no decision block, no issue item text and no owner script", leak(s0));
   const C = await signIn(e.env, e.db, e.m);
-  const own = await (await call(e.env, "/", { headers: C })).text();
+  const own = await (await call(e.env, "/overview", { headers: C })).text();
   ok(/<div class="dec" data-dec="ha:uia-source-fidelity-100140">/.test(own) && /Decide each part: 0 of 7 decided/.test(own), "T24a the signed-in owner's home page carries the decision block on the owner-gated card", own.length);
   for (let n = 1; n <= 7; n++) ok(own.includes(tap("approve", "ha:" + SLUG, [n]) + ">Approve " + n + "<") && own.includes(tap("decline", "ha:" + SLUG, [n]) + ">Decline " + n + "<"), "T24b item " + n + " has its own Approve and Decline on the home page");
   ok(own.includes(tap("approve", "ha:" + SLUG) + ">Approve all 7<") && own.includes('data-fleet-cmd="diagnose ha:' + SLUG + '">Diagnose<') && own.includes(ITEM), "T24c Approve all, Diagnose and the item text are on the owner's card");
@@ -864,12 +864,12 @@ const preview100140 = async (e, C) => (await (await cmd(e.env, "approve 100140",
   ok(JSON.parse(j1).needs_you.items.every((it) => Object.keys(it).sort().join() === "action,age_days,if_you_wait,key,source,title,urgent,url,why"), "T24k the document's item shape is unchanged (no decision field)", Object.keys(JSON.parse(j1).needs_you.items[0] || {}));
   // a decided item shows on the owner's home page; the stranger's page is the same as before
   await run(e.env, "decline", { key: "ha:" + SLUG, issue: 100140, items: [2], note: "" }, C);
-  const after = await (await call(e.env, "/", { headers: C })).text();
+  const after = await (await call(e.env, "/overview", { headers: C })).text();
   ok(/Decide each part: 1 of 7 decided/.test(after) && /&#10007; declined/.test(after) && after.includes(tap("approve", "ha:" + SLUG, [1, 3, 4, 5, 6, 7]) + ">Approve the 6 left<"), "T24l a decided item shows its state on the home page and the card offers the undecided rest");
   // a card closed since the cached document was built: the owner is told, and offered no button for it
   const rr = await run(e.env, "approve", { key: "ha:" + SLUG, issue: 100140, items: [1, 3, 4, 5, 6, 7], note: "" }, C);
   ok((await rr.json()).ok && one(e.db, "SELECT status FROM human_actions WHERE slug = ?", SLUG).status === "resolved", "T24m (setup) the last six items are approved and the card resolves");
-  const closed = await (await call(e.env, "/", { headers: C })).text();
+  const closed = await (await call(e.env, "/overview", { headers: C })).text();
   ok(closed.includes("Decided: this card leaves the list within a minute.") && !closed.includes('data-dec="ha:' + SLUG + '"') && !closed.includes('data-fleet-cmd="approve ha:' + SLUG), "T24n a card that closed while the document was cached reads 'Decided' with no button", closed.length);
   const s2 = await strangerPage();
   ok(JSON.stringify(leak(s2)) === JSON.stringify(none) && !s2.includes("Decided: this card leaves"), "T24o and the stranger's page never shows the owner's note", leak(s2));
@@ -877,7 +877,7 @@ const preview100140 = async (e, C) => (await (await cmd(e.env, "approve 100140",
   const f = mkStatus();
   const Cf = await signIn(f.env, f.db, f.m);
   f.db.exec("DROP TABLE agent_issues");
-  const fp = await call(f.env, "/", { headers: Cf });
+  const fp = await call(f.env, "/overview", { headers: Cf });
   const ft = await fp.text();
   ok(fp.status === 200 && ft.includes('data-fleet-cmd="info ha:' + SLUG + '">Details<') && ft.includes('data-dec="ha:' + SLUG + '"') && !ft.includes(ITEM), "T24p without the issue table the page still renders, the card keeps Approve and Decline for the whole card and no item text appears", fp.status);
   ok(noModel(e) && noModel(f), "T24q no model was called");
@@ -1100,7 +1100,7 @@ const preview100140 = async (e, C) => (await (await cmd(e.env, "approve 100140",
   ok(strangerPage.includes('data-dec-signin>Email me a code to decide<') && !/Sign in|sign out/i.test(strangerPage) && !/data-dec-op=/.test(strangerPage) && strangerPage.indexOf("names the wrong analysed paper") < 0 && strangerPage.indexOf("window.fleetTick=function") < 0, "T33b a stranger gets 'Email me a code to decide' and no decision button, no item text, no owner script");
   const hard = strangerPage.indexOf('data-dec-signin') > 0;
   ok(hard, "T33c (the sign-in button is on the cards that ask for a decision)");
-  const home = await (await call(e.env, "/")).text();
+  const home = await (await call(e.env, "/overview")).text();
   ok(!/data-dec-op=/.test(home) && home.indexOf("names the wrong analysed paper") < 0, "T33d the stranger's home page carries no decision button and no item text");
 }
 // T34. the one-tap script parses, posts to /api/cmd/run, asks for the emailed code in place and is on every page that carries the command line
@@ -1113,7 +1113,7 @@ const preview100140 = async (e, C) => (await (await cmd(e.env, "approve 100140",
   ok(js && parsed === true, "T34 the one-tap script parses", parsed);
   ok(/post\('\/api\/cmd\/run',\{op:op,args:args\}\)/.test(js) && /j\.need/.test(js) && /\/api\/cmd\/code/.test(js) && /\/api\/cmd\/verify/.test(js) && /x-fleet-ui/.test(js) && /ev\.target\.closest/.test(js), "T34a it posts op and args, shows the code step in place and uses the same headers as the command line");
   ok(/location\.reload/.test(js) && /window\.fleetTick/.test(js), "T34b a signed-in page refreshes through the poll, and a page without one reloads");
-  const home = await (await call(e.env, "/")).text();
+  const home = await (await call(e.env, "/overview")).text();
   ok(home.indexOf("data-dec-op") >= 0 && home.indexOf("data-dec-signin") >= 0, "T34c the home page carries the same script");
   ok(/\.dec button\{min-height:44px/.test(stranger) && /\.dec \.dec-main \.dec-y/.test(stranger) && /min-height:52px/.test(stranger), "T34d the main buttons are 52 px tall on a phone");
 }
@@ -1126,7 +1126,7 @@ const preview100140 = async (e, C) => (await (await cmd(e.env, "approve 100140",
   x.db.exec("CREATE TABLE v_fleet_metrics (metric TEXT, title TEXT, operator TEXT, threshold REAL, value REAL, breach INTEGER, priority INTEGER, kind TEXT, measured_at TEXT, program_code TEXT, good TEXT, value_7d_ago REAL)");
   x.db.prepare("INSERT INTO v_fleet_metrics VALUES ('m1', 'Metric one', 'gt', 0, 0, 0, 1, 'target', ?, 'QNFO.OPS', 'down', 0)").run(new Date().toISOString());
   const C = await signIn(x.env, x.db, x.m);
-  const home = await (await call(x.env, "/", { headers: C })).text();
+  const home = await (await call(x.env, "/overview", { headers: C })).text();
   const orcid = home.slice(home.indexOf("Add the selected works to ORCID"), home.indexOf("Add the selected works to ORCID") + 1800);
   ok(orcid.includes(tap("done", "ha:orcid-link-works") + ">Done<") && orcid.includes(tap("snooze", "ha:orcid-link-works").replace('{&quot;key&quot;:&quot;ha:orcid-link-works&quot;}', '{&quot;key&quot;:&quot;ha:orcid-link-works&quot;,&quot;days&quot;:3}') + ">Snooze 3 days<") && orcid.includes(tap("dismiss", "ha:orcid-link-works") + ">Not doing<"), "T35 a card that is not a decision has Done, Snooze 3 days and Not doing at the tap", orcid.slice(0, 160));
   ok(orcid.includes('data-fleet-cmd="info ha:orcid-link-works">Details<') && !/Act on it/.test(home), "T35a the owner's cards say Details, not 'Act on it' (a link to another page)");
@@ -1142,7 +1142,7 @@ const preview100140 = async (e, C) => (await (await cmd(e.env, "approve 100140",
   const r2 = await run(x.env, "snooze", s1, C); const j2 = await r2.json();
   ok(r2.status === 200 && j2.ok === true && rows(x.db, "SELECT * FROM human_responses WHERE kind = 'snooze'").length === 1, "T35d one tap on Snooze 3 days snoozes", j2);
   // a stranger is told nothing new: the old link, no quick button
-  const strangerHome = await (await call(x.env, "/")).text();
+  const strangerHome = await (await call(x.env, "/overview")).text();
   ok(/Act on it/.test(strangerHome) && !/data-dec-op=/.test(strangerHome.replace(/<script>[\s\S]*?<\/script>/g, "")), "T35e a stranger keeps 'Act on it' and gets no quick button");
   const order = [...home.matchAll(/<article class="card item[^"]*">[\s\S]*?<h2>([^<]*)<\/h2>/g)].map((m) => m[1]);
   const iUia = order.findIndex((t) => /UIA-SOURCE/.test(t)), iOrcid = order.findIndex((t) => /ORCID/.test(t));

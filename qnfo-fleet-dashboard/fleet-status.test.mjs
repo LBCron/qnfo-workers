@@ -194,7 +194,7 @@ const seed = (db) => {
   const j = await (await get(env, "/api/status")).json();
   ok(Array.isArray(j.causes) && j.causes.length === 2 && j.causes[0].cause === "publishing" && j.causes[1].owner_decision === true && j.causes[0].metrics.join() === "publish_rate_ratio_24h,x", "S4 causes are read, ranked by breaches, with the owner-decision flag", j.causes);
   ok(j.needs_you.count === 0 && j.headline.state === "fleet_working" && /^Nothing needs you\./.test(j.headline.sentence) && /3 decisions/.test(j.headline.sentence), "S4 nothing for the owner reads as the fleet working, with what it did", j.headline);
-  const page = await get(env, "/");
+  const page = await get(env, "/overview");
   const html = await page.text();
   ok(page.status === 200 && /Nothing needs you/.test(html) && /Why metrics are off target/.test(html) && /your decision/.test(html), "S5 the home page renders the headline and the causes");
   ok(["Research and publications", "Reach and distribution", "Infrastructure and cost", "Operations and the autonomy loop", "Personal twin"].every((n) => html.indexOf(n) >= 0), "S5 the page lists the five programs");
@@ -224,14 +224,14 @@ const seed = (db) => {
   } };
   try {
     const { env } = mk();
-    const first = await get(env, "/");
-    const second = await get(env, "/");
+    const first = await get(env, "/overview");
+    const second = await get(env, "/overview");
     ok(first.headers.get("Cache-Control") === "public, max-age=60" && puts === 1 && ttl === 60, "S5 a public homepage response is cached for 60 seconds");
     ok(matches === 2 && /fleet-status\/v1/.test(await second.text()), "S5 the next public homepage request reuses the cached response");
     const token = "test-owner-token-with-enough-length";
     env.OWNER_TOKEN = token;
     const digest = createHash("sha256").update(token).digest("hex");
-    const ownerPage = await get(env, "/", { Cookie: "fleet_owner=" + digest });
+    const ownerPage = await get(env, "/overview", { Cookie: "fleet_owner=" + digest });
     ok(ownerPage.headers.get("Cache-Control") === "private, no-store" && matches === 2 && puts === 1, "S5 an authenticated homepage bypasses the public cache and remains private");
     ok(/data-vact="fix"/.test(await ownerPage.text()), "S5 an authenticated homepage still renders owner actions");
   } finally {

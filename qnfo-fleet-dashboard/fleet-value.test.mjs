@@ -71,7 +71,7 @@ const r2 = await post("/api/owner/act", { subject: "../x" }, { "x-loop-token": "
 ok(r2.status === 400, "bad subject is 400", r2.status);
 const r3 = await post("/api/owner/act", { subject: "metric:gone" }, { "x-loop-token": "t" });
 ok(r3.status === 404, "vanished item is 404", r3.status);
-const hv = await worker.fetch(new Request("https://fleet.qnfo.org/"), env, ctx);
+const hv = await worker.fetch(new Request("https://fleet.qnfo.org/overview"), env, ctx);
 ok(hv.status === 200 || hv.status === 500, "home renders or fails loudly (empty D1 fixture)", hv.status);
 
 console.log(pass + " passed, " + fail + " failed");

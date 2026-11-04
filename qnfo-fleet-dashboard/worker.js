@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.81.4";
+var VERSION = "1.82.0";
+// 1.82.0 V3-DASH-1 (owner request 2026-11-04, pillar core; minor, new home page and routes): "/" is three screens (Now, Readers, Code) on a static shell that paints at once; GET /api/v3/now and /api/v3/readers read small, separately timed sections and carry their own age; POST /api/v3/code starts an ops-exec run and GET /api/v3/code/<id> returns its steps. The old overview stays at /classic and every /area page is unchanged. Cause: "/" took 10-19 s measured on 2026-11-04 (fleetStatusData).
 // 1.81.4 AREA-FEED-LATENCY-1 (#6717, agent_issues 1001453, pillar core): area reads use cached probe counts without building the human queue or awaiting a cold fleet refresh.
 // 1.81.3 FLEET-STATUS-STATE-OVERLAP-1 (issue #1001440, pillar core; patch): start the cached fleet-state read alongside independent /api/status inputs so a slow state read does not delay those reads or the public queue page.
 // 1.81.2 FLEET-STATUS-READ-PARALLEL-1 (issue #1001434, pillar core; patch): overlap the independent value feeds with core status reads to reduce cold /api/status latency without changing its cache or response.
@@ -3402,12 +3403,275 @@ var VALUE_CSS = ".vl-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1
 
 var VALUE_JS = "<script>(function(){var H={'Content-Type':'application/json','x-fleet-ui':'1'};function post(b){return fetch('/api/owner/act',{method:'POST',headers:H,credentials:'same-origin',body:JSON.stringify(b)}).then(function(r){return r.json().catch(function(){return{ok:false,error:'HTTP '+r.status}})})}document.addEventListener('click',function(ev){var t=ev.target&&ev.target.closest&&ev.target.closest('[data-vact]');if(!t)return;var bar=t.closest('.act');if(!bar)return;var res=bar.querySelector('.act-res'),tell=bar.querySelector('.act-tell'),kind=t.getAttribute('data-vact'),directive=kind==='fix'?(bar.getAttribute('data-fix-directive')||''):'';if(kind==='tell'){tell.hidden=!tell.hidden;if(!tell.hidden)tell.querySelector('input').focus();return}if(kind==='send'){directive=tell.querySelector('input').value.trim();if(!directive)return}t.disabled=true;if(res)res.textContent='Sending to the fleet\\u2026';post({subject:bar.getAttribute('data-subject'),directive:directive}).then(function(j){if(res)res.textContent=j.ok?'\\u2713 Handed to the fleet'+(j.issue_id?' as issue '+j.issue_id:'')+(j.duplicate?' (already filed, nothing duplicated)':'')+'. '+(j.next||''):(j.error||'It did not go through.')+(j.error&&/token|sign|closed/i.test(j.error)?' Sign in with the command line (type login).':'');if(j.ok&&tell){tell.hidden=true;tell.querySelector('input').value=''}t.disabled=false}).catch(function(){if(res)res.textContent='Network error: nothing was sent.';t.disabled=false})})})()<\/script>";
 /* VALUE-DASH-1:END */
+// ==== V3-DASH-1 (1.82.0): three screens (Now, Readers, Code). The shell is static so it paints at once; each screen reads one small
+// endpoint whose sections time out on their own and say how old they are, so a slow source shows "unreadable" instead of a blank page.
+var V3_TTL_MS = 45e3;
+var V3_CACHE = {};
+function v3Age(iso) {
+  const t = Date.parse(iso || "");
+  return isFinite(t) ? Math.max(0, Math.round((Date.now() - t) / 1000)) : null;
+}
+function v3Timeout(p, ms, name) {
+  return Promise.race([Promise.resolve(p), new Promise(function(_, rej) { setTimeout(function() { rej(new Error(name + " timed out after " + ms + " ms")); }, ms); })]);
+}
+async function v3Section(name, fn) {
+  const t0 = Date.now();
+  try {
+    const v = await v3Timeout(fn(), 7e3, name);
+    return Object.assign({ ok: true, ms: Date.now() - t0 }, v);
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t0, error: String(e && e.message || e).slice(0, 160) };
+  }
+}
+// Owner queue: only what is irreversible and identity-bound is shown (humanLaneFor); the fleet handles the rest.
+async function v3Needs(env, authed) {
+  const rows = await d1all(env.AUDIT, "SELECT slug, title, why, action, created_at FROM human_actions WHERE status='open' ORDER BY id LIMIT 200");
+  const mine = rows.filter(function(r) { return humanLaneFor({ title: r.title, why: r.why, action: r.action }) === "owner"; });
+  return {
+    open_total: rows.length, fleet_handles: rows.length - mine.length, count: mine.length,
+    items: mine.slice(0, 8).map(function(r) {
+      return { key: "ha:" + r.slug, title: String(r.title || "").slice(0, 140), why: authed ? String(r.why || "").replace(/\s+/g, " ").slice(0, 280) : "", age_s: v3Age(String(r.created_at || "").replace(" ", "T") + "Z") };
+    })
+  };
+}
+async function v3Spend(env) {
+  const c = await costFeedData(env);
+  const row = function(g) { const r = (c.run_rate || []).filter(function(x) { return x.source_group === g; })[0]; return r ? Number(r.daily_7d) || 0 : null; };
+  const daily = row("total:all-billing");
+  if (daily == null) throw new Error("no billing rows readable" + ((c.blind || []).length ? " (" + c.blind[0] + ")" : ""));
+  return {
+    budget_month_usd: c.fleet_budget_month_usd, month_to_date_usd: c.fleet_month_to_date_usd,
+    forecast_month_usd: c.fleet_forecast_bounded_month_usd, pace_month_usd: c.fleet_pace_30d_usd,
+    daily_usd: daily, workers_ai_daily_usd: row("workers_ai"), external_daily_usd: row("direct_providers_external:daily"), plan_daily_usd: row("cloudflare_plan:daily"),
+    pace_vs_budget: daily != null && c.fleet_budget_month_usd ? Math.round(daily * 30 / c.fleet_budget_month_usd * 100) / 100 : null
+  };
+}
+async function v3Health(env) {
+  const [m, hb] = await Promise.all([
+    d1all(env.AUDIT, "SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN breach = 1 THEN 1 ELSE 0 END), 0) AS breach FROM v_fleet_metrics"),
+    d1all(env.AUDIT, "SELECT worker, ts FROM fleet_heartbeat")
+  ]);
+  const cut = Date.now() - 130 * 6e4;
+  const stale = hb.filter(function(r) { const t = Date.parse(r.ts); return !isFinite(t) || t < cut; });
+  const newest = hb.reduce(function(a, r) { const t = Date.parse(r.ts); return isFinite(t) && t > a ? t : a; }, 0);
+  return {
+    metrics_total: m[0] ? Number(m[0].total) : null, metrics_off_target: m[0] ? Number(m[0].breach) : null,
+    workers_reporting: hb.length - stale.length, workers_total: hb.length, stale_workers: stale.slice(0, 6).map(function(r) { return r.worker; }),
+    newest_heartbeat_age_s: newest ? Math.round((Date.now() - newest) / 1000) : null
+  };
+}
+async function v3Reach(env) {
+  const r = await reachScorecardData(env);
+  const w7 = r.windows && r.windows.d7 || {}, w28 = r.windows && r.windows.d28 || {};
+  const pv7 = w7.pageviews ? Number(w7.pageviews.value) : null, pv28 = w28.pageviews ? Number(w28.pageviews.value) : null;
+  if (pv7 == null) throw new Error("no pageview window readable (reach scorecard empty)");
+  const prior = pv7 != null && pv28 != null ? Math.round((pv28 - pv7) / 3) : null;
+  const refs = w7.top_referrers || [];
+  const direct = refs.filter(function(x) { return x.id === "(direct)"; })[0];
+  const named = refs.filter(function(x) { return x.id !== "(direct)"; });
+  const subs = w7.subscribers || [];
+  const outreach = {};
+  (w7.outreach || []).forEach(function(x) { outreach[x.metric] = Number(x.v) || 0; });
+  const wm = r.work_with_me || {};
+  const li = r.last_ingest || {};
+  return {
+    pageviews_7d: pv7, pageviews_prior_week_avg: prior,
+    trend: pv7 != null && prior ? Math.round((pv7 - prior) / prior * 100) : null,
+    no_referrer_share: direct && pv7 ? Math.round(Number(direct.v) / pv7 * 100) : null,
+    referred_7d: named.reduce(function(a, x) { return a + (Number(x.v) || 0); }, 0),
+    top_referrers: named.slice(0, 5).map(function(x) { return { name: x.id, n: Number(x.v) || 0 }; }),
+    top_pages: (w7.top_pages || []).slice(0, 6).map(function(x) { return { name: x.id, n: Number(x.v) || 0 }; }),
+    subscribers: subs.length ? Number(subs[subs.length - 1].value) : null,
+    outreach_sent_7d: outreach.sent != null ? outreach.sent : null, outreach_replied_7d: outreach.replied != null ? outreach.replied : null,
+    contacts_30d: wm.contacts_30d != null ? Number(wm.contacts_30d) : null,
+    data_day: r.end || null, ingest_status: li.status || null, ingest_age_s: v3Age(li.ts)
+  };
+}
+async function v3Content(env) {
+  const c = await contentData(env, Date.now());
+  const t = c.totals || {};
+  if (t.published_7d == null) throw new Error("content pipeline totals unreadable");
+  return { published_7d: t.published_7d != null ? Number(t.published_7d) : null, in_flight: t.in_flight != null ? Number(t.in_flight) : null, as_of: c.as_of || null };
+}
+async function v3Build(env, kind, authed) {
+  const key = kind + (authed ? ":o" : ":p");
+  const hit = V3_CACHE[key];
+  const now = Date.now();
+  if (hit && hit.env === env && now - hit.at < V3_TTL_MS) return hit.v;
+  let v;
+  if (kind === "now") {
+    const [needs, spend, health] = await Promise.all([v3Section("needs", function() { return v3Needs(env, authed); }), v3Section("spend", function() { return v3Spend(env); }), v3Section("health", function() { return v3Health(env); })]);
+    v = { screen: "now", needs: needs, spend: spend, health: health };
+  } else {
+    const [reach, content] = await Promise.all([v3Section("reach", function() { return v3Reach(env); }), v3Section("content", function() { return v3Content(env); })]);
+    v = { screen: "readers", reach: reach, content: content };
+  }
+  v.generated_at = new Date().toISOString();
+  v.version = VERSION;
+  // A screen whose every section failed does not replace a good cached copy: the stale one is served and marked.
+  const allBad = ["needs", "spend", "health", "reach", "content"].every(function(k) { return !v[k] || v[k].ok === false; });
+  if (allBad && hit && hit.env === env) return Object.assign({}, hit.v, { stale: true, stale_since: hit.v.generated_at });
+  V3_CACHE[key] = { at: now, env: env, v: v };
+  return v;
+}
+var V3_J = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+function v3Json(o, status) { return new Response(JSON.stringify(o), { status: status || 200, headers: V3_J }); }
+// The Code screen: start an agent run on the ops executor (shell_exec in a scale-to-zero container, D1, R2, GitHub, deploys), poll its steps.
+async function v3CodeStart(env, b) {
+  const text = String(b && b.text || "").trim();
+  if (text.length < 1 || text.length > 8e3) return v3Json({ ok: false, error: "type 1-8000 characters" }, 400);
+  const id = "cmd-" + cmdRandHex(10);
+  const sid = /^[A-Za-z0-9_.:-]{4,80}$/.test(String(b && b.sid || "")) ? String(b.sid) : "code-" + new Date().toISOString().slice(0, 10);
+  const st = await cmdOpsFetch(env, "/agents/ops-exec", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "start", text: text, sid: sid, run_id: id, max_iters: 24 }) });
+  if (!(st.json && st.json.ok)) return v3Json({ ok: false, error: "executor did not start: " + String(st.error || st.json && st.json.error || "http " + st.http).slice(0, 200) }, 502);
+  try { await env.AUDIT.prepare("INSERT INTO cmd_log (id, text, kind, status, owner, model) VALUES (?1, ?2, 'agent', 'running', 1, 'ops-agent')").bind(id, text.slice(0, 2e3)).run(); } catch (e) {}
+  return v3Json({ ok: true, id: id, sid: sid }, 202);
+}
+async function v3CodeStatus(env, id) {
+  const r = await cmdOpsFetch(env, "/agents/ops-exec", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "result", id: id }) });
+  const run = r.json && r.json.run;
+  if (!run) return v3Json({ ok: r.http !== 404, status: r.http === 404 ? "lost" : "running", steps: [], error: r.http === 404 ? "the executor no longer has this run" : null });
+  const steps = (run.steps || []).map(function(s) { return { tool: String(s.tool || ""), args: String(s.args || "").replace(/\s+/g, " ").slice(0, 160), ms: Number(s.ms) || 0 }; });
+  const done = run.status === "done", failed = run.status === "failed" || run.status === "error";
+  if (done || failed) { try { await cmdAgentPoll(env, id); } catch (e) {} }
+  return v3Json({ ok: true, status: done ? "done" : failed ? "failed" : "running", steps: steps, reply: done ? String(run.reply || "(no text)").slice(0, 16e3) : null, error: failed ? String(run.error || "the run failed").slice(0, 300) : null });
+}
+async function v3Routes(request, env, ctx, path, url, owner) {
+  const holder = !!(owner && (owner.authed || owner.loop));
+  const m = request.method;
+  if ((path === "/" || path === "") && (m === "GET" || m === "HEAD") && url.searchParams.get("frag") !== "1") {
+    return new Response(m === "HEAD" ? null : v3Html(env), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
+  }
+  if (path.indexOf("/api/v3/") !== 0) return null;
+  if ((path === "/api/v3/now" || path === "/api/v3/readers") && (m === "GET" || m === "HEAD")) {
+    return v3Json(await v3Build(env, path === "/api/v3/now" ? "now" : "readers", holder));
+  }
+  const codeHit = /^\/api\/v3\/code\/(cmd-[0-9a-f]{20})$/.exec(path);
+  if (codeHit && m === "GET") {
+    if (!holder) return v3Json({ ok: false, need: "code", error: "Sign in with your email code to use the command line." }, 401);
+    return await v3CodeStatus(env, codeHit[1]);
+  }
+  if (m !== "POST") return v3Json({ error: "not found" }, 404);
+  if (request.headers.get("x-fleet-ui") !== "1") return v3Json({ error: "missing x-fleet-ui header" }, 400);
+  if (path === "/api/v3/code" || path === "/api/v3/warm") {
+    if (!holder) return v3Json({ ok: false, need: "code", error: "Sign in with your email code to use the command line." }, 401);
+    if (path === "/api/v3/warm") {
+      const w = await cmdToolCall(env, "container_status", {}, ctx, "cmd-" + cmdRandHex(10));
+      return v3Json({ ok: !!w.ok, ms: w.ms, error: w.ok ? null : String(w.error || "container did not answer").slice(0, 160) });
+    }
+    let b = null;
+    try { b = await request.json(); } catch (e) { return v3Json({ error: "invalid JSON" }, 400); }
+    return await v3CodeStart(env, b);
+  }
+  return v3Json({ error: "not found" }, 404);
+}
+// ==== end V3-DASH-1 ====
+// V3-DASH-1 page. Client script uses no backticks and no template placeholders, so it lives in String.raw untouched.
+var V3_CSS = String.raw`:root{--bg:#f7f6f2;--card:#fff;--ink:#1b1b1a;--mut:#6b6a66;--rule:#e4e2da;--ok:#1a7f4b;--warn:#b26b00;--bad:#b3261e;--acc:#2f5fd0}
+@media(prefers-color-scheme:dark){:root{--bg:#121211;--card:#1c1c1a;--ink:#ecebe6;--mut:#9a988f;--rule:#2e2d29;--ok:#4cc38a;--warn:#e0a03a;--bad:#ff7b72;--acc:#8aa8ff}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;padding:12px 18px}
+header b{font-size:17px;letter-spacing:.2px}#pill{font-size:13px;color:var(--mut);display:flex;gap:7px;align-items:center}
+#pill i{width:9px;height:9px;border-radius:50%;background:var(--mut);display:inline-block}#pill.ok i{background:var(--ok)}#pill.warn i{background:var(--warn)}#pill.bad i{background:var(--bad)}
+main{max-width:720px;margin:0 auto;padding:18px 16px 110px}.scr{display:none}.scr.on{display:block}
+.hero{border-radius:16px;padding:22px 20px;background:var(--card);border:1px solid var(--rule);border-left:6px solid var(--mut);margin-bottom:14px}
+.hero.ok{border-left-color:var(--ok)}.hero.warn{border-left-color:var(--warn)}.hero.bad{border-left-color:var(--bad)}
+.hero h1{margin:0 0 4px;font-size:26px;line-height:1.15}.hero p{margin:0;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);display:flex;justify-content:space-between;gap:8px}
+.card h2 span{text-transform:none;letter-spacing:0;font-weight:400}.card h2 span.warn{color:var(--warn)}.card h2 span.bad{color:var(--bad)}
+.big{font-size:40px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}.row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--rule)}.row:first-of-type{border-top:0}
+.row span:last-child{font-variant-numeric:tabular-nums;color:var(--mut);text-align:right}.bar{height:8px;border-radius:5px;background:var(--rule);overflow:hidden;margin:10px 0 6px}.bar div{height:100%;background:var(--ok)}.bar.warn div{background:var(--warn)}.bar.bad div{background:var(--bad)}
+.note{color:var(--mut);font-size:14px;margin:8px 0 0}.err{color:var(--bad);font-size:14px}
+.need{border-top:1px solid var(--rule);padding:12px 0}.need:first-of-type{border-top:0}.need b{display:block}.need small{color:var(--mut);display:block;margin:3px 0 8px}
+button{font:inherit;border:1px solid var(--rule);background:var(--card);color:var(--ink);border-radius:10px;padding:8px 14px;cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.5}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--rule);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
+nav a{flex:1;max-width:240px;text-align:center;padding:14px 8px;color:var(--mut);text-decoration:none;font-weight:600}nav a.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
+#log{min-height:40vh}.msg{margin:0 0 12px;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--rule);white-space:pre-wrap;word-break:break-word;font-size:15px}
+.msg.you{background:transparent;border-style:dashed;color:var(--mut)}.steps{font:12.5px/1.5 ui-monospace,Consolas,monospace;color:var(--mut);margin:0 0 8px}
+#cbar{position:fixed;left:0;right:0;bottom:52px;background:var(--bg);border-top:1px solid var(--rule);padding:10px 14px;display:none}#cbar.on{display:block}
+#cbar form{max-width:720px;margin:0 auto;display:flex;gap:8px}textarea,input{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:10px 12px;width:100%}textarea{resize:none;height:46px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}.chips button{font-size:14px;padding:6px 12px}#sib{display:flex;gap:8px;margin-top:10px}`;
+var V3_JS = String.raw`(function(){
+var $=function(i){return document.getElementById(i)};
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function ago(s){if(s==null)return 'unknown';if(s<90)return s+'s ago';if(s<5400)return Math.round(s/60)+' min ago';if(s<172800)return Math.round(s/3600)+' h ago';return Math.round(s/86400)+' d ago'}
+function usd(n){return n==null?'n/a':'$'+Math.round(n).toLocaleString('en-US')}
+function num(n){return n==null?'n/a':Number(n).toLocaleString('en-US')}
+function cls(age,limit){return age==null?'bad':age>limit*3?'bad':age>limit?'warn':''}
+var H={'Content-Type':'application/json','x-fleet-ui':'1'},holder=false,last={now:0,readers:0},cur='now',data={};
+function api(u,b){return fetch(u,{method:'POST',headers:H,credentials:'same-origin',body:JSON.stringify(b||{})}).then(function(r){return r.json().then(function(j){j.http=r.status;return j})})}
+function pill(){var a=last[cur]?Math.round((Date.now()-last[cur])/1000):null,p=$('pill');if(a==null){p.className='';p.lastChild.textContent='loading';return}p.className=a>300?'bad':a>120?'warn':'ok';p.lastChild.textContent=a>120?'not updating, last '+ago(a):'live, '+ago(a)}
+function load(k,force){if(document.hidden&&!force)return;var c=new AbortController(),t=setTimeout(function(){c.abort()},12000);
+fetch('/api/v3/'+k,{cache:'no-store',signal:c.signal,credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){clearTimeout(t);data[k]=d;last[k]=Date.now();$('off').textContent='';(k==='now'?renderNow:renderReaders)(d);pill()})
+.catch(function(e){clearTimeout(t);$('off').textContent="Couldn't refresh ("+(e&&e.name==='AbortError'?'timed out':'offline')+'). Showing the last good data.';pill()})}
+function sec(s,name){return s&&s.ok===false?'<p class="err">Could not read '+name+': '+esc(s.error)+'</p>':''}
+function renderNow(d){var n=d.needs||{},sp=d.spend||{},h=d.health||{},bad=[],tone='ok',title='All clear',sub='';
+['needs','spend','health'].forEach(function(k){if(d[k]&&d[k].ok===false)bad.push(k)});
+if(n.ok&&n.count>0){tone='bad';title=n.count+(n.count===1?' thing needs you':' things need you');sub='Only decisions that are irreversible and yours alone are shown.'}
+else if(bad.length){tone='warn';title="Can't read "+bad.join(', ');sub='Not confirmed clear.'}
+else if(sp.ok&&sp.pace_vs_budget>1.1){tone='warn';title='Spending ahead of budget';sub='At this pace the month lands at '+usd(sp.pace_month_usd)+' against '+usd(sp.budget_month_usd)+'.'}
+else sub='Nothing needs you.'+(n.ok&&n.fleet_handles?' The fleet is handling '+n.fleet_handles+' other items by itself.':'');
+var o='<div class="hero '+tone+'"><h1>'+esc(title)+'</h1><p>'+esc(sub)+'</p></div>';
+if(n.ok&&n.count>0){o+='<div class="card"><h2>Needs you</h2>';n.items.forEach(function(it){o+='<div class="need"><b>'+esc(it.title)+'</b>'+(it.why?'<small>'+esc(it.why)+'</small>':'<small>Sign in to see the detail.</small>')+'<button data-k="'+esc(it.key)+'" data-a="done" class="pri">Done</button> <button data-k="'+esc(it.key)+'" data-a="dismiss">Dismiss</button></div>'});o+='</div>'}
+o+='<div class="card"><h2>Money this month<span class="'+(sp.ok&&sp.pace_vs_budget>1.1?'bad':'')+'">'+(sp.ok&&sp.pace_vs_budget!=null?Math.round(sp.pace_vs_budget*100)+'% of budget pace':'')+'</span></h2>'+sec(sp,'spend');
+if(sp.ok){var pct=sp.budget_month_usd?Math.min(100,Math.round(sp.month_to_date_usd/sp.budget_month_usd*100)):0,bt=sp.pace_vs_budget>1.1?'bad':sp.pace_vs_budget>0.9?'warn':'';
+o+='<div class="big">'+usd(sp.month_to_date_usd)+' <span style="font-size:18px;color:var(--mut)">of '+usd(sp.budget_month_usd)+'</span></div><div class="bar '+bt+'"><div style="width:'+pct+'%"></div></div>';
+o+='<div class="row"><span>Current pace, per month</span><span>'+usd(sp.pace_month_usd)+'</span></div><div class="row"><span>Workers AI per day</span><span>'+usd(sp.workers_ai_daily_usd)+'</span></div><div class="row"><span>External providers per day</span><span>'+usd(sp.external_daily_usd)+'</span></div>'}
+o+='</div><div class="card"><h2>Is it running?<span class="'+cls(h.newest_heartbeat_age_s,900)+'">'+(h.ok?'last heartbeat '+ago(h.newest_heartbeat_age_s):'')+'</span></h2>'+sec(h,'health');
+if(h.ok){o+='<div class="row"><span>Workers reporting in the last 2 h</span><span>'+h.workers_reporting+' of '+h.workers_total+'</span></div>'+(h.stale_workers.length?'<div class="row"><span>Silent</span><span>'+esc(h.stale_workers.join(', '))+'</span></div>':'')+'<div class="row"><span>Metrics off target</span><span>'+h.metrics_off_target+' of '+h.metrics_total+'</span></div>'}
+$('s-now').innerHTML=o+'</div><p class="note">Updated '+ago(Math.round((Date.now()-Date.parse(d.generated_at))/1000))+' (server). Version '+esc(d.version)+(d.stale?' - showing a cached copy: every source failed on the last read.':'')+'</p>'}
+function renderReaders(d){var r=d.reach||{},c=d.content||{},o='';
+if(r.ok){var few=(r.referred_7d||0)<100,tone=few?'warn':'ok',t=few?'Few verifiable readers':'People are reading';
+o+='<div class="hero '+tone+'"><h1>'+t+'</h1><p>'+num(r.referred_7d)+' visits this week came from a named source (search, social, links). '+(r.no_referrer_share!=null?r.no_referrer_share+'% arrived with no referrer, which includes bots, so treat the headline as an upper bound.':'')+'</p></div>';
+o+='<div class="card"><h2>Pageviews, 7 days<span class="'+cls(r.ingest_age_s,86400)+'">through '+esc(r.data_day||'?')+', ingested '+ago(r.ingest_age_s)+'</span></h2><div class="big">'+num(r.pageviews_7d)+'</div><p class="note">'+(r.trend==null?'':(r.trend>=0?'Up ':'Down ')+Math.abs(r.trend)+'% on the previous three-week average ('+num(r.pageviews_prior_week_avg)+' a week). ')+'</p></div>';
+o+='<div class="card"><h2>Where named visits come from</h2>'+(r.top_referrers.length?r.top_referrers.map(function(x){return '<div class="row"><span>'+esc(x.name)+'</span><span>'+x.n+'</span></div>'}).join(''):'<p class="note">No named referrers this week.</p>')+'</div>';
+o+='<div class="card"><h2>Most read</h2>'+r.top_pages.map(function(x){return '<div class="row"><span>'+esc(x.name.length>46?x.name.slice(0,46)+'...':x.name)+'</span><span>'+x.n+'</span></div>'}).join('')+'</div>';
+o+='<div class="card"><h2>Do they respond?</h2><div class="row"><span>Newsletter subscribers</span><span>'+num(r.subscribers)+'</span></div><div class="row"><span>People who contacted you, 30 days</span><span>'+num(r.contacts_30d)+'</span></div><div class="row"><span>Outreach sent / replied, 7 days</span><span>'+num(r.outreach_sent_7d)+' / '+num(r.outreach_replied_7d)+'</span></div>'+(c.ok?'<div class="row"><span>Papers published, 7 days</span><span>'+num(c.published_7d)+'</span></div>':'')+'</div>'}
+else o+='<div class="hero warn"><h1>Readership unreadable</h1><p>'+esc(r.error||'')+'</p></div>';
+$('s-readers').innerHTML=o}
+function show(k){cur=k;['now','readers','code'].forEach(function(x){$('s-'+x).className='scr'+(x===k?' on':'');$('n-'+x).className=x===k?'on':''});$('cbar').className=k==='code'?'on':'';
+if(location.hash!=='#'+k)history.replaceState(null,'','#'+k);if(k==='code')codeInit();else if(!data[k]||Date.now()-last[k]>20000)load(k,true);pill()}
+function who(){return fetch('/api/cmd/whoami',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){holder=!!j.holder;return holder}).catch(function(){return false})}
+var warmed=false;
+function codeInit(){who().then(function(h){$('si').style.display=h?'none':'block';$('ci').disabled=!h;if(h&&!warmed){warmed=true;api('/api/v3/warm').then(function(j){$('warm').textContent=j.ok?'Container ready.':'Container warm-up failed: '+(j.error||'unknown')})}})}
+function msg(cl,t){var d=document.createElement('div');d.className='msg '+cl;d.textContent=t;$('log').appendChild(d);d.scrollIntoView({block:'end'});return d}
+function sid(){var s=localStorage.getItem('v3sid');if(!s){s='web-'+Math.random().toString(36).slice(2,12);localStorage.setItem('v3sid',s)}return s}
+function run(text){msg('you',text);var box=msg('agent','Starting...');$('ci').value='';
+api('/api/v3/code',{text:text,sid:sid()}).then(function(j){if(j.need){box.textContent=j.error;$('si').style.display='block';return}if(!j.ok){box.textContent='Could not start: '+(j.error||'http '+j.http);return}poll(j.id,box,Date.now())}).catch(function(e){box.textContent='Could not reach the server: '+e})}
+function poll(id,box,t0){fetch('/api/v3/code/'+id,{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+var st=(j.steps||[]).map(function(s){return '> '+s.tool+(s.args?' '+s.args:'')+' ('+s.ms+'ms)'}).join('\n');
+if(j.status==='running'){box.innerHTML='<div class="steps">'+esc(st||'thinking...')+'</div>Working... '+Math.round((Date.now()-t0)/1000)+'s';if(Date.now()-t0<1500000)setTimeout(function(){poll(id,box,t0)},1500);else box.textContent='Still running after 25 minutes; the run continues on the server (id '+id+').';return}
+box.innerHTML=(st?'<div class="steps">'+esc(st)+'</div>':'')+esc(j.status==='done'?j.reply:('Failed: '+(j.error||j.status)));box.scrollIntoView({block:'end'})}).catch(function(){setTimeout(function(){poll(id,box,t0)},3000)})}
+$('cf').addEventListener('submit',function(e){e.preventDefault();var t=$('ci').value.trim();if(t)run(t)});
+$('ci').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('cf').dispatchEvent(new Event('submit',{cancelable:true}))}});
+document.querySelectorAll('[data-q]').forEach(function(b){b.onclick=function(){if(!holder){codeInit();return}run(b.getAttribute('data-q'))}});
+$('send').onclick=function(){var tk=document.querySelector('[name=cf-turnstile-response]');$('send').disabled=true;api('/api/cmd/code',{cf_turnstile:tk?tk.value:''}).then(function(j){$('send').disabled=false;$('sim').textContent=j.ok?'Code sent to '+(j.to||'your email')+'.':(j.error||'Could not send the code.');if(j.ok)$('vc').focus()})};
+$('vb').onclick=function(){api('/api/cmd/verify',{code:$('vc').value.trim()}).then(function(j){if(j.ok){$('sim').textContent='Signed in.';codeInit();load('now',true)}else $('sim').textContent=j.error||'That code did not work.'})};
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-a]');if(!b)return;b.disabled=true;api('/api/owner/respond',{key:b.getAttribute('data-k'),kind:b.getAttribute('data-a')}).then(function(j){if(j.ok)load('now',true);else{b.disabled=false;if(j.http===401||j.http===403){show('code');$('sim').textContent='Sign in first (this action needs a recent code).'}else alert(j.error||'failed')}})});
+document.querySelectorAll('nav a').forEach(function(a){a.onclick=function(e){e.preventDefault();show(a.id.slice(2))}});
+setInterval(function(){pill();if(cur!=='code')load(cur)},30000);setInterval(pill,5000);
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&cur!=='code')load(cur,true)});
+who();show((location.hash||'#now').slice(1)==='readers'?'readers':(location.hash==='#code'?'code':'now'));
+})();`;
+function v3Html(env) {
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fleet</title><style>' + V3_CSS + '</style></head><body>' +
+    '<header><b>Fleet</b><div id="pill"><i></i><span>loading</span></div></header><main><p id="off" class="err"></p>' +
+    '<section id="s-now" class="scr on"><div class="hero"><h1>Loading...</h1><p>Reading the fleet.</p></div></section>' +
+    '<section id="s-readers" class="scr"><div class="hero"><h1>Loading...</h1></div></section>' +
+    '<section id="s-code" class="scr"><div class="chips"><button data-q="Give me a one-paragraph status of the fleet: what is broken, what changed in the last 24 hours.">Status</button><button data-q="Show the 5 most expensive workers by AI spend this week and how to cut each.">Cut costs</button><button data-q="List open pull requests and say which are safe to merge.">Open PRs</button></div>' +
+    '<p id="warm" class="note"></p><div id="si" class="card" style="display:none"><h2>Sign in</h2><p class="note">The command line runs real commands, so it needs your email code once (12 hours).</p>' + turnstileWidget(env, "fleet_cmd") + '<div id="sib"><button id="send" class="pri">Email me a code</button><input id="vc" inputmode="numeric" maxlength="6" placeholder="6-digit code"><button id="vb">Verify</button></div><p id="sim" class="note"></p></div><div id="log"></div></section></main>' +
+    '<div id="cbar"><form id="cf"><textarea id="ci" placeholder="Tell it what to do. It runs in a small container on Cloudflare." disabled></textarea><button class="pri" type="submit">Run</button></form></div>' +
+    '<nav><a id="n-now" href="#now">Now</a><a id="n-readers" href="#readers">Readers</a><a id="n-code" href="#code">Code</a></nav>' + TURNSTILE_SCRIPT + '<script>' + V3_JS + '</script></body></html>';
+}
 // ==== AREA-MAP platform: HTTP routes (handleRequest) ====
 async function handleRequest(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (request.method === "OPTIONS") return json({}, 204);
   const owner = await ownerState(request, env);
+  const v3res = await v3Routes(request, env, ctx, path, url, owner);
+  if (v3res) return v3res;
   if (path === "/ctl.js" || path === "/cmd" || path === "/cmd/" || path.indexOf("/api/cmd") === 0) return await cmdRoutes(request, env, ctx, path, owner);
   if (path.indexOf("/api/owner/") === 0) return await ownerRoutes(request, env, ctx, path, owner);
   // OWNER-PAGE-1 (2026-10-01): private owner page. Reconciled with OWNER-RESPOND-1: the owner cookie OR LOOP_TOKEN opens it.
@@ -3503,7 +3767,7 @@ if (path === "/health") {
   if (path === "/api/status" && (request.method === "GET" || request.method === "HEAD")) {
     return rtRead(request, url, await fleetStatusData(env, ctx), { schema: "fleet-status/v1" });
   }
-  if ((path === "/" || path === "") && url.searchParams.get("frag") !== "1" && (request.method === "GET" || request.method === "HEAD")) {
+  if ((path === "/" || path === "" || path === "/overview") && url.searchParams.get("frag") !== "1" && (request.method === "GET" || request.method === "HEAD")) {
     const publicPageCache = request.method === "GET" && !owner.authed && typeof caches !== "undefined" ? caches.default : null;
     if (publicPageCache) {
       try {
