@@ -1,7 +1,12 @@
 {
-  "audited_at": "2026-11-04 14:09:41",
-  "d1_write_failures": [],
-  "d1_writes_ok": 129,
+  "audited_at": "2026-11-04 14:27:52",
+  "d1_write_failures": [
+    [
+      "jnl-reviser",
+      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
+    ]
+  ],
+  "d1_writes_ok": 128,
   "guard": {
     "_guard_rc": 0,
     "ahead": [],
@@ -556,7 +561,7 @@
       },
       {
         "dir": "personal-api",
-        "version": "4.32.0",
+        "version": "4.33.0",
         "worker": "personal-api"
       },
       {
@@ -656,7 +661,7 @@
       },
       {
         "dir": "qnfo-intent-orchestrator",
-        "version": "1.7.3-codeagent",
+        "version": "1.7.4-codeagent",
         "worker": "qnfo-intent-orchestrator"
       },
       {
@@ -676,7 +681,7 @@
       },
       {
         "dir": "qnfo-memory-mcp",
-        "version": "2.7.1",
+        "version": "2.7.2",
         "worker": "qnfo-memory-mcp"
       },
       {
@@ -1001,9 +1006,9 @@
       "worker": "patches"
     },
     "personal-api": {
-      "before": "4.32.0",
+      "before": "4.33.0",
       "http": 200,
-      "live": "4.32.0",
+      "live": "4.33.0",
       "match": 1,
       "note": "SYNC",
       "worker": "personal-api"
@@ -1520,9 +1525,9 @@
       "worker": "qnfo-infra"
     },
     "qnfo-intent-orchestrator": {
-      "before": "1.7.3-codeagent",
+      "before": "1.7.4-codeagent",
       "http": 200,
-      "live": "1.7.3-codeagent",
+      "live": "1.7.4-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-intent-orchestrator"
@@ -1561,9 +1566,9 @@
       "worker": "qnfo-lifecycle"
     },
     "qnfo-memory-mcp": {
-      "before": "2.7.1",
+      "before": "2.7.2",
       "http": 200,
-      "live": "2.7.1",
+      "live": "2.7.2",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-memory-mcp"
@@ -1870,5 +1875,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 1
 }
