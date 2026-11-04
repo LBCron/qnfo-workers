@@ -2,7 +2,7 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "1.5.6-codeagent"; /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
+var VERSION = "1.5.7-codeagent"; /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
 // 1.2.0 (2026-10-12, pillar reach, issue 1753) SUBSCRIBE-FUNNEL-1: every step of the sign-up
 // funnel is counted in qnfo-audit.subscribe_funnel (day, stage, source, n; a counter, never an address): box and page views,
 // submits by outcome (accepted, honeypot, invalid, rate-limited, suppressed, repeat), confirmation mails sent or failed,
@@ -297,18 +297,16 @@ async function ensureSubscriberUtm(env) {
   if (!env.AUDIT || SUB_UTM_READY.has(env.AUDIT)) return;
   let ready = true;
   // CF-OBS-ISSUE-1: the lazy ALTER TABLE ran on cold start and intermittently exceeded the D1
-  // storage-operation timeout. Probe for each column with a SELECT instead (cheap, no DDL); the
+  // storage-operation budget. Probe for each column with a catalog read (cheap, no DDL); the
   // ALTER runs only when the column is genuinely missing, once per isolate.
   for (const col of ["utm_source", "utm_campaign"]) {
     let present = false;
     try {
-      await env.AUDIT.prepare("SELECT " + col + " FROM subscribers WHERE 1 = 0").all();
-      present = true;
+      const r = await env.AUDIT.prepare("SELECT 1 AS x FROM pragma_table_info('subscribers') WHERE name = ?1").bind(col).first();
+      present = !!(r && r.x);
     } catch (e) {
       const probeMsg = String(e && e.message || e);
-      if (!/no such column|no column/i.test(probeMsg)) {
-        console.error(JSON.stringify({ worker: "qnfo-subscribers", where: "ensureSubscriberUtm", probe: col, error: probeMsg.slice(0, 200) }));
-      }
+      console.error(JSON.stringify({ worker: "qnfo-subscribers", where: "ensureSubscriberUtm", probe: col, error: probeMsg.slice(0, 200) }));
     }
     if (present) continue;
     try {
