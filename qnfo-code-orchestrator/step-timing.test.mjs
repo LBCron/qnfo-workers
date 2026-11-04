@@ -1,0 +1,21 @@
+// STEP-TIMING-1: a workflow run names the step it hangs at and reports its slowest steps. Output MUST contain "0 failed".
+import { readFileSync } from "node:fs";
+const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
+const a = src.indexOf("async function executeStep(step, env) {");
+const b = src.indexOf("\n}\n", src.indexOf("async function executeTask(task, env, runId) {")) + 3;
+ok(a > 0 && b > a, "executeTask found");
+const body = src.slice(a, b).replace(/async function runSQL[\s\S]*?\n}\n/, "");
+const writes = [];
+const env = { AUDIT: { prepare: (q) => ({ bind: (...x) => ({ run: async () => { writes.push([q, x]); } }) }) } };
+const fns = new Function("env0", "writes", "var clock = 0; const realNow = Date.now; Date.now = () => clock;\n" + "async function runAI(){} async function runSQL(def){ clock += def.cost; return { type: 'sql' }; } async function runHTTP(){}\n" + body + "\nreturn { executeTask, tick: (n) => { clock += n; }, restore: () => { Date.now = realNow; } };");
+const api = fns(env, writes);
+const task = { type: "workflow", definition: JSON.stringify({ steps: [{ type: "sql", name: "a", cost: 1000 }, { type: "sql", name: "slow", cost: 50000 }, { type: "sql", name: "c", cost: 10 }] }) };
+const r = await api.executeTask(task, env, 7);
+ok(r.steps_run === 3 && r.ms_total === 51010 && r.slow[0].n === "slow" && r.slow[0].ms === 50000, "finished run carries total and slowest steps");
+ok(writes.length === 1 && /progress: step 3\/3 c began at 51000 ms/.test(String(writes[0][1][0])) && writes[0][1][1] === 7, "step about to start is written once past 45 s");
+const w0 = writes.length; await api.executeTask(task, env, null);
+ok(writes.length === w0, "no write without a run id");
+api.restore();
+console.log(pass + " passed, " + fail + " failed");

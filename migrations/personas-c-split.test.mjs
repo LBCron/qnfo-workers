@@ -1,0 +1,21 @@
+// PERSONAS-C-SPLIT-1 offline suite: replays migrations/2026-11-04-personas-c-split.sql on node:sqlite. Output MUST contain "0 failed" on success.
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+const sql = readFileSync(new URL("../migrations/2026-11-04-personas-c-split.sql", import.meta.url), "utf8");
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
+ok(/^-- APPLY-BY: ci$/m.test(sql) && /^-- DB: qnfo-audit$/m.test(sql) && /^-- Rollback: /m.test(sql) && /^-- BACKUP: /m.test(sql), "header opts in");
+const body = sql.split("\n").filter((l) => !l.startsWith("--")).join("\n");
+const db = new DatabaseSync(":memory:");
+db.exec("CREATE TABLE fleet_tasks(id TEXT PRIMARY KEY,name TEXT,type TEXT,definition TEXT,timeout_ms INT,retries INT,version INT,enabled INT,updated_at TEXT);CREATE TABLE fleet_crons(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,cron_expr TEXT,task_id TEXT,enabled INT DEFAULT 1,timezone TEXT,last_fired TEXT,next_fire TEXT,updated_at TEXT);");
+const all = Array.from({ length: 35 }, (_, i) => "s" + i);
+db.prepare("INSERT INTO fleet_tasks VALUES('management-personas-c','n','workflow',?,120000,1,1,1,'x')").run(JSON.stringify({ steps: all.map((n) => ({ type: "sql", name: n, db: "AUDIT", sql: "SELECT 1" })) }));
+const names = (id) => JSON.parse(db.prepare("SELECT definition d FROM fleet_tasks WHERE id=?").get(id).d).steps.map((s) => s.name);
+db.exec(body);
+const [a, b, c] = [names("management-personas-c"), names("management-personas-c2"), names("management-personas-c3")];
+ok(a.length === 10 && b.length === 15 && c.length === 10, "split 10/15/10");
+ok(a.concat(b, c).join() === all.join(), "order and content kept");
+ok(db.prepare("SELECT COUNT(*) n FROM fleet_crons").get().n === 2, "two crons");
+db.exec(body);
+ok(names("management-personas-c").length === 10 && db.prepare("SELECT COUNT(*) n FROM fleet_crons").get().n === 2, "a replay changes nothing");
+console.log(pass + " passed, " + fail + " failed");
