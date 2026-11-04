@@ -1028,7 +1028,38 @@ def trigger_upstream(trigger_rows, table):
     return seen
 
 
-def depth_canary(acct, token, db_id, table, advisory=None):
+# INSERT-BASELINE-CANARY-1 (2026-11-04, live outage 18:57:17-19:22Z): migration cloud-ops-events-trigger-cost.sql re-created tool_error_rate_filer_v3_ins (an AFTER INSERT
+# trigger on cloud_ops_events whose body INSERTs into agent_issues) with only its WHEN clause changed. From 9 seconds later every plain INSERT INTO cloud_ops_events
+# ("INSERT ... VALUES" and "INSERT ... SELECT") failed with "triggers nested too deep" (INSERT OR IGNORE and OR REPLACE still worked, so about half the writers did), for 25
+# minutes, across qnfo-ops, qnfo-fleet-control, qnfo-pdf and qnfo-youtube-shorts. The canary saw it: its INSERT-shaped probe was refused, but since 2026-10-18 that refusal is
+# only an advisory (on agent_issues the same form is refused whatever the trigger contains while real inserts work), so the run was recorded ok. Reproduced on a scratch copy of
+# the schema: with the filer trigger absent the insert compiles; with it present, in either its old or new text, as the newest trigger of the table, it does not; the same trigger
+# with INSERT OR IGNORE INTO agent_issues in its body compiles. A table whose insert probe is refused BEFORE the file runs (agent_issues) is chronic and stays an advisory; a table
+# whose insert probe passed before and is refused after a CREATE TRIGGER is this file's regression and refuses it, exactly like an UPDATE or DELETE refusal.
+def insert_probe(acct, token, db_id, name):
+    """'ok', 'deep' (refused with a trigger-depth error) or 'unknown' for a zero-row explicit-column INSERT on table `name`."""
+    cols = [c["name"] for c in d1(acct, token, db_id, "SELECT name FROM pragma_table_info(?1)", [name])]
+    if not cols:
+        return "unknown"
+    ins = 'INSERT INTO "%s" (%s) SELECT %s FROM "%s" WHERE 0' % (name, ", ".join('"%s"' % c for c in cols), ", ".join('"%s"' % c for c in cols), name)
+    try:
+        d1(acct, token, db_id, ins, retry=False)
+        return "ok"
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        return "deep" if ("nested too deep" in msg or "too many levels of trigger" in msg) else "unknown"
+
+
+def insert_baseline(acct, token, db_id, trigger_rows, tables):
+    """{table: 'ok'|'deep'|'unknown'} for each table in `tables` and every table upstream of it, read before a file changes any trigger."""
+    names = {r["name"].lower(): r["name"] for r in d1(acct, token, db_id, "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    want = set()
+    for t in tables:
+        want |= trigger_upstream(trigger_rows, t)
+    return {t: insert_probe(acct, token, db_id, names[t]) for t in sorted(want) if t in names}
+
+
+def depth_canary(acct, token, db_id, table, advisory=None, baseline=None):
     """None when every zero-row UPDATE/DELETE upstream of `table` still compiles, else the refused statement and error.
 
     TRIGGER-DEPTH-INSERT-ADVISORY-1 (2026-10-18, migration_runs 292/296): an INSERT-shaped zero-row probe is still run,
@@ -1070,6 +1101,8 @@ def depth_canary(acct, token, db_id, table, advisory=None):
                 d1(acct, token, db_id, ins)
             except Exception as e:  # noqa: BLE001
                 msg = str(e)
+                if ("nested too deep" in msg or "too many levels of trigger" in msg) and baseline and baseline.get(t) == "ok":
+                    return ins[:70] + " -> triggers nested too deep (INSERT-BASELINE-CANARY-1: it compiled before this file)"
                 if ("nested too deep" in msg or "too many levels of trigger" in msg) and advisory is not None:
                     advisory.append(ins[:120] + " -> " + msg[:120])
                 elif TRIGGER_COMPILE_ERR.search(msg):
@@ -1195,6 +1228,13 @@ def apply_file(path, text, acct, token, commit, emit=print):
         trigger_snapshot = {}
     # TRIGGER-COMPILE-CANARY-1: a file that creates, drops or alters anything could break the fleet_tick insert through a view its triggers read, so
     # the insert is probed before and after; only a fault the file brought makes it fail, and the views it created or changed are put back.
+    insert_base = {}
+    trig_tables = {m.group(2) for m in (TRIGGER_ON.match(body(s)) for s in statements(text)) if m}
+    if trig_tables and info["db"] == "qnfo-audit":
+        try:
+            insert_base = insert_baseline(acct, token, db_id, [{"sql": v} for v in trigger_snapshot.values() if v], trig_tables)
+        except Exception:  # noqa: BLE001 - no baseline: every insert refusal stays an advisory, as before
+            insert_base = {}
     tick_baseline_ok, view_snapshot = None, {}
     if info["db"] == "qnfo-audit" and re.search(r"(?im)^\s*(?:CREATE|DROP|ALTER)\s", text):
         try:
@@ -1241,7 +1281,7 @@ def apply_file(path, text, acct, token, commit, emit=print):
             return record_failure(path, sha, commit, info, acct, token, ledger_id, "statement " + str(done_n + 1) + ": " + str(e)[:400], emit, done_n)
         tm = TRIGGER_ON.match(body(s))
         if tm:
-            refused = depth_canary(acct, token, db_id, tm.group(2), advisories)
+            refused = depth_canary(acct, token, db_id, tm.group(2), advisories, insert_base)
             if refused:
                 try:
                     d1(acct, token, db_id, 'DROP TRIGGER IF EXISTS "%s"' % tm.group(1))
@@ -1252,6 +1292,13 @@ def apply_file(path, text, acct, token, commit, emit=print):
                     try:
                         d1(acct, token, db_id, prior)
                         restored = " The definition this file replaced was restored, so the table is as it was."
+                        # INSERT-BASELINE-CANARY-1: a trigger's place in the table's list matters (the same text restored as the newest trigger can break inserts again),
+                        # so after an insert refusal the restored definition is probed too; if inserts are refused again it is dropped, because working inserts outrank
+                        # one optional trigger.
+                        if refused.startswith("INSERT") and insert_probe(acct, token, db_id, tm.group(2)) == "deep":
+                            d1(acct, token, db_id, 'DROP TRIGGER IF EXISTS "%s"' % tm.group(1))
+                            restored = (" The replaced definition was restored, refused inserts again at its new position and was dropped again (" + tm.group(2) + " accepts inserts, "
+                                        "without " + tm.group(1) + "; re-create it with a shallower body, for example INSERT OR IGNORE).")
                     except Exception as e:  # noqa: BLE001
                         restored = " RESTORE FAILED, the table is without this trigger: " + str(e)[:120]
                 compile_class = refused.startswith("TRIGGER-COMPILE-1")

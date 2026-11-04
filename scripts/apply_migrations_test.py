@@ -1407,5 +1407,60 @@ rc, j, err = noop_run("noop-no-events-table", "UPDATE ops_config SET value = 'x'
 ok(rc == 0 and j.get("ok") and len(j.get("noop_updates") or []) == 1 and "noop report" in err and db.execute("SELECT status FROM migration_runs WHERE file = 'migrations/noop-no-events-table.sql'").fetchone()[0] == "ok",
    "an unwritable event row never fails the migration", (rc, j, err))
 
+# INSERT-BASELINE-CANARY-1 (live outage 2026-11-04 18:57-19:22Z): an insert probe that passed before the file and is refused after it vetoes the file; one refused before is chronic
+# and stays an advisory; a restored prior definition that refuses inserts again at its new position is dropped again.
+db.execute("CREATE TABLE evt (id TEXT, k TEXT)")
+db.execute("CREATE TABLE iss (t TEXT)")
+db.commit()
+ib_state = {"recreated": False, "chronic": False}
+ib_real_call = C.call
+NESTED_DEEP = (400, {"success": False, "errors": [{"code": 7500, "message": "triggers nested too deep: SQLITE_ERROR"}]})
+
+
+def ib_call(method, path, token, body=None, timeout=60):
+    sql = body["sql"]
+    if sql.lstrip().upper().startswith("CREATE TRIGGER") and "evt_filer" in sql:
+        ib_state["recreated"] = True
+    if sql.lstrip().startswith('INSERT INTO "evt" (') and " WHERE 0" in sql:
+        if ib_state["chronic"] or (ib_state["recreated"] and db.execute("SELECT 1 FROM sqlite_master WHERE name = 'evt_filer'").fetchone()):
+            return NESTED_DEEP
+    return ib_real_call(method, path, token, body, timeout)
+
+
+IB_HEAD = """-- INSERT-BASELINE-CANARY-1 test
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DROP TRIGGER IF EXISTS evt_filer
+"""
+IB_TRIGGER = "CREATE TRIGGER evt_filer AFTER INSERT ON evt BEGIN INSERT INTO iss (t) VALUES (NEW.k); END;\n"
+C.call = ib_call
+try:
+    # (a) regression: the insert compiled before the file, is refused after it -> the trigger is dropped at once and the file stops
+    rc = M.apply_file("migrations/ib-regress.sql", IB_HEAD + IB_TRIGGER + "INSERT OR REPLACE INTO ops_config (key, value) VALUES ('after_ib', '1');\n", "a", "t", "ib1", emit)
+    ok(rc == 1 and "D1-TRIGGER-DEPTH-1" in out[-1] and "INSERT-BASELINE-CANARY-1" in out[-1] and not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'evt_filer'").fetchone()
+       and not db.execute("SELECT 1 FROM ops_config WHERE key = 'after_ib'").fetchone(), "an insert refusal that was not there before the file refuses it and drops the trigger", out[-1])
+    # (b) chronic: the insert probe is refused before the file too (agent_issues): advisory only, the trigger stays
+    ib_state.update({"recreated": False, "chronic": True})
+    rc = M.apply_file("migrations/ib-chronic.sql", IB_HEAD + "-- chronic\n" + IB_TRIGGER, "a", "t", "ib2", emit)
+    ok(rc == 0 and json.loads(out[-1]).get("ok") and db.execute("SELECT 1 FROM sqlite_master WHERE name = 'evt_filer'").fetchone() and json.loads(out[-1]).get("advisory"),
+       "an insert probe refused before the file stays an advisory (agent_issues) and the trigger stays", out[-1])
+    # (c) replace: DROP + CREATE of an existing trigger; the restored prior text refuses again at its new position -> dropped again, inserts work
+    db.execute("DROP TRIGGER evt_filer")
+    ib_state.update({"recreated": False, "chronic": False})
+    db.execute(IB_TRIGGER.rstrip().rstrip(";"))
+    db.commit()
+    ib_state["recreated"] = False
+    db.execute("CREATE TABLE ib_bak (x)")
+    db.commit()
+    rc = M.apply_file("migrations/ib-replace.sql", IB_HEAD + "-- BACKUP: ib_bak\nDROP TRIGGER IF EXISTS evt_filer;\n" + IB_TRIGGER.replace("VALUES (NEW.k)", "VALUES (NEW.k || 'v2')"), "a", "t", "ib3", emit)
+    ok(rc == 1 and "dropped again" in out[-1] and not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'evt_filer'").fetchone(),
+       "a restored definition that refuses inserts again at its new position is dropped again", out[-1])
+    # (d) no trigger statement, no baseline probes
+    n_probe = len([q for q in calls[-400:] if 'INSERT INTO "evt" (' in q])
+    rc = M.apply_file("migrations/ib-plain.sql", IB_HEAD + "INSERT OR REPLACE INTO ops_config (key, value) VALUES ('ib_plain', '1');\n", "a", "t", "ib4", emit)
+    ok(rc == 0 and len([q for q in calls[-400:] if 'INSERT INTO "evt" (' in q]) == n_probe, "a file without a trigger statement takes no insert baseline")
+finally:
+    C.call = ib_real_call
+
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
