@@ -1,8 +1,15 @@
 {
-  "audited_at": "2026-11-04 02:37:12",
+  "audited_at": "2026-11-04 03:10:46",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
+    "_drift_confirm": {
+      "first_pass": [
+        "qnfo-ops"
+      ],
+      "refreshed": true,
+      "second_pass": []
+    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -586,7 +593,7 @@
       },
       {
         "dir": "qnfo-ai",
-        "version": "5.44.0",
+        "version": "5.44.1-codeagent",
         "worker": "qnfo-ai"
       },
       {
@@ -691,7 +698,7 @@
       },
       {
         "dir": "qnfo-ops",
-        "version": "2.62.17-codeagent",
+        "version": "2.62.18-codeagent",
         "worker": "qnfo-ops"
       },
       {
@@ -1112,9 +1119,9 @@
       "worker": "qnfo-agents"
     },
     "qnfo-ai": {
-      "before": "5.44.0",
+      "before": "5.44.1-codeagent",
       "http": 200,
-      "live": "5.44.0",
+      "live": "5.44.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai"
@@ -1594,9 +1601,9 @@
       "worker": "qnfo-observability"
     },
     "qnfo-ops": {
-      "before": "2.62.17-codeagent",
+      "before": "2.62.18-codeagent",
       "http": 200,
-      "live": "2.62.17-codeagent",
+      "live": "2.62.18-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ops"
