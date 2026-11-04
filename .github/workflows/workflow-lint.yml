@@ -31,9 +31,10 @@ permissions:
   contents: read
 
 # GHA-AUDIT-1: a newer push to a PR cancels the superseded run; push runs are grouped per sha and never cancel.
+# PUSH-COALESCE-1 (2026-11-04, pillar autonomy): a burst of merges queued one run of this workflow per pushed sha (66 of 100 queued runs at 15:54Z were push runs, 38 merges in the last hour). Only the newest main matters, so a newer push cancels the older run; ci-watchdog reads only conclusion failure, so a cancelled run files nothing. Revert: group by github.sha and cancel only on pull_request.
 concurrency:
-  group: workflow-lint-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: workflow-lint-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'push' && 'main-push') || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   lint:
