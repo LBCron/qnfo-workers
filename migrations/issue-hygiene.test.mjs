@@ -185,10 +185,15 @@ const snap = (db) => ({
 const detector = (db) => { const p = one(db, "SELECT verify_probe FROM remediation_contracts WHERE class = 'fm-meta-issue-outlives-subject'"); return p ? one(db, p.verify_probe) : null; };
 
 // ================= base, then the file =================
-const base = build(); fixture(base);
+// SUITE-FLAKE-1: base and db are two separate builds and issue_triage.triaged_at defaults to datetime('now'), so a second boundary crossed between the two
+// fixtures made every kept ticket's triage row differ (1 run in 12 locally, every run on the loaded CI runner from 2026-11-04 23:04Z, ci-watchdog issue 7294).
+// Both fixtures get the same frozen stamp before the file runs; the file's own writes to triaged_at still show in the comparison.
+const FROZEN = "2026-10-26 00:00:00";
+const freeze = (d) => d.exec("UPDATE issue_triage SET triaged_at = '" + FROZEN + "'");
+const base = build(); fixture(base); freeze(base);
 const before = snap(base);
 const trg0 = one(base, "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'trigger'").n;
-const db = build(); fixture(db); db.exec(sql);
+const db = build(); fixture(db); freeze(db); db.exec(sql);
 const after = snap(db);
 const closedIds = Object.values(CLOSES).flat();
 
