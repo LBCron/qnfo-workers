@@ -1,15 +1,17 @@
 {
-  "audited_at": "2026-11-04 07:05:02",
-  "d1_write_failures": [],
-  "d1_writes_ok": 129,
+  "audited_at": "2026-11-04 08:58:34",
+  "d1_write_failures": [
+    [
+      "papers",
+      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
+    ],
+    [
+      "qnfo-errata-orchestrator",
+      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
+    ]
+  ],
+  "d1_writes_ok": 127,
   "guard": {
-    "_drift_confirm": {
-      "first_pass": [
-        "qnfo-fleet-control"
-      ],
-      "refreshed": true,
-      "second_pass": []
-    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -603,7 +605,7 @@
       },
       {
         "dir": "qnfo-ai-search",
-        "version": "2.12.15-codeagent",
+        "version": "2.12.16-codeagent",
         "worker": "qnfo-ai-search"
       },
       {
@@ -1135,9 +1137,9 @@
       "worker": "qnfo-ai-calibration"
     },
     "qnfo-ai-search": {
-      "before": "2.12.15-codeagent",
+      "before": "2.12.16-codeagent",
       "http": 200,
-      "live": "2.12.15-codeagent",
+      "live": "2.12.16-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai-search"
@@ -1877,5 +1879,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 3
 }
