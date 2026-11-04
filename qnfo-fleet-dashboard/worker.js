@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.90.0";
+var VERSION = "1.91.0";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -3605,6 +3605,15 @@ async function v3Needs(env, authed) {
     })
   };
 }
+// COST-LEDGER-ALLVENDOR-1b: what the AI part would have to average for the rest of the month to land on the budget; reachable false when everything else already
+// forecasts above it. null when Workers AI is not a ledger line. aiLine is the v_cost_lines_month row of cloudflare / workers_ai.
+function v3AiRoom(allIn, aiLine, nowMs) {
+  if (!allIn || !aiLine || allIn.budget_month_usd == null || allIn.forecast_month_usd == null || aiLine.forecast_month_usd == null) return null;
+  const d = new Date(nowMs), dim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(), left = dim - d.getUTCDate() + 1;
+  const nonAi = Number(allIn.forecast_month_usd) - Number(aiLine.forecast_month_usd);
+  const room = Number(allIn.budget_month_usd) - nonAi - (Number(aiLine.mtd_usd) || 0);
+  return { reachable: room > 0, ai_daily_room_usd: room > 0 ? Math.round(room / left * 100) / 100 : 0, ai_daily_now_usd: Number(aiLine.rate_daily_usd) || 0, non_ai_forecast_usd: Math.round(nonAi * 100) / 100, days_left: left };
+}
 async function v3Spend(env) {
   const c = await costFeedData(env);
   const row = function(g) { const r = (c.run_rate || []).filter(function(x) { return x.source_group === g; })[0]; return r ? Number(r.daily_7d) || 0 : null; };
@@ -3621,7 +3630,8 @@ async function v3Spend(env) {
       mtd_usd: c.all_in.mtd_usd, forecast_month_usd: c.all_in.forecast_month_usd, budget_month_usd: c.all_in.budget_month_usd, budget_floor_month_usd: c.all_in.budget_floor_month_usd,
       measured_share_pct: c.all_in.measured_share_pct, fleet_measured_share_pct: c.all_in.fleet_measured_share_pct, owner_stated_usd: c.all_in.owner_stated_usd,
       top3: (c.all_in_lines || []).slice(0, 3).map(function(l) { return { line: l.vendor + " " + String(l.product).replace(/_/g, " "), usd: l.forecast_month_usd, evidence: l.evidence }; }),
-      data_age_s: v3Age(c.all_in.last_usage_at)
+      data_age_s: v3Age(c.all_in.last_usage_at),
+      room: v3AiRoom(c.all_in, (c.all_in_lines || []).filter(function(l) { return l.vendor === "cloudflare" && l.product === "workers_ai"; })[0], Date.now())
     } : null
   };
 }
@@ -3850,20 +3860,21 @@ function load(k,force,fresh){if(document.hidden&&!force)return;var c=new AbortCo
 fetch('/api/v3/'+k+(fresh?'?fresh=1':''),{cache:'no-store',signal:c.signal,credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){clearTimeout(t);data[k]=d;last[k]=Date.now();$('off').textContent='';(k==='now'?renderNow:renderReaders)(d);pill()})
 .catch(function(e){clearTimeout(t);$('off').textContent="Couldn't refresh ("+(e&&e.name==='AbortError'?'timed out':'offline')+'). Showing the last good data.';pill()})}
 function sec(s,name){return s&&s.ok===false?'<p class="err">Could not read '+name+': '+esc(s.error)+'</p>':''}
-function renderNow(d){var n=d.needs||{},sp=d.spend||{},h=d.health||{},bad=[],tone='ok',title='All clear',sub='';
+function renderNow(d){var n=d.needs||{},sp=d.spend||{},h=d.health||{},bad=[],tone='ok',title='All clear',sub='';var ai0=sp.all_in&&sp.all_in.budget_month_usd?sp.all_in:null,fc=ai0?ai0.forecast_month_usd:sp.pace_month_usd,ratio=ai0?ai0.forecast_month_usd/ai0.budget_month_usd:sp.pace_vs_budget;
 ['needs','spend','health'].forEach(function(k){if(d[k]&&d[k].ok===false)bad.push(k)});
 if(n.ok&&n.count>0){tone='bad';title=n.count+(n.count===1?' thing needs you':' things need you');sub='Only decisions that are irreversible and yours alone are urgent.'}
 else if(bad.length){tone='warn';title="Can't read "+bad.join(', ');sub='Not confirmed clear.'}
-else if(sp.ok&&sp.pace_vs_budget>1.1){tone='warn';title='Spending ahead of budget';sub='At this pace the month lands at '+usd(sp.pace_month_usd)+' against '+usd(sp.budget_month_usd)+'.'}
+else if(sp.ok&&ratio>1.1){tone='warn';title='Spending ahead of budget';sub='At this pace the month lands at '+usd(fc)+(ai0?' all-in':'')+' against '+usd(sp.budget_month_usd)+'.'}
 else sub='Nothing urgent needs you.'+(n.ok&&n.optional?' '+n.optional+' optional items are parked below.':'')+(n.ok&&n.fleet_handles?' The fleet is handling '+n.fleet_handles+' other items by itself.':'');
 var o='<div class="hero '+tone+'"><h1>'+esc(title)+'</h1><p>'+esc(sub)+'</p></div>';
-var wk=d.work||{};o+='<div class="card"><h2>Your four numbers</h2><div class="row"><span>Readers: visits from a named source, 30 days</span><span>'+(wk.ok&&wk.referral_30d!=null?num(wk.referral_30d)+' for '+num(wk.publications_30d)+' papers':'n/a')+'</span></div><div class="row"><span>Cost: fleet pace per month, against '+usd(sp.budget_month_usd)+'</span><span>'+(sp.ok&&sp.pace_month_usd!=null?usd(sp.pace_month_usd):'n/a')+'</span></div><div class="row"><span>Your load: urgent items</span><span>'+(n.ok?n.count:'n/a')+'</span></div><div class="row"><span>Reliability: workers reporting</span><span>'+(h.ok?h.workers_reporting+' of '+h.workers_total:'n/a')+'</span></div></div>';
+var wk=d.work||{};o+='<div class="card"><h2>Your four numbers</h2><div class="row"><span>Readers: visits from a named source, 30 days</span><span>'+(wk.ok&&wk.referral_30d!=null?num(wk.referral_30d)+' for '+num(wk.publications_30d)+' papers':'n/a')+'</span></div><div class="row"><span>Cost: '+(ai0?'all-vendor forecast':'fleet pace')+' per month, against '+usd(sp.budget_month_usd)+'</span><span>'+(sp.ok&&fc!=null?usd(fc):'n/a')+'</span></div><div class="row"><span>Your load: urgent items</span><span>'+(n.ok?n.count:'n/a')+'</span></div><div class="row"><span>Reliability: workers reporting</span><span>'+(h.ok?h.workers_reporting+' of '+h.workers_total:'n/a')+'</span></div></div>';
 if(n.ok&&n.items&&n.items.length){o+='<div class="card"><h2>'+(n.count>0?'Needs you':'Optional, not urgent')+'</h2>';n.items.forEach(function(it){o+='<div class="need"><b>'+esc(it.title)+'</b>'+(it.why?'<small>'+esc(it.why)+'</small>':'<small>Sign in to see the detail.</small>')+(!it.key?'<small>Sign in on the Code tab to act on this.</small><div hidden>':'')+'<button data-k="'+esc(it.key)+'" data-h="1" class="pri">Fleet: you do it</button> <button data-k="'+esc(it.key)+'" data-a="snooze">Snooze 7 days</button> <button data-k="'+esc(it.key)+'" data-h="verify">I did it</button> <button data-k="'+esc(it.key)+'" data-a="snooze90">Not needed</button>'+(!it.key?'</div>':'')+'</div>'});o+='</div>'}
-o+='<div class="card"><h2>Money this month<span class="'+(sp.ok&&sp.pace_vs_budget>1.1?'bad':sp.ok?cls(sp.data_age_s,10800):'')+'">'+(sp.ok&&sp.pace_vs_budget!=null?Math.round(sp.pace_vs_budget*100)+'% of budget pace, ':'')+(sp.ok?'updated '+ago(sp.data_age_s):'')+'</span></h2>'+sec(sp,'spend');
+o+='<div class="card"><h2>Money this month<span class="'+(sp.ok&&ratio>1.1?'bad':sp.ok?cls(sp.data_age_s,10800):'')+'">'+(sp.ok&&ratio!=null?Math.round(ratio*100)+'% of budget'+(ai0?' (all-in forecast)':' pace')+', ':'')+(sp.ok?'updated '+ago(sp.data_age_s):'')+'</span></h2>'+sec(sp,'spend');
 if(sp.ok){var pct=sp.budget_month_usd?Math.min(100,Math.round(sp.month_to_date_usd/sp.budget_month_usd*100)):0,bt=sp.pace_vs_budget>1.1?'bad':sp.pace_vs_budget>0.9?'warn':'';
 var ai=sp.all_in;if(ai&&ai.budget_month_usd){pct=Math.min(100,Math.round(ai.mtd_usd/ai.budget_month_usd*100));bt=ai.forecast_month_usd>ai.budget_month_usd*1.1?'bad':ai.forecast_month_usd>ai.budget_month_usd*0.9?'warn':''}
 o+='<div class="big">'+usd(ai?ai.mtd_usd:sp.month_to_date_usd)+' <span style="font-size:18px;color:var(--mut)">of '+usd(ai?ai.budget_month_usd:sp.budget_month_usd)+(ai?' all-in so far':'')+'</span></div><div class="bar '+bt+'"><div style="width:'+pct+'%"></div></div>';
-if(ai){o+='<div class="row"><span>All vendors, forecast for the month (target '+usd(ai.budget_floor_month_usd)+' to '+usd(ai.budget_month_usd)+')</span><span>'+usd(ai.forecast_month_usd)+'</span></div><div class="row"><span>Largest three lines</span><span>'+(ai.top3||[]).map(function(t){return esc(t.line)+' '+usd(t.usd)+(t.evidence==='owner-stated'?' (stated)':'')}).join(', ')+'</span></div><div class="row"><span>Read from a vendor meter or invoice</span><span>'+Math.round(ai.measured_share_pct||0)+'% of the total, '+Math.round(ai.fleet_measured_share_pct||0)+'% of the fleet part</span></div>'}
+if(ai){o+='<div class="row"><span>All vendors, forecast for the month (target '+usd(ai.budget_floor_month_usd)+' to '+usd(ai.budget_month_usd)+')</span><span>'+usd(ai.forecast_month_usd)+'</span></div><div class="row"><span>Largest three lines</span><span>'+(ai.top3||[]).map(function(t){return esc(t.line)+' '+usd(t.usd)+(t.evidence==='owner-stated'?' (stated)':'')}).join(', ')+'</span></div><div class="row"><span>Read from a vendor meter or invoice</span><span>'+Math.round(ai.measured_share_pct||0)+'% of the total, '+Math.round(ai.fleet_measured_share_pct||0)+'% of the fleet part</span></div>';
+var rm=ai.room;if(rm){o+='<div class="row"><span>'+(rm.reachable?'To land at '+usd(ai.budget_month_usd)+', AI would have to average, per day, for the rest of the month':'Everything except AI is forecast at '+usd(rm.non_ai_forecast_usd)+': above the budget even with AI at zero')+'</span><span>'+(rm.reachable?'$'+Number(rm.ai_daily_room_usd).toFixed(2)+' (now $'+Number(rm.ai_daily_now_usd).toFixed(2)+')':'')+'</span></div>'}}
 var own=sp.external_daily_usd!=null?sp.external_daily_usd*30:null;o+='<div class="row"><span>Fleet (AI + Cloudflare) at the current rate, per month</span><span>'+usd(sp.pace_month_usd)+'</span></div><div class="row"><span>Your own subscriptions (figure you gave, unverified)</span><span>'+usd(own)+'</span></div><div class="row"><span>Both together</span><span>'+(sp.pace_month_usd!=null&&own!=null?usd(sp.pace_month_usd+own):'n/a')+'</span></div><p class="note">The budget compares with the fleet line. Only the fleet part can be cut by the system; the subscriptions fall when you cancel plans the Code tab replaces.</p>'}
 o+='</div><div class="card"><h2>Is it running?<span class="'+cls(h.newest_heartbeat_age_s,900)+'">'+(h.ok?'last heartbeat '+ago(h.newest_heartbeat_age_s):'')+'</span></h2>'+sec(h,'health');
 if(h.ok){o+='<div class="row"><span>Workers reporting in the last 2 h</span><span>'+h.workers_reporting+' of '+h.workers_total+'</span></div>'+(h.stale_workers.length?'<div class="row"><span>Silent</span><span>'+esc(h.stale_workers.join(', '))+'</span></div>':'')+'<div class="row"><span>Command line, last run</span><span>'+(h.cmd_last_status?esc(h.cmd_last_status)+', '+ago(h.cmd_last_age_s):'never run: sign in on the Code tab')+'</span></div>'}
