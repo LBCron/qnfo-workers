@@ -307,7 +307,10 @@ function usageOf(o: any): { i: number; o: number; n: number } {
 async function meter(env: Env, modelId: string, u: { i: number; o: number; n: number }) {
   if (!u.n && !u.i) return;
   try {
-    const p: any = await env.AUDIT_DB.prepare("SELECT price_in, price_out FROM cf_model_catalog WHERE model_id = ?1").bind(modelId).first();
+    // The AI Gateway route (dynamic/standard) picks the real model, so the catalog has no row for it; price those calls at the model the route
+    // resolved to on 2026-11-04 (deepseek-v4.1-flash-1017, Cloudflare's meter) until the gateway log carries the resolved model.
+    let p: any = await env.AUDIT_DB.prepare("SELECT price_in, price_out FROM cf_model_catalog WHERE model_id = ?1").bind(modelId).first();
+    if (!p) p = await env.AUDIT_DB.prepare("SELECT price_in, price_out FROM cf_model_catalog WHERE model_id = '@cf/deepseek-ai/deepseek-v4.1-flash-1017'").first();
     const usd = (u.i * (Number(p && p.price_in) || 0) + u.o * (Number(p && p.price_out) || 0)) / 1e6;
     await env.AUDIT_DB.prepare("INSERT INTO ai_spend_ledger (day, provider, caller, model, calls, in_tok, out_tok, usd, downgraded, refused) VALUES (?1,'workers-ai','qnfo-agents',?2,?3,?4,?5,?6,0,0) ON CONFLICT(day, provider, caller, model) DO UPDATE SET calls=calls+excluded.calls, in_tok=in_tok+excluded.in_tok, out_tok=out_tok+excluded.out_tok, usd=usd+excluded.usd")
       .bind(new Date().toISOString().slice(0, 10), String(modelId).slice(0, 120), u.n, u.i, u.o, usd).run();
