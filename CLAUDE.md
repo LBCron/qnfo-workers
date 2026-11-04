@@ -10,6 +10,13 @@ because each one was broken at least once; the linked issue holds the evidence.
 - Anticipate the owner's next question and answer it first. Do every chore a tool can do; hand the owner only what no tool can do (a sign-in code, their own accounts), once, in one line, and keep working on the rest.
 - Run independent work in parallel sessions or subagents and keep going on your own piece. Waiting on a session is not a reason to idle. This moves no limit: the interrupt gate, harness permission checks, the secret lock and live work claims keep their precedence.
 
+## Large worker files: read one function, not the file (WORKER-OUTLINE-1)
+- `qnfo-research-exec/worker.js` is 1.6 MB, `qnfo-fleet-dashboard` 1.4 MB, `qnfo-fleet-control` 1.3 MB, `qnfo-ops` 0.8 MB. Opening one whole costs
+  200k-400k tokens before the first edit (the owner's "millions of tokens to change code", 2026-11-04), and a Grep hit on a long line prints thousands of characters.
+- `python scripts/worker_outline.py <worker>` lists every top-level function with its line and size; `--grep <text>` filters names, `--show <function>`
+  prints one function with long lines cut (`--full` to keep them), `--find "<text>"` gives line numbers for an anchor. Then Read with offset/limit and Edit.
+  Measured: `remediationContractsTick` is 23 KB of the 1.3 MB file. Never Read a worker.js whole; never print an unbounded Grep match.
+
 ## Shared operating library and documentation discovery (FLEET-SHARED-LIBRARY-1)
 - Every agent loads `docs/agent-library/README.md` for cost-aware Cloudflare,
   included GitHub and authorized external-service selection, research/publication
