@@ -30,10 +30,11 @@ name: remediation-consumer
 # 20:31Z, 41894454508 at 19:11Z, 41884323072), so a contract that became due mid-run waited for the next run and a two-pass issue close took 80 minutes. The steps
 # of one run, measured on the 8 runs of 2026-11-04, in seconds (range): contract run 61-692, loop-breaker with the BP26 collectors 79-404, restore drill 300-490,
 # weekly export step 270-370, trigger-depth sweep 120-139, cost ledger 50-250, blocker red-team 59-84, observability bridge 11-80. They ran in series. The work is
-# now three jobs:
+# now four jobs beside each other:
 #   consume  the contract run and the status artifact: what every issue close waits for, with nothing else in front of it;
-#   sweeps   the observability bridge, loop-breaker + BP26, red-team, trigger-depth sweep, claim reaper, StackExchange and the daily continuity snapshot:
-#            every cycle, as before, but beside the contract run instead of behind it;
+#   sweeps   StackExchange, the observability bridge, loop-breaker + BP26 and the red-team: every cycle, as before, but beside the contract run instead of behind it;
+#   audits   the trigger-depth sweep, the view-health pass (4-6 minutes, formerly the tail of the consumer step), the claim reaper and the daily continuity snapshot
+#            with its table sweeps: every cycle, as before;
 #   heavy    cost ledger, weekly export, restore drill: when the newest consumer-heavy-stamp artifact is 3 hours old (scripts/consumer-cadence-gate.mjs), so a
 #            run that does not need them finishes without them. The drill also holds itself for 24 hours after an attempt (scripts/d1_restore_drill.py).
 # Pinned by scripts/consumer-speed.test.mjs; measured with `node scripts/consumer-run-timing.mjs --check` (median consume minutes, timeout cancellations, heavy cadence).
@@ -219,10 +220,10 @@ jobs:
           echo "status push failed after 3 attempts"
           exit 0
 
-  # CONSUMER-SPEED-1: every sweep that used to queue behind the contract run, in a job of its own so none of them waits for it or delays it. All of them run every
-  # cycle exactly as before (the observability bridge, the loop-breaker, the red-team, the trigger-depth sweep, the claim reaper, StackExchange, the daily
-  # continuity snapshot); only the order changed. Each step has its own timeout and none fails the job. The slowest, the loop-breaker step, is bounded by the BP26
-  # collectors' 300 s budget (scripts/bp26_producers.py), which is also why it measured 6 minutes.
+  # CONSUMER-SPEED-1: the sweeps that used to queue behind the contract run, in a job of their own so none of them waits for it or delays it: StackExchange, the
+  # observability bridge, the loop-breaker with the BP26 collectors and the red-team. All of them run every cycle exactly as before; only the order changed. Each step has
+  # its own timeout and none fails the job. The slowest, the loop-breaker step, is bounded by the BP26 collectors' 300 s budget (scripts/bp26_producers.py), which is also why
+  # it measured 6 minutes. The D1 audits are the `audits` job below.
   sweeps:
     needs: cadence-gate
     if: needs.cadence-gate.outputs.run == 'true'
@@ -280,6 +281,29 @@ jobs:
         timeout-minutes: 5
         run: |
           python3 scripts/blocker_redteam_runner.py --selftest && python3 scripts/blocker_redteam_runner.py
+
+  # CONSUMER-SPEED-1: the D1 audits, in a job of their own beside `sweeps` so neither is the longer of the two for the other's sake: the trigger-depth sweep (2 minutes), the
+  # view-health pass (242 serial EXPLAINs, 4 to 6 minutes, formerly the tail of the consumer step), the claim reaper and the daily continuity snapshot with its table sweeps.
+  # All of them run every cycle exactly as before.
+  audits:
+    needs: cadence-gate
+    if: needs.cadence-gate.outputs.run == 'true'
+    concurrency:
+      group: remediation-consumer-audits
+      cancel-in-progress: false
+    # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
 
       # TRIGGER-DEPTH-SWEEP-1 (owner directive 2026-10-17 "ALL SWEEPS SHALL BE SCHEDULED FOR PERIODIC FAILURE-MODE/ROOT-CAUSE
       # AUTOMATIC AUDITS AND REMEDIATION"): sweeps every qnfo-audit table with the zero-row INSERT/UPDATE/DELETE probes and,

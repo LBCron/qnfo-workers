@@ -66,19 +66,36 @@ function gh(path) {
   }
 }
 
-async function main() {
-  const repo = process.env.GITHUB_REPOSITORY || "QNFO/qnfo-workers";
-  const list = gh("repos/" + repo + "/actions/workflows/remediation-consumer.yml/runs?per_page=30");
+// The whole gate step, with its inputs injected so a suite can drive it end to end: env (EVENT, HEAD_MSG, RUN_ID, FORCE_HEAVY, GITHUB_REPOSITORY, GITHUB_OUTPUT),
+// ghApi(path) -> parsed JSON or null, write(path, text) appends to the step output file. Returns the text written to GITHUB_OUTPUT (the job outputs `run` and `heavy`).
+// CONSUMER-SPEED-2 (2026-11-04): the first version of this function wrote only `run=`, so the heavy job was skipped on every run after PR 7261 merged (run
+// 41921457675: "Set output 'run'" and no heavy line) and the cost ledger, the weekly export and the restore drill stopped. scripts/consumer-speed.test.mjs now runs it.
+export async function gate(env, ghApi, write, log = console.log, now = Date.now()) {
+  const repo = env.GITHUB_REPOSITORY || "QNFO/qnfo-workers";
+  const list = ghApi("repos/" + repo + "/actions/workflows/remediation-consumer.yml/runs?per_page=30");
   const d = await decide({
-    event: process.env.EVENT,
-    headMsg: process.env.HEAD_MSG,
+    event: env.EVENT,
+    headMsg: env.HEAD_MSG,
     runs: (list && list.workflow_runs) || [],
-    jobsOf: async (id) => { const j = gh("repos/" + repo + "/actions/runs/" + id + "/jobs"); return j ? j.jobs : null; },
-    now: Date.now(),
-    selfId: process.env.RUN_ID
+    jobsOf: async (id) => { const j = ghApi("repos/" + repo + "/actions/runs/" + id + "/jobs"); return j ? j.jobs : null; },
+    now,
+    selfId: env.RUN_ID
   });
-  console.log((d.run ? "run: " : "skip: ") + d.why);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, "run=" + (d.run ? "true" : "false") + "\n");
+  log((d.run ? "run: " : "skip: ") + d.why);
+  // One call, only for a run that will consume: a skipped trigger needs no heavy decision.
+  let h = { heavy: false, why: "no consumer run" };
+  if (d.run) {
+    const arts = ghApi("repos/" + repo + "/actions/artifacts?name=" + HEAVY_STAMP + "&per_page=5");
+    h = heavyDue({ force: env.FORCE_HEAVY, artifacts: arts ? arts.artifacts : null, now });
+  }
+  log((h.heavy ? "heavy: " : "no heavy: ") + h.why);
+  const text = "run=" + (d.run ? "true" : "false") + "\nheavy=" + (h.heavy ? "true" : "false") + "\n";
+  if (env.GITHUB_OUTPUT) write(env.GITHUB_OUTPUT, text);
+  return text;
+}
+
+async function main() {
+  await gate(process.env, gh, appendFileSync);
 }
 
 async function selftest() {
