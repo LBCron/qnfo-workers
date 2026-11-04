@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.82.0";
+var VERSION = "1.82.1";
+// 1.82.1 V3-DASH-1 follow-up (pillar core; patch): the Code screen header said "loading" forever; it now says signed in or sign in to start.
 // 1.82.0 V3-DASH-1 (owner request 2026-11-04, pillar core; minor, new home page and routes): "/" is three screens (Now, Readers, Code) on a static shell that paints at once; GET /api/v3/now and /api/v3/readers read small, separately timed sections and carry their own age; POST /api/v3/code starts an ops-exec run and GET /api/v3/code/<id> returns its steps. The old overview stays at /classic and every /area page is unchanged. Cause: "/" took 10-19 s measured on 2026-11-04 (fleetStatusData).
 // 1.81.4 AREA-FEED-LATENCY-1 (#6717, agent_issues 1001453, pillar core): area reads use cached probe counts without building the human queue or awaiting a cold fleet refresh.
 // 1.81.3 FLEET-STATUS-STATE-OVERLAP-1 (issue #1001440, pillar core; patch): start the cached fleet-state read alongside independent /api/status inputs so a slow state read does not delay those reads or the public queue page.
@@ -3601,7 +3602,7 @@ function num(n){return n==null?'n/a':Number(n).toLocaleString('en-US')}
 function cls(age,limit){return age==null?'bad':age>limit*3?'bad':age>limit?'warn':''}
 var H={'Content-Type':'application/json','x-fleet-ui':'1'},holder=false,last={now:0,readers:0},cur='now',data={};
 function api(u,b){return fetch(u,{method:'POST',headers:H,credentials:'same-origin',body:JSON.stringify(b||{})}).then(function(r){return r.json().then(function(j){j.http=r.status;return j})})}
-function pill(){var a=last[cur]?Math.round((Date.now()-last[cur])/1000):null,p=$('pill');if(a==null){p.className='';p.lastChild.textContent='loading';return}p.className=a>300?'bad':a>120?'warn':'ok';p.lastChild.textContent=a>120?'not updating, last '+ago(a):'live, '+ago(a)}
+function pill(){if(cur==='code'){var q=$('pill');q.className=holder?'ok':'warn';q.lastChild.textContent=holder?'signed in':'sign in to start';return}var a=last[cur]?Math.round((Date.now()-last[cur])/1000):null,p=$('pill');if(a==null){p.className='';p.lastChild.textContent='loading';return}p.className=a>300?'bad':a>120?'warn':'ok';p.lastChild.textContent=a>120?'not updating, last '+ago(a):'live, '+ago(a)}
 function load(k,force){if(document.hidden&&!force)return;var c=new AbortController(),t=setTimeout(function(){c.abort()},12000);
 fetch('/api/v3/'+k,{cache:'no-store',signal:c.signal,credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){clearTimeout(t);data[k]=d;last[k]=Date.now();$('off').textContent='';(k==='now'?renderNow:renderReaders)(d);pill()})
 .catch(function(e){clearTimeout(t);$('off').textContent="Couldn't refresh ("+(e&&e.name==='AbortError'?'timed out':'offline')+'). Showing the last good data.';pill()})}
