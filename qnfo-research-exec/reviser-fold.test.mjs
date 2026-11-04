@@ -17,7 +17,7 @@ const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m 
 
 {
   const legacy = /\/\/ REVISED-STANDARD-1[\s\S]*?__name\(standardizeBody, "standardizeBody"\);/;
-  ok(legacy.test(guest) && /function standardizeBody\(md, title\) \{\s*return formatPaper\(md, \{ title \}\)\.body;/.test(src), "only the retired standardizer is replaced by the shared canonical formatter");
+  ok(legacy.test(guest) && /function standardizeBody\(md, title\) \{\s*return canonicalBody\(md, \{ title \}\);/.test(src), "only the retired standardizer is replaced by the shared canonical formatter");
   const missing = guest.replace(legacy, "").split("\n").filter((l) => l.trim() && !src.includes(l.trim()));
   ok(missing.every((l) => /^var VERSION = |^export \{|^  worker_default as default,|^  recordFlaggedErrata|^\};|^\/\/# sourceMappingURL/.test(l)) && missing.some((l) => l.startsWith("var VERSION = ")), "every reviser line is in the host except its VERSION line and its export block", missing.map((l) => l.slice(0, 60)));
   ok(versionAtLeast(mod.__hv, "0.9.64") && versionAtLeast(mod.__mv, "1.3.0") && (src.match(/var VERSION = "/g) || []).length === 1, "host 0.9.64+, member 1.2.8-folded, one quoted VERSION constant", [mod.__hv, mod.__mv]);

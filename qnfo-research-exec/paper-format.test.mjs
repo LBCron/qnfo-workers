@@ -38,14 +38,15 @@ test("full public corpus repair converges, preserves versions/status and attribu
     assert.equal(row.status, { a: "published", b: "distributed", c: "external_preprint" }[row.slug]);
     assert.equal(row.version, "2.1");
     assert.match(row.change_actor, /paper-format/);
-    assert.match(row.body_md, /author: "Writer"/);
+    assert.equal(row.body_md, "# Broken Title\n\n## Abstract\n\nA complete real abstract about a scientific result.\n\n## 1. Introduction\n\nBody with $x^2$.\n", "PAPER-CANONICAL-1: no front matter, byline or wrapped title is stored");
+    assert.equal(row.updated_at, null, "a format-only change leaves the revision date alone");
     assert.equal(row.abstract, "A complete real abstract about a scientific result.");
   }
   assert.equal(living.prepare("SELECT body_md FROM papers WHERE slug='d'").get().body_md, old);
   await paperFormatTick(env, { batch: 2 });
   await paperFormatTick(env, { batch: 2 });
   const state = JSON.parse(audit.prepare("SELECT value FROM ops_config").get().value);
-  assert.deepEqual({ ...state.lastSweep, at: null }, { rules: "PAPER-FORMAT-2", at: null, checked: 3, repaired: 0, errors: 0 });
+  assert.deepEqual({ ...state.lastSweep, at: null }, { rules: "PAPER-CANONICAL-1", at: null, checked: 3, repaired: 0, errors: 0, refused: 0 });
   assert.equal(living.prepare("SELECT COUNT(*) AS n FROM old_bodies").get().n, 3);
   const source = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
   assert.match(source, /await paperFormatTick\(env\)/);
@@ -88,4 +89,19 @@ test("a concurrent metadata correction is not overwritten or reported as converg
   assert.equal(paper.abstract, "Concurrent abstract");
   assert.equal(paper.subtitle, "Concurrent subtitle");
   assert.equal(paper.body_md, "# Title");
+});
+
+test("a canonical body that would be thinner is refused and the row is left as it is", async () => {
+  const living = new DatabaseSync(":memory:");
+  const audit = new DatabaseSync(":memory:");
+  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT);");
+  audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
+  // A paper that is almost all "Version History": removing it would lose most of the words.
+  const body = "# Thin\n\n## Abstract\n\nShort abstract.\n\n## Version History\n\n" + "- Version 1.0.0: a long history entry that is most of the paper. ".repeat(60) + "\n";
+  living.prepare("INSERT INTO papers (slug,title,abstract,body_md,version,status) VALUES ('t','Thin','Short abstract.',?,'1.0.0','published')").run(body);
+  const r = await paperFormatTick({ LIVING_PAPER: d1(living), QNFO_AUDIT: d1(audit) }, { batch: 5 });
+  assert.equal(r.refused, 1);
+  assert.equal(r.repaired, 0);
+  assert.equal(living.prepare("SELECT body_md FROM papers WHERE slug='t'").get().body_md, body);
+  assert.match(JSON.parse(audit.prepare("SELECT value FROM ops_config").get().value).refusedList[0].why, /words/);
 });

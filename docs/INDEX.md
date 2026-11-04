@@ -107,6 +107,8 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Output quality ledger (OUTPUT-QUALITY-LEDGER-1)](OUTPUT-QUALITY-LEDGER.md) - `docs/OUTPUT-QUALITY-LEDGER.md`
 - [Paper authoring guidelines: the plain-language standard (PLAIN-STANDARD-1)](PAPER-AUTHORING-GUIDELINES.md) - `docs/PAPER-AUTHORING-GUIDELINES.md`
 - [Paper ledger and withdrawal guard (PAPER-LEDGER-1, PAPER-WITHDRAW-GUARD-1)](PAPER-LEDGER.md) - `docs/PAPER-LEDGER.md`
+- [Paper ledger and withdrawal guard (PAPER-LEDGER-1, PAPER-WITHDRAW-GUARD-1)](PAPER-LEDGER.md) - `docs/PAPER-LEDGER.md`
+- [Paper ledger and withdrawal guard (PAPER-LEDGER-1, PAPER-WITHDRAW-GUARD-1)](PAPER-LEDGER.md) - `docs/PAPER-LEDGER.md`
 - [PATCH artifact dispositions (PATCH-ARTIFACTS-RECONCILED-1)](PATCH-ARTIFACT-DISPOSITIONS-2026-10-01.md) - `docs/PATCH-ARTIFACT-DISPOSITIONS-2026-10-01.md`
 - [Pi integration](PI-INTEGRATION.md) - `docs/PI-INTEGRATION.md`
 - [PIPELINE-FLOW-POLICY-1](PIPELINE-FLOW-POLICY-1.md) - `docs/PIPELINE-FLOW-POLICY-1.md`
@@ -363,6 +365,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-citation-watch](../qnfo-citation-watch/README.md) - `qnfo-citation-watch/README.md`
 - [qnfo-cloud-ops — scheduled cloud operations (2026-08-28)](../qnfo-cloud-ops/README.md) - `qnfo-cloud-ops/README.md`
 - [qnfo-code-orchestrator v0.3.0](../qnfo-code-orchestrator/README.md) - `qnfo-code-orchestrator/README.md`
+- [qnfo-code-orchestrator 0.46.0-codeagent (2026-11-04)](../qnfo-code-orchestrator/releases/0.46.0-codeagent.md) - `qnfo-code-orchestrator/releases/0.46.0-codeagent.md`
 - [CONTAINER-RESTORE-1 — qnfo-containers-pilot \[\[containers\]\] restore (issue #1485)](../qnfo-containers-pilot/CONTAINER-RESTORE-1.md) - `qnfo-containers-pilot/CONTAINER-RESTORE-1.md`
 - [qnfo-containers-pilot v0.2.0](../qnfo-containers-pilot/README.md) - `qnfo-containers-pilot/README.md`
 - [RESTORE-1485 — deploy trigger + endpoint-side blocker record](../qnfo-containers-pilot/RESTORE-1485.md) - `qnfo-containers-pilot/RESTORE-1485.md`
@@ -386,6 +389,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-gateway 3.55.0-codeagent (2026-11-04)](../qnfo-gateway/releases/3.55.0-codeagent.md) - `qnfo-gateway/releases/3.55.0-codeagent.md`
 - [qnfo-gateway 3.56.1-codeagent (2026-11-04)](../qnfo-gateway/releases/3.56.1-codeagent.md) - `qnfo-gateway/releases/3.56.1-codeagent.md`
 - [qnfo-gateway 3.57.0-codeagent (2026-11-04)](../qnfo-gateway/releases/3.57.0-codeagent.md) - `qnfo-gateway/releases/3.57.0-codeagent.md`
+- [qnfo-gateway 3.57.1-codeagent (2026-11-04)](../qnfo-gateway/releases/3.57.1-codeagent.md) - `qnfo-gateway/releases/3.57.1-codeagent.md`
 - [qnfo-github-steward](../qnfo-github-steward/README.md) - `qnfo-github-steward/README.md`
 - [qnfo-idea-factory — QNFO Ideas (ideas.qnfo.org)](../qnfo-idea-factory/README.md) - `qnfo-idea-factory/README.md`
 - [qnfo-intent-orchestrator](../qnfo-intent-orchestrator/README.md) - `qnfo-intent-orchestrator/README.md`
@@ -423,9 +427,11 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-proof - adversarial proof verification ledger](../qnfo-proof/README.md) - `qnfo-proof/README.md`
 - [CLOSEOUT — 2026-10-17 · publication pipeline (qnfo-research-exec)](../qnfo-research-exec/CLOSEOUT-2026-10-17.md) - `qnfo-research-exec/CLOSEOUT-2026-10-17.md`
 - [qnfo-research-exec](../qnfo-research-exec/README.md) - `qnfo-research-exec/README.md`
+- [qnfo-research-exec 0.50.0 (2026-11-04)](../qnfo-research-exec/releases/0.50.0.md) - `qnfo-research-exec/releases/0.50.0.md`
 - [qnfo-research-radar](../qnfo-research-radar/README.md) - `qnfo-research-radar/README.md`
 - [qnfo-scorecard](../qnfo-scorecard/README.md) - `qnfo-scorecard/README.md`
 - [qnfo-social](../qnfo-social/README.md) - `qnfo-social/README.md`
+- [qnfo-social 0.22.0 (2026-11-04)](../qnfo-social/releases/0.22.0.md) - `qnfo-social/releases/0.22.0.md`
 - [qnfo-subscribers](../qnfo-subscribers/README.md) - `qnfo-subscribers/README.md`
 - [qnfo-thread-ingest](../qnfo-thread-ingest/README.md) - `qnfo-thread-ingest/README.md`
 - [qnfo-tools-mcp](../qnfo-tools-mcp/README.md) - `qnfo-tools-mcp/README.md`

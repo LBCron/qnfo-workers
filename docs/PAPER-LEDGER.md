@@ -56,6 +56,10 @@ Detector `fm-paper-ledger-bodies-unbounded` fails above 330 MB.
 `papers_fts` (the full-text index) failed its integrity check in production because `papers_au` ran an FTS5 delete on every update; see
 `migrations/living-paper/2026-10-26-papers-fts-drift.sql`. A new trigger on `papers` must not issue an FTS statement for an update that leaves `title` and `abstract` alone.
 
+## Stored shape (PAPER-CANONICAL-1)
+
+Owner directive 2026-11-04: a revised paper looks like a new release, and the earlier text stays verbatim. `papers.body_md` holds only `# Title`, an optional italic subtitle, `## Abstract` and the paper: no YAML front matter, byline or metadata block, repeated or wrapped title, in-body Version History, Changelog, correction notice or revision banner (`_shared/paper-canonical.js`, inlined into qnfo-research-exec between the `PAPER-CANONICAL-1` markers by `node _shared/inline-paper-canonical.mjs`). Every writer stores that shape (`canonicalBody`), and `paperFormatTick` rewrites the stored corpus 100 papers a tick: it sets `change_actor` and a per-paper `change_reason`, so the ledger keeps the previous body in `paper_change_bodies`; it leaves `updated_at`, `version` and `last_revised_at` alone and puts the new text in the R2 mirror (the git copy follows through `repoSyncTick`). A body that would lose more than 35 percent of its words, a reference list or unexplained headings is refused and listed in `ops_config paper_format_state` (`refusedList`, `lastSweep.refused`). Owner-written `qnfo-2025-*` papers keep a history section that is their own text. Who changed what, and when, is read from `v_paper_revisions`, `paper_revision_log` and the Versions tab.
+
 ## Reading the record (PAPER-HISTORY-1, qnfo-gateway 3.56.0)
 
 Owner directive 2026-11-04: every edit of a paper keeps its full version information, earlier versions stay verbatim, the Versions tab shows what changed (not only raw text), and each paper links to the

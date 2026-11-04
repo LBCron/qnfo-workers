@@ -16,7 +16,7 @@ const grab = (name) => {
 const vars = ["THIN_BATCH", "THIN_RELATED_MAX", "THIN_RELATED_MIN", "THIN_RELATED_BODY_MAX", "THIN_TARGET_FULL_MAX", "THIN_TARGET_HEAD", "THIN_RETRY_DAYS", "THIN_HEADING", "THIN_STOP"].map((c) => {
   const m = new RegExp("\\nvar " + c + " = ([^\\n]*;)").exec(src); if (!m) throw new Error("missing " + c); return "var " + c + " = " + m[1];
 }).join("\n");
-const fns = ["thinPaperUrl", "thinMatchQuery", "thinBump", "thinTargetText", "thinWorksBlock", "thinPrompt", "thinSectionCheck", "thinRereadPrompt", "standardizeBody", "insertPriorWork", "thinLog", "thinCandidates", "thinRelated", "thinPriorWork", "thinRun", "thinOff", "parseRereadVerdict", "parseJsonObject", "addChangelog", "applyVersionMarkers", "releaseGateVerdict"];
+const fns = ["thinPaperUrl", "thinMatchQuery", "thinBump", "thinTargetText", "thinWorksBlock", "thinPrompt", "thinSectionCheck", "thinRereadPrompt", "canonicalPaper", "canonicalBody", "standardizeBody", "insertPriorWork", "thinLog", "thinCandidates", "thinRelated", "thinPriorWork", "thinRun", "thinOff", "parseRereadVerdict", "parseJsonObject", "addChangelog", "applyVersionMarkers", "releaseGateVerdict"];
 // DEGENERATE-TEXT-PRODUCER-1 (0.39.0): releaseGateVerdict reads the DEGENERATE-TEXT block, so the block is part of the function under test.
 const degenBlock = src.slice(src.indexOf("// DEGENERATE-TEXT-BEGIN"), src.indexOf("// DEGENERATE-TEXT-END"));
 const factory = new Function("aiText", "formatPaper", vars + "\nvar __name = function(){};\nvar MODEL = 'writer-model'; var REREAD_MODEL = 'reader-model';\n" + degenBlock + "\n" + fns.map(grab).join("\n") + "\nreturn { " + fns.join(", ") + " };");

@@ -38,12 +38,13 @@ assert.match(sum, /references 2 -> 3/);
 
 const h = rlWithHistory(newMd, "1.1.0", "2026-10-19", ["Version 1.0.1 (2026-10-19, from 1.0.0): corrected statements", "Version 1.1.0 (2026-10-19, from 1.0.1): " + sum]);
 assert.ok(!/> \*\*Revised/.test(h), "no banner under the title (PROPORTIONATE-NOTICE-1)");
-assert.ok(h.indexOf("## Version History") > 0 && h.indexOf("## Version History") < h.indexOf("## References"), "history sits before the references");
-assert.match(h, /- Version 1\.0\.1 .*\n- Version 1\.1\.0/);
-// A second pass replaces the banner and section instead of stacking them.
-const h2 = rlWithHistory(h, "1.2.0", "2026-10-20", ["Version 1.2.0 (2026-10-20, from 1.1.0): again"]);
-assert.equal((h2.match(/## Version History/g) || []).length, 1);
-assert.match(h2, /Version 1\.2\.0/);
+assert.ok(!/## Version History|Version 1\.0\.1/.test(h), "PAPER-CANONICAL-1: the body carries no history section; the log and the ledger keep it");
+assert.equal(h, newMd, "a clean body passes through unchanged");
+// An old body that still carries a section or a banner has both removed, and a second pass stays clean.
+const dirty = newMd.replace("## References", "> **Revised (version 1.0.1, 2026-10-19):** x\n\n## Version History\n\n- Version 1.0.1 (2026-10-19, from 1.0.0): old\n\n## References");
+const h2 = rlWithHistory(dirty, "1.2.0", "2026-10-20", ["Version 1.2.0 (2026-10-20, from 1.1.0): again"]);
+assert.ok(!/Version History|Revised \(version|Version 1\.2\.0/.test(h2));
+assert.equal(rlWithHistory(h2, "1.2.0", "2026-10-20", []), h2);
 
 // The tick: scripted qnfo-audit and living-paper.
 function makeEnv(o) {
@@ -247,7 +248,7 @@ console.log("revision-loop: ok");
   const s = rlStripNotices(old);
   assert.ok(!/Correction/.test(s) && /Body\./.test(s) && /## References/.test(s), s);
   const w = rlWithHistory(old, "1.0.1", "2026-10-19", ["Version 1.0.1 (2026-10-19, from 1.0.0): wording: 1 sentence was restated as a proposal"]);
-  assert.ok(!/Correction/.test(w) && /## Version History\n\n- Version 1\.0\.1/.test(w), w);
+  assert.ok(!/Correction|Version History/.test(w) && /Body\./.test(w) && /## References/.test(w), w);
   assert.equal(rlWithHistory("# T\n\nBody.\n", "1.0.0", "2026-10-19", []), "# T\n\nBody.\n");
   const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
   assert.ok(/filter\(function\(p\) \{ return rlEligible\(p, pipeSlugs\); \}\)/.test(src), "the claim sweep covers pipeline papers only");
@@ -282,7 +283,7 @@ console.log("revision-loop: ok");
   const up = writes.filter(([s]) => /UPDATE papers SET/.test(s));
   assert.equal(up.length, 2);
   assert.deepEqual(up[0][1].slice(0, 6), ["owner-one", "Owner One", "A", "# Owner One\n\nOriginal.", "1.0.0", "published"]);
-  assert.ok(!/Correction/.test(up[1][1][1]) && /## Version History\n\n- Version 1\.0\.1 .*wording/.test(up[1][1][1]), up[1][1][1]);
+  assert.ok(!/Correction|Version History/.test(up[1][1][1]) && /Body\./.test(up[1][1][1]) && /## References/.test(up[1][1][1]), up[1][1][1]);
   assert.ok(!up.some(([, a]) => a[0] === "pipe-gone"), "a pipeline retraction stays");
 }
 assert.ok(/if \(r\.verdict === "flagged" && live\[r\.slug\]\) st\.flagged\+\+/.test(readFileSync(new URL("./worker.js", import.meta.url), "utf8")), "papers_fabricated_claims_open counts only papers the sweep still covers");
