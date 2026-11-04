@@ -1,0 +1,35 @@
+// RESEARCH-INTAKE-RIGID-1 (idea-hub 1.17.0): machine accepts enter research_queue only as real conjectures; noise stays held in idea_proposals.
+// Run: node idea-hub/intake-rigid.test.mjs
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { stripWorkerDefaultExport } from "../scripts/worker-source-test.mjs";
+const here = dirname(fileURLToPath(import.meta.url));
+const src = stripWorkerDefaultExport(readFileSync(join(here, "worker.js"), "utf8")).replace(/export default\s*\{/, "var __default = {");
+const sb = { console: { log() {}, error() {} }, Date, JSON, Math, Number, String, RegExp, Set, Map, Array, Object, Promise, URL, Response, Request, Headers, TextEncoder, crypto, fetch: async () => { throw new Error("no net"); } };
+vm.createContext(sb);
+vm.runInContext(src + "\n__x = { enqueueAccepted, intakeNoiseReason };", sb);
+const api = sb.__x;
+const real = "Born rule as Haar measure on p-adic balls. " + "The note conjectures a formal setting with testable consequences. ".repeat(10);
+assert.equal(api.intakeNoiseReason(real), null);
+assert.match(api.intakeNoiseReason("Error-corrected estimation — arXiv 2609.16226v1. Auto-candidate from daily research scan; triage for QNFO research fit."), /auto-candidate/);
+assert.match(api.intakeNoiseReason('{"ideas":["Can a quantum-inspired framework help?"]}'), /JSON/);
+assert.match(api.intakeNoiseReason("Re-entry from 10.5281/zenodo.22758388: ## Prologue: Why Ultrametric?"), /re-entry/);
+assert.equal(api.intakeNoiseReason("A short but plain idea"), null);
+const db = new DatabaseSync(":memory:");
+db.exec("CREATE TABLE idea_proposals (id INTEGER PRIMARY KEY, name TEXT, idea TEXT, status TEXT, rationale TEXT); CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, score REAL, decision TEXT, status TEXT, created_at TEXT, UNIQUE(source, source_id)); CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);");
+const env = { QNFO_AUDIT: { prepare(sql) { let a = []; const q = sql.replace(/\?(\d+)/g, "?"); const st = { bind(...x) { a = x; return st; }, async first() { return db.prepare(q).get(...a) || null; }, async run() { const r = db.prepare(q).run(...a); return { meta: { changes: Number(r.changes) } }; }, async all() { return { results: db.prepare(q).all(...a) }; } }; return st; } } };
+db.prepare("INSERT INTO idea_proposals (id,name,idea,status) VALUES (1,'auto-scan','x Auto-candidate from daily research scan; triage','new'),(2,'think','" + real + "','new'),(3,'owner','tiny owner idea','new')").run();
+assert.equal(await api.enqueueAccepted(env, 1, "Title — arXiv 1. Auto-candidate from daily research scan; triage for QNFO research fit.", 0.8, "t", false), false);
+assert.match(db.prepare("SELECT rationale FROM idea_proposals WHERE id=1").get().rationale, /research intake: scan auto-candidate/);
+assert.equal(db.prepare("SELECT status FROM idea_proposals WHERE id=1").get().status, "triaged_hold");
+assert.equal(await api.enqueueAccepted(env, 2, real, 0.7, "t", false), true);
+assert.equal(await api.enqueueAccepted(env, 3, "tiny owner idea", 0.9, "t", true), true, "the owner's own idea is never held");
+assert.equal(db.prepare("SELECT count(*) n FROM research_queue").get().n, 2);
+db.prepare("INSERT INTO ops_config VALUES ('research_intake_rigid','off')").run();
+db.prepare("INSERT INTO idea_proposals (id,name,idea,status) VALUES (4,'auto-scan','y','new')").run();
+assert.equal(await api.enqueueAccepted(env, 4, "JSON list {\"ideas\":[]}".replace("JSON list ", ""), 0.5, "t", false), true, "off restores the old intake");
+console.log("intake-rigid: all assertions passed");

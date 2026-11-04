@@ -1,15 +1,16 @@
 // RESEARCH-SYNTH-1: related deferred proposals merge into one synthesis row with a full-text ledger; duplicate corrections collapse; off stops it.
 import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
-import { ideaSynthesisTick, synthClusters } from "./worker.js";
+import { ideaSynthesisTick, synthClusters, synthEligible } from "./worker.js";
 const db = new DatabaseSync(":memory:");
 db.exec("CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, score REAL, decision TEXT, status TEXT, stage TEXT, context TEXT, created_at TEXT, error TEXT, UNIQUE(source, source_id)); CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);");
 function stmt(sql) { let a = []; const o = { bind(...x) { a = x; return o; }, async run() { const r = db.prepare(sql).run(...a); return { meta: { changes: Number(r.changes) } }; }, async first() { return db.prepare(sql).get(...a) || null; }, async all() { return { results: db.prepare(sql).all(...a) }; } }; return o; }
 const env = { QNFO_AUDIT: { prepare: stmt } };
+const PAD = " Additional argument text describing the formal setting, the claimed derivation, the testable consequences and the relation to prior work in this area of physics. ".repeat(3);
 const ins = db.prepare("INSERT INTO research_queue (id,source,source_id,idea,score,status,stage,context,created_at) VALUES (?,?,?,?,?,'deferred','ground','[]','2026-10-01T00:00:00Z')");
-ins.run("p1", "proposal", "1", "Born rule as Haar measure on p-adic balls. Quantum probability emerges from ultrametric measure on p-adic balls.", 0.59);
-ins.run("p2", "proposal", "2", "Ultrametric p-adic measure and the Born rule. Quantum probabilities follow from Haar measure on p-adic ball structure.", 0.5);
-ins.run("p3", "proposal", "3", "Fine-structure constant as a degenerate cross-ratio of physical scales.", 0.58);
+ins.run("p1", "proposal", "1", "Born rule as Haar measure on p-adic balls. Quantum probability emerges from ultrametric measure on p-adic balls." + PAD, 0.59);
+ins.run("p2", "proposal", "2", "Ultrametric p-adic measure and the Born rule. Quantum probabilities follow from Haar measure on p-adic ball structure." + PAD, 0.5);
+ins.run("p3", "proposal", "3", "Fine-structure constant as a degenerate cross-ratio of physical scales." + " Dimensionless coupling alpha, dilogarithm identities, renormalization scales, experimental precision, electron anomalous magnetic moment, atomic recoil measurements.".repeat(3), 0.58);
 ins.run("r1", "remediation", "errata:1", "Correct the published paper 'stacked-ring-review' for erratum A", 0.95);
 ins.run("r2", "remediation", "errata:2", "Correct the published paper 'stacked-ring-review' for erratum B", 0.9);
 const r = await ideaSynthesisTick(env);
@@ -27,4 +28,7 @@ assert.equal(again.clusters, 0, "idempotent");
 db.prepare("INSERT INTO ops_config VALUES ('research_synth','off')").run();
 assert.equal((await ideaSynthesisTick(env)).skipped, "off");
 assert.equal(synthClusters([{ idea: "alpha beta gamma delta" }, { idea: "epsilon zeta eta theta" }], 0.3, 5).length, 0);
+assert.equal(synthEligible("Error-corrected estimation — arXiv 2609.16226v1. Auto-candidate from daily research scan; triage for QNFO research fit."), false);
+assert.equal(synthEligible("Re-entry from 10.5281/zenodo.1: " + "x ".repeat(300)), false);
+assert.equal(synthEligible("Born rule as Haar measure. " + "claim text ".repeat(60)), true);
 console.log("research-synth: all assertions passed");
