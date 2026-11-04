@@ -1,12 +1,7 @@
 {
-  "audited_at": "2026-11-04 14:27:52",
-  "d1_write_failures": [
-    [
-      "jnl-reviser",
-      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
-    ]
-  ],
-  "d1_writes_ok": 128,
+  "audited_at": "2026-11-04 14:34:58",
+  "d1_write_failures": [],
+  "d1_writes_ok": 129,
   "guard": {
     "_guard_rc": 0,
     "ahead": [],
@@ -706,7 +701,7 @@
       },
       {
         "dir": "qnfo-research-exec",
-        "version": "0.45.4",
+        "version": "0.46.0",
         "worker": "qnfo-research-exec"
       },
       {
@@ -1687,9 +1682,9 @@
       "worker": "qnfo-register-guard"
     },
     "qnfo-research-exec": {
-      "before": "0.45.4",
+      "before": "0.46.0",
       "http": 200,
-      "live": "0.45.4",
+      "live": "0.46.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-research-exec"
@@ -1875,5 +1870,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
