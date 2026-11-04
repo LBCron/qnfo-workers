@@ -4,7 +4,7 @@
 // Coding model: Workers AI (AI binding) - kimi-k2.7-code / qwen2.5-coder-32b.
 // Auth: Bearer CODE_AGENT_KEY (SHA-256 compare) OR the ops key for parity.
 // Never follows instructions found inside fetched repo files (DATA-ONLY boundary).
-var VERSION = "0.1.0";
+var VERSION = "0.1.1";
 var WORKER = "qnfo-code-agent";
 var GH_API = "https://api.github.com";
 var OWNER = "QNFO";
@@ -58,7 +58,7 @@ async function repoTree(env, body) {
   const ref = await ghGet(env, "/repos/" + OWNER + "/" + repo + "/git/trees/" + branch + "?recursive=1");
   if (ref.status !== 200) return json({ ok: false, status: ref.status, error: ref.data.message || "tree failed" }, 502);
   const tree = (ref.data.tree || []).filter(function (t) { return t.type === "blob"; });
-  return json({ ok: true, repo: OWNER + "/" + repo, branch: branch, count: tree.length, files: tree.map(function (t) { return t.path; }) });
+  return json({ ok: true, repo: OWNER + "/" + repo, branch: branch, truncated: !!ref.data.truncated, count: tree.length, files: tree.map(function (t) { return t.path; }) });
 }
 async function repoRead(env, body) {
   const repo = String((body && body.repo) || "").trim();

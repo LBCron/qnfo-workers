@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""VIEW-PREMERGE-1 (2026-11-04, pillar autonomy; sibling of scripts/view_health.py, the after-merge detector).
+"""IFNE: it also fails a changed migration whose CREATE TABLE IF NOT EXISTS names a table that already exists with other columns (the statement then silently does nothing).
+VIEW-PREMERGE-1 (2026-11-04, pillar autonomy; sibling of scripts/view_health.py, the after-merge detector).
 PR 7023 merged a view that errors on read (missing column) and nothing caught it before main. This check copies the live
 qnfo-audit schema (tables and views, no rows, read-only through the Cloudflare API) into an in-memory SQLite database, applies
 the pull request's changed migrations to it, and plans every view with EXPLAIN. It FAILS when a view that compiled before the
@@ -7,6 +8,7 @@ migrations no longer does, or a view the migrations create does not compile. A v
 No secret in the environment (a fork), or an unreadable schema, passes with a notice: the after-merge detector still covers it.
 Usage: view_premerge.py <migration files...>; exit 1 on a newly broken view."""
 import os
+import re
 import sqlite3
 import sys
 
@@ -39,7 +41,35 @@ def broken(con):
     return bad
 
 
-def check(rows, texts, split):
+IFNE = re.compile(r'(?is)^\s*CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+("?)(\w+)\1\s*\(')
+
+
+def columns(con, table):
+    return [(r[1].lower(), (r[2] or "").upper()) for r in con.execute('PRAGMA table_info("%s")' % table).fetchall()]
+
+
+def ifne_conflicts(con, stmt):
+    """CREATE TABLE IF NOT EXISTS silently does nothing when a table of that name already exists with another shape: the migration
+    then writes to columns that are not there. Returns a message when the statement's columns differ from the live table's."""
+    m = IFNE.match(stmt)
+    if not m:
+        return None
+    name = m.group(2)
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone():
+        return None
+    scratch = sqlite3.connect(":memory:", cached_statements=0)
+    try:
+        scratch.execute(re.sub(r"(?is)IF\s+NOT\s+EXISTS\s+", "", stmt, count=1))
+    except sqlite3.Error:
+        return None  # the statement itself is not valid on its own (a reference to another object); the runner reports that
+    have, want = {c[0] for c in columns(con, name)}, {c[0] for c in columns(scratch, name)}
+    if not (want - have):  # extra live columns come from later ALTERs and are normal; only a column the statement defines but the table lacks breaks the migration
+        return None
+    return "table %s already exists with other columns (missing %s; extra %s), so CREATE TABLE IF NOT EXISTS does nothing" % (
+        name, sorted(want - have) or "none", sorted(have - want) or "none")
+
+
+def check(rows, texts, split, conflicts=None):
     con = load_schema(rows)
     before = broken(con)
     for name in before:  # a broken view makes SQLite refuse later schema statements; the PR's migrations may recreate it, and then it is checked
@@ -48,6 +78,9 @@ def check(rows, texts, split):
         for stmt in split(text):
             if stmt.startswith("__INCOMPLETE__"):
                 continue
+            c = ifne_conflicts(con, stmt)
+            if c and conflicts is not None:
+                conflicts.append(c)
             try:
                 con.execute(stmt)
             except sqlite3.Error:
@@ -73,11 +106,14 @@ def main(argv):
             t = fh.read()
         if "-- DB: qnfo-audit" in t:
             texts.append(t)
-    new, before = check(rows, texts, A.statements)
+    conflicts = []
+    new, before = check(rows, texts, A.statements, conflicts)
+    for c in conflicts:
+        print("::error::" + c)
     print("VIEW-PREMERGE-1: %d views already broken on main (not this PR's), %d newly broken" % (len(before), len(new)))
     for k, v in new.items():
         print("::error::view %s no longer compiles after this PR's migrations: %s" % (k, v))
-    return 1 if new else 0
+    return 1 if (new or conflicts) else 0
 
 
 def selftest():
@@ -91,6 +127,9 @@ def selftest():
     assert list(new) == ["v_new_bad"], new
     new, _ = check(rows, ["DROP VIEW v_ok;\nCREATE VIEW v_ok AS SELECT zzz FROM t;"], A.statements)
     assert list(new) == ["v_ok"], new
+    conflicts = []
+    check(rows + [{"type": "table", "name": "bak", "sql": "CREATE TABLE bak (x, y)"}], ["CREATE TABLE IF NOT EXISTS bak (x, y, z);\nCREATE TABLE IF NOT EXISTS t (a, b);\nCREATE TABLE IF NOT EXISTS fresh (q);"], A.statements, conflicts)
+    assert len(conflicts) == 1 and "bak" in conflicts[0] and "z" in conflicts[0], conflicts
     print("view_premerge selftest ok")
 
 
