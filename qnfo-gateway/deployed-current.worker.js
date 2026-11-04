@@ -165,7 +165,7 @@ function formatPaper(source, record) {
 }
 // PAPER-FORMAT-2:END
 // 3.48.7 PAPER-REVISION-QUALITY-1 (2026-11-03, pillar reach): recover split revision titles and record abstracts at public rendering, and reject cached refusals from both summary surfaces.
-var VERSION="3.57.0-codeagent";
+var VERSION="3.57.1-codeagent";
 /* 3.54.2 SEO-404-PATHS-1 follow-up: the paper page script no longer requests /api/paper-context/undefined when the page data block is missing (first path recorded in seo_404_paths). */ /* 3.54.0 SEO-404-PATHS-1 and INDEXNOW-BACKOFF-1 (merged): see the two notes below. GET /api/seo/crawl also returns notFound, the top 50 crawler 404 paths of the window, so the dashboard UX auditor reads them from the open route. INDEXNOW-BACKOFF-1: an IndexNow endpoint that failed its last 6 logged runs is tried once per 3 hours and a 429 is not retried. */ /* SEO-404-PATHS-1 (2026-11-04, pillar reach): a crawler request that answers 404 records its path in living-paper seo_404_paths (day, host, path, n; 500 paths a day, 14 days kept). seo_crawl_log counted 1,875 crawler 404s on 2026-11-02 (qnfo.org, every bot, kind other) and kept no path to fix. */ // 3.52.0 QWAV-DEMOS-1 (2026-11-04, pillar reach; minor: the QWAV page lists the ten interactive demos that only the retired Pages site linked, with a Demos nav item, a hero action and a footer link; the page is now the whole of qwav.org through a qwav.org/* route, so unknown paths redirect home instead of answering 200). Revert: restore 3.51.0. // 3.51.0 earlier history follows: // 3.51.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: every QDS page gains a family bar linking QNFO, QWAV and q08, a Keep exploring module (newest and random papers from the open API, the three family sites, topic chips) and a family line in the footer; QDS 1.1.0; visible ask links use ask.qwav.org per DOMAIN-PLANE-1). Prediction: pages per session on qwav.org and qnfo.org rise and clicks between the three sites become non-zero. Revert: restore 3.50.0. // 3.50.0 earlier history follows: // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports. /* main 3.53.1 */ // 3.53.1 PAPER-TTFB-1 (2026-11-04, pillar reach; patch): a paper page whose plain summary kept failing the readability gate ran two model generations inside every request (17 to 44 s to first byte for a-minimal-generative-grammar-of-coordination..., 1.2 s for its neighbours); the fill now runs after the response and once per PLAIN_RETRY_MS per paper per colo. Revert: restore 3.53.0. // 3.53.0 earlier history follows: // 3.53.0 CROSS-LINK-2 (2026-11-04, pillar reach; minor: papers.qnfo.org index and paper pages, rendered by lpDoc, gain the family bar and a Keep exploring strip linking QWAV, Ask, ideas and q08, so the pages a search lands on lead to the rest of the family). Revert: restore 3.52.0. // 3.52.0 earlier history follows: // 3.52.0 QWAV-DEMOS-1 (2026-11-04, pillar reach; minor: the QWAV page lists the ten interactive demos that only the retired Pages site linked, with a Demos nav item, a hero action and a footer link; the page is now the whole of qwav.org through a qwav.org/* route, so unknown paths redirect home instead of answering 200). Revert: restore 3.51.0. // 3.51.0 earlier history follows: // 3.51.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: every QDS page gains a family bar linking QNFO, QWAV and q08, a Keep exploring module (newest and random papers from the open API, the three family sites, topic chips) and a family line in the footer; QDS 1.1.0; visible ask links use ask.qwav.org per DOMAIN-PLANE-1). Prediction: pages per session on qwav.org and qnfo.org rise and clicks between the three sites become non-zero. Revert: restore 3.50.0. // 3.50.0 earlier history follows: // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -6094,29 +6094,27 @@ async function phLoad(env, slug) {
     q(env.LIVING_PAPER.prepare("SELECT seq,ts,kind,fields_changed,actor,reason,version_before,version_after,body_len_before,body_len_after,backfilled FROM paper_change_ledger WHERE slug = ?1 AND kind != 'delete' ORDER BY seq DESC LIMIT ?2").bind(slug, PH_MAX_CHANGES).all()),
     q(env.LIVING_PAPER.prepare("SELECT id,version,archived_at,superseded_by FROM paper_version_history WHERE slug = ?1 ORDER BY id").bind(slug).all())
   ]);
-  var changes = (res[0].results || []).slice().reverse();
+  var published = String(paper.first_published_at || "");
+  var changes = (res[0].results || []).slice().reverse().filter(function(c) { return !published || c.kind !== "update" || String(c.ts || "") >= published; });
   return { paper: paper, changes: changes, snaps: res[1].results || [] };
 }
-async function phBodies(env, changes) {
-  var out = {};
-  var seqs = changes.filter(function(c) { return c.kind === "update"; }).map(function(c) { return c.seq; });
-  if (!seqs.length) return out;
-  var rows = (await env.LIVING_PAPER.prepare("SELECT seq, body_md FROM paper_change_bodies WHERE seq IN (" + seqs.map(function() { return "?"; }).join(",") + ")").bind(...seqs).all().catch(function() { return null; }) || { results: [] }).results || [];
-  rows.forEach(function(r) { out[r.seq] = r.body_md == null ? null : String(r.body_md); });
-  for (var i = 0; i < seqs.length; i++) {
-    if (out[seqs[i]] != null || !env.RELEASES || !env.RELEASES.get) continue;
-    try { var o = await env.RELEASES.get("paper-ledger/" + seqs[i] + ".md"); if (o) out[seqs[i]] = await o.text(); } catch (e) { /* an archived body that cannot be read stays unavailable */ }
+// One ledger body (the text before change <seq>), from D1 or, once archived off the database, from the releases bucket.
+async function phLedgerBody(env, slug, seq) {
+  var row = await env.LIVING_PAPER.prepare("SELECT body_md FROM paper_change_bodies WHERE seq = ?1 AND slug = ?2").bind(seq, slug).first().catch(function() { return null; });
+  if (row && row.body_md != null) return String(row.body_md);
+  if (env.RELEASES && env.RELEASES.get) {
+    try { var o = await env.RELEASES.get("paper-ledger/" + seq + ".md"); if (o) return await o.text(); } catch (e) { /* an archived body that cannot be read stays unavailable */ }
   }
-  return out;
+  return null;
 }
 // The chain of states a paper has been in, oldest first: the body before each recorded update, then the current body. Snapshots of versions the ledger
 // does not cover (it starts on 2026-10-26) are added as states of their own.
-function phStates(data, bodies) {
+function phStates(data) {
   var paper = data.paper, states = [], prevAfter = null;
   data.changes.forEach(function(c) {
     if (c.kind !== "update") { prevAfter = phNormVer(c.version_after) || prevAfter; return; }
     var v = phNormVer(c.version_before) || prevAfter;
-    states.push({ key: "c" + c.seq, seq: c.seq, version: v, body: bodies[c.seq] == null ? null : bodies[c.seq], until: c.ts, change: c });
+    states.push({ key: "c" + c.seq, seq: c.seq, version: v, body: undefined, until: c.ts, change: c });
     prevAfter = phNormVer(c.version_after) || v;
   });
   var cur = phNormVer(paperVersionOf(paper));
@@ -6156,6 +6154,7 @@ function phResolve(ref, states) {
 }
 async function phStateBody(env, slug, s) {
   if (s.body !== undefined) return s.body;
+  if (s.seq) { s.body = await phLedgerBody(env, slug, s.seq); return s.body; }
   if (s.snap) {
     var row = await env.LIVING_PAPER.prepare("SELECT body_md FROM paper_version_history WHERE slug = ?1 AND id = ?2").bind(slug, s.id).first();
     s.body = row && row.body_md != null ? String(row.body_md) : null;
@@ -6164,7 +6163,7 @@ async function phStateBody(env, slug, s) {
 }
 // ---- the diff -------------------------------------------------------------------------------------------------------------------------------------
 function phBlocks(t) {
-  return String(t == null ? "" : t).replace(/\r\n?/g, "\n").split(/\n[ \t]*\n/).map(function(b) { return b.replace(/^\n+/, "").replace(/\s+$/, ""); }).filter(function(b) { return b.length > 0; });
+  return String(t == null ? "" : t).replace(/\r\n?/g, "\n").split(/\n[ \t]*\n/).map(function(b) { return b.replace(/^\n+/, "").trimEnd(); }).filter(function(b) { return b.length > 0; });
 }
 function phKey(b) { return b.replace(/\s+/g, " ").trim(); }
 // Longest common subsequence of two key arrays, as [i, j] pairs; null when the problem is too large to align (the caller then shows a replacement).
@@ -6234,24 +6233,30 @@ function phWordDiff(a, b) {
   push("eq", a.slice(n - suf));
   return segs.map(function(s) { return { t: s.t, s: phJoin(s.w) }; });
 }
+function phWordCount(tokens) { return tokens.filter(function(t) { return t !== "\u23ce"; }).length; }
 function phCountWords(t) { return (String(t).match(/\S+/g) || []).length; }
 // Blocks that sit between two matched paragraphs: pair each removed block with the most similar added block after the previous pair.
 function phGap(dels, inss, ops, stats) {
   var dw = dels.map(phTokens), iw = inss.map(phTokens), j = 0;
+  if (dels.length * inss.length > 40000) {
+    dels.forEach(function(d, i) { ops.push({ t: "del", text: d }); stats.removed += phWordCount(dw[i]); });
+    inss.forEach(function(b, i) { ops.push({ t: "ins", text: b }); stats.added += phWordCount(iw[i]); });
+    return;
+  }
   dels.forEach(function(d, di) {
     var best = -1, bestSim = 0.35;
     for (var k = j; k < inss.length; k++) {
       var s = phSim(dw[di], iw[k]);
       if (s >= bestSim) { best = k; bestSim = s; }
     }
-    if (best < 0) { ops.push({ t: "del", text: d }); stats.removed += dw[di].length; return; }
-    for (; j < best; j++) { ops.push({ t: "ins", text: inss[j] }); stats.added += iw[j].length; }
+    if (best < 0) { ops.push({ t: "del", text: d }); stats.removed += phWordCount(dw[di]); return; }
+    for (; j < best; j++) { ops.push({ t: "ins", text: inss[j] }); stats.added += phWordCount(iw[j]); }
     var segs = phWordDiff(dw[di], iw[best]);
     segs.forEach(function(s) { if (s.t === "del") stats.removed += phCountWords(s.s); else if (s.t === "ins") stats.added += phCountWords(s.s); });
     ops.push({ t: "mod", segs: segs });
     j = best + 1;
   });
-  for (; j < inss.length; j++) { ops.push({ t: "ins", text: inss[j] }); stats.added += iw[j].length; }
+  for (; j < inss.length; j++) { ops.push({ t: "ins", text: inss[j] }); stats.added += phWordCount(iw[j]); }
 }
 function phDiff(aText, bText) {
   var A = phBlocks(aText), B = phBlocks(bText), ops = [], stats = { added: 0, removed: 0, changed_blocks: 0, equal_blocks: 0, aligned: true };
@@ -6293,6 +6298,8 @@ function phDiffHtml(diff) {
 // The content view compares what the paper says, so it drops what a revision wrapped around it: front matter, byline and repeated title (formatPaper), the
 // in-body version history or changelog, and a revision or correction banner. The raw view compares the stored source exactly.
 function phTidy(text, title) {
+  text = String(text || "").replace(/[ \t]{40,}/g, " ");
+  if (text.length > 400000) return text;
   var t;
   try { t = formatPaper(text, { title: title }).displayBody; } catch (e) { t = String(text || ""); }
   t = t.replace(/^> \*\*(?:Revised|Correction|Corrected)[^\n]*\n(?:>[^\n]*\n)*/gim, "");
@@ -6324,8 +6331,7 @@ function phByteLen(t) { return new TextEncoder().encode(String(t == null ? "" : 
 async function phRecord(env, slug) {
   var data = await phLoad(env, slug);
   if (!data) return null;
-  var bodies = await phBodies(env, data.changes);
-  var states = phStates(data, bodies);
+  var states = phStates(data);
   var groups = phVersions(states);
   var shaOf = async function(s) { var b = await phStateBody(env, slug, s).catch(function() { return null; }); return b == null ? null : { sha256: await sha256Hex(b), bytes: phByteLen(b), words: phCountWords(b) }; };
   var versions = [];
@@ -6350,9 +6356,9 @@ async function phRecord(env, slug) {
     var c = data.changes[ci];
     changes.push({
       seq: c.seq, at: c.ts, kind: c.kind, version_before: phNormVer(c.version_before), version_after: phNormVer(c.version_after),
-      fields: String(c.fields_changed || "").split(",").filter(Boolean), actor: c.actor || null, reason: c.reason || null,
+      fields: String(c.fields_changed || "").split(",").filter(Boolean), actor: c.actor ? phActor(c.actor) : null, reason: c.reason ? String(c.reason).slice(0, 160) : null,
       bytes_before: c.body_len_before == null ? null : c.body_len_before, bytes_after: c.body_len_after == null ? null : c.body_len_after,
-      backfilled: !!c.backfilled, diff_url: c.kind === "update" && bodies[c.seq] != null ? "/papers/" + slug + "/diff?change=" + c.seq : null
+      backfilled: !!c.backfilled, diff_url: c.kind === "update" ? "/papers/" + slug + "/diff?change=" + c.seq : null
     });
   }
   return { data: data, states: states, versions: versions, changes: changes };
@@ -6389,8 +6395,7 @@ async function handlePaperHistory(env, slug, asJson) {
 async function handlePaperDiff(env, slug, u) {
   var data = await phLoad(env, slug);
   if (!data) return null;
-  var bodies = await phBodies(env, data.changes);
-  var states = phStates(data, bodies), groups = phVersions(states), paper = data.paper;
+  var states = phStates(data), groups = phVersions(states), paper = data.paper;
   var q = function(k) { var v = u.searchParams.get(k); return v && PH_REF_RE.test(v) ? v : ""; };
   var change = /^[0-9]{1,12}$/.test(u.searchParams.get("change") || "") ? u.searchParams.get("change") : "";
   var fromRef = q("from"), toRef = q("to") || "current", fromS, toS, label;
@@ -6403,13 +6408,15 @@ async function handlePaperDiff(env, slug, u) {
   } else {
     toS = phResolve(toRef, states);
     if (!toS) return phHtml(phShell(paper, "diff", "Changes", '<p class="ph-lede">That version is not held for this paper.</p>', { noindex: true }), 404);
-    if (fromRef) fromS = phResolve(fromRef, states);
-    else {
+    if (fromRef) {
+      fromS = phResolve(fromRef, states);
+      if (!fromS) return phHtml(phShell(paper, "diff", "Changes", '<p class="ph-lede">That version is not held for this paper.</p>', { noindex: true }), 404);
+    } else {
       var gi = groups.findIndex(function(g) { return g.states.indexOf(toS) >= 0; });
       fromS = gi > 0 ? groups[gi - 1].final : null;
       fromRef = fromS ? fromS.key : "";
     }
-    if (!fromS) return phHtml(phShell(paper, "diff", "Changes", '<p class="ph-lede">This is the first version held for the paper, so there is nothing earlier to compare it with.</p>', { noindex: true }), 404);
+    if (!fromS) return phHtml(phShell(paper, "diff", "Changes", '<p class="ph-lede">This is the first version held for the paper, so there is nothing earlier to compare it with. <a href="/papers/' + escAttr(slug) + '/history">All versions</a></p>', { noindex: true }), 200);
     label = "v" + (fromS.version || "?") + " \u2192 v" + (toS.version || "?");
   }
   var aRaw = await phStateBody(env, slug, fromS), bRaw = await phStateBody(env, slug, toS);
@@ -6489,7 +6496,7 @@ function phCrate(f) {
     graph.push({ "@id": x.url, "@type": "File", name: x.name, encodingFormat: x.format, contentSize: x.bytes == null ? undefined : String(x.bytes), sha256: x.sha256 || undefined, description: x.note });
   });
   f.runs.forEach(function(r) {
-    graph.push({ "@id": "https://github.com/" + r.repo + "/tree/" + r.commit_sha + "/" + r.run_path, "@type": "Dataset", name: "Research run " + r.run_id, dateCreated: r.deposited_at || undefined, description: "Scripts, audits, bibliography and review output of the run that produced version " + (r.paper_version || "?") });
+    graph.push({ "@id": "https://github.com/" + r.repo + "/tree/" + (r.commit_sha || "main") + "/" + r.run_path, "@type": "Dataset", name: "Research run " + r.run_id, dateCreated: r.deposited_at || undefined, description: "Scripts, audits, bibliography and review output of the run that produced version " + (r.paper_version || "?") });
   });
   return { "@context": "https://w3id.org/ro/crate/1.1/context", "@graph": graph };
 }
