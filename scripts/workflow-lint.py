@@ -450,6 +450,19 @@ def main() -> int:
         for name in nopush:
             print(f"  WARN {name}")
         print()
+    # TWO-PR-WORKFLOWS-1 (2026-11-04, owner directive: a pull request starts at most two workflows): pr-checks and pr-lane are the only files
+    # that may trigger on pull_request or pull_request_target. A new guard is a `workflow_call` job in pr-checks.
+    allowed_pr = {"pr-checks.yml", "pr-lane.yml"}
+    for p in files:
+        try:
+            with open(p, encoding="utf-8") as fh:
+                d = yaml.safe_load(fh)
+        except yaml.YAMLError:
+            continue
+        on = (d.get(True, d.get("on")) if isinstance(d, dict) else None)
+        evs = on if isinstance(on, (dict, list)) else [on]
+        if os.path.basename(p) not in allowed_pr and any(e in ("pull_request", "pull_request_target") for e in evs):
+            bad.append(f"{p}: TWO-PR-WORKFLOWS-1 -- triggers on a pull request; call it from pr-checks.yml with workflow_call instead")
     if bad:
         print(f"=== WORKFLOW-LINT FAILED: {len(bad)} invalid workflow file(s) ===")
         for b in bad:

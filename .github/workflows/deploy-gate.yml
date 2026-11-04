@@ -19,8 +19,9 @@ name: deploy-gate
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  # TWO-PR-WORKFLOWS-1 (2026-11-04, owner directive: a maximum of two workflows per pull request): no pull_request trigger. pr-checks calls this file
+  # as a job, so github.event_name stays pull_request inside it and every pull-request branch below is unchanged. Revert: restore `pull_request: branches: [main]` here.
+  workflow_call:
   # GATE-NIGHTLY-FULL-1 (2026-10-17): a PR validates only its changed directories (PRS-SCOPE-1), so
   # without this the full 429-suite sweep ran only on a push to main - i.e. after the merge. Once a day (GHA-COST-1: was every two hours).
   # MERGE-BOUNDARY-GATE-1 (2026-10-19): a PR that touches a control-plane worker or a shared path runs the full set before the merge
@@ -46,7 +47,7 @@ permissions:
 
 # PUSH-COALESCE-1 (2026-11-04, pillar autonomy): a burst of merges queued one run of this workflow per pushed sha (66 of 100 queued runs at 15:54Z were push runs, 38 merges in the last hour). Only the newest main matters, so a newer push cancels the older run; ci-watchdog reads only conclusion failure, so a cancelled run files nothing. Revert: group by github.sha and cancel only on pull_request.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'push' && 'main-push') || github.sha }}
+  group: deploy-gate-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'push' && 'main-push') || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:

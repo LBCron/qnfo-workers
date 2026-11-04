@@ -1,5 +1,7 @@
 name: pr-checks
 
+# TWO-PR-WORKFLOWS-1 (2026-11-04, owner directive: a maximum of two workflows per pull request): deploy-gate no longer has a pull_request trigger; it runs as the `deploy-gate` job below.
+# A pull request now starts exactly two workflows: pr-checks and pr-lane.
 # THREE-PR-WORKFLOWS-1 (2026-11-04, owner directive: "when a PR is ready for merge, a maximum of three workflows can run. That's it.").
 # A pull request now starts exactly three workflows: pr-checks (this file: every guard and test, one run), deploy-gate (the advisory suites, also the merge queue), and
 # pr-lane (poke, Copilot review and lifecycle, merge). The guards below are the same files as before, now `workflow_call` workflows; each keeps its push-to-main trigger.
@@ -56,6 +58,10 @@ jobs:
           if grep -qE '^research-code/|^\.github/workflows/research-code\.yml$' files.txt; then echo 'research_code=true' >> "$GITHUB_OUTPUT"; else echo 'research_code=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^qnfo-github-steward/|^migrations/2026-10-18-(tracker|portfolio)-sync\.sql$|^\.github/workflows/steward-test\.yml$' files.txt; then echo 'steward_test=true' >> "$GITHUB_OUTPUT"; else echo 'steward_test=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
+
+  deploy-gate:
+    uses: ./.github/workflows/deploy-gate.yml
+    secrets: inherit
 
   version-bump-guard:
     needs: changes
