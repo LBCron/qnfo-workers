@@ -25,12 +25,13 @@ eq("image input stays image-input", api.gwErrorClass(400, "image dimensions must
 eq("tool args stay tool-args-json", api.gwErrorClass(400, "arguments must be valid JSON"), "tool-args-json");
 eq("5xx stays upstream", api.gwErrorClass(502, "upstream unavailable"), "upstream");
 eq("unknown 400 stays other", api.gwErrorClass(400, "something else"), "other");
+eq("499 client closed request is client-closed, not other", api.gwErrorClass(499, ""), "client-closed");
 eq("no status, no head", api.gwErrorClass(0, ""), "other");
 
 // 2 which classes are not evidence against the model
 // SPEND-LIMITED: a fleet budget refusal is not a degraded model either (the gateway's monthly spend rule), so it joins
 // the set beside rate-capacity and unfunded.
-eq("no-degrade set", Object.keys(api.GW_NO_DEGRADE_CLASSES).sort(), ["rate-capacity", "spend-limited", "unfunded"]);
+eq("no-degrade set", Object.keys(api.GW_NO_DEGRADE_CLASSES).sort(), ["client-closed", "rate-capacity", "spend-limited", "unfunded"]);
 ok("other degrades", !api.GW_NO_DEGRADE_CLASSES["other"]);
 ok("upstream degrades", !api.GW_NO_DEGRADE_CLASSES["upstream"]);
 
@@ -42,6 +43,7 @@ once("degrade gated by the set", /var recurring = !GW_NO_DEGRADE_CLASSES\[clsLab
 // refusal that says nothing about the model.
 const notIn = src.match(/error_class NOT IN \(([^)]*)\)/g) || [];
 ok("both 24h reads ignore unfunded and rate-capacity", notIn.length === 2 && notIn.every((s) => /'rate-capacity'/.test(s) && /'unfunded'/.test(s)), notIn);
+ok("every 24h read ignores a client-closed 499", notIn.every((s) => /'client-closed'/.test(s)), notIn);
 ok("every 24h read ignores a budget refusal", notIn.every((s) => /'spend-limited'/.test(s)), notIn);
 ok("no read still treats only rate-capacity as transient", !/error_class != 'rate-capacity'/.test(src));
 ok("the class is decided in one place", (src.match(/clsLabel = gwErrorClass\(b\.status, /g) || []).length === 2 && !/else if \(\/capacity temporarily\|rate limit\/i\.test\(rh\)\) clsLabel/.test(src));

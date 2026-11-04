@@ -18,6 +18,13 @@ main = "worker.js"
 compatibility_date = "2026-10-10"
 workers_dev = true
 
+# SMART-PLACEMENT-CANARY-1 (ROADMAP-1 #5722, FLEET-HARDENING-3 / qnfo-ops PLACEMENT-DECLARED-APPLY-1, docs/WORKERS-STANDARDS.md section 2): first
+# component, one at a time with its own revert. personal-api is a user-facing fetch worker that reads D1 (personal-life) several times per request,
+# and it is not a control-plane worker, so a misplacement cannot stall the loops. Prediction: p50 of its D1-bound routes falls, error rate does not rise.
+# Revert: delete this table and redeploy. The next component is chosen only after a re-read of this worker's latency and error share.
+[placement]
+mode = "smart"
+
 # ============================================================
 # personal-api (personal twin) - canonical repo mirror (2026-09-03)
 # Recreated from the live deployed bundle (no local source existed) so the
