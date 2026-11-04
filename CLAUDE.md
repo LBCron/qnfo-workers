@@ -608,7 +608,10 @@ because each one was broken at least once; the linked issue holds the evidence.
   no file is closed 30 minutes after its session ended (EMPTY-FINISHED-DRAFT-1; the lane's BH-EMPTY-DRAFT-1 waits 6 hours), which frees one of the 12 open-pull-request slots of the
   assignment sweep. Do not edit the title or body of a Copilot pull request by hand: the `edited` run of `lane-poke` is held at `action_required` and the pull request reads
   `unstable` (the lane refuses it) until its next push; `PUT /pulls/{n}/update-branch` pinned to the head clears it. Do not add per-repository copies of the workflow or of the secret.
-- Every ready pull request into main gets the Copilot reviewer requested by `.github/workflows/request-copilot-review.yml` (REQUEST-COPILOT-REVIEW-1, lever 1 of LANE-WAITS-FOR-REVIEW-1,
+- A pull request shows at most five checks (PR-CHECK-CAP-5-1, owner directive 2026-11-04: "MAX 5 CHECKS PER PR", none over a minute, none that repeatedly fail): "Workers Builds: qnfo-workers"
+  plus the jobs `versions`, `scans`, `suites` (pr-checks.yml) and `lane` (pr-lane.yml). A new guard is a step in one of those jobs, never a job or a reusable-workflow call (workflow-lint.py
+  fails it); a guard that needs more than a minute runs on push to main instead (deploy-gate, fleet-graph, ux-journeys, research-code do).
+- Every ready pull request into main gets the Copilot reviewer requested by the `Request the automated review` steps of `lane` in `.github/workflows/pr-lane.yml` (REQUEST-COPILOT-REVIEW-1, lever 1 of LANE-WAITS-FOR-REVIEW-1,
   issue 5515): the workflow token first, the fleet user credential second. A request never blocks a merge: the lane refuses a pull request while a check that is not required has
   failed, so both request steps are `continue-on-error`. A draft is not reviewed. Still open on the issue: hold the merge when the reviewer's review of the head lists a High severity
   item, never wait more than 8 minutes for a review that has not arrived, feed the findings to the code loop.

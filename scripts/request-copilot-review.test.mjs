@@ -1,10 +1,9 @@
-// REQUEST-COPILOT-REVIEW-1 offline suite (.github/workflows/request-copilot-review.yml; LANE-WAITS-FOR-REVIEW-1 lever 1, issue 5515). No network: the two request
-// step scripts are run for real under `bash -eo pipefail` (the runner's shell) against a fake `gh` that records its calls.
+// REQUEST-COPILOT-REVIEW-1 offline suite (the review steps of .github/workflows/pr-lane.yml; they were .github/workflows/request-copilot-review.yml until PR-CHECK-CAP-5-1 folded the lane into one job;
+// LANE-WAITS-FOR-REVIEW-1 lever 1, issue 5515). No network: the two request step scripts are run for real under `bash -eo pipefail` (the runner's shell) against a fake `gh` that records its calls.
 // Proves: a ready pull request into main gets the Copilot reviewer requested through POST .../requested_reviewers, an already requested reviewer is left alone (an exact
 // login match: a longer or prefixed login is not it), a failed list or a failed request makes the step fail (so continue-on-error lets the fallback run); the two
-// scripts are identical (only the credential differs); both steps and the warning step cannot turn the job red (a failed non-required check stops the merge lane:
-// bhMergeDecide "check(s) failed"); the fleet user credential reaches exactly one step, off pull_request_target only, with nothing checked out or executed from the
-// pull request and only its number and draft flag read; the permissions, the runner pin, the timeout and the PR-keyed concurrency group are present.
+// scripts are identical (only the credential differs); both request steps cannot turn the job red (a failed non-required check stops the merge lane: bhMergeDecide "check(s) failed");
+// the fleet user credential reaches the fallback, retry and merge steps only, never the first request step, and no pull request text (title, body, branch name) is read in the review steps.
 // Run: node --no-warnings scripts/request-copilot-review.test.mjs   -> prints "N passed, 0 failed"
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,13 +12,13 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const wf = readFileSync(join(root, ".github/workflows/request-copilot-review.yml"), "utf8");
+const wf = readFileSync(join(root, ".github/workflows/pr-lane.yml"), "utf8");
 let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 500) : "")); } };
 
 const code = wf.replace(/^\s*#.*$/gm, "");
 const stepsAt = code.indexOf("    steps:");
-const steps = code.slice(stepsAt).split(/\n      - name: /).slice(1).map((s) => "name: " + s);
+const steps = code.slice(stepsAt).split(/\n      - (?=name: |uses: )/).slice(1).map((s) => s);
 const stepOf = (id) => steps.find((s) => new RegExp("^\\s+id: " + id + "\\s*$", "m").test(s)) || "";
 const primary = stepOf("primary"), fallback = stepOf("fallback");
 const warn = steps.find((s) => /Say so when no review/.test(s)) || "";
@@ -32,30 +31,29 @@ const runBlock = (s) => {
 };
 
 // --- shape
-ok(steps.length === 3 && !!primary && !!fallback && !!warn, "three steps: the request with GITHUB_TOKEN, the request with the fleet user credential, the warning", steps.length);
-ok(/pull_request_target:\s*\n\s+types: \[opened, reopened, ready_for_review\]\s*\n\s+branches: \[main\]/.test(code), "it runs on pull_request_target when a pull request into main opens, reopens or becomes ready");
-ok(!/^\s{2}(pull_request|push|workflow_run|workflow_dispatch|schedule):/m.test(code.slice(0, code.indexOf("\njobs:"))), "no other trigger can hand the fleet user credential to the job");
-ok(/^permissions:\s*\n\s+pull-requests: write\s*\n/m.test(code) && !/contents:\s*write|actions:\s*write|issues:\s*write|id-token/.test(code), "the token may write pull requests and nothing else");
+ok(!!primary && !!fallback && !!warn, "the review steps exist: the request with GITHUB_TOKEN, the request with the fleet user credential, the warning");
+ok(/DO_REVIEW: \$\{\{[^}]*pull_request_target[^}]*base\.ref == 'main'[^}]*draft == false[^}]*"opened","reopened","ready_for_review"[^}]*\}\}/.test(code), "the review is requested when a pull request into main opens, reopens or becomes ready, and never for a draft");
+const head = code.slice(0, code.indexOf("\njobs:"));
+ok(/^ {2}pull_request_target:/m.test(head) && /^ {2}workflow_run:/m.test(head) && !/^ {2}(pull_request|push|workflow_dispatch|schedule|issue_comment):/m.test(head), "only pull_request_target and workflow_run can hand the fleet user credential to the job");
 ok(/runs-on: ubuntu-24\.04/.test(code) && /timeout-minutes: 5\b/.test(code) && !/ubuntu-latest/.test(code), "the job has the runner pin and a timeout");
-ok(/if: \$\{\{ github\.event\.pull_request\.draft == false \}\}/.test(code), "a draft is not reviewed: the request is made when the pull request is ready");
-ok(/group: request-copilot-review-\$\{\{ github\.event\.pull_request\.number \}\}/.test(code) && /cancel-in-progress: false/.test(code), "one run per pull request, never cancelled mid-request");
+ok(/group: pr-lane-/.test(code) && /cancel-in-progress: false/.test(code), "one run per pull request, never cancelled mid-request");
 
 // --- a request never blocks a merge
 ok(/continue-on-error: true/.test(primary) && /continue-on-error: true/.test(fallback), "both request steps are continue-on-error (a red non-required check stops the lane)");
-ok(/if: \$\{\{ steps\.primary\.outcome != 'success' \}\}/.test(fallback), "the fleet user credential is used only after the workflow token failed");
-ok(/if: \$\{\{ steps\.primary\.outcome != 'success' && steps\.fallback\.outcome != 'success' \}\}/.test(warn) && /::warning::/.test(runBlock(warn)), "the warning step runs only when neither credential worked, and it only warns");
-ok(!/continue-on-error:\s*false/.test(code) && !/\bexit 1\b/.test(code), "nothing in the job fails it on purpose");
+ok(/if: \$\{\{ env\.DO_REVIEW == 'true' && steps\.primary\.outcome != 'success' \}\}/.test(fallback), "the fleet user credential is used only after the workflow token failed");
+ok(/steps\.primary\.outcome != 'success' && steps\.fallback\.outcome != 'success'/.test(warn) && /::warning::/.test(runBlock(warn)), "the warning step runs only when neither credential worked, and it only warns");
+ok(!/continue-on-error:\s*false/.test(primary + fallback + warn) && !/\bexit 1\b/.test(primary + fallback + warn), "nothing in the review steps fails the job on purpose");
 
 // --- the credential and the pull request text
-const secretRefs = code.match(/secrets\.[A-Za-z0-9_]+/g) || [];
-ok(secretRefs.length === 1 && secretRefs[0] === "secrets.QNFO_GH_PAT" && /secrets\.QNFO_GH_PAT/.test(fallback) && !/secrets\./.test(primary) && !/secrets\./.test(warn), "the fleet user credential reaches exactly one step", secretRefs);
+ok(/secrets\.QNFO_GH_PAT/.test(fallback) && !/secrets\./.test(primary) && !/secrets\./.test(warn), "the fleet user credential is not in the first request step or the warning");
+const patSteps = steps.filter((s) => /secrets\.QNFO_GH_PAT/.test(s)).length;
+ok(patSteps === 3, "the fleet user credential reaches exactly three steps (fallback review, retry, merge)", patSteps);
 ok(/GH_TOKEN: \$\{\{ github\.token \}\}/.test(primary), "the first request uses the workflow token");
-ok(!/\buses:/.test(code) && !/checkout/i.test(code) && !/\bref:/.test(code), "nothing is checked out or fetched from the pull request");
-const prRefs = [...new Set(code.match(/github\.event\.pull_request\.[A-Za-z_.]+/g) || [])].sort();
-ok(prRefs.join() === "github.event.pull_request.draft,github.event.pull_request.number", "only the number and the draft flag of the pull request are read", prRefs);
-const runLines = code.split("\n").filter((l) => /^\s+run:/.test(l));
-ok(runLines.length === 3 && !/\$\{\{/.test([runBlock(primary), runBlock(fallback), runBlock(warn)].join("\n")), "no run script carries an expression: the number travels through env", runLines);
-ok(/^ {4}env:\s*\n\s+PR_NUMBER: \$\{\{ github\.event\.pull_request\.number \}\}/m.test(code), "the pull request number is handed over through env");
+const checkouts = steps.filter((s) => /actions\/checkout/.test(s));
+ok(checkouts.length === 1 && /env\.DO_LIFECYCLE == 'true'/.test(checkouts[0]) && !/\bref:/.test(code), "the only checkout is the base branch, for the Copilot lifecycle step; nothing is fetched from the pull request");
+ok(!/pull_request\.(head|title|body)|head_ref|head_branch\)?\s*\}\}[^\n]*run:/.test(primary + fallback + warn), "no pull request text (title, body, branch) reaches the review steps");
+ok(!/\$\{\{/.test([runBlock(primary), runBlock(fallback), runBlock(warn)].join("\n")), "no review run script carries an expression: the number travels through env");
+ok(/^ {6}PR_NUMBER: \$\{\{ github\.event\.pull_request\.number \|\| github\.event\.workflow_run\.pull_requests\[0\]\.number \}\}/m.test(code), "the pull request number is handed over through env");
 ok(runBlock(primary) === runBlock(fallback) && runBlock(primary).length > 100, "the two request scripts are identical: only the credential differs");
 
 // --- behaviour: run the step script against a fake gh

@@ -1,13 +1,16 @@
 name: pr-lane
 
-# THREE-PR-WORKFLOWS-1 (2026-11-04): the pull request lane in one workflow. Runs from main (pull_request_target and workflow_run both do), checks nothing out, and passes the
-# QNFO_GH_PAT only to merge-when-ready, which merges after pr-checks concludes green. Before this file, lane-poke, request-copilot-review, copilot-pr-lifecycle and
-# merge-when-ready were four separate workflows started by each PR event, and merge-when-ready ran once per guard that finished.
-# Revert: restore the trigger blocks in those four files and delete this file.
-# PR-RETRY-1 (2026-11-04, pillar autonomy; owner directive: "PRs need to be closed at max 2 hours"): the `retry` job answers a red pr-checks run once. Five pull requests (7056, 7059, 7062, 7063, 7064)
-# opened 17:08-17:12Z went red at 17:13Z on a transient state of main (version-bump-guard, step "Lint the workflow YAML class repo-wide"), and nothing re-ran them until 18:55Z (104 minutes);
-# merge-when-ready fires only on a green run. docs/PR-CYCLE-TIME-2026-11.md has the measurement. A rerun of a pull_request run reuses the same merge commit, so a PR that is behind main
-# gets update-branch (a new merge commit, fresh checks); an up-to-date one gets `gh run rerun --failed`. Only attempt 1 of a run is answered, so a real defect stays red after one retry.
+# PR-CHECK-CAP-5-1 (2026-11-04, owner directive: a pull request shows at most five checks, none over a minute): the pull request lane is ONE job, `lane`. Before this it was four
+# reusable-workflow jobs (lifecycle, review, poke, merge) of which the three advisory ones showed as skipped or cancelled entries on nearly every pull request, and poke slept 65 s
+# per retry inside a repository-wide concurrency group (cancelled on every PR sampled 2026-11-04). The steps are the old jobs' own scripts: copilot-pr-lifecycle (still its own
+# workflow for push, dispatch and remediation-consumer runs), the Copilot review request (was request-copilot-review.yml), one poke with no sleep and no retry (the lane in
+# qnfo-fleet-control also runs every 10 minutes), and the merge (was merge-when-ready.yml, MERGE-WHEN-READY-1). Runs from main (pull_request_target and workflow_run both do);
+# the only values taken from the event are the pull request number, its base ref and its draft flag; QNFO_GH_PAT reaches the fallback review step and the merge step only.
+# Readiness (merge step): open, not a draft, into main, no `hold` label, no comment starting HOLD:, and every check run on the head sha outside the own list concluded
+# green, with at least 3 present (versions, scans, suites). The own list holds `lane` itself (it is running while it reads the list), Workers Builds, CodeQL, and the retired names.
+# LANE-ADVISORY-JOBS-1 still holds: a cancelled or running advisory entry never makes a pull request wait. The merge is pinned to the checked head sha.
+# Style: step names colon-free, no heredocs, no inline python, inputs travel through env (workflow-lint.py).
+# Revert: git revert the PR-CHECK-CAP-5-1 commit (restores merge-when-ready.yml, request-copilot-review.yml and the four-job lane).
 
 on:
   pull_request_target:
@@ -18,50 +21,92 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+  issues: write
+  actions: write
 
 jobs:
-  lifecycle:
-    if: ${{ github.event_name == 'pull_request_target' }}
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      actions: write
-    uses: ./.github/workflows/copilot-pr-lifecycle.yml
-    secrets: inherit
-
-  review:
-    if: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && contains(fromJSON('["opened","reopened","ready_for_review"]'), github.event.action) }}
-    permissions:
-      pull-requests: write
-    uses: ./.github/workflows/request-copilot-review.yml
-    secrets: inherit
-
-  poke:
-    if: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && contains(fromJSON('["opened","reopened","ready_for_review","edited"]'), github.event.action)) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.event == 'pull_request' && !startsWith(github.event.workflow_run.head_branch, 'copilot/')) }}
-    permissions: {}
-    uses: ./.github/workflows/lane-poke.yml
-
-  merge:
-    if: ${{ (github.event_name == 'pull_request_target' && github.event.action == 'ready_for_review' && github.event.pull_request.base.ref == 'main') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'cancelled') }}
-    permissions:
-      contents: read
-      pull-requests: read
-    uses: ./.github/workflows/merge-when-ready.yml
-    secrets: inherit
-
-  retry:
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.pull_requests[0].number != null && !startsWith(github.event.workflow_run.head_branch, 'copilot/') }}
-    permissions: {}
+  lane:
+    if: ${{ (github.event_name == 'pull_request_target' && (github.event.pull_request.user.login == 'Copilot' || contains(fromJSON('["opened","reopened","ready_for_review","edited"]'), github.event.action))) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled') }}
+    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    concurrency:
+      group: pr-lane-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+      cancel-in-progress: false
     env:
-      GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
-      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-      RUN_ID: ${{ github.event.workflow_run.id }}
-      RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      DO_LIFECYCLE: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.user.login == 'Copilot' && 'true' || 'false' }}
+      DO_REVIEW: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.draft == false && contains(fromJSON('["opened","reopened","ready_for_review"]'), github.event.action) && 'true' || 'false' }}
+      DO_POKE: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'main' && contains(fromJSON('["opened","reopened","ready_for_review","edited"]'), github.event.action) && 'true') || (github.event_name == 'workflow_run' && !startsWith(github.event.workflow_run.head_branch, 'copilot/') && 'true') || 'false' }}
+      DO_MERGE: ${{ (github.event_name == 'pull_request_target' && github.event.action == 'ready_for_review' && github.event.pull_request.base.ref == 'main' && 'true') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0].number != null && 'true') || 'false' }}
+      DO_RETRY: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.pull_requests[0].number != null && !startsWith(github.event.workflow_run.head_branch, 'copilot/') && 'true' || 'false' }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.DO_LIFECYCLE == 'true' }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ env.DO_LIFECYCLE == 'true' }}
+        with:
+          node-version: "22"
+
+      - name: Sweep the Copilot pull requests
+        if: ${{ env.DO_LIFECYCLE == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_PR: ${{ github.event.pull_request.number }}
+          COPILOT_PR_APPROVE: ${{ vars.COPILOT_PR_APPROVE }}
+          OWNER_LOGINS: ${{ vars.OWNER_LOGINS }}
+        run: node scripts/copilot-pr-lifecycle.mjs
+
+      - name: Request the automated review with GITHUB_TOKEN
+        id: primary
+        if: ${{ env.DO_REVIEW == 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          reviewer='copilot-pull-request-reviewer[bot]'
+          endpoint="repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers"
+          requested="$(gh api "$endpoint" --jq '.users[].login')"
+          if printf '%s\n' "$requested" | grep -Fxq "$reviewer"; then
+            exit 0
+          fi
+          gh api --method POST "$endpoint" -f "reviewers[]=$reviewer" >/dev/null
+
+      - name: Request the automated review with the fleet user credential
+        id: fallback
+        if: ${{ env.DO_REVIEW == 'true' && steps.primary.outcome != 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+        run: |
+          reviewer='copilot-pull-request-reviewer[bot]'
+          endpoint="repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers"
+          requested="$(gh api "$endpoint" --jq '.users[].login')"
+          if printf '%s\n' "$requested" | grep -Fxq "$reviewer"; then
+            exit 0
+          fi
+          gh api --method POST "$endpoint" -f "reviewers[]=$reviewer" >/dev/null
+
+      - name: Say so when no review could be requested
+        if: ${{ env.DO_REVIEW == 'true' && steps.primary.outcome != 'success' && steps.fallback.outcome != 'success' }}
+        run: echo "::warning::the automated review could not be requested on pull request ${PR_NUMBER} with either credential; the merge is not blocked (REQUEST-COPILOT-REVIEW-1)"
+
+      - name: Poke the merge lane once
+        if: ${{ env.DO_POKE == 'true' }}
+        continue-on-error: true
+        env:
+          POKE_EVENT: ${{ github.event_name }}:${{ github.event.workflow_run.name || github.event.pull_request.number || 'manual' }}
+        run: |
+          curl -sS -m 20 -X POST "https://qnfo-fleet-control.q08.workers.dev/gh/poke" -H "X-Poke-Event: ${POKE_EVENT}"
+
       - name: Update the branch when behind main, else rerun the failed jobs once
+        if: ${{ env.DO_RETRY == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -u
           pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
@@ -85,3 +130,35 @@ jobs:
           else
             gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY" --failed || echo "::notice::rerun refused"
           fi
+
+      - name: Merge the pull request when every fast check is green
+        if: ${{ env.DO_MERGE == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+        run: |
+          set -u
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          state="$(printf '%s' "$pr" | jq -r '.state')"
+          draft="$(printf '%s' "$pr" | jq -r '.draft')"
+          base="$(printf '%s' "$pr" | jq -r '.base.ref')"
+          sha="$(printf '%s' "$pr" | jq -r '.head.sha')"
+          held="$(printf '%s' "$pr" | jq -r '[.labels[].name] | index("hold") != null')"
+          if [ "$state" != "open" ] || [ "$draft" != "false" ] || [ "$base" != "main" ] || [ "$held" != "false" ]; then
+            echo "not ready: state=$state draft=$draft base=$base held=$held"
+            exit 0
+          fi
+          holds="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '[.[] | select(.body | startswith("HOLD:"))] | length')"
+          if [ "$holds" != "0" ]; then
+            echo "a HOLD comment is on the pull request"
+            exit 0
+          fi
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --jq '[.check_runs[] | select((.name | test("^(gate|analyze|Workers Builds|sweep|lane$|(poke|review|lifecycle) / )")) | not) | {name, status, conclusion}]')"
+          total="$(printf '%s' "$runs" | jq 'length')"
+          pending="$(printf '%s' "$runs" | jq '[.[] | select(.status != "completed")] | length')"
+          bad="$(printf '%s' "$runs" | jq '[.[] | select(.status == "completed" and (.conclusion | IN("success", "skipped", "neutral") | not))] | length')"
+          echo "checks=$total pending=$pending failed=$bad"
+          if [ "$total" -lt 3 ] || [ "$pending" != "0" ] || [ "$bad" != "0" ]; then
+            echo "waiting for a later guard to conclude, or a check failed"
+            exit 0
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$sha" || echo "::notice::merge refused, the lane keeps the pull request"

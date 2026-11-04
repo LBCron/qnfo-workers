@@ -463,6 +463,25 @@ def main() -> int:
         evs = on if isinstance(on, (dict, list)) else [on]
         if os.path.basename(p) not in allowed_pr and any(e in ("pull_request", "pull_request_target") for e in evs):
             bad.append(f"{p}: TWO-PR-WORKFLOWS-1 -- triggers on a pull request; call it from pr-checks.yml with workflow_call instead")
+    # PR-CHECK-CAP-5-1 (2026-11-04, owner directive: a pull request shows at most five checks, never 23): every job of pr-checks.yml and pr-lane.yml is one entry on the
+    # pull request, a skipped one included, and every job of a reusable workflow it calls is one more. Cloudflare's "Workers Builds" is the fifth entry, so the two files hold at
+    # most four jobs between them and none calls a reusable workflow. A new guard is a step in `versions`, `scans` or `suites`, never a job.
+    pr_jobs = 0
+    for p in files:
+        if os.path.basename(p) not in allowed_pr:
+            continue
+        try:
+            with open(p, encoding="utf-8") as fh:
+                d = yaml.safe_load(fh)
+        except yaml.YAMLError:
+            continue
+        jobs = (d.get("jobs") or {}) if isinstance(d, dict) else {}
+        pr_jobs += len(jobs)
+        for jn, jv in jobs.items():
+            if isinstance(jv, dict) and "uses" in jv:
+                bad.append(f"{p}: PR-CHECK-CAP-5-1 -- job `{jn}` calls a reusable workflow, which adds one pull request check per called job (and per skipped one); inline its steps")
+    if pr_jobs > 4:
+        bad.append(f"pr-checks.yml and pr-lane.yml: PR-CHECK-CAP-5-1 -- {pr_jobs} jobs; a pull request may show at most 5 checks (Workers Builds plus 4 jobs)")
     if bad:
         print(f"=== WORKFLOW-LINT FAILED: {len(bad)} invalid workflow file(s) ===")
         for b in bad:

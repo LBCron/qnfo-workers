@@ -1,12 +1,15 @@
 name: pr-checks
 
-# TWO-PR-WORKFLOWS-1 (2026-11-04, owner directive: a maximum of two workflows per pull request): deploy-gate no longer has a pull_request trigger; it runs as the `deploy-gate` job below.
-# A pull request now starts exactly two workflows: pr-checks and pr-lane.
-# THREE-PR-WORKFLOWS-1 (2026-11-04, owner directive: "when a PR is ready for merge, a maximum of three workflows can run. That's it.").
-# A pull request now starts exactly three workflows: pr-checks (this file: every guard and test, one run), deploy-gate (the advisory suites, also the merge queue), and
-# pr-lane (poke, Copilot review and lifecycle, merge). The guards below are the same files as before, now `workflow_call` workflows; each keeps its push-to-main trigger.
-# Path filters moved into the `changes` job (a pull_request trigger path filter cannot apply to a called workflow). Four guards ran on every pull request before and still do.
-# Revert: restore the `pull_request:` trigger block in each called file and delete this file and pr-lane.yml.
+# PR-CHECK-CAP-5-1 (2026-11-04, owner directive: "A PR MAY HAVE A MAXIMUM OF 5 ACTIONS/CHECKS/WORKFLOWS, NEVER 23 ... DELETE ALL CHECKS/WORKFLOWS THAT TAKE LONGER THAN 1 MINUTE AND/OR
+# REPEATEDLY FAIL"). Measured on PR 7130 (head 94df39fb): 22 check entries, because every `uses:` job of a reusable workflow is one entry, a path-skipped one included.
+# A pull request now shows exactly five entries: "Workers Builds: qnfo-workers" (Cloudflare, the one required check in the live ruleset) and the jobs `versions`, `scans`,
+# `suites` (this file) and `lane` (pr-lane.yml). No job here calls a reusable workflow: workflow-lint.py (PR-CHECK-CAP-5-1) fails a file that does.
+# Each job holds the steps of the guards it replaced, copied from the guard's own workflow file (those files keep their push-to-main and dispatch triggers and stay the
+# post-merge net). Measured over the last 40 pr-checks runs: every guard below took 10 to 51 s; only deploy-gate (p50 279 s, max 376 s, advisory on a PR since MERGE-STREAMLINE-1)
+# and fleet-graph (63 s) were over a minute, and ux-journeys (Playwright, base and head app builds) and research-code (Lean build, 60 minute timeout) cannot fit one. Those four
+# and copilot-setup-steps (a toolchain print) no longer run on a pull request; they run on push to main, where ci-watchdog files a red run. A guard edit keeps its two copies in step:
+# change the guard's workflow file and the matching block here in one commit.
+# Revert: git revert the PR-CHECK-CAP-5-1 commit (restores the per-guard reusable-workflow jobs and the four-job pr-lane).
 
 on:
   pull_request:
@@ -21,140 +24,569 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
+
+  # VERSION bump, VERSION-pair mirror and comparator guards: every pull request, about 45 s
+  versions:
     # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
-    outputs:
-      adversarial_workers_guard: ${{ steps.f.outputs.adversarial_workers_guard }}
-      backlog_exec_test: ${{ steps.f.outputs.backlog_exec_test }}
-      charter_guard: ${{ steps.f.outputs.charter_guard }}
-      code_loop_test: ${{ steps.f.outputs.code_loop_test }}
-      copilot_setup_steps: ${{ steps.f.outputs.copilot_setup_steps }}
-      fleet_graph: ${{ steps.f.outputs.fleet_graph }}
-      migration_guard: ${{ steps.f.outputs.migration_guard }}
-      model_floor_guard: ${{ steps.f.outputs.model_floor_guard }}
-      research_code: ${{ steps.f.outputs.research_code }}
-      steward_test: ${{ steps.f.outputs.steward_test }}
-      ux_journeys: ${{ steps.f.outputs.ux_journeys }}
-      workflow_lint: ${{ steps.f.outputs.workflow_lint }}
+    timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # ---- version-bump-guard: steps of .github/workflows/version-bump-guard.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          python-version: '3.11'
+
+      - name: Install lint dependency (PyYAML)
+        if: ${{ !cancelled() }}
+        run: python -m pip install --quiet pyyaml
+
+      - name: Lint the workflow YAML class repo-wide
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          if [ -f scripts/workflow-lint.py ]; then
+            python3 scripts/workflow-lint.py
+          else
+            echo "no workflow-lint.py in this revision; skipping"
+          fi
+
+      - name: Forbidden Cloudflare module imports
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cf-import-guard.py
+
+      - name: Resolve the diff range
+        if: ${{ !cancelled() }}
+        id: range
+        run: |
+          set -euo pipefail
+          BEFORE='${{ github.event.before }}'
+          AFTER='${{ github.sha }}'
+          BASE_REF='${{ github.base_ref }}'
+          BASE_REF="${BASE_REF:-main}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --quiet origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" 2>/dev/null || true
+            MB=$(git merge-base "origin/$BASE_REF" "$AFTER" 2>/dev/null || true)
+            if [ -n "$MB" ]; then
+              echo "first push (event.before is all-zeros); validating merge-base with origin/$BASE_REF: $MB"
+              BEFORE="$MB"
+            else
+              echo "first push and origin/$BASE_REF is unknown; falling back to HEAD~1 (single commit)"
+              BEFORE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+            fi
+          elif ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            MB=$(git merge-base origin/main "$AFTER" 2>/dev/null || true)
+            if [ -n "$MB" ]; then
+              echo "before $BEFORE is not in this clone (force-push); validating merge-base with origin/main instead: $MB"
+              BEFORE="$MB"
+            fi
+          fi
+          PARENTS=$(git rev-list --parents -n 1 "$AFTER" | wc -w)
+          if [ '${{ github.event_name }}' = 'pull_request' ] || [ "$PARENTS" -gt 2 ]; then
+            MB=$(git merge-base "origin/$BASE_REF" "$AFTER" 2>/dev/null || true)
+            if [ -n "$MB" ] && [ "$MB" != "$(git rev-parse "$AFTER")" ]; then
+              echo "pull_request or merge commit; validating merge-base with origin/$BASE_REF: $MB"
+              BEFORE="$MB"
+            fi
+          fi
+          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
+          echo "after=$AFTER" >> "$GITHUB_OUTPUT"
+          echo "range $BEFORE..$AFTER"
+
+      - name: Version bump guard
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          if ! python3 scripts/version-bump-guard.py \
+                 "${{ steps.range.outputs.before }}" \
+                 "${{ steps.range.outputs.after }}"; then
+            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+              echo "::warning title=version-bump-guard::VERSION bump violation on a non-default branch; advisory only. A pull_request run enforces this before merge."
+              exit 0
+            fi
+            exit 1
+          fi
+
+      # ---- version-compare: steps of .github/workflows/version-compare.yml ----
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          node-version: '20'
+
+      - name: Run the comparator suite
+        if: ${{ !cancelled() }}
+        run: node qnfo-fleet-control/version-compare.test.mjs
+
+      - name: Assert the fail-closed invariants explicitly
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/version-compare.test.mjs)
+          echo "$out"
+
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::comparator suite reported failures"; exit 1; }
+
+          node --input-type=module -e '
+            import { compareVersions, deployDecision, UNORDERABLE } from "./qnfo-fleet-control/version-compare.mjs";
+            const bad = [];
+            const mustBeUnorderable = [
+              ["3.6.1-subscribers", "3.6.1"],
+              ["1.14.1", "1.14.1-gtd-guard"],
+              ["2.1.0", "qnfo-qwav/fabric-20260910"],
+            ];
+            for (const [a, b] of mustBeUnorderable) {
+              if (compareVersions(a, b) !== UNORDERABLE) bad.push(`not UNORDERABLE: ${a} vs ${b}`);
+            }
+            const mustNotAct = [
+              ["v1.1.0", "1.0.0", "the personal-companion downgrade"],
+              ["v2.0.0", "1.9.9", "a v-prefixed genuine downgrade"],
+            ];
+            for (const [deployed, canonical, why] of mustNotAct) {
+              const d = deployDecision(deployed, canonical);
+              if (d !== "no-act") bad.push(`expected no-act for ${deployed} -> ${canonical} (${why}), got ${d}`);
+            }
+            if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+            console.log("fail-closed invariants hold");
+          '
+
+      # ---- mirror-guard: steps of .github/workflows/mirror-guard.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          python-version: "3.11"
+
+      - name: VERSION-pair mirror guard
+        if: ${{ !cancelled() }}
+        run: |
+          SCOPE=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then SCOPE="--scope-to-diff=HEAD^1"; fi
+          if [ ! -f scripts/mirror-guard.py ]; then
+            echo "scripts/mirror-guard.py missing; workflow restored but script still absent"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            if python scripts/mirror-guard.py $SCOPE; then
+              exit 0
+            fi
+            echo "::warning title=mirror-guard::mirror drift observed on main; mirror-sync.yml regenerates and commits it automatically. This run is advisory -- run this workflow via workflow_dispatch for a strict verdict."
+            exit 0
+          fi
+          python scripts/mirror-guard.py $SCOPE
+
+  # identity lexicon always; worker prompt, model floor and workflow lint when their paths change
+  scans:
+    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
       - name: Match changed files to guards
         id: f
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -eu
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' > files.txt
+          git diff --name-only HEAD^1 HEAD > files.txt
           wc -l < files.txt
           if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/adversarial-workers-guard\.py$|^\.github/workflows/adversarial-workers-guard\.yml$' files.txt; then echo 'adversarial_workers_guard=true' >> "$GITHUB_OUTPUT"; else echo 'adversarial_workers_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
+
+      # ---- identity-guard: steps of .github/workflows/identity-guard.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          python-version: "3.11"
+
+      - name: Identity lexicon guard
+        if: ${{ !cancelled() }}
+        run: python3 scripts/identity-guard.py .
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          node-version: "22"
+
+      - name: Bluesky profile sync offline suite (qnfo-social)
+        if: ${{ !cancelled() }}
+        run: node qnfo-social/profile-sync.test.mjs
+
+      # ---- adversarial-workers-guard: steps of .github/workflows/adversarial-workers-guard.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.adversarial_workers_guard == 'true' }}
+        with:
+          python-version: "3.11"
+
+      - name: ADVERSARIAL-REASONING-1 on core worker prompt surfaces (fail-closed)
+        if: ${{ !cancelled() && steps.f.outputs.adversarial_workers_guard == 'true' }}
+        run: python3 scripts/adversarial-workers-guard.py
+
+      # ---- model-floor-guard: steps of .github/workflows/model-floor-guard.yml ----
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.model_floor_guard == 'true' }}
+        with:
+          node-version: "20"
+
+      - name: Scan repo sources and live bundles
+        if: ${{ !cancelled() && steps.f.outputs.model_floor_guard == 'true' }}
+        env:
+          QNFO_WORKERS: ${{ github.workspace }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          LIVE=""
+          BASE=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}" > /dev/null 2>&1
+            git worktree add --detach "$RUNNER_TEMP/floor-base" "${{ github.event.pull_request.base.sha }}" > /dev/null 2>&1
+            BASE="--base $RUNNER_TEMP/floor-base"
+          elif [ "${{ github.event_name }}" != "push" ]; then
+            LIVE="--live"
+          fi
+          node scripts/model-floor-guard.mjs $LIVE $BASE > floor-report.txt 2>&1
+          rc=$?
+          { echo '### model-floor-guard'; echo "exit code: $rc"; echo '```'; head -c 60000 floor-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          head -40 floor-report.txt
+          exit $rc
+
+      # ---- workflow-lint: steps of .github/workflows/workflow-lint.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        with:
+          python-version: "3.11"
+
+      - run: pip install --quiet pyyaml
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+
+      - name: Lint every workflow file (fail closed)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/workflow-lint.py
+
+      - name: STATUS-NOOP-SKIP-1 self-test (skip stamp-only status commits, never an outcome change)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/status_unchanged_test.py
+
+      - name: SECRET-LOCK-ENFORCE-1 guard (fail CI when a secrets or bindings mutation skips the secret-lock)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/secret-mutation-guard.py
+
+      - name: SECRET-LOCK-ENFORCE-1 offline tests
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: bash scripts/stop-commands.sh python3 scripts/secret-mutation-guard_test.py
+
+      - name: CANONICAL-DEPLOY-SKIP-1 offline tests (a refused creation of an absent worker is a skip, any other failure still fails)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/canonical_deploy_skip_test.py
+
+  # migration, charter and the small offline suites, each only when its paths change
+  suites:
+    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Match changed files to guards
+        id: f
+        run: |
+          set -eu
+          git diff --name-only HEAD^1 HEAD > files.txt
+          wc -l < files.txt
           if grep -qE '^qnfo-backlog-exec/|^\.github/workflows/backlog-exec-test\.yml$' files.txt; then echo 'backlog_exec_test=true' >> "$GITHUB_OUTPUT"; else echo 'backlog_exec_test=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^docs/(QUNIVERSE-CHARTER|PORTFOLIO)\.md$|^qnfo-fleet-control/|^migrations/2026-10-02-(metric-closed-loop|performance-loop)\.sql$|^scripts/charter-guard\.py$|^[^/]+/wrangler\.toml$|^\.github/workflows/charter-guard\.yml$' files.txt; then echo 'charter_guard=true' >> "$GITHUB_OUTPUT"; else echo 'charter_guard=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^qnfo-code-orchestrator/|^\.github/workflows/code-loop-test\.yml$' files.txt; then echo 'code_loop_test=true' >> "$GITHUB_OUTPUT"; else echo 'code_loop_test=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^\.github/workflows/copilot-setup-steps\.yml$' files.txt; then echo 'copilot_setup_steps=true' >> "$GITHUB_OUTPUT"; else echo 'copilot_setup_steps=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^scripts/fleet_graph(_repos)?\.mjs$|^repos\.json$|^docs/|^qnfo-memory-mcp/|^\.github/workflows/fleet-graph\.yml$' files.txt; then echo 'fleet_graph=true' >> "$GITHUB_OUTPUT"; else echo 'fleet_graph=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^migrations/|^scripts/apply_migrations\.py$|^\.github/workflows/migration-guard\.yml$' files.txt; then echo 'migration_guard=true' >> "$GITHUB_OUTPUT"; else echo 'migration_guard=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^research-code/|^\.github/workflows/research-code\.yml$' files.txt; then echo 'research_code=true' >> "$GITHUB_OUTPUT"; else echo 'research_code=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^qnfo-github-steward/|^migrations/2026-10-18-(tracker|portfolio)-sync\.sql$|^\.github/workflows/steward-test\.yml$' files.txt; then echo 'steward_test=true' >> "$GITHUB_OUTPUT"; else echo 'steward_test=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^scripts/ux-journeys/|^scripts/ux-journeys\.test\.mjs$|^personal-api/companion\.js$|^\.github/workflows/ux-journeys\.yml$' files.txt; then echo 'ux_journeys=true' >> "$GITHUB_OUTPUT"; else echo 'ux_journeys=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
 
-  deploy-gate:
-    uses: ./.github/workflows/deploy-gate.yml
-    secrets: inherit
+      # ---- migration-guard: steps of .github/workflows/migration-guard.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.migration_guard == 'true' }}
+        with:
+          python-version: "3.11"
 
-  version-bump-guard:
-    needs: changes
-    uses: ./.github/workflows/version-bump-guard.yml
-    secrets: inherit
+      - name: Check the added and changed migrations
+        if: ${{ !cancelled() && steps.f.outputs.migration_guard == 'true' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          files=$(git diff --name-only --diff-filter=AM "origin/$BASE_REF" HEAD -- 'migrations/*.sql')
+          if [ -z "$files" ]; then
+            echo "no migration changed"
+            exit 0
+          fi
+          python3 scripts/apply_migrations.py --check --base "origin/$BASE_REF" $files
 
-  version-compare:
-    needs: changes
-    uses: ./.github/workflows/version-compare.yml
-    secrets: inherit
+      - name: Plan every view after the changed migrations
+        if: ${{ !cancelled() && steps.f.outputs.migration_guard == 'true' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          files=$(git diff --name-only --diff-filter=AM "origin/$BASE_REF" HEAD -- 'migrations/*.sql')
+          if [ -z "$files" ]; then
+            echo "no migration changed"
+            exit 0
+          fi
+          python3 scripts/view_premerge.py $files
 
-  identity-guard:
-    needs: changes
-    uses: ./.github/workflows/identity-guard.yml
-    secrets: inherit
+      # ---- charter-guard: steps of .github/workflows/charter-guard.yml ----
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        with:
+          node-version: '20'
 
-  mirror-guard:
-    needs: changes
-    uses: ./.github/workflows/mirror-guard.yml
-    secrets: inherit
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        with:
+          python-version: '3.11'
 
-  adversarial-workers-guard:
-    needs: changes
-    if: ${{ needs.changes.outputs.adversarial_workers_guard == 'true' }}
-    uses: ./.github/workflows/adversarial-workers-guard.yml
-    secrets: inherit
+      - name: Syntax check the governance kernel
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: node --check qnfo-fleet-control/worker.js
 
-  backlog-exec-test:
-    needs: changes
-    if: ${{ needs.changes.outputs.backlog_exec_test == 'true' }}
-    uses: ./.github/workflows/backlog-exec-test.yml
-    secrets: inherit
+      - name: Replay the charter loop offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/charter.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::charter loop suite reported failures"; exit 1; }
 
-  charter-guard:
-    needs: changes
-    if: ${{ needs.changes.outputs.charter_guard == 'true' }}
-    uses: ./.github/workflows/charter-guard.yml
-    secrets: inherit
+      - name: Replay the portfolio loop offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/portfolio.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::portfolio loop suite reported failures"; exit 1; }
 
-  code-loop-test:
-    needs: changes
-    if: ${{ needs.changes.outputs.code_loop_test == 'true' }}
-    uses: ./.github/workflows/code-loop-test.yml
-    secrets: inherit
+      - name: Replay the loop watchdog offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/loopwatch.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::loop watchdog suite reported failures"; exit 1; }
 
-  copilot-setup-steps:
-    needs: changes
-    if: ${{ needs.changes.outputs.copilot_setup_steps == 'true' }}
-    uses: ./.github/workflows/copilot-setup-steps.yml
-    secrets: inherit
+      - name: Replay the Cloudflare changelog audit offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/cf-changelog.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::cloudflare changelog audit suite reported failures"; exit 1; }
 
-  fleet-graph:
-    needs: changes
-    if: ${{ needs.changes.outputs.fleet_graph == 'true' }}
-    uses: ./.github/workflows/fleet-graph.yml
-    secrets: inherit
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        with:
+          node-version: '22'
 
-  migration-guard:
-    needs: changes
-    if: ${{ needs.changes.outputs.migration_guard == 'true' }}
-    uses: ./.github/workflows/migration-guard.yml
-    secrets: inherit
+      - name: Replay the objective constraints offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/constraints.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::objective constraints suite reported failures"; exit 1; }
 
-  model-floor-guard:
-    needs: changes
-    if: ${{ needs.changes.outputs.model_floor_guard == 'true' }}
-    uses: ./.github/workflows/model-floor-guard.yml
-    secrets: inherit
+      - name: Replay reach ideation offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/reach.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::reach ideation suite reported failures"; exit 1; }
 
-  research-code:
-    needs: changes
-    if: ${{ needs.changes.outputs.research_code == 'true' }}
-    uses: ./.github/workflows/research-code.yml
-    secrets: inherit
+      - name: Replay the improvement loop offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/improvement.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::improvement loop suite reported failures"; exit 1; }
 
-  steward-test:
-    needs: changes
-    if: ${{ needs.changes.outputs.steward_test == 'true' }}
-    uses: ./.github/workflows/steward-test.yml
-    secrets: inherit
+      - name: Replay the act bridge offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/act-bridge.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failure(s)" \
+            || { echo "::error::act bridge suite reported failures"; exit 1; }
 
-  ux-journeys:
-    needs: changes
-    if: ${{ needs.changes.outputs.ux_journeys == 'true' }}
-    permissions:
-      contents: write
-    uses: ./.github/workflows/ux-journeys.yml
-    secrets: inherit
+      - name: Replay the live budget count offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/budget-live.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "^0 failure(s)" \
+            || { echo "::error::live budget suite reported failures"; exit 1; }
 
-  workflow-lint:
-    needs: changes
-    if: ${{ needs.changes.outputs.workflow_lint == 'true' }}
-    uses: ./.github/workflows/workflow-lint.yml
-    secrets: inherit
+      - name: Replay the trigger value reader offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/trigger-parse.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "^0 failure(s)" \
+            || { echo "::error::trigger value suite reported failures"; exit 1; }
+
+      - name: Replay the self-repair reply reader offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/evolve-json.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "^0 failure(s)" \
+            || { echo "::error::self-repair reply reader suite reported failures"; exit 1; }
+
+      - name: Replay the cost-per-task window and advisor spend offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/cost-per-task.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q " 0 failed" || { echo "::error::cost-per-task suite reported failures"; exit 1; }
+          out=$(node qnfo-fleet-control/advisor-spend.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q " 0 failed" || { echo "::error::advisor spend suite reported failures"; exit 1; }
+
+      - name: Replay the performance loop offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node qnfo-fleet-control/performance.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "0 failed" \
+            || { echo "::error::performance loop suite reported failures"; exit 1; }
+
+      - name: Replay trigger recovery offline
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          out=$(node --no-warnings qnfo-fleet-control/trigger-recovery.test.mjs)
+          echo "$out"
+          echo "$out" | grep -q "^0 failure(s)" \
+            || { echo "::error::trigger recovery suite reported failures"; exit 1; }
+
+      - name: Resolve the diff range
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        id: range
+        run: |
+          set -euo pipefail
+          HEAD_SHA='${{ github.sha }}'
+          BASE_REF='${{ github.base_ref }}'
+          BASE_REF="${BASE_REF:-main}"
+          BASE=$(git merge-base "origin/$BASE_REF" "$HEAD_SHA" 2>/dev/null || true)
+          if [ -z "$BASE" ] || [ "$BASE" = "$(git rev-parse "$HEAD_SHA")" ]; then
+            BASE=$(git rev-parse "$HEAD_SHA~1" 2>/dev/null || git rev-parse "$HEAD_SHA")
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "range $BASE..$HEAD_SHA"
+
+      - name: Charter shape, pillar parity and new-worker pillar declarations
+        if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/charter-guard.py
+          python3 scripts/charter-guard.py "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      # ---- code-loop-test: steps of .github/workflows/code-loop-test.yml ----
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        with:
+          python-version: "3.11"
+
+      - name: Syntax check
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --check qnfo-code-orchestrator/worker.js
+
+      - name: Loop acceptance test
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/test-loop.mjs
+
+      - name: Hunk patch test (HUNK-NO-EOL-1)
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/test-hunk.mjs
+
+      - name: Issue planner test
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/planner.test.mjs
+
+      - name: Planner deny rule (PLAN-DENY-NEGATION-1)
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/plan-deny-negation.test.mjs
+
+      - name: No-final-newline patch round trips
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/no-eol.test.mjs
+
+      - name: JS verifier fails closed
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/verify-closed.test.mjs
+
+      - name: Self-repair test (SELF-REPAIR-1)
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/self-repair.test.mjs
+
+      - name: Dispatch dedupe (CODE-DISPATCH-DEDUPE-1)
+        if: ${{ !cancelled() && steps.f.outputs.code_loop_test == 'true' }}
+        run: node --no-warnings qnfo-code-orchestrator/dispatch-dedupe.test.mjs
+
+      # ---- steward-test: steps of .github/workflows/steward-test.yml ----
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.steward_test == 'true' }}
+        with:
+          node-version: "24"
+
+      - name: syntax
+        if: ${{ !cancelled() && steps.f.outputs.steward_test == 'true' }}
+        run: node --check qnfo-github-steward/worker.js
+
+      - name: tracker-sync suite
+        if: ${{ !cancelled() && steps.f.outputs.steward_test == 'true' }}
+        run: node --no-warnings qnfo-github-steward/tracker-sync.test.mjs
+
+      - name: portfolio-sync suite
+        if: ${{ !cancelled() && steps.f.outputs.steward_test == 'true' }}
+        run: node --no-warnings qnfo-github-steward/portfolio-sync.test.mjs
+
+      # ---- backlog-exec-test: steps of .github/workflows/backlog-exec-test.yml ----
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.backlog_exec_test == 'true' }}
+        with:
+          node-version: "22"
+
+      - name: Syntax check
+        if: ${{ !cancelled() && steps.f.outputs.backlog_exec_test == 'true' }}
+        run: node --check qnfo-backlog-exec/worker.js
+
+      - name: Exception-class closes need a measured recurrence and a passing probe
+        if: ${{ !cancelled() && steps.f.outputs.backlog_exec_test == 'true' }}
+        run: node --no-warnings qnfo-backlog-exec/exception-close.test.mjs
