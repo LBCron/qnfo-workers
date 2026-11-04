@@ -28,6 +28,7 @@ on:
           - ai-neurons
           - gateway-cost
           - gateway-logs
+          - gateway-routes
           - access-probe
           - access-ensure-cloudflare
           - delete-worker
@@ -52,7 +53,7 @@ on:
         required: false
         default: ""
       gateway:
-        description: "AI Gateway id (gateway-logs only)"
+        description: "AI Gateway id (gateway-logs, gateway-routes)"
         required: false
         default: "default"
 

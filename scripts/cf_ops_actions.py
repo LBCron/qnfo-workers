@@ -43,6 +43,9 @@ ACTIONS
                          requests per UTC hour for that model over 48h (finds an unattributed consumer by schedule).
   gateway-cost           AI Gateway requests and cost by model and provider for the last 7d (GraphQL). With
                          --target daily, cost per UTC day and provider over 30d.
+  gateway-routes         AUTOROUTER-EVAL-1: read-only. Lists the AI Gateway dynamic routes of --gateway (default "default", the gateway
+                         qnfo-ai uses) and prints each route id, name and whether it is an Auto Router, plus the HTTP status and the
+                         error text when the API refuses. First step of RM-AUTOROUTER-EVAL-1: the shadow replay needs the route id.
   access-probe           Read the Zero Trust organisation, Access apps and identity providers. Reports only provider
                          names/types, Cloudflare account-membership restriction, OAuth client-ID presence and each
                          app's allowed provider IDs; never prints client IDs, secrets, emails or policy contents.
@@ -320,6 +323,34 @@ def gateway_cost(acct: str, token: str) -> int:
                   "cost": round((r.get("sum") or {}).get("cost") or 0, 2)} for r in rows), key=lambda x: -x["cost"])
     emit({"action": "gateway-cost", "ok": True, "window": "7d", "total_cost": round(sum(x["cost"] for x in by), 2),
           "rows": by[:30]})
+    return 0
+
+
+def _route_is_auto(r: dict) -> bool:
+    """AUTOROUTER-EVAL-1: true when a dynamic route looks like an Auto Router (type/kind/name carries 'auto')."""
+    for k in ("type", "kind", "route_type", "name"):
+        v = r.get(k)
+        if isinstance(v, str) and "auto" in v.lower():
+            return True
+    return bool(r.get("auto_router") or r.get("autoRouter"))
+
+
+def gateway_routes(acct: str, token: str, gateway: str = "default") -> int:
+    """AUTOROUTER-EVAL-1: list the AI Gateway dynamic routes of one gateway (read-only)."""
+    gw = urllib.parse.quote(gateway or "default", safe="")
+    st, j = call("GET", f"/accounts/{acct}/ai-gateway/gateways/{gw}/routes", token)
+    if not 200 <= (st or 0) < 300 or j.get("success") is False:
+        errs = j.get("errors") or []
+        text = "; ".join(str(e.get("message", e)) if isinstance(e, dict) else str(e) for e in errs)[:300]
+        emit({"action": "gateway-routes", "ok": False, "gateway": gateway, "http": st, "error": text or "no error text"})
+        return 1
+    res = j.get("result")
+    if isinstance(res, dict):
+        res = res.get("routes") or res.get("items") or []
+    routes = [{"id": r.get("id") or r.get("route_id"), "name": r.get("name"), "auto_router": _route_is_auto(r)}
+              for r in (res or []) if isinstance(r, dict)]
+    emit({"action": "gateway-routes", "ok": True, "gateway": gateway, "http": st, "count": len(routes),
+          "auto_router_count": sum(1 for r in routes if r["auto_router"]), "routes": routes})
     return 0
 
 
@@ -1590,7 +1621,7 @@ def gen_activitypub_key(worker: str, acct: str, token: str, keygen=_rsa_keypair,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["blocker-redteam", "d1-backup", "unbind-d1", "delete-d1", "unbind-service", "worker-history", "kv-secret-scan", "ops-intake-probe", "report", "r2-get", "delete-worker", "delete-vectorize-index", "gateway-logs", "ai-neurons", "gateway-cost", "access-probe", "access-ensure-cloudflare", "zaraz-remove-tool", "zaraz-get", "zaraz-set-ga4", "spare-domain-canon", "gen-activitypub-key", "d1-restore-drill", "kill-switch-drill"])
+    ap.add_argument("action", choices=["blocker-redteam", "d1-backup", "unbind-d1", "delete-d1", "unbind-service", "worker-history", "kv-secret-scan", "ops-intake-probe", "report", "r2-get", "delete-worker", "delete-vectorize-index", "gateway-logs", "ai-neurons", "gateway-cost", "gateway-routes", "access-probe", "access-ensure-cloudflare", "zaraz-remove-tool", "zaraz-get", "zaraz-set-ga4", "spare-domain-canon", "gen-activitypub-key", "d1-restore-drill", "kill-switch-drill"])
     ap.add_argument("--target", default="")
     ap.add_argument("--model", default="")
     ap.add_argument("--gateway", default="default")
@@ -1656,6 +1687,8 @@ def main() -> int:
         return gateway_logs(acct, token, a.gateway, a.model or None, max(1, min(a.pages, 40)))
     if a.action == "ai-neurons":
         return ai_neurons_hourly(acct, token, a.model) if a.model else ai_neurons(acct, token)
+    if a.action == "gateway-routes":
+        return gateway_routes(acct, token, a.gateway)
     if a.action == "gateway-cost":
         return gateway_cost_daily(acct, token) if a.target == "daily" else gateway_cost(acct, token)
     return access_probe(acct, token)
