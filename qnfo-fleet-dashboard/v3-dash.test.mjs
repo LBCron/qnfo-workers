@@ -167,6 +167,13 @@ r = await get("/api/v3/now?fresh=1", OWNER);
 const ownerFresh = await r.json();
 ok(!ownerFresh.needs.items.some((i) => i.key === "ha:snoozed") && ownerFresh.needs.parked >= 1, "V12 a snoozed card is hidden and counted as parked", ownerFresh.needs);
 
+// V13 (1.85.1) the Money card no longer subtracts the subscription figure from a pace that never included it
+ok(html.includes("Both together") && html.includes("Fleet (AI + Cloudflare) at the current rate") && !html.includes("of which the fleet itself"), "V13 Money card shows fleet, subscriptions and both together");
+
+// V10 (1.88.0) footer links, four owner-goal numbers, no unactionable metric count
+ok(html.includes('href="/overview"') && html.includes('href="/changelog"') && html.includes('href="/api"') && html.includes('href="/managers"'), "V10 the home footer links the other pages");
+ok(html.includes("Your four numbers") && !html.includes("Metrics off target") && /referral_30d: mv\.referral_30d/.test(src), "V11 four numbers shown, metric count dropped, reader figures served");
+
 // V5
 r = await get("/classic");
 ok(r.status === 200 && !(await r.text()).includes('id="n-code"'), "V5 /classic is still the old overview");
