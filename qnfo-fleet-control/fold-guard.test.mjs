@@ -31,7 +31,8 @@ const planCp = list(co, /^const PLAN_CONTROL_PLANE = (\[[^\]]*\]);$/m);
 const planCanaried = list(co, /^const PLAN_LOOP_CANARIED = (\[[^\]]*\]);$/m);
 const pyList = (re) => { const m = re.exec(cr); return m ? m[1].split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean) : null; };
 const canaryWorkers = pyList(/^CANARY_WORKERS = \[([^\]]*)\]$/m);
-const functional = (cr.match(/^    "([a-z0-9-]+)": \[\(/gm) || []).map((l) => l.replace(/^    "/, "").replace(/": \[\($/, ""));
+// DEPLOY-PROBES-1 (2026-11-04) moved the functional checks from a FUNCTIONAL table in canary_revert.py to <worker>/probes.json; a worker has a functional check when its probes.json exists and is non-empty.
+const functional = fs.readdirSync(root).filter((d) => { const f = path.join(root, d, "probes.json"); try { return fs.statSync(f).size > 2; } catch (e) { return false; } });
 ok(Array.isArray(evolveDeny) && Array.isArray(cmExtra) && Array.isArray(cmCanaried) && Array.isArray(tpCp) && Array.isArray(cpCanary) && Array.isArray(planCp) && Array.isArray(planCanaried) && Array.isArray(canaryWorkers) && functional.length > 0,
   "the lists parse", { evolveDeny, cmExtra, cmCanaried, tpCp, cpCanary, planCp, planCanaried, canaryWorkers, functional });
 ok(/^var CM_DENY = CM_CONTROL_PLANE\.filter\(/m.test(fc) && /^const PLAN_DENY_WORKERS = PLAN_CONTROL_PLANE\.filter\(/m.test(co), "CM_DENY and PLAN_DENY_WORKERS are derived from the control-plane lists minus the canaried workers");
