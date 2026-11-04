@@ -20,7 +20,7 @@ def load(path=None):
 
 def _ledger_sentences(led):
     s = {f["text"] for f in led["facts"]} | {f.get("pitch", "") for f in led["facts"]}
-    s |= {h["text"] for h in led["headlines"]}
+    s |= {h["text"] for h in led["headlines"]} | {led["closing"]}
     return {x for x in s if x}
 
 
@@ -32,7 +32,10 @@ def build(led):
     for f in led["facts"]:
         by_job.setdefault((f["employer"], f["period"]), []).append(f["text"])
     experience = [{"employer": e, "period": per, "bullets": b} for (e, per), b in by_job.items()]
-    about = [h["text"] for h in led["headlines"][1:3]] + [f.get("pitch") or f["text"] for f in led["facts"][:4]]
+    byid = {f["id"]: f for f in led["facts"]}
+    # story order: the systems (F06, F07), then the program record that proves delivery (F01, F03, F04, F12), then the ledger's closing line
+    order = ["F06", "F07", "F01", "F03", "F04", "F12"]
+    about = [byid[i].get("pitch") or byid[i]["text"] for i in order if i in byid] + [led["closing"]]
     return {
         "name": p["name"], "location": p["location"], "headline": headline,
         "about": "\n\n".join(about), "experience": experience,
