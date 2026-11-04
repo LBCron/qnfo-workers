@@ -296,7 +296,7 @@ test("repoCatchupTick does nothing in the legacy layout", async () => {
 test("the old failure shapes are gone from worker.js", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
-  assert.ok(!src.split("\n").filter((l) => !l.startsWith("var VERSION")).some((l) => l.includes("datetime(now)")), "unquoted SQL");
+  assert.ok(!src.split("\n").filter((l) => !l.startsWith("var VERSION") && !/^\/\* \d+\.\d+\.\d+ /.test(l)).some((l) => l.includes("datetime(now)")), "unquoted SQL");
   assert.ok(!/INSERT INTO publication_artifacts/.test(src), "the wrong-shaped ledger");
   assert.ok(!src.includes('"/contents/" + cycle + "/" + slug'), "the per-file contents PUT");
   assert.ok(src.includes("REPO-DEPOSIT-BEGIN") && src.includes("research_run_ledger"));

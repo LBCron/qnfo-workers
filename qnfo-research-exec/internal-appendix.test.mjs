@@ -64,7 +64,7 @@ ok(!mod.__sections(withApp).some((h) => /Divergence|Claim attribution/i.test(h))
 // wiring: every place the text passes before publication
 const calls = (src.match(/stripInternalAppendices\(/g) || []).length;
 ok(calls >= 5, "stripInternalAppendices is defined once and called at the reconcile, complete, draft-row and version-queue boundaries", calls);
-ok(/_stripped = stripInternalAppendices\(finalText\)/.test(src) && /var _noApp = stripInternalAppendices\(paper\)/.test(src) && /const rawBody = stripInternalAppendices\(String\(md\)\.trim\(\)\)\.trim\(\)/.test(src) && /const body = formatPaper\(rawBody, \{ title \}\)\.body/.test(src) && /row\.corrected_md = stripInternalAppendices\(String\(row\.corrected_md\)\)/.test(src), "the four call sites are in place before layout normalization");
+ok(/_stripped = stripInternalAppendices\(finalText\)/.test(src) && /var _noApp = stripInternalAppendices\(paper\)/.test(src) && /const rawBody = stripInternalAppendices\(String\(md\)\.trim\(\)\)\.trim\(\)/.test(src) && /const body = canonicalBody\(rawBody, \{ title \}\)\.trim\(\)/.test(src) && /row\.corrected_md = stripInternalAppendices\(String\(row\.corrected_md\)\)/.test(src), "the four call sites are in place before layout normalization");
 const sourceVersion = /var VERSION = "([^"]+)"/.exec(src)?.[1];
 ok(/var VERSION = "([^"]+)"/.exec(mirror)?.[1] === sourceVersion, "the Wrangler-built deploy mirror carries the source VERSION");
 ok(mirror.includes("function stripInternalAppendices") && mirror.includes("name the drafts A, B and C nowhere"), "the built deploy mirror includes the appendix strip and prompt safeguards");

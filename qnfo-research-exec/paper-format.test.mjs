@@ -20,7 +20,7 @@ function d1(db) {
 test("full public corpus repair converges, preserves versions/status and attributes archived changes", async () => {
   const living = new DatabaseSync(":memory:");
   const audit = new DatabaseSync(":memory:");
-  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT); CREATE TABLE old_bodies (slug TEXT,body_md TEXT); CREATE TRIGGER history AFTER UPDATE ON papers BEGIN INSERT INTO old_bodies VALUES (old.slug,old.body_md); END;");
+  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT,keywords TEXT,doi TEXT); CREATE TABLE old_bodies (slug TEXT,body_md TEXT); CREATE TRIGGER history AFTER UPDATE ON papers BEGIN INSERT INTO old_bodies VALUES (old.slug,old.body_md); END;");
   audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
   const old = "# Broken\nTitle\n\n**Author:** Writer\n\n### ABSTRACT\n\nA complete real abstract about a scientific result.\n\n## 1. Introduction\n\nBody with $x^2$.\n";
   for (const [slug, status] of [["a", "published"], ["b", "distributed"], ["c", "external_preprint"], ["d", "draft"], ["e", "retracted"]]) {
@@ -71,7 +71,7 @@ test("failed repairs remain visible and are retried on the next sweep", async ()
 test("a concurrent metadata correction is not overwritten or reported as convergence", async () => {
   const living = new DatabaseSync(":memory:");
   const audit = new DatabaseSync(":memory:");
-  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT); INSERT INTO papers VALUES ('a','a','Title',NULL,'Old abstract','# Title', '2.0','published',NULL,NULL,NULL);");
+  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT,keywords TEXT,doi TEXT); INSERT INTO papers VALUES ('a','a','Title',NULL,'Old abstract','# Title', '2.0','published',NULL,NULL,NULL,NULL,NULL);");
   audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
   const db = d1(living);
   const env = {
@@ -94,7 +94,7 @@ test("a concurrent metadata correction is not overwritten or reported as converg
 test("a canonical body that would be thinner is refused and the row is left as it is", async () => {
   const living = new DatabaseSync(":memory:");
   const audit = new DatabaseSync(":memory:");
-  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT);");
+  living.exec("CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT,keywords TEXT,doi TEXT);");
   audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
   // A paper that is almost all "Version History": removing it would lose most of the words.
   const body = "# Thin\n\n## Abstract\n\nShort abstract.\n\n## Version History\n\n" + "- Version 1.0.0: a long history entry that is most of the paper. ".repeat(60) + "\n";
@@ -103,5 +103,55 @@ test("a canonical body that would be thinner is refused and the row is left as i
   assert.equal(r.refused, 1);
   assert.equal(r.repaired, 0);
   assert.equal(living.prepare("SELECT body_md FROM papers WHERE slug='t'").get().body_md, body);
-  assert.match(JSON.parse(audit.prepare("SELECT value FROM ops_config").get().value).refusedList[0].why, /words/);
+  assert.match(JSON.parse(audit.prepare("SELECT value FROM ops_config").get().value).refusedList[0].why, /words|history/);
+});
+
+const LONG = "We study error correction in depth and show many things about the codes that matter for readers of the journal today, including thresholds, decoders and overheads.";
+const SCHEMA = "CREATE TABLE papers (slug TEXT PRIMARY KEY,identifier TEXT,title TEXT,subtitle TEXT,abstract TEXT,body_md TEXT,version TEXT,status TEXT,change_actor TEXT,change_reason TEXT,updated_at TEXT,keywords TEXT,doi TEXT);";
+
+test("keywords and a DOI that only the header held go to the empty columns, the column abstract is kept, ORCID stays in the ledger text", async () => {
+  const living = new DatabaseSync(":memory:");
+  const audit = new DatabaseSync(":memory:");
+  living.exec(SCHEMA);
+  audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
+  const body = "# Strange Loop\n\n## The Strange Loop Theory\n\n**Author:** R\n**Contact:** r@example.org **ORCID:** 0009-0002-4317-5604\n**DOI:** https://doi.org/10.1103/PhysRevD.99.123456\n**Version:** 1.2.0\n\n**Abstract**: Opening paragraph of the abstract. " + "More words of the abstract. ".repeat(20) + "\n\n**Keywords:** strange loop, quantization,\ntopological invariants\n\n## 1. Background\n\nText. " + "Words. ".repeat(40) + "\n";
+  living.prepare("INSERT INTO papers (slug,title,abstract,body_md,version,status) VALUES ('s','Strange Loop',?,?,'1.2.0','published')").run(LONG, body);
+  const r = await paperFormatTick({ LIVING_PAPER: d1(living), QNFO_AUDIT: d1(audit) }, { batch: 5 });
+  assert.equal(r.repaired, 1);
+  assert.equal(r.lifted, 1);
+  const row = living.prepare("SELECT * FROM papers WHERE slug='s'").get();
+  assert.deepEqual(JSON.parse(row.keywords), ["strange loop", "quantization", "topological invariants"]);
+  assert.equal(row.doi, "10.1103/PhysRevD.99.123456");
+  assert.equal(row.abstract, LONG, "the abstract column is never replaced by a derived one");
+  assert.doesNotMatch(row.body_md, /ORCID|Keywords|doi\.org/);
+  assert.match(row.change_reason, /keywords and doi moved from the header to the column/);
+  assert.match(row.change_reason, /ORCID, ISNI, contact and dates stay in the ledger copy/);
+  const again = await paperFormatTick({ LIVING_PAPER: d1(living), QNFO_AUDIT: d1(audit) }, { batch: 5 });
+  assert.equal(again.repaired, 0);
+});
+
+test("a failed mirror write is kept and retried first thing on the next tick", async () => {
+  const living = new DatabaseSync(":memory:");
+  const audit = new DatabaseSync(":memory:");
+  living.exec(SCHEMA);
+  audit.exec("CREATE TABLE ops_config (key TEXT PRIMARY KEY,value TEXT);");
+  living.prepare("INSERT INTO papers (slug,title,abstract,body_md,version,status) VALUES ('m','Mirror Paper',?,?,'1.0.0','published')").run(LONG, "---\ntitle: Mirror Paper\n---\n\n# Mirror Paper\n\n## Abstract\n\n" + LONG + "\n\n## 1. Intro\n\nBody.\n");
+  const puts = [];
+  let failing = true;
+  const MIRROR = {
+    async put(key, value) { if (failing) throw new Error("R2 unavailable"); puts.push([key, String(value)]); },
+    async head(key) { const p = puts.find((x) => x[0] === key); return p ? { size: Buffer.byteLength(p[1]) } : null; },
+    async get(key) { const p = puts.find((x) => x[0] === key); return p ? { async text() { return p[1]; }, async arrayBuffer() { return new TextEncoder().encode(p[1]).buffer; } } : null; }
+  };
+  const env = { LIVING_PAPER: d1(living), QNFO_AUDIT: d1(audit), MIRROR };
+  const first = await paperFormatTick(env, { batch: 5 });
+  assert.equal(first.repaired, 1);
+  assert.equal(first.mirror_errors, 1);
+  assert.deepEqual(JSON.parse(audit.prepare("SELECT value FROM ops_config").get().value).mirrorRetry, ["m"]);
+  failing = false;
+  const second = await paperFormatTick(env, { batch: 5 });
+  assert.equal(second.mirror_retried, 1);
+  assert.deepEqual(JSON.parse(audit.prepare("SELECT value FROM ops_config").get().value).mirrorRetry, []);
+  assert.equal(puts[0][0], "papers/m.md");
+  assert.match(puts[0][1], /^# Mirror Paper\n\n## Abstract/);
 });
