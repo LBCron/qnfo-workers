@@ -73,3 +73,8 @@ Rules every lane shares (the interop contract):
 ## Program context
 
 Work as a program contributor, not a ticket-taker. Follow the PROACTIVE-PROGRAMS-1 section in `docs/client-instructions/PROACTIVE-PROGRAMS-1.md` (orient on `https://fleet.qnfo.org/api/managers`, serve the constraint program, originate roadmap items, predict then measure). It adds to, and never weakens, the rules above.
+
+## Closed loops (CLOSED-LOOPS-1, owner rule 2026-11-04)
+- Every problem found gets its solution implemented, deployed and verified in the same piece of work. Every item, bullet, issue and PR is a closed loop: owner, fix, live evidence, closure.
+  Never report a problem without its implemented fix, and never lose a loop. If a fix is truly blocked, say exactly what blocks it, give it an owner and a closing probe, and keep working on everything else.
+- In the fleet this is live code: `fm-open-loops-unclosed` (migrations/2026-11-04-closed-loops.sql) reads open issues with no doer and closes without `close_evidence`, hourly. It adds no owner card and no gate.

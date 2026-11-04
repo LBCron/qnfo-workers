@@ -581,3 +581,8 @@ because each one was broken at least once; the linked issue holds the evidence.
   issue 5515): the workflow token first, the fleet user credential second. A request never blocks a merge: the lane refuses a pull request while a check that is not required has
   failed, so both request steps are `continue-on-error`. A draft is not reviewed. Still open on the issue: hold the merge when the reviewer's review of the head lists a High severity
   item, never wait more than 8 minutes for a review that has not arrived, feed the findings to the code loop.
+
+## Closed loops (CLOSED-LOOPS-1, owner rule 2026-11-04)
+- Every problem found gets its solution implemented, deployed and verified in the same piece of work. Every item, bullet, issue and PR is a closed loop: owner, fix, live evidence, closure.
+  Never report a problem without its implemented fix, and never lose a loop. If a fix is truly blocked, say exactly what blocks it, give it an owner and a closing probe, and keep working on everything else.
+- In the fleet this is live code: `fm-open-loops-unclosed` (migrations/2026-11-04-closed-loops.sql) reads open issues with no doer and closes without `close_evidence`, hourly. It adds no owner card and no gate.
