@@ -16,6 +16,10 @@ no key and no account.
 - **Budgets** (`budgets.json`): the most taps and typed fields each journey may take. Lower them when a change makes a task easier;
   raising one needs a reason in the PR. For the owner's companion, typing is 0 everywhere except the six-digit sign-in code (owner
   rule 2026-10-29: no free text, buttons and Dictate only).
+- **The fleet dashboard** (`apps/fleet.journeys.mjs`, harness `apps/fleet-harness.mjs`, owner 2026-11-04: three screens, one-tap hand-back, a command
+  line that works): the real `qnfo-fleet-dashboard/worker.js` on an in-memory D1 with the ops executor stubbed and every outside host answering 503, so each
+  section degrades as it does when a source is down. Six journeys: see what needs me, hand an item back (1 tap), snooze (1 tap), Readers finishes loading
+  with sources down, the Code tab signed out, and a one-tap command-line run (2 taps). A change to the home page, `/api/v3/*` or the hand-back path runs them.
 
 ## What is checked
 

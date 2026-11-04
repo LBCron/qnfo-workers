@@ -91,5 +91,31 @@
    "taps": 1,
    "typing": 0
   }
+ },
+ "fleet": {
+  "see-what-needs-me": {
+   "taps": 0,
+   "typing": 0
+  },
+  "hand-back-one-tap": {
+   "taps": 1,
+   "typing": 0
+  },
+  "snooze-one-tap": {
+   "taps": 1,
+   "typing": 0
+  },
+  "readers-loads": {
+   "taps": 1,
+   "typing": 0
+  },
+  "code-sign-in-screen": {
+   "taps": 1,
+   "typing": 0
+  },
+  "code-run-status": {
+   "taps": 2,
+   "typing": 0
+  }
  }
 }
