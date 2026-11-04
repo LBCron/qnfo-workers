@@ -5,7 +5,8 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 // 1.1.3 (2026-10-02, pillar: reach): JOB-MARKET-INLINE-1 (the weekly job-market scan runs from the cron and records a
 // handoffs row with a claim_sheet), MENTION-RADAR-LEDGER-1 (one cloud_ops_events row per mention-radar run day),
 // EVENTS-RADAR-CF-DOW-1 (events cron moved from Sunday to Monday, the day its weekly sources are read).
-var VERSION = "1.5.1-heartbeat-retry"; // agent_issues 1000854, 1000787 (#5485): bounded transient D1 heartbeat retries; one bumpable hub VERSION.
+var VERSION = "1.6.0-heartbeat-retry";
+// agent_issues 1000854, 1000787 (#5485): bounded transient D1 heartbeat retries; one bumpable hub VERSION.
 // 1.5.0 RADAR-VENUE-RECOVERED-1 (agent_issues 2573, pillar personal; minor: a decision radar-hub now takes on its own): a venue that yields usable candidates again closes the open RADAR-VENUE-SILENT-1 issue this worker filed, through issue_triage.close_evidence (close_channel auto-recovery); the run result lists recoveredVenues. The counter already reset on recovery, but nothing closed the issue, so it sat open until the 48 h stale probe. venue-recovered.test.mjs. // 1.4.4 BAD-TAG-FILTER-1 (2026-10-19): HTML-to-text helpers handle odd end tags, unclosed blocks and entity order. // 1.4.3 WORKERS-BP-LOGGING-radar-hub-1 (2026-10-14, agent_issues 2540, child of 2342, pillar autonomy): the 13 swallowed catches log as a structured console.error (worker, where, error); control flow unchanged. // 1.4.2 FAMILIES-WINDOW-CLOCK-1: signal_source_families_7d counts its 7 days from the run clock, not the database clock.
 function rhex(n) { var b = new Uint8Array(Math.ceil(n / 2)); crypto.getRandomValues(b); return Array.prototype.map.call(b, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("").slice(0, n); } // 1.3.5 CRYPTO-IDS-1: outreach_queue ids draw from crypto.getRandomValues. // 1.3.4-doi-scrub NOZ-DOI-1 (2026-10-10): the weekly attribution-audit job and its cron branch are gone; the citation watch tracks no static DOIs; the mention radar tracks only non-retired DOIs. // // 1.3.3 NO-TOPIC-HARDCODE-1 (owner directive 2026-10-10): the arXiv radar builds its query, keyword list and classes from the owner's accepted ideas in idea_proposals instead of fixed tables; with none on file it skips. // 1.3.2 RADAR-VENUE-SILENT-1 (2026-10-06, pillar: personal): a per-venue consecutive-zero counter kept as one row in the existing personal_radar table; a normally productive venue (>= 2 productive days) with zero usable candidates for 3 consecutive days files ONE agent_issues row "RADAR-VENUE-SILENT-1: <venue>" (source radar-hub, personal, low, epoch-ms), a failed fetch is a gap not a zero, a same-day re-run does not double count, and the run report names silent venues. 1.3.1 (2026-10-06): the intake run result never echoes exception text (CodeQL js/stack-trace-exposure on PR 662); details go to the worker log. 1.3.0 SIGNAL-INTAKE-SOURCES-1 (2026-10-06, agent_issues 1947, pillar: research): a D1-driven interdisciplinary feed intake (radar_sources kind 'signal': arXiv beyond quant-ph, journals, science news, community feeds) scored by lexicon with no model call into idea_proposals (name intake:<family>), bounded per run and per family, deduped by URL in signal_intake_seen, in the 08:30Z slot (no new cron); metric signal_source_families_7d; GET /intake, POST /intake/run; the events radar skips kind 'signal' rows. 1.2.4 RADAR-TASTE-SHRINK-1 + RADAR-TITLE-NOISE-2 (pillar: personal): taste prior shrunk by n/(n+3) with a 0.6 floor under 5 feedback rows and a half-the-day safety valve; Stedelijk date-range, Iamsterdam navigation and Eventbrite chrome titles dropped or cleaned. 1.2.3 RADAR-TITLE-NOISE-1 (pillar: personal): clean readable calendar titles for personal radar rows, dedupe key unchanged. 1.2.2 RADAR-TASTE-LEARN-1 (pillar: personal): the personal radar learns per-venue and per-domain taste from calendar_feedback. 1.2.1 AWAY-GATE-1 (pillar: personal): the personal radar skips Amsterdam events while a lodging row places the owner elsewhere. 1.2.0 CRON-SINGLE-TRIGGER-1 (#1785): one hourly trigger, CRON_TABLE in code
 var eventsMod = (function(){
@@ -435,7 +436,7 @@ var worker_default = {
     return new Response("events-radar worker: GET / (latest report) | GET /?run=1 (trigger scan) | GET /health", { status: 404 });
   }
 };
-return { default: worker_default };
+return { default: worker_default, run };
 })();
 //# sourceMappingURL=worker.js.map
 
@@ -2214,6 +2215,103 @@ var intakeMod = (function(){
 const JobMarketWatchWorkflow = jmwMod.JobMarketWatchWorkflow;
 export { JobMarketWatchWorkflow, intakeMod };
 
+// ---- EVENTS-WORKFLOW-1:BEGIN (RM-RADAR-WORKFLOWS-PILOT-1, 2026-11-05, pillar research; roadmap_implementation row 43)
+// Pilot of Cloudflare Workflows on the weekly events (conference) radar. The Monday 05:00Z table entry creates one instance of
+// EventsRadarWorkflow, whose durable steps are scan (retried with backoff) and record, instead of running the scan inside the cron
+// invocation. The earlier job-market attempt (JOB-MARKET-INLINE-1 above) failed because the Workflow resource did not exist, so
+// nothing is trusted here until an instance has been read as complete: every start is a research_scan_log row (job
+// events-radar-workflow), and the hourly watch re-runs the scan inline when the instance errored, was terminated, or has not
+// completed 45 minutes after it started. With no binding, or a create that throws, the cron runs the inline scan exactly as before.
+// Ledger ids are evwf-<ISO time>-<stage> so the watch reads them by primary-key range and never scans the table.
+var EVENTS_FLOW_PREFIX = "evwf-";
+var EVENTS_FLOW_STALE_MS = 45 * 60 * 1e3;
+var EVENTS_FLOW_WATCH_MS = 6 * 3600 * 1e3;
+function eventsFlowId(stage, at) {
+  return EVENTS_FLOW_PREFIX + new Date(at || Date.now()).toISOString() + "-" + stage;
+}
+async function eventsFlowLog(env, stage, detail, at) {
+  try {
+    if (!env || !env.AUDIT) return false;
+    var payload = JSON.stringify(Object.assign({ stage: stage }, detail || {})).slice(0, 1800);
+    await env.AUDIT.prepare("INSERT OR IGNORE INTO research_scan_log (id, ts, job, payload) VALUES (?1, ?2, 'events-radar-workflow', ?3)").bind(eventsFlowId(stage, at), new Date(at || Date.now()).toISOString(), payload).run();
+    return true;
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "radar-hub", where: "eventsFlowLog", error: String(e && e.message || e).slice(0, 200) }));
+    return false;
+  }
+}
+// What a finished scan reports, kept small: a Workflow step output must stay well under its size limit.
+function eventsFlowSummary(out) {
+  out = out || {};
+  return { slug: String(out.slug || ""), events: Number(out.events) || 0, venueErrors: Number(out.venueErrors) || 0, catalogVerified: String(out.catalogVerified || "") };
+}
+var EventsRadarWorkflow = class extends WorkflowEntrypoint {
+  async run(event, step) {
+    var instance = String(event && event.instanceId || "");
+    var scan = await step.do("scan", { retries: { limit: 2, delay: "2 minutes", backoff: "exponential" }, timeout: "10 minutes" }, async () => eventsFlowSummary(await eventsMod.run(this.env)));
+    await step.do("record", { retries: { limit: 3, delay: "30 seconds", backoff: "exponential" }, timeout: "1 minute" }, async () => {
+      await eventsFlowLog(this.env, "done", { instance: instance, via: "workflow", summary: scan });
+      return { recorded: true };
+    });
+    return scan;
+  }
+};
+export { EventsRadarWorkflow };
+// Named export for the tests (the same shape as intakeMod above: an object, not a handler); filled in below.
+var eventsFlow = { start: null, watch: null };
+export { eventsFlow };
+async function eventsRadarStart(event, env, ctx) {
+  if (env && env.EVENTS_RADAR_FLOW && typeof env.EVENTS_RADAR_FLOW.create === "function") {
+    var at = Number(event && event.scheduledTime) || Date.now();
+    try {
+      var inst = await env.EVENTS_RADAR_FLOW.create({ id: "events-" + new Date(at).toISOString().slice(0, 10) + "-" + rhex(6), params: { cron: String(event && event.cron || ""), scheduledTime: at } });
+      await eventsFlowLog(env, "started", { instance: String(inst && inst.id || ""), cron: String(event && event.cron || "") }, at);
+      return;
+    } catch (e) {
+      await eventsFlowLog(env, "create-failed", { error: String(e && e.message || e).slice(0, 300) }, at);
+    }
+  }
+  return eventsMod.default.scheduled(event, env, ctx);
+}
+// Hourly, and only in the Monday window in which a start can be waiting (the table entry fires at 05:00Z): read the latest start,
+// ask the Workflow for the instance status, record done when it completed, or run the scan inline once when it did not.
+async function eventsFlowWatch(env, ctx, nowMs) {
+  var now = Number(nowMs) || Date.now();
+  var d = new Date(now);
+  if (!env || !env.AUDIT || !env.EVENTS_RADAR_FLOW || d.getUTCDay() !== 1 || d.getUTCHours() < 5 || d.getUTCHours() > 11) return { skipped: true };
+  var since = EVENTS_FLOW_PREFIX + new Date(now - EVENTS_FLOW_WATCH_MS).toISOString();
+  var rows = ((await env.AUDIT.prepare("SELECT id, ts, payload FROM research_scan_log WHERE id >= ?1 AND id < 'evwf.' ORDER BY id ASC LIMIT 40").bind(since).all()).results || []);
+  var started = null, settled = {};
+  rows.forEach(function (r) {
+    var p = {}; try { p = JSON.parse(r.payload || "{}"); } catch (e) { p = {}; }
+    if (p.stage === "started") started = { ts: r.ts, instance: p.instance };
+    if (p.stage === "done" || p.stage === "fallback") settled[p.instance || "?"] = true;
+  });
+  if (!started || !started.instance || settled[started.instance]) return { skipped: true, reason: started ? "settled" : "no start" };
+  var status = "unknown";
+  try {
+    var inst = await env.EVENTS_RADAR_FLOW.get(started.instance);
+    var st = await inst.status();
+    status = String(st && st.status || "unknown");
+  } catch (e) {
+    status = "unreadable";
+  }
+  if (status === "complete") {
+    await eventsFlowLog(env, "done", { instance: started.instance, via: "watch", status: status }, now);
+    return { done: true, instance: started.instance };
+  }
+  var age = now - Date.parse(started.ts);
+  if (status === "errored" || status === "terminated" || age > EVENTS_FLOW_STALE_MS) {
+    await eventsFlowLog(env, "fallback", { instance: started.instance, status: status, age_min: Math.round(age / 60000) }, now);
+    if (ctx && ctx.waitUntil) ctx.waitUntil(eventsMod.run(env)); else await eventsMod.run(env);
+    return { fallback: true, instance: started.instance, status: status };
+  }
+  return { waiting: true, instance: started.instance, status: status };
+}
+eventsFlow.start = eventsRadarStart;
+eventsFlow.watch = eventsFlowWatch;
+// ---- EVENTS-WORKFLOW-1:END
+
 // ===== MERGED RADAR HUB v2 (2026-09-11: + job-market-watch + personal-events-radar) =====
 // HUB-VERSION-SCOPE-1 (2026-09-23): the hub's own VERSION is declared at MODULE scope (top of
 // this file). The sub-worker IIFEs each declare their own version constant in their own function
@@ -2293,7 +2391,7 @@ var hubRun = {
     // EVENTS-RADAR-CF-DOW-1 (1.1.3): the events radar scans its 34 weekly sources only when strftime('%w') is 1 (Monday),
     // but "0 5 * * 1" is Sunday in Cloudflare's numbering (1=Sunday..7=Saturday): every run (events_radar 2026-09-06, 13,
     // 20, all Sundays) skipped them. "0 5 * * 2" is Monday 05:00Z. The old spelling stays routed for a stale registration.
-    if (c === "0 5 * * 2" || c === "0 5 * * 1") return eventsMod.default.scheduled(event, env, ctx);
+    if (c === "0 5 * * 2" || c === "0 5 * * 1") return eventsRadarStart(event, env, ctx);
     // MENTION-RADAR-1: the daily 08:30Z slot also runs the external-mention discovery; each job is isolated.
     if (c === "30 8 * * *") {
       // SIGNAL-INTAKE-SOURCES-1: the interdisciplinary feed intake shares this daily slot (no new cron); isolated like the others.
@@ -2315,7 +2413,7 @@ var hubRun = {
 export default {
   async fetch(request, env, ctx) {
     const p = new URL(request.url).pathname;
-    if (p === "/health") return new Response(JSON.stringify({ ok: true, worker: "radar-hub", version: VERSION, radars: 8, capabilities: ["mention-radar", "events-radar", "arxiv-radar", "research-radar", "citation-radar", "jobs-radar", "personal-radar", "signal-intake"], limitations: ["each radar runs on its own cron; only the arXiv radar can be forced (POST /arxiv/run, one run per 10 minutes)", "arXiv classification is keyword-based, with no model call", "the arXiv radar reads the 20 newest matching submissions per run", "the signal intake reads radar_sources rows of kind 'signal' once a day (08:30Z), scores items by lexicon with no model call, and writes at most ops_config signal_intake_max_per_run (default 8) idea_proposals rows a run; POST /intake/run needs the radar token"] }), { headers: { "content-type": "application/json" } });
+    if (p === "/health") return new Response(JSON.stringify({ ok: true, worker: "radar-hub", version: VERSION, radars: 8, events_workflow: !!env.EVENTS_RADAR_FLOW, capabilities: ["mention-radar", "events-radar", "arxiv-radar", "research-radar", "citation-radar", "jobs-radar", "personal-radar", "signal-intake"], limitations: ["each radar runs on its own cron; only the arXiv radar can be forced (POST /arxiv/run, one run per 10 minutes)", "arXiv classification is keyword-based, with no model call", "the arXiv radar reads the 20 newest matching submissions per run", "the signal intake reads radar_sources rows of kind 'signal' once a day (08:30Z), scores items by lexicon with no model call, and writes at most ops_config signal_intake_max_per_run (default 8) idea_proposals rows a run; POST /intake/run needs the radar token"] }), { headers: { "content-type": "application/json" } });
     // HUB-AUTH-1 (2026-10-01): every member route can run a scan, write the personal calendar or
     // return the personal report, so all of them need Bearer RADAR_TOKEN. Fails closed when unset.
     // Crons do not pass through fetch and are unaffected.
@@ -2353,6 +2451,7 @@ export default {
     const hubCtx = { waitUntil(pr) { pending.push(Promise.resolve(pr)); if (ctx && ctx.waitUntil) ctx.waitUntil(pr); } };
     try {
       await hubRun.scheduled(event, env, hubCtx);
+      try { await eventsFlowWatch(env, hubCtx); } catch (we) { console.error(JSON.stringify({ worker: "radar-hub", where: "eventsFlowWatch", error: String(we && we.message || we).slice(0, 200) })); }
       const settled = await Promise.allSettled(pending);
       if (settled.some(function (r) { return r.status === "rejected"; })) state.ok = 0;
     } catch (err) {

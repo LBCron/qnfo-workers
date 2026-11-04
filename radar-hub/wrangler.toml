@@ -64,6 +64,16 @@ binding = "JOB_MARKET_WATCH"
 name = "job-market-watch"
 class_name = "JobMarketWatchWorkflow"
 
+# EVENTS-WORKFLOW-1 (RM-RADAR-WORKFLOWS-PILOT-1, 2026-11-05): the weekly events radar runs as a Workflow instance created by the
+# Monday 05:00Z table entry; worker.js falls back to the inline scan when this binding is absent or create() throws. The canonical
+# deploy installs the binding but never creates the Workflow resource (CLOSEOUT-2026-10-02), so the resource was created once with
+# PUT /accounts/{id}/workflows/events-radar-watch {script_name: radar-hub, class_name: EventsRadarWorkflow} (2026-11-04T23:28Z,
+# id 8a1a1572-4a1f-4a01-91d6-1b315cc54dba); the same PUT re-creates it if the resource is ever lost.
+[[workflows]]
+binding = "EVENTS_RADAR_FLOW"
+name = "events-radar-watch"
+class_name = "EventsRadarWorkflow"
+
 # RADAR-HUB-REDEPLOY-1 (2026-10-01): the worker vanished unrecorded around 2026-09-25 and a deleted worker loses its schedules,
 # so they are declared here (the canonical deploy applies them). They are exactly the cron strings the default export routes:
 # events 0 5 * * 2 | arxiv 30 8 * * * | research 0 6 1 * *, 0 9 * * 7 | citation 0 11 1,15 * * |
