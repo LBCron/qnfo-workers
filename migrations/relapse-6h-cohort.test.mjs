@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 const sql = readFileSync(new URL("./2026-11-04-relapse-6h-cohort.sql", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const sql2 = readFileSync(new URL("./2026-11-04-relapse-6h-cohort-channel.sql", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? "  -- " + JSON.stringify(x).slice(0, 400) : "")); } };
 
@@ -11,7 +12,7 @@ ok(/^-- APPLY-BY: ci$/m.test(sql) && /^-- DB: qnfo-audit$/m.test(sql) && /^-- Ro
 
 const db = new DatabaseSync(":memory:");
 db.exec(`
-CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, status TEXT, description TEXT, updated_at INTEGER);
+CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, status TEXT, description TEXT, updated_at INTEGER, close_channel TEXT);
 CREATE TABLE issue_lifecycle (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL, event TEXT NOT NULL, ts TEXT NOT NULL);
 CREATE INDEX idx_issue_lifecycle_issue ON issue_lifecycle (issue_id, ts);
 CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT);
@@ -49,6 +50,23 @@ ok(db.prepare("SELECT description d FROM agent_issues WHERE id = 9").get().d.spl
 ok(db.prepare("SELECT COUNT(*) n FROM ops_config WHERE key = 'relapse_hold_since'").get().n === 1, "re-applying keeps one change-time row");
 const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM v_relapse_6h_cohort").all().map((r) => r.detail).join(" | ");
 ok(/idx_issue_lifecycle_issue/.test(plan), "the relapse lookup uses the (issue_id, ts) index", plan);
+
+// ---------------------------------------------------------------------------------------------------------------- RELAPSE-COHORT-2: channel column
+{
+  ok(/^-- APPLY-BY: ci$/m.test(sql2) && /^-- DB: qnfo-audit$/m.test(sql2) && /^-- Rollback: .+/m.test(sql2) && /^-- BACKUP: bak_20261104_relapse_6h_cohort_view$/m.test(sql2), "channel migration opts in with APPLY-BY, DB, Rollback and BACKUP headers");
+  db.exec("UPDATE agent_issues SET close_channel = 'auto:verified-remediation-trigger' WHERE id IN (1, 3, 6)");
+  db.exec("UPDATE agent_issues SET close_channel = 'auto:triage-sync:qnfo-fleet-control' WHERE id IN (2, 4, 5)");
+  db.exec(sql2);
+  const cols = db.prepare("SELECT name FROM pragma_table_info('v_relapse_6h_cohort')").all().map((r) => r.name);
+  ok(cols.join(",") === "cohort,family,channel,closes,relapsed_6h,rate_6h", "the view gains a channel column", cols);
+  const gated = db.prepare("SELECT cohort, SUM(closes) c, SUM(relapsed_6h) r FROM v_relapse_6h_cohort WHERE channel = 'auto:verified-remediation-trigger' GROUP BY cohort ORDER BY cohort").all();
+  ok(gated.length === 2 && gated[0].cohort === "after" && gated[0].c === 3 && gated[0].r === 1 && gated[1].c === 1 && gated[1].r === 1, "the gated-channel reading counts only its own closes", gated);
+  const all = db.prepare("SELECT cohort, SUM(closes) c FROM v_relapse_6h_cohort GROUP BY cohort ORDER BY cohort").all();
+  ok(all[0].c === 3 && all[1].c === 4, "the all-channel totals are unchanged", all);
+  ok(db.prepare("SELECT description d FROM agent_issues WHERE id = 9").get().d.includes("RELAPSE-COHORT-2"), "the measure issue carries the gated reading");
+  db.exec(sql2);
+  ok(db.prepare("SELECT description d FROM agent_issues WHERE id = 9").get().d.split("RELAPSE-COHORT-2").length === 2, "re-applying appends once");
+}
 
 console.log(pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);
