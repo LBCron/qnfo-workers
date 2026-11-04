@@ -55,6 +55,10 @@ def doer_of(d1, iid, desc):
               "AND expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now') LIMIT 1", [iid])
     if rows:
         return "live work claim by %s" % rows[0]["holder"]
+    # BLOCKER-REDTEAM-AUTO-3: the two other doers v_issue_age_ladder counts (a live code task, a progressing breach-doctor case)
+    other = live_doers(d1).get(iid)
+    if other:
+        return other
     return None
 
 
@@ -72,6 +76,89 @@ def token_attempt(req=None):
             return True, "%s returned status active" % path
         last = "%s returned %s" % (path, json.dumps(r)[:160])
     return False, last
+
+
+# BLOCKER-REDTEAM-AUTO-3 (2026-11-05, metric unverified_blocker_claims 35, pillar autonomy). v_blocker_claims matches the eight trigger phrases below as bare
+# substrings of title + description, so a sentence that denies the blocker ("nothing is blocked", "Neither is owner-only", "unblocked") counts as one. Measured
+# 2026-11-04 on the 35 open claims: 4 deny the phrase in the text itself (2582, 1000275, 1001748, 1001749), 2 carry an IDENTITY-BOUND: line without owner wording
+# (1001748, 1001749), and 31 have no doer at all (v_issue_age_ladder.doer is null for every one; 16 carry a `session-task:` line), which the doer-assignment loop owns.
+# The runner now (1) confirms an issue that states its own IDENTITY-BOUND: line, (2) records false-belief-removed, signed, when every occurrence of every
+# trigger phrase in the text is negated, (3) counts a live code task or a progressing breach-doctor case as a doer, as v_issue_age_ladder does. A claim it
+# still cannot test stays unrecorded, as before.
+PHRASES = ("owner only", "owner-only", "needs a token", "no token", "needs the owner", "cannot be done", "blocked")
+NEGATOR_RE = re.compile(r"\b(?:no|not|never|neither|nor|nothing|none|without|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't)\b|n't\b", re.I)
+SENTENCE_BREAK_RE = re.compile(r"[.!?\n;]")
+ACTIVE_STATUS = "'merged', 'closed', 'superseded', 'publish_failed', 'needs_human', 'failed', 'reverted'"
+
+
+def phrase_hits(text):
+    """Every (phrase, start) of a trigger phrase in the lower-cased text, as v_blocker_claims matches them (substring)."""
+    low = (text or "").lower()
+    hits = []
+    for p in PHRASES:
+        i = low.find(p)
+        while i >= 0:
+            hits.append((p, i))
+            i = low.find(p, i + 1)
+    return sorted(hits, key=lambda h: h[1])
+
+
+def negated_context(text, p, i):
+    """The quoted context when this occurrence denies the blocker (unblocked, or a negator earlier in the same sentence), else None."""
+    low = text.lower()
+    if p == "blocked" and i >= 2 and low[i - 2:i] == "un":
+        return text[max(0, i - 30):i + 20].replace("\n", " ")
+    start = i
+    while start > 0 and not SENTENCE_BREAK_RE.match(low[start - 1]):
+        start -= 1
+    prefix = low[max(start, i - 60):i]  # the words before the phrase only: "no token" is a claim, its own "no" is not a negator
+    if NEGATOR_RE.search(prefix):
+        return text[max(start, i - 60):i + len(p) + 20].replace("\n", " ").strip()
+    return None
+
+
+def all_negated(text):
+    """(True, [quotes]) when the text has trigger phrases and every occurrence is negated; (False, []) otherwise."""
+    hits = phrase_hits(text)
+    if not hits:
+        return False, []
+    quotes = []
+    for p, i in hits:
+        q = negated_context(text, p, i)
+        if q is None:
+            return False, []
+        quotes.append(q)
+    if re.search(r"(?im)^\s*session-task:", text or ""):
+        return False, []
+    return True, quotes
+
+
+_LIVE = {}
+
+
+def live_doers(d1):
+    """{issue id: doer text} for live code tasks and progressing breach-doctor cases (v_issue_age_ladder's other two doers), read once per run."""
+    if "ids" in _LIVE and _LIVE.get("d1") is d1:
+        return _LIVE["ids"]
+    ids = {}
+    try:
+        for r in d1("SELECT id, substr(goal, 1, 24) AS g FROM code_tasks WHERE status NOT IN (" + ACTIVE_STATUS + ") "
+                    "AND (updated_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-120 minutes') OR lease_until > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"):
+            m = re.match(r"\[issue #(\d+)\]", r.get("g") or "") or re.match(r"ct_im(\d+)$", r.get("id") or "")
+            if m:
+                ids.setdefault(int(m.group(1)), "live code task %s" % r.get("id"))
+    except Exception:  # noqa: BLE001 - a missing table or an overloaded read leaves the other doers in force
+        pass
+    try:
+        for r in d1("SELECT issue_id FROM breach_diagnoses WHERE mode = 'on' AND state IN ('queued', 'applied', 'verifying') AND action_ref IS NOT NULL "
+                    "AND action_kind <> 'none' AND lease_until > strftime('%Y-%m-%dT%H:%M:%SZ', 'now') "
+                    "AND last_progress_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-120 minutes')"):
+            if r.get("issue_id") is not None:
+                ids.setdefault(int(r["issue_id"]), "breach doctor case")
+    except Exception:  # noqa: BLE001
+        pass
+    _LIVE["d1"], _LIVE["ids"] = d1, ids
+    return ids
 
 
 def has_owner_claim(text):
@@ -92,6 +179,7 @@ def record(d1, target, claim, attempt, verdict, evidence, sig=None):
 
 def main(d1=None, req=None):
     d1 = d1 or RC.d1
+    _LIVE.clear()
     out = {"marker": "BLOCKER-REDTEAM-AUTO-1", "tested": 0, "removed": 0, "confirmed": 0, "left": 0}
     token_result = None
     try:
@@ -108,6 +196,13 @@ def main(d1=None, req=None):
                 row = d1("SELECT description FROM agent_issues WHERE id = ?1", [iid])
                 desc = (row[0].get("description") if row else "") or ""
                 bound = BOUND_RE.search(desc)
+                if bound and not has_owner_claim(text + " " + desc):
+                    # BLOCKER-REDTEAM-AUTO-3: the issue states its own identity-bound step; the line is the evidence (and signs the verdict).
+                    record(d1, target, text, "read the issue's identity-bound statement", "confirmed-with-evidence", bound.group(0),
+                           sig_of(text, desc))
+                    out["confirmed"] += 1
+                    out["tested"] += 1
+                    continue
                 if has_owner_claim(text + " " + desc):
                     if not bound:
                         out["left"] += 1
@@ -115,6 +210,14 @@ def main(d1=None, req=None):
                     record(d1, target, text, "read the issue's identity-bound statement", "confirmed-with-evidence", bound.group(0),
                            sig_of(text, desc))
                     out["confirmed"] += 1
+                    out["tested"] += 1
+                    continue
+                denied, quotes = all_negated(text + "\n" + desc)
+                if denied:
+                    # BLOCKER-REDTEAM-AUTO-3: the text denies the blocker everywhere it names one; the evidence is in the text, so the verdict is signed.
+                    record(d1, target, text, "read every trigger phrase of the claim in its sentence", "false-belief-removed",
+                           "not a blocker claim, every occurrence is negated: " + " | ".join(quotes[:3]), sig_of(text, desc))
+                    out["removed"] += 1
                     out["tested"] += 1
                     continue
                 doer = doer_of(d1, iid, desc)
@@ -171,6 +274,18 @@ CREATE TABLE human_actions (id INTEGER PRIMARY KEY, why TEXT);
 CREATE TABLE blocker_redteam (id INTEGER PRIMARY KEY, target TEXT, claim TEXT, attempt TEXT, verdict TEXT, evidence TEXT, actor TEXT, text_sig TEXT, ts TEXT);
 CREATE TABLE claims (target TEXT, text TEXT);
 CREATE VIEW v_blocker_claims AS SELECT * FROM claims;
+CREATE TABLE code_tasks (id TEXT, goal TEXT, status TEXT, updated_at TEXT, lease_until TEXT);
+CREATE TABLE breach_diagnoses (issue_id INTEGER, mode TEXT, state TEXT, action_ref TEXT, action_kind TEXT, lease_until TEXT, last_progress_at TEXT);
+INSERT INTO agent_issues VALUES (20, 'plain', 'Neither is owner-only, so nothing is blocked.'), (21, 'move it', 'Until it exists nothing is blocked.
+IDENTITY-BOUND: the owner mints the key'), (22, 'the push', 'it is unblocked now'), (23, 'blocked on a token', 'no token'),
+  (24, 'Neither is owner-only', 'but this part is blocked on a reviewer'), (25, 'blocked', 'a code task owns it'), (26, 'blocked', 'the doctor owns it'),
+  (27, 'blocked', 'an expired code task'), (28, 'blocked', 'session-task: a session must do this, nothing is blocked'), (29, 'not blocked', 'owner-only is wrong here');
+INSERT INTO code_tasks VALUES ('ct_a', '[issue #25] fix it', 'queued', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), NULL),
+  ('ct_im27', 'x', 'queued', strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-3 hours'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 hour')),
+  ('ct_im99', 'x', 'merged', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), NULL);
+INSERT INTO breach_diagnoses VALUES (26, 'on', 'applied', 'ref', 'sql', strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+1 hour'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+INSERT INTO claims VALUES ('issue:20', 'plain'), ('issue:21', 'move it'), ('issue:22', 'the push'), ('issue:23', 'blocked on a token'), ('issue:24', 'Neither is owner-only'),
+  ('issue:25', 'blocked'), ('issue:26', 'blocked'), ('issue:27', 'blocked'), ('issue:28', 'blocked'), ('issue:29', 'not blocked');
 INSERT INTO agent_issues VALUES (1, 'blocked on x', 'needs fixing'), (2, 'blocked', 'fix it\ncode-task: repo=qnfo-workers path=a/worker.js'),
   (3, 'needs a token', 'cannot write routes, no token'), (4, 'blocked', 'nothing'), (5, 'blocked', 'claimed'),
   (6, 'owner only', 'needs the owner
@@ -202,11 +317,26 @@ INSERT INTO claims VALUES ('issue:1', 'blocked on x'), ('issue:2', 'blocked'), (
     assert got["issue:5"][0] == "false-belief-removed" and "session_x" in got["issue:5"][1], got
     assert got["card:7"][0] == "confirmed-with-evidence" and "legal act" in got["card:7"][1], got
     assert "card:8" not in got, got
+    # BLOCKER-REDTEAM-AUTO-3
+    assert got["issue:20"][0] == "false-belief-removed" and "negated" in got["issue:20"][1], got
+    assert got["issue:21"][0] == "confirmed-with-evidence" and "mints the key" in got["issue:21"][1], got
+    assert got["issue:22"][0] == "false-belief-removed" and "negated" in got["issue:22"][1], "unblocked denies the blocker: %s" % (got,)
+    assert got["issue:23"][0] == "false-belief-removed" and "active" in got["issue:23"][1], "a token claim is still tested: %s" % (got,)
+    assert "issue:24" not in got, "one un-negated phrase keeps the claim counted"
+    assert got["issue:25"][0] == "false-belief-removed" and "live code task ct_a" in got["issue:25"][1], got
+    assert got["issue:26"][0] == "false-belief-removed" and "breach doctor" in got["issue:26"][1], got
+    assert "issue:27" not in got, "an expired code task is not a doer"
+    assert "issue:28" not in got, "a session-task line stays a claim even beside a negation"
+    assert "issue:29" not in got, "an owner-only claim without IDENTITY-BOUND stays counted"
+    assert negated_context("The push was blocked (non-fast-forward).", "blocked", 13) is None
+    assert negated_context("It is not blocked.", "blocked", 10) is not None
     assert all("surfaces:" in v[1] for v in got.values())
     sig = {r[0]: r[1] for r in c.execute("SELECT target, text_sig FROM blocker_redteam")}
     assert sig["issue:6"] == sig_of("owner only", "needs the owner\nIDENTITY-BOUND: a signing act"), sig
     assert sig["issue:2"] == sig_of("blocked", "fix it\ncode-task: repo=qnfo-workers path=a/worker.js"), sig
     assert sig["issue:5"] is None and sig["issue:3"] is None, "a live claim and a token check lapse, so they stay unsigned"
+    assert sig["issue:20"] == sig_of("plain", "Neither is owner-only, so nothing is blocked."), "text-borne evidence is signed"
+    assert sig["issue:25"] is None and sig["issue:26"] is None, "a live task and a doctor case lapse, so they stay unsigned"
     assert sig["card:7"] is None, "the view has no signature branch for a card"
 
     def req_no(method, url, body=None):
