@@ -780,6 +780,16 @@ def publish_one(task, repo_dir, base, pr, delegate=False):
                     shutil.copyfile(os.path.join(repo_dir, path), os.path.join(repo_dir, mirror))
                     files = set(files) | {mirror}
                     task["_carried"] = {"patch": patch + ("" if patch.endswith("\n") else "\n") + section, "mirror": mirror}
+        # COMPANION-REGENERATE-1 (2026-11-04, pillar autonomy): personal-api/worker.js carries companion.js inlined, and the parity
+        # suite (companion.test.mjs "worker.js carries the current companion.js") fails for any edit of companion.js alone. Those
+        # tasks ended FOLD-PAIR-TASK-1 / needs_human and were never redone (12 of 27 product tasks in a week). The publisher now runs
+        # personal-api/inline-companion.mjs after applying a companion.js edit and stages worker.js and its mirror with it.
+        if path == "personal-api/companion.js" and shutil.which("node") and os.path.isfile(os.path.join(repo_dir, "personal-api/inline-companion.mjs")):
+            gen = subprocess.run(["node", "personal-api/inline-companion.mjs"], cwd=repo_dir, capture_output=True, text=True, timeout=120)
+            if gen.returncode != 0:
+                git(repo_dir, "reset", "-q", "--hard")
+                return "publish_failed", None, "COMPANION-REGENERATE-1: inline-companion.mjs failed: " + (gen.stderr or gen.stdout)[:200], None
+            files = set(files) | {"personal-api/worker.js", "personal-api/deployed-current.worker.js"}
         # VERIFY-DEFER-PUBLISHER-1: a JavaScript task the orchestrator could not verify is parsed here or not pushed at all.
         if ctx.get("verify_deferred") and any(f.endswith((".js", ".mjs")) for f in files) and not shutil.which("node"):
             git(repo_dir, "reset", "-q", "--hard")
