@@ -19,6 +19,7 @@ from math import isfinite
 import os
 import sqlite3
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -26,6 +27,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import remediation_consumer as RC  # noqa: E402
 
 LOOKBACK_DAYS = int(os.environ.get("COST_LOOKBACK_DAYS", "10"))
+# LEDGER-FAST-1 (2026-11-04): the consume job is capped at 15 minutes and the consumer plus its sweeps already take about 13 of them, so this step is
+# killed when it runs long (17:10 and 17:41Z on 2026-11-04: cancelled after writing 10-25..10-28, the forecast, unit-cost and reconciliation tail never
+# ran). The day loop therefore goes newest first, stops after this many seconds (the first day always runs) and leaves the tail to run.
+LEDGER_DAY_BUDGET_S = float(os.environ.get("COST_LEDGER_DAY_BUDGET_S", "150"))
+# A per-model meter day older than today minus this is final: it is rewritten only when it has no rows yet (the first backfill), not every run.
+METER_REFRESH_DAYS = 2
+# Rows per multi-row upsert: 6 bound parameters each plus the date, under the 100 D1 allows a statement.
+METER_CHUNK = 12
 NEURON_USD_PER_1K = 0.011
 FREE_NEURONS_PER_DAY = 10000
 TASK_COST_DETAIL_LIMIT = 50
@@ -89,17 +98,30 @@ def workers_ai_day(day, call=cf):
 
 def write_model_meter(d1, date, models):
     """AI-METER-MODEL-1: one ai_meter_model_daily row per (date, model); the Cloudflare meter, not the per-worker counters. A model that
-    stopped appearing in a re-read day is removed so the day's rows always sum to the meter."""
+    stopped appearing in a re-read day is removed so the day's rows always sum to the meter. LEDGER-FAST-1: METER_CHUNK rows per statement,
+    so a day costs two or three D1 round trips instead of one per model (16 to 22 models a day, each a slow REST call while D1 is loaded)."""
     seen = []
-    for mid, neurons, reqs, tin, tout in models:
-        d1("INSERT INTO ai_meter_model_daily (date, model, neurons, requests, input_tokens, output_tokens, observed_at) "
-           "VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) "
-           "ON CONFLICT(date, model) DO UPDATE SET neurons = excluded.neurons, requests = excluded.requests, input_tokens = excluded.input_tokens, "
-           "output_tokens = excluded.output_tokens, observed_at = excluded.observed_at",
-           [date, mid, round(neurons, 2), int(reqs), int(tin), int(tout)])
-        seen.append(mid)
+    for lo in range(0, len(models), METER_CHUNK):
+        chunk = models[lo:lo + METER_CHUNK]
+        values, params = [], [date]
+        for k, (mid, neurons, reqs, tin, tout) in enumerate(chunk):
+            b = 2 + k * 5
+            values.append("(?1, ?%d, ?%d, ?%d, ?%d, ?%d, strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ', 'now'))" % (b, b + 1, b + 2, b + 3, b + 4))
+            params += [mid, round(neurons, 2), int(reqs), int(tin), int(tout)]
+            seen.append(mid)
+        d1("INSERT INTO ai_meter_model_daily (date, model, neurons, requests, input_tokens, output_tokens, observed_at) VALUES " + ", ".join(values) +
+           " ON CONFLICT(date, model) DO UPDATE SET neurons = excluded.neurons, requests = excluded.requests, input_tokens = excluded.input_tokens, "
+           "output_tokens = excluded.output_tokens, observed_at = excluded.observed_at", params)
     if seen:
         d1("DELETE FROM ai_meter_model_daily WHERE date = ?1 AND model NOT IN (%s)" % ",".join("?%d" % (i + 2) for i in range(len(seen))), [date] + seen)
+
+
+def meter_days_present(d1):
+    """The dates that already have per-model meter rows (one cheap read per run); empty when the table cannot be read."""
+    try:
+        return {str(r["date"]) for r in d1("SELECT DISTINCT date FROM ai_meter_model_daily")}
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 def gateway_day(day, call=cf):
@@ -815,13 +837,20 @@ def main(d1=None, call=cf, today=None):
     owner = owner_local_window(d1, days[0].isoformat())
     if owner is None:
         out["errors"].append("ai_spend_owner_local unreadable: gateway rows keep the owner term (scope fleet+owner-clients)")
-    for day in days:
+    have_meter = meter_days_present(d1)
+    t_loop = time.monotonic()
+    for n_done, day in enumerate(reversed(days)):
+        if n_done > 0 and time.monotonic() - t_loop > LEDGER_DAY_BUDGET_S:
+            out["errors"].append("day loop stopped after %ds with %d of %d days written; the next run continues with the older days" % (LEDGER_DAY_BUDGET_S, n_done, len(days)))
+            out["days_written"] = n_done
+            break
         ds = day.isoformat()
         try:
             usd, reqs, neurons, models = workers_ai_day_models(day, call)
             upsert(d1, ds, "workers_ai", "fleet", usd, reqs, "GraphQL aiInferenceAdaptiveGroups: %d neurons, 10k/day free, $0.011/1k" % neurons)
             try:
-                write_model_meter(d1, ds, models)
+                if ds not in have_meter or day >= today - dt.timedelta(days=METER_REFRESH_DAYS):
+                    write_model_meter(d1, ds, models)
             except Exception as e2:  # noqa: BLE001
                 out["errors"].append("ai_meter_model_daily %s: %s" % (ds, str(e2)[:100]))
         except Exception as e:  # noqa: BLE001
@@ -933,6 +962,42 @@ def selftest():
     assert mm[("2026-10-09", "@cf/deepseek-ai/deepseek-v4.1-flash-1017")]["input_tokens"] == 9000000, mm
     d1("INSERT INTO ai_meter_model_daily (date, model, neurons) VALUES ('2026-10-09', '@cf/gone/model', 5)")
     assert main(d1, call, dt.date(2026, 10, 9)) == 0 and not d1("SELECT 1 FROM ai_meter_model_daily WHERE model = '@cf/gone/model'") and len(d1("SELECT * FROM ai_meter_model_daily")) == 22
+    # LEDGER-FAST-1: (a) 30 models are written in 3 multi-row upserts plus one delete, each under 100 bound parameters, and a re-run is idempotent;
+    # (b) a day with rows that is older than METER_REFRESH_DAYS is not rewritten; (c) the day loop runs newest first and stops at its budget while the
+    # tail of the run still executes.
+    seen_stmts = []
+
+    def counting_d1(sql, params=None):
+        seen_stmts.append((sql, len(params or [])))
+        return d1(sql, params)
+
+    many = [("@cf/test/m%02d" % i, float(i + 1), i + 1, 10 * i, i) for i in range(30)]
+    write_model_meter(counting_d1, "2026-09-01", many)
+    assert len(seen_stmts) == 4 and all(n <= 100 for _, n in seen_stmts), seen_stmts
+    assert seen_stmts[0][0].startswith("INSERT INTO ai_meter_model_daily") and seen_stmts[-1][0].startswith("DELETE FROM ai_meter_model_daily"), seen_stmts
+    assert d1("SELECT COUNT(*) AS n, SUM(neurons) AS s FROM ai_meter_model_daily WHERE date = '2026-09-01'") == [{"n": 30, "s": float(sum(range(1, 31)))}]
+    write_model_meter(d1, "2026-09-01", many)
+    assert d1("SELECT COUNT(*) AS n FROM ai_meter_model_daily WHERE date = '2026-09-01'") == [{"n": 30}]
+    d1("UPDATE ai_meter_model_daily SET neurons = 12345 WHERE date = '2026-10-01'")
+    assert main(d1, call, dt.date(2026, 10, 9)) == 0
+    assert d1("SELECT MAX(neurons) AS m FROM ai_meter_model_daily WHERE date = '2026-10-01'")[0]["m"] == 12345, "a final meter day is not rewritten"
+    assert d1("SELECT MAX(neurons) AS m FROM ai_meter_model_daily WHERE date = '2026-10-09'")[0]["m"] == 150000, "today is rewritten"
+    assert meter_days_present(d1) >= {"2026-09-01", "2026-10-01", "2026-10-09"}
+    d1("DELETE FROM cost_daily WHERE source = 'workers_ai'")
+    import contextlib
+    import io
+    global LEDGER_DAY_BUDGET_S
+    keep_budget, LEDGER_DAY_BUDGET_S = LEDGER_DAY_BUDGET_S, -1.0
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            assert main(d1, call, dt.date(2026, 10, 9)) == 0
+    finally:
+        LEDGER_DAY_BUDGET_S = keep_budget
+    assert [r["date"] for r in d1("SELECT date FROM cost_daily WHERE source = 'workers_ai'")] == ["2026-10-09"], "newest day first, then the budget stop"
+    assert "day loop stopped after" in buf.getvalue() and '"reconciliation"' in buf.getvalue(), "the tail of the run still ran"
+    assert main(d1, call, dt.date(2026, 10, 9)) == 0 and len(d1("SELECT date FROM cost_daily WHERE source = 'workers_ai'")) == 11
+    d1("DELETE FROM ai_meter_model_daily WHERE date = '2026-09-01'")
     c.execute("DROP TABLE ai_meter_model_daily")
     out_missing = {"errors": []}
     try:
