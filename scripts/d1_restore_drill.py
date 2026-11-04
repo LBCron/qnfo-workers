@@ -12,6 +12,7 @@ WHAT  A backup that was never restored is a belief. Weekly, this step restores r
       d1_export_restore_drills; a passing qnfo-audit target stamps spof_registry 'qnfo-audit D1'.
       qnfo-identity and qnfo-outreach are never read (private; the run log is public) and no row content is printed.
 """
+import calendar
 import gzip
 import json
 import os
@@ -227,10 +228,48 @@ def record(d1, rec):
         ("RESTORE-DRILL-1 %s: %d/%d tables, %d rows, schema %s; %s" % (rec["target"], rec["tables_ok"], rec["tables_total"], rec["rows_restored"], rec["schema_source"], rec["note"]))[:400]])
 
 
+SCRATCH_MAX_AGE_S = 7200
+
+
+def sweep_scratch(call=None, now=time.time, max_age_s=SCRATCH_MAX_AGE_S):
+    """CONSUMER-SPEED-3 (2026-11-04): deletes scratch databases a killed drill left behind. The drill deletes its own scratch database in a finally block, but a step
+    timeout or a cancelled job ends the process before it runs: three drill-restore-* databases were in the account on 2026-11-04 (20:09, 20:57, 21:37Z). Only a database
+    whose name starts with SCRATCH_PREFIX (the name the drill gives its own, checked again here after the API's substring filter) and that is older than max_age_s, so a drill
+    in progress is never touched. Never raises; returns the counts."""
+    call = call or CS.cf
+    out = {"deleted": 0, "kept": 0, "errors": 0}
+    try:
+        st, j = call("GET", "/accounts/%s/d1/database?name=%s&per_page=100" % (RC.ACCOUNT, urllib.parse.quote(SCRATCH_PREFIX)))
+        for db in (j or {}).get("result") or []:
+            name, uuid = str(db.get("name") or ""), db.get("uuid")
+            if not name.startswith(SCRATCH_PREFIX) or not uuid:
+                continue
+            try:
+                created = calendar.timegm(time.strptime(str(db.get("created_at") or "")[:19], "%Y-%m-%dT%H:%M:%S"))
+            except ValueError:
+                out["kept"] += 1  # a creation time that cannot be read is not evidence that the database is old
+                continue
+            if now() - created < max_age_s:
+                out["kept"] += 1
+                continue
+            try:
+                call("DELETE", "/accounts/%s/d1/database/%s" % (RC.ACCOUNT, uuid))
+                out["deleted"] += 1
+            except Exception as e:  # noqa: BLE001
+                out["errors"] += 1
+                print(json.dumps({"restore-drill": "scratch-sweep-delete-failed", "db": name, "error": str(e)[:120]}))
+    except Exception as e:  # noqa: BLE001
+        out["error"] = str(e)[:160]
+    print(json.dumps({"restore-drill": {"scratch-sweep": out}}))
+    return out
+
+
 def main(argv=None, d1=None, plane=None, make_scratch=None, r2get=None, history=None, targets=None):
     argv = argv if argv is not None else sys.argv[1:]
     d1, plane = CS.retrying(d1 or RC.d1), CS.retrying(plane or RC.d1_plane)
     r2get = r2get or r2_get_bytes
+    if make_scratch is None:  # the live step; the offline suite injects its own scratch databases and never reaches the account
+        sweep_scratch()
     if "--force" not in argv:
         fresh = d1("SELECT id FROM d1_export_restore_drills WHERE ok = 1 AND ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1) LIMIT 1", ["-%d days" % DRILL_MAX_AGE_DAYS])
         if fresh:
@@ -339,6 +378,29 @@ CREATE TABLE tag_kv (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID;
     audit.execute("UPDATE d1_export_restore_drills SET ts = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-25 hours')")
     assert main([], d1, plane, make_scratch, r2get, history=lambda: True, targets=[AUDIT_STATE]) == 0
     assert len(scratches) == n_before + 1 and len(run(audit, "SELECT id FROM d1_export_restore_drills")) == 2, "a failed drill 25 hours ago is retried"
+    # CONSUMER-SPEED-3: leaked scratch databases are deleted when old enough, and nothing else is
+    t_now = calendar.timegm(time.strptime("2026-11-04T22:00:00", "%Y-%m-%dT%H:%M:%S"))
+    listing = {"result": [
+        {"name": "drill-restore-qnfo-audit-state-20261104190902", "uuid": "u-old", "created_at": "2026-11-04T19:09:02.609Z"},
+        {"name": "drill-restore-qnfo-audit-state-20261104215900", "uuid": "u-young", "created_at": "2026-11-04T21:59:00.000Z"},
+        {"name": "my-drill-restore-lookalike", "uuid": "u-substring", "created_at": "2026-10-01T00:00:00.000Z"},
+        {"name": "qnfo-audit", "uuid": "u-real", "created_at": "2026-05-28T05:26:46.326Z"},
+        {"name": "drill-restore-bad-date", "uuid": "u-baddate", "created_at": "not a date"}]}
+    seen = []
+
+    def fake_call(method, path, body=None, ctype=None, timeout=60):
+        seen.append((method, path))
+        return 200, listing if method == "GET" else {}
+    r = sweep_scratch(fake_call, now=lambda: t_now)
+    assert r == {"deleted": 1, "kept": 2, "errors": 0}, r
+    assert [p for m, p in seen if m == "DELETE"] == ["/accounts/%s/d1/database/u-old" % RC.ACCOUNT], seen  # not the young one, the lookalike, the real database or the unreadable date
+
+    def failing_call(method, path, body=None, ctype=None, timeout=60):
+        if method == "DELETE":
+            raise RuntimeError("HTTP 500")
+        return 200, listing
+    assert sweep_scratch(failing_call, now=lambda: t_now) == {"deleted": 0, "kept": 2, "errors": 1}
+    assert "error" in sweep_scratch(lambda *a, **k: (_ for _ in ()).throw(RuntimeError("HTTP 429")), now=lambda: t_now)  # a refused listing never raises
     print("d1_restore_drill selftest ok")
 
 
