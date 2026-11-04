@@ -36,7 +36,7 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
+import { trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
 declare var VERSION: string;
@@ -147,13 +147,14 @@ async function readRepoFile(input: { path: string; ref?: string; from?: number; 
   return Object.assign({ ok: true, path: input.path, ref }, sliceLines(await r.text(), input.from, input.lines, 60000));
 }
 
-async function fleetSql(env: Env, sql: string) {
+async function fleetSql(env: Env, sql: string, lean = false) {
   const p = readOnlySql(sql, 200);
   if (p.error) return { ok: false, error: p.error };
   try {
     const r = await env.AUDIT_DB.prepare(p.sql as string).all();
     const rows = r.results || [];
-    const keep = JSON.stringify(rows).length > 40000 ? rows.slice(0, 50) : rows;
+    const keep0 = JSON.stringify(rows).length > 40000 ? rows.slice(0, 50) : rows;
+    const keep = lean ? trimCells(keep0, LEAN_CELL_CHARS) : keep0;
     return { ok: true, rows: rows.length, shown: keep.length, results: keep };
   } catch (e) { return { ok: false, error: errText(e) }; }
 }
@@ -187,7 +188,7 @@ function directTools(c: ToolCtx): Record<string, any> {
   t.fleet_sql = tool({
     description: "Read-only SQL (one SELECT or WITH) on the fleet's D1 qnfo-audit: agent_issues, v_issue_queue, code_tasks, metric_registry, v_metric_trigger_state, fleet_deploys, decision_log and the rest. Sign-in and secret tables are refused.",
     inputSchema: z.object({ sql: z.string() }),
-    execute: async (i: any) => c.lean ? capResult(await fleetSql(c.env, i.sql), LEAN_RESULT_CHARS) : fleetSql(c.env, i.sql)
+    execute: async (i: any) => c.lean ? capResult(await fleetSql(c.env, i.sql, true), LEAN_RESULT_CHARS) : fleetSql(c.env, i.sql)
   });
   if (c.lean) return t; // AGENTS-LEAN-1: no qnfo-ops catalog and no writes for the loop callers that only read
   t.ops_catalog = tool({
@@ -398,7 +399,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
         try { const lr: any = await this.env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_lean'").first(); lean = leanConfigOn(lr && lr.value); } catch (e) { lean = true; }
       }
       const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, runId: id, proposals, lean });
-      const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(lean ? LEAN_MAX_STEPS : /(^|:)issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
+      const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(lean ? LEAN_MAX_STEPS : /(^|:)issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), ...(lean ? { prepareStep: ({ messages }: any) => ({ messages: compactMessages(messages) }) } : {}), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
       // FINAL-ANSWER-PICK-1: a preface, an empty last step or raw tool-call markup is not an answer (see pickAnswer in lib.js).
       const pick = pickAnswer(out.text, out.steps);
       result = pick.text;

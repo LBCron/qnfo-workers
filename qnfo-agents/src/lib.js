@@ -275,7 +275,9 @@ export function validateRequest(row) {
 // step resent the whole qnfo-ops tool catalog (codemode, ops_catalog, ops_call) at about 17.9k input tokens. A lean turn gets fleet_sql and
 // repo_read_file only, at most LEAN_MAX_STEPS steps, and tool results capped at LEAN_RESULT_CHARS.
 export const LEAN_MAX_STEPS = 6;
-export const LEAN_RESULT_CHARS = 6000;
+export const LEAN_RESULT_CHARS = 3000;
+export const LEAN_CELL_CHARS = 300;
+export const LEAN_OLD_RESULT_CHARS = 240;
 export function leanCaller(caller) {
   return /(^|:)(issue-probe-agent|program-manager)(:|$)/.test(String(caller || ""));
 }
@@ -288,4 +290,38 @@ export function capResult(obj, maxChars) {
   try { s = JSON.stringify(obj); } catch (e) { s = String(obj); }
   if (s.length <= n) return obj;
   return { ok: !!(obj && obj.ok), truncated: true, note: "result cut to " + n + " characters; narrow the query (fewer columns, a WHERE, LIMIT)", head: s.slice(0, n) };
+}
+
+// AGENTS-INPUT-CUT-1 (2026-11-04, pillar cost): deepseek-v4.1-flash through qnfo-agents averaged 16k to 26k input tokens a call for a 450-token prompt
+// (34 sampled gateway calls; 12.1M input tokens against 0.26M output in 3 h), because every step resends every earlier tool result. A lean turn now
+// shrinks each wide cell and, before each later step, replaces the tool results of earlier rounds with a short head; only the newest round stays whole.
+export function trimCells(rows, maxChars) {
+  const n = Math.max(40, Number(maxChars) || LEAN_CELL_CHARS);
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((r) => {
+    if (!r || typeof r !== "object") return r;
+    const o = {};
+    for (const k of Object.keys(r)) {
+      const v = r[k];
+      o[k] = typeof v === "string" && v.length > n ? v.slice(0, n) + "...[+" + (v.length - n) + " chars]" : v;
+    }
+    return o;
+  });
+}
+export function compactMessages(messages, stubChars) {
+  const n = Math.max(80, Number(stubChars) || LEAN_OLD_RESULT_CHARS);
+  if (!Array.isArray(messages)) return messages;
+  let lastAssistant = -1;
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i] && messages[i].role === "assistant") { lastAssistant = i; break; }
+  // the newest round is the tool messages after the last assistant message; every tool message before the last assistant message is an earlier round
+  return messages.map((m, i) => {
+    if (!m || m.role !== "tool" || i >= lastAssistant || !Array.isArray(m.content)) return m;
+    return Object.assign({}, m, { content: m.content.map((part) => {
+      if (!part || part.type !== "tool-result" || !part.output) return part;
+      const out = part.output;
+      const raw = typeof out.value === "string" ? out.value : JSON.stringify(out.value === undefined ? out : out.value);
+      if (raw.length <= n) return part;
+      return Object.assign({}, part, { output: { type: "text", value: raw.slice(0, n) + " ...[earlier result trimmed, " + raw.length + " chars]" } });
+    }) });
+  });
 }
