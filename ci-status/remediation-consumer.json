@@ -1,8 +1,8 @@
 {
  "ok": false,
- "error": "no parseable consumer output: Extra data: line 2 column 1 (char 450)",
  "marker": "REMEDIATION-CONSUMER-1",
- "head": "58bba1d6251908b87b271530b373ab6f6d3d0766",
- "job_status": "cancelled",
- "ts": "2026-11-04T02:42:22Z"
+ "error": "HTTP 429 from https://api.cloudflare.com/client/v4/accounts/edb167b78c9fb901ea5bca3ce58ccc4b/d1/database/35e2e573-92f3-46ac-83c6-22f6429fc5e5/query: {\"success\":false,\"errors\":[{\"code\":971,\"message\":\"Please wait and consider throttling your request speed\"}],\"messages\":[],\"result\":null}",
+ "head": "b5f7679168e5b4bc6ac85000c7fa90d8a9754b7d",
+ "job_status": "success",
+ "ts": "2026-11-04T03:12:04Z"
 }
