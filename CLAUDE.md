@@ -213,8 +213,8 @@ because each one was broken at least once; the linked issue holds the evidence.
   (`deploy_probes.py --check-pr` in the `scans` job). Detail, limits and the first live finding: `docs/DEPLOY-PROOF-2026-11.md`. Before a probe you add can revert anything, run
   `python scripts/deploy_probes.py --live <worker>` against production.
 - `scripts/review_gate.py` runs in the `lane` job of pr-lane.yml on the event that is about to merge: a pull request that touches auth, a route, the cache, a trigger, a migration or a
-  workflow is read by two models of disjoint families (glm-5.3-flash and llama-3.3-70b). A High finding with a concrete trigger and an evidence line that is an added line of the diff
-  posts a comment starting `HOLD:` (a new push, or a collaborator's `override review-gate: <reason>`, releases it). `REVIEW_GATE_MODE` (repository variable) is `observe` by default, `hold`
+  workflow is read by two models of disjoint families (glm-5.3-flash and llama-3.3-70b). A High finding with a concrete trigger and an evidence line that is an added line of the diff,
+  reported by both families, posts a comment starting `HOLD:` (a new push, or a collaborator's `override review-gate: <reason>`, releases it). `REVIEW_GATE_MODE` (repository variable) is `observe` by default, `hold`
   after the replay and false-positive run in the doc, `off` to stop. It fails open and costs about $0.012 a run.
 
 ## Domains (DOMAIN-PLANE-1)
