@@ -29,7 +29,7 @@ SELECT date, product, metric, quantity, rate_usd FROM v_cost_usage_priced_daily 
 | vendor | collector | cadence | source |
 |---|---|---|---|
 | Cloudflare non-AI products | `qnfo-infra` `costVendorTick` (1.11.0) | hourly at :30, last 3 days rewritten, 30-day backfill when empty | GraphQL analytics datasets (workersInvocationsAdaptive, d1AnalyticsAdaptiveGroups, d1StorageAdaptiveGroups, durableObjectsPeriodicGroups, durableObjectsInvocationsAdaptiveGroups, durableObjectsSqlStorageGroups, r2OperationsAdaptiveGroups, r2StorageAdaptiveGroups, kvOperationsAdaptiveGroups, kvStorageAdaptiveGroups, queueMessageOperationsAdaptiveGroups, vectorizeV2QueriesAdaptiveGroups, vectorizeV2StorageAdaptiveGroups, containersUsageAdaptiveGroups, browserRenderingBrowserTimeUsageAdaptiveGroups) and `GET /workers/observability/usage` |
-| Cloudflare Workers AI, AI Gateway, plan | `scripts/cost_ledger.py` (remediation-consumer.yml, hourly) | hourly | aiInferenceAdaptiveGroups, AI Gateway GraphQL, subscriptions API, into `cost_daily` |
+| Cloudflare Workers AI, AI Gateway, plan | `scripts/cost_ledger.py` (remediation-consumer.yml `heavy` job, CONSUMER-SPEED-1) | every 3 hours | aiInferenceAdaptiveGroups, AI Gateway GraphQL, subscriptions API, into `cost_daily` |
 | GitHub | `qnfo-github-steward` `githubBillingTick` (0.14.0) | hourly (55-minute throttle) | `GET /organizations/QNFO/settings/billing/usage/summary` and `GET /users/rwnq8/settings/billing/usage/summary` |
 | Owner direct providers | seeded in `cost_daily` | per day | owner-stated monthly figure / 30 |
 

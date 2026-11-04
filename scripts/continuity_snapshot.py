@@ -14,6 +14,8 @@ WHAT  Proves the fleet's state can be rebuilt from durable stores alone, from th
            sha256, Time Travel bookmark; spof_registry 'qnfo-audit D1' gets its alternate and alternate_tested_at.
         4. metric asset_freshness_90d from living-paper (published papers updated in 90 days / published).
       Runs only when the newest ok snapshot is older than 20 hours (--force overrides). Never fails the job.
+      CONSUMER-SPEED-1: --only=daily,export,bak,blob,cold picks the stages; remediation-consumer.yml runs daily, bak, blob and cold in its `sweeps` job every
+      cycle and the export in its `heavy` job on the heavy cadence.
 
 D1-EXPORT-BEYOND-TIME-TRAVEL-1 (issue 2371, 2026-10-13, pillar core; doctrine section 14): Time Travel keeps 30 days and the
       daily snapshot covers 22 tables of one database, capped at PAGE x MAX_PAGES rows. Weekly, each database in
@@ -539,14 +541,29 @@ def blob_trim(d1, call=cf):
     return out
 
 
+def stages(argv):
+    """CONSUMER-SPEED-1 (2026-11-04): which stages this invocation runs. --only=daily,bak picks them (daily, export, bak, blob, cold); --no-export is the
+    older spelling of --only=daily. The workflow runs the cheap stages every cycle (the daily snapshot is a ledger read while fresh) and the weekly export,
+    which spends minutes of every run, in the heavy job on its own cadence."""
+    for a in argv:
+        if a.startswith("--only="):
+            return set(a[len("--only="):].split(","))
+    return {"daily"} if "--no-export" in argv else {"daily", "export", "bak", "blob", "cold"}
+
+
 def main(argv=None, d1=None, plane=None, call=cf, out_dir=None, deadline=None):
     argv = argv if argv is not None else sys.argv[1:]
     d1, plane = retrying(d1 or RC.d1), retrying(plane or RC.d1_plane)
-    daily(argv, d1, plane, call, out_dir)
-    if "--no-export" not in argv:
+    want = stages(argv)
+    if "daily" in want:
+        daily(argv, d1, plane, call, out_dir)
+    if "export" in want:
         export_step(d1, plane, call, deadline)
+    if "bak" in want:
         bak_sweep(d1, call)
+    if "blob" in want:
         blob_trim(d1, call)
+    if "cold" in want:
         try:    # COLD-TIER-1: rollup, archive to R2 and prune the biggest append-only telemetry tables (scripts/cold_tier.py); never raises
             import cold_tier
             cold_tier.run(d1)
@@ -599,6 +616,10 @@ INSERT INTO human_actions VALUES (1, 'owner card');
     assert d1("SELECT alternate_tested_at FROM spof_registry")[0]["alternate_tested_at"]
     assert d1("SELECT last_value FROM metric_registry")[0]["last_value"] == "0.9"
     assert main(["--no-export"], d1, lambda t, s: [{"n": 0, "f": 0}], call, d) == 0 and len(d1("SELECT id FROM continuity_snapshots")) == 1  # fresh: skipped
+    # CONSUMER-SPEED-1: the stage flags. Every stage by default, daily only for --no-export, the named ones for --only=; a stage that is not named never runs.
+    assert stages([]) == {"daily", "export", "bak", "blob", "cold"} and stages(["--no-export"]) == {"daily"}
+    assert stages(["--only=daily,bak,blob"]) == {"daily", "bak", "blob"} and stages(["--force", "--only=export"]) == {"export"}
+    assert main(["--force", "--only=bak,blob"], d1, lambda t, s: [{"n": 10, "f": 9}], call, d) == 0 and len(d1("SELECT id FROM continuity_snapshots")) == 1  # --force alone cannot start a daily snapshot that --only left out
     export_selftest(c, d1)
     bak_selftest()
     blob_selftest()

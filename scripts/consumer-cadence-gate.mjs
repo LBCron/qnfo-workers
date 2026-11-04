@@ -12,12 +12,21 @@
 // A consumer run is a run whose `consume` job ran (in progress, queued behind the concurrency group, or finished successfully).
 // push, schedule, workflow_dispatch and repository_dispatch always run; a [skip ci] status commit never triggers one.
 //
-// USAGE  node scripts/consumer-cadence-gate.mjs        (reads GH_TOKEN, EVENT, HEAD_MSG, RUN_ID, GITHUB_REPOSITORY, GITHUB_OUTPUT)
+// CONSUMER-SPEED-1 (2026-11-04): the gate also decides whether the `heavy` job runs. Measured over the runs of 2026-11-04 a consume job took 26-32 minutes and half
+// of them were cancelled at the 30-minute cap: the weekly export (270 s a run), the restore drill (300-490 s), the cost ledger (50-250 s) and the sweeps ran in
+// series after the contract run. The heavy job holds the steps that need not run every cycle; it runs when the newest `consumer-heavy-stamp` artifact (uploaded at
+// the end of a heavy job) is older than HEAVY_WINDOW_S, one REST call instead of a job read per run.
+//
+// USAGE  node scripts/consumer-cadence-gate.mjs        (reads GH_TOKEN, EVENT, HEAD_MSG, RUN_ID, FORCE_HEAVY, GITHUB_REPOSITORY, GITHUB_OUTPUT)
 //        node scripts/consumer-cadence-gate.mjs --selftest
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
 export const WINDOW_S = 1200;
+// Heavy steps (cost ledger, weekly export, restore drill): 3 hours. The daily continuity snapshot is not among them (it runs every cycle in the sweeps job), so
+// the 1260-minute cadence_sla of `continuity-snapshot` keeps one consumer window of slack, not the heavy window.
+export const HEAVY_WINDOW_S = 10800;
+export const HEAVY_STAMP = "consumer-heavy-stamp";
 
 // runs: newest first, as the REST list returns them: [{ id, status, conclusion, run_started_at }]. jobsOf(id) -> [{ name, status, conclusion }].
 export async function decide({ event, headMsg, runs, jobsOf, now, selfId, windowS = WINDOW_S }) {
@@ -34,6 +43,19 @@ export async function decide({ event, headMsg, runs, jobsOf, now, selfId, window
     if (consumed) return { run: false, why: "a consumer run that probed started " + age + " s ago (< " + windowS + " s)" };
   }
   return { run: true, why: "no consumer run probed in the last " + windowS + " s" };
+}
+
+// artifacts: newest first, as GET /actions/artifacts?name=<HEAVY_STAMP> returns them: [{ name, created_at, expired }]; null when the call failed.
+// A missing, expired or unreadable stamp means heavy is due: backups and the cost ledger run rather than starve (the job runs beside `consume`, never in front of it).
+export function heavyDue({ force, artifacts, now, windowS = HEAVY_WINDOW_S }) {
+  if (String(force || "") === "true") return { heavy: true, why: "forced (workflow_dispatch input heavy)" };
+  if (!Array.isArray(artifacts)) return { heavy: true, why: "stamp unreadable: heavy runs rather than starves" };
+  const stamp = artifacts.find((a) => a && a.name === HEAVY_STAMP && !a.expired);
+  if (!stamp) return { heavy: true, why: "no heavy stamp" };
+  const age = Math.round((now - Date.parse(stamp.created_at)) / 1000);
+  if (!(age >= 0)) return { heavy: true, why: "stamp time unreadable" };
+  if (age >= windowS) return { heavy: true, why: "last heavy run " + age + " s ago (>= " + windowS + " s)" };
+  return { heavy: false, why: "last heavy run " + age + " s ago (< " + windowS + " s)" };
 }
 
 function gh(path) {
@@ -90,6 +112,28 @@ async function selftest() {
   let reads = 0;
   d = await decide({ event: "workflow_run", runs: [skipped(1, 1300), skipped(2, 1400)], jobsOf: async (id) => { reads++; return jobs[id]; }, now });
   ok(d.run === true && reads === 0, "runs older than the window cost no job read", { d, reads });
+  // CONSUMER-SPEED-1: the heavy decision.
+  const stamp = (secAgo, extra) => Object.assign({ name: HEAVY_STAMP, created_at: at(secAgo), expired: false }, extra || {});
+  let h = heavyDue({ artifacts: [stamp(600)], now });
+  ok(h.heavy === false, "a heavy stamp 10 minutes old holds the heavy job", h);
+  h = heavyDue({ artifacts: [stamp(HEAVY_WINDOW_S - 60)], now });
+  ok(h.heavy === false, "a stamp just inside the window still holds it", h);
+  h = heavyDue({ artifacts: [stamp(HEAVY_WINDOW_S + 60)], now });
+  ok(h.heavy === true && /s ago/.test(h.why), "a stamp past the window releases it", h);
+  h = heavyDue({ artifacts: [], now });
+  ok(h.heavy === true, "no stamp at all: the first heavy run", h);
+  h = heavyDue({ artifacts: [stamp(60, { expired: true })], now });
+  ok(h.heavy === true, "an expired stamp does not hold the job", h);
+  h = heavyDue({ artifacts: [{ name: "remediation-consumer-status", created_at: at(5), expired: false }], now });
+  ok(h.heavy === true, "another artifact is not the stamp", h);
+  h = heavyDue({ artifacts: null, now });
+  ok(h.heavy === true, "an unreadable artifact list fails open: backups run rather than starve", h);
+  h = heavyDue({ artifacts: [stamp(60)], now, force: "true" });
+  ok(h.heavy === true && /forced/.test(h.why), "a manual run can force the heavy job", h);
+  h = heavyDue({ artifacts: [stamp(60)], now, force: "false" });
+  ok(h.heavy === false, "force=false is no force", h);
+  h = heavyDue({ artifacts: [{ name: HEAVY_STAMP, created_at: at(-300), expired: false }], now });
+  ok(h.heavy === true, "a stamp from the future (clock skew) is not trusted", h);
   console.log(fail ? "consumer-cadence-gate selftest: " + fail + " FAILED" : "consumer-cadence-gate selftest: ok");
   return fail ? 1 : 0;
 }

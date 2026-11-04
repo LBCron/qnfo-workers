@@ -29,6 +29,7 @@ DRILL_EXPORTS = ["portfolio-state", "qnfo-cms", "ipatent-db"]
 AUDIT_STATE = "qnfo-audit-state"
 DRILL_ROW_CAP = int(os.environ.get("DRILL_ROW_CAP") or 500)
 DRILL_MAX_AGE_DAYS = 6
+DRILL_RETRY_HOURS = int(os.environ.get("DRILL_RETRY_HOURS") or 24)
 SCRATCH_PREFIX = "drill-restore-"
 BUDGET_SEC = float(os.environ.get("DRILL_BUDGET_SEC") or 840)
 _STARTED = time.time()
@@ -235,6 +236,13 @@ def main(argv=None, d1=None, plane=None, make_scratch=None, r2get=None, history=
         if fresh:
             print(json.dumps({"restore-drill": "fresh"}))
             return 0
+        # CONSUMER-SPEED-1 (2026-11-04): a drill that did not pass leaves no ok row, so the 6-day gate above never opened and every consumer run
+        # spent 5 to 8 minutes on a drill that failed the same way (5 attempt rows in 2 hours, 3 scratch databases left behind when the step
+        # timeout killed it). An attempt of any outcome now holds the next one for DRILL_RETRY_HOURS; the failed rows stay as evidence.
+        tried = d1("SELECT id FROM d1_export_restore_drills WHERE ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1) LIMIT 1", ["-%d hours" % DRILL_RETRY_HOURS])
+        if tried:
+            print(json.dumps({"restore-drill": "attempted-recently", "retry_hours": DRILL_RETRY_HOURS}))
+            return 0
     make_scratch = make_scratch or real_scratch()
     hist = history() if history else time_travel_day_ago()
     out, deadline = {}, _STARTED + BUDGET_SEC
@@ -324,6 +332,13 @@ CREATE TABLE tag_kv (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID;
     audit.execute("DELETE FROM d1_export_restore_drills")
     main(["--force"], d1, plane, make_scratch, r2get, history=lambda: False, targets=[AUDIT_STATE])
     assert run(audit, "SELECT ok FROM d1_export_restore_drills")[0]["ok"] == 0
+    # CONSUMER-SPEED-1: that failed attempt holds the next one for DRILL_RETRY_HOURS (no 6-day ok row exists to hold it), and releases it a day later
+    n_before = len(scratches)
+    assert main([], d1, plane, make_scratch, r2get, history=lambda: True, targets=[AUDIT_STATE]) == 0
+    assert len(scratches) == n_before and len(run(audit, "SELECT id FROM d1_export_restore_drills")) == 1, "a failed drill 0 hours ago must not start another"
+    audit.execute("UPDATE d1_export_restore_drills SET ts = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-25 hours')")
+    assert main([], d1, plane, make_scratch, r2get, history=lambda: True, targets=[AUDIT_STATE]) == 0
+    assert len(scratches) == n_before + 1 and len(run(audit, "SELECT id FROM d1_export_restore_drills")) == 2, "a failed drill 25 hours ago is retried"
     print("d1_restore_drill selftest ok")
 
 

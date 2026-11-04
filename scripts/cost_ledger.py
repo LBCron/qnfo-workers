@@ -11,7 +11,7 @@ WHAT  Writes qnfo-audit.cost_daily, one row per (date, source), for the last LOO
                                refused, the seeded monthly baseline in cost_source_registry, with the refusal in the note;
         direct_providers_external  the owner's stated spend outside the fleet (no API sees it), per day, marked unverified.
       v_cost_run_rate (migration 2026-10-09-14) projects each source and the total to 30 days from the 7- and 10-day means.
-RUNS  A step of remediation-consumer.yml (hourly; rewrites the same rows, so it is idempotent). Never fails the job.
+RUNS  A step of the `heavy` job of remediation-consumer.yml (every 3 hours since CONSUMER-SPEED-1, 2026-11-04; was hourly; rewrites the same rows, so it is idempotent). Never fails the job.
 """
 import datetime as dt
 import json

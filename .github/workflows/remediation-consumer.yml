@@ -26,6 +26,19 @@ name: remediation-consumer
 # artifact, and that commit carries `[skip ci]`, so it cannot re-trigger this
 # workflow or fleet-autodeploy. The workflow_run chain is therefore acyclic.
 #
+# CONSUMER-SPEED-1 (2026-11-04, pillar autonomy): the consume job took 26-32 minutes and half the runs were cancelled at the 30-minute cap (run 41907336197 at
+# 20:31Z, 41894454508 at 19:11Z, 41884323072), so a contract that became due mid-run waited for the next run and a two-pass issue close took 80 minutes. The steps
+# of one run, measured on the 8 runs of 2026-11-04, in seconds (range): contract run 61-692, loop-breaker with the BP26 collectors 79-404, restore drill 300-490,
+# weekly export step 270-370, trigger-depth sweep 120-139, cost ledger 50-250, blocker red-team 59-84, observability bridge 11-80. They ran in series. The work is
+# now three jobs:
+#   consume  the contract run and the status artifact: what every issue close waits for, with nothing else in front of it;
+#   sweeps   the observability bridge, loop-breaker + BP26, red-team, trigger-depth sweep, claim reaper, StackExchange and the daily continuity snapshot:
+#            every cycle, as before, but beside the contract run instead of behind it;
+#   heavy    cost ledger, weekly export, restore drill: when the newest consumer-heavy-stamp artifact is 3 hours old (scripts/consumer-cadence-gate.mjs), so a
+#            run that does not need them finishes without them. The drill also holds itself for 24 hours after an attempt (scripts/d1_restore_drill.py).
+# Pinned by scripts/consumer-speed.test.mjs; measured with `node scripts/consumer-run-timing.mjs --check` (median consume minutes, timeout cancellations, heavy cadence).
+# Revert: restore the single consume job from the commit before this one (git show <sha>^:.github/workflows/remediation-consumer.yml).
+#
 # ADVERSARIAL: a green run proves the probes executed and what they returned. It does
 # NOT prove the underlying fleet is healthy - a contract whose probe is not a literal
 # SELECT is skipped by design and will keep its issue open, which is the intended
@@ -47,6 +60,11 @@ on:
   schedule:
     - cron: '17 10 * * *'
   workflow_dispatch:
+    inputs:
+      heavy:
+        description: 'Run the heavy job (cost ledger, weekly export, restore drill) even when it ran within the last 3 hours'
+        type: boolean
+        default: false
   # PROBE-CADENCE-1 (2026-10-06): qnfo-cloud-ops sends this event from its 10-minute Cloudflare tick when the last run
   # here is older than 60 minutes, so runtime probes keep running while main is quiet (no push, no workflow_run).
   repository_dispatch:
@@ -55,6 +73,7 @@ on:
 permissions:
   contents: write
   pull-requests: read  # CLAIM-REAPER-1 reads PR state
+  actions: read  # CONSUMER-SPEED-1: the gate reads the newest consumer-heavy-stamp artifact
 
 # CONSUMER-CI-LOOP-2 (2026-10-18): concurrency sits on the consume job, not the workflow, so the 2-minute cadence-gate runs
 # at once for every trigger and a skipped trigger finishes as skipped instead of queueing and being cancelled.
@@ -71,11 +90,13 @@ jobs:
     timeout-minutes: 2
     outputs:
       run: ${{ steps.g.outputs.run }}
+      heavy: ${{ steps.g.outputs.heavy }}
     steps:
       # CONSUMER-GATE-STARVATION-1 (2026-10-19): a skipped trigger ends with its consume job skipped and the workflow run concluded
       # success, so the shell this step used to run counted every skipped trigger as a consumer run and restarted the 20-minute
       # window. With merges arriving faster than that, no consumer ran from 08:56Z to past 10:04Z. The decision is in
       # scripts/consumer-cadence-gate.mjs (suite scripts/consumer-cadence-gate.test.mjs): only a run whose consume job ran counts.
+      # CONSUMER-SPEED-1: the same script decides `heavy` (see the header): one artifact-list call, no job reads.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: scripts/consumer-cadence-gate.mjs
@@ -86,6 +107,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           RUN_ID: ${{ github.run_id }}
           HEAD_MSG: ${{ github.event.workflow_run.head_commit.message }}
+          FORCE_HEAVY: ${{ github.event.inputs.heavy }}
         run: node scripts/consumer-cadence-gate.mjs
 
   consume:
@@ -96,10 +118,12 @@ jobs:
       cancel-in-progress: false
     # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
     runs-on: ubuntu-24.04
+    # CONSUMER-SPEED-1: this job holds the contract run and the status artifact only (the sweeps and the heavy steps are the jobs below), measured at 1-12
+    # minutes, so the cap drops from 30 to 25 and the consumer step carries its own 15. Raising either to hide a slow step is the failure this change removes.
     # CONSUMER-TIMEOUT-1 (2026-11-04): five consecutive consume jobs (17:10, 17:41, 18:04 and later) were cancelled by this cap, not by a failing step: with D1 loaded
     # "Run the remediation consumer" took 5 to 10 minutes, the three sweeps after it 7 more, so "Write the daily cost ledger", the continuity snapshot and the
     # status artifact never started and no run completed after 16:47Z. Every step carries its own timeout; the job cap only has to cover their sum.
-    timeout-minutes: 30
+    timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -111,6 +135,8 @@ jobs:
       # drains the whole due set instead of 10 per hour. 40 keeps the run well inside
       # the 15 minute job timeout (measured: 4273 ms for 1 contract).
       REMEDIATION_MAX_ITEMS: "40"
+      # CONSUMER-SPEED-1: the view-health pass (242 serial EXPLAINs, 4 to 6 minutes) runs in the sweeps job; the consumer skips its in-process call.
+      REMEDIATION_VIEW_HEALTH: sweeps
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -124,106 +150,11 @@ jobs:
       - name: Run the remediation consumer
         id: consume
         continue-on-error: true
+        timeout-minutes: 15
         run: |
           set -uo pipefail
           python3 scripts/remediation-consumer.py | tee /tmp/remediation-consumer.json
           echo "--- consumer output above ---"
-
-      # SE-RUNNER-SURFACE-1 (doctrine revision 3 section 3): StackExchange answers keyless from the runner, not from
-      # Cloudflare's shared egress, so the mention radar's StackExchange source runs here. Never fails the job.
-      - name: Read StackExchange mentions from the runner
-        continue-on-error: true
-        run: |
-          python3 scripts/se_mentions_runner.py --selftest && python3 scripts/se_mentions_runner.py
-
-      # CF-OBS-BRIDGE-1 (owner directive 2026-10-18 "INTEGRATE CLOUDFLARE OBSERVABILITY ISSUES INTO UNIFIED TRACKING, AUDITING, AND
-      # REMEDIATION"): every live Cloudflare Workers Observability issue group becomes one tracked agent_issues row with a code-task
-      # line and a quiet-for-6h probe; a group whose issue closed by verification is marked resolved in Cloudflare. Depth 0
-      # (runner). Never fails the job.
-      - name: Bridge Cloudflare Observability issues into the tracker
-        continue-on-error: true
-        run: |
-          # CF-OBS-BRIDGE-LOOP-1: the suite is a PR gate (deploy-gate.yml), so a failure here is logged and the sweep still runs;
-          # chaining with && would silence the whole bridge on one broken assertion.
-          python3 scripts/cf_obs_issue_bridge.py --selftest || echo "cf-obs-bridge selftest failed; running the sweep anyway"
-          python3 scripts/cf_obs_issue_bridge.py
-
-      # LOOP-BREAKER-1 and DOCTRINE-AUDIT-1 (agent_issues 2183, 2181): files repeated-failure and weekly doctrine-audit issues
-      # at depth 0 (a fleet_tick trigger would nest the issue triggers past D1's limit). Deterministic; never fails the job.
-      - name: File loop-breaker and doctrine-audit issues
-        continue-on-error: true
-        run: |
-          python3 scripts/loop_breaker_runner.py --selftest && python3 scripts/loop_breaker_runner.py
-
-      # BLOCKER-REDTEAM-AUTO-1 (owner directive 2026-10-11, automatic resolution of root causes): one deterministic attempt per
-      # untested blocker claim in v_blocker_claims (a doer exists, the repository token verifies, an IDENTITY-BOUND line),
-      # recorded in blocker_redteam; a claim it cannot test stays counted. Never fails the job.
-      - name: Red-team blocker claims
-        continue-on-error: true
-        run: |
-          python3 scripts/blocker_redteam_runner.py --selftest && python3 scripts/blocker_redteam_runner.py
-
-      # TRIGGER-DEPTH-SWEEP-1 (owner directive 2026-10-17 "ALL SWEEPS SHALL BE SCHEDULED FOR PERIODIC FAILURE-MODE/ROOT-CAUSE
-      # AUTOMATIC AUDITS AND REMEDIATION"): sweeps every qnfo-audit table with the zero-row INSERT/UPDATE/DELETE probes and,
-      # when a write is refused with "triggers nested too deep", writes a failing verification row and files a deduped issue.
-      # Proactive: catches a re-wedged trigger graph before the self-heal loop dies, unlike the lagging fm-trigger-depth
-      # recency check. Never fails the job.
-      - name: Sweep for D1 trigger-depth failures
-        continue-on-error: true
-        run: |
-          python3 scripts/trigger_depth_sweep.py --selftest && python3 scripts/trigger_depth_sweep.py
-
-      # CLAIM-REAPER-1 (owner request 2026-10-09, scheduled audits that remediate): releases work claims whose PR merged or
-      # closed 30+ minutes ago, in work_claims and deploy_locks, so a session that stopped without releasing does not block
-      # the file for the rest of its TTL. Reads PR state with this run's token; never fails the job.
-      - name: Reap work claims on merged or closed pull requests
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 scripts/claim_reaper.py --selftest && python3 scripts/claim_reaper.py
-
-      # COST-LEDGER-DAILY-1 (owner request 2026-10-09: realistic budgets from actual usage across all billing, projected from
-      # the last 7-10 days): writes cost_daily for Workers AI, AI Gateway per provider, the Cloudflare plan and the owner's
-      # stated direct spend; v_cost_run_rate projects them. Never fails the job.
-      - name: Write the daily cost ledger
-        continue-on-error: true
-        timeout-minutes: 4
-        run: |
-          python3 scripts/cost_ledger.py --selftest && python3 scripts/cost_ledger.py
-
-      # CONTINUITY-SNAPSHOT-1 (doctrine revision 4 section 14 resurrection): D1 Time Travel bookmark plus a logical snapshot of
-      # the qnfo-audit state tables to R2 (all tables, private) and, as a second provider, the public-safe subset (registers
-      # and the issue ledger without personal issues, owner cards, ops_config or claims; this repository is public) as an
-      # Actions artifact. Runs when the newest snapshot is older than 20 hours; never fails the job.
-      - name: Snapshot qnfo-audit state for resurrection
-        id: continuity
-        continue-on-error: true
-        timeout-minutes: 6
-        env:
-          SNAPSHOT_DIR: ${{ github.workspace }}/continuity-snapshot
-        run: |
-          python3 scripts/continuity_snapshot.py --selftest && python3 scripts/continuity_snapshot.py
-
-      # RESTORE-DRILL-1 (2026-11-04): weekly, restores the newest R2 exports into a scratch D1 database and compares counts
-      # (scripts/d1_restore_drill.py, table d1_restore_drills). Never fails the job; the failure mode detectors read the table.
-      - name: Restore drill from R2 into a scratch D1
-        id: restore-drill
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 8
-        run: |
-          python3 scripts/d1_restore_drill.py --selftest && python3 scripts/d1_restore_drill.py
-
-      - name: Upload the public-safe continuity snapshot
-        if: always() && hashFiles('continuity-snapshot/*.jsonl.gz') != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: continuity-snapshot
-          path: continuity-snapshot/
-          retention-days: 30
-          if-no-files-found: ignore
 
       - name: Publish the status artifact
         if: always()
@@ -287,3 +218,195 @@ jobs:
           done
           echo "status push failed after 3 attempts"
           exit 0
+
+  # CONSUMER-SPEED-1: every sweep that used to queue behind the contract run, in a job of its own so none of them waits for it or delays it. All of them run every
+  # cycle exactly as before (the observability bridge, the loop-breaker, the red-team, the trigger-depth sweep, the claim reaper, StackExchange, the daily
+  # continuity snapshot); only the order changed. Each step has its own timeout and none fails the job. The slowest, the loop-breaker step, is bounded by the BP26
+  # collectors' 300 s budget (scripts/bp26_producers.py), which is also why it measured 6 minutes.
+  sweeps:
+    needs: cadence-gate
+    if: needs.cadence-gate.outputs.run == 'true'
+    concurrency:
+      group: remediation-consumer-sweeps
+      cancel-in-progress: false
+    # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      # SE-RUNNER-SURFACE-1 (doctrine revision 3 section 3): StackExchange answers keyless from the runner, not from
+      # Cloudflare's shared egress, so the mention radar's StackExchange source runs here. Never fails the job.
+      - name: Read StackExchange mentions from the runner
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          python3 scripts/se_mentions_runner.py --selftest && python3 scripts/se_mentions_runner.py
+
+      # CF-OBS-BRIDGE-1 (owner directive 2026-10-18 "INTEGRATE CLOUDFLARE OBSERVABILITY ISSUES INTO UNIFIED TRACKING, AUDITING, AND
+      # REMEDIATION"): every live Cloudflare Workers Observability issue group becomes one tracked agent_issues row with a code-task
+      # line and a quiet-for-6h probe; a group whose issue closed by verification is marked resolved in Cloudflare. Depth 0
+      # (runner). Never fails the job.
+      - name: Bridge Cloudflare Observability issues into the tracker
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          # CF-OBS-BRIDGE-LOOP-1: the suite is a PR gate (deploy-gate.yml), so a failure here is logged and the sweep still runs;
+          # chaining with && would silence the whole bridge on one broken assertion.
+          python3 scripts/cf_obs_issue_bridge.py --selftest || echo "cf-obs-bridge selftest failed; running the sweep anyway"
+          python3 scripts/cf_obs_issue_bridge.py
+
+      # LOOP-BREAKER-1 and DOCTRINE-AUDIT-1 (agent_issues 2183, 2181): files repeated-failure and weekly doctrine-audit issues
+      # at depth 0 (a fleet_tick trigger would nest the issue triggers past D1's limit). Deterministic; never fails the job.
+      - name: File loop-breaker and doctrine-audit issues
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          python3 scripts/loop_breaker_runner.py --selftest && python3 scripts/loop_breaker_runner.py
+
+      # BLOCKER-REDTEAM-AUTO-1 (owner directive 2026-10-11, automatic resolution of root causes): one deterministic attempt per
+      # untested blocker claim in v_blocker_claims (a doer exists, the repository token verifies, an IDENTITY-BOUND line),
+      # recorded in blocker_redteam; a claim it cannot test stays counted. Never fails the job.
+      - name: Red-team blocker claims
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          python3 scripts/blocker_redteam_runner.py --selftest && python3 scripts/blocker_redteam_runner.py
+
+      # TRIGGER-DEPTH-SWEEP-1 (owner directive 2026-10-17 "ALL SWEEPS SHALL BE SCHEDULED FOR PERIODIC FAILURE-MODE/ROOT-CAUSE
+      # AUTOMATIC AUDITS AND REMEDIATION"): sweeps every qnfo-audit table with the zero-row INSERT/UPDATE/DELETE probes and,
+      # when a write is refused with "triggers nested too deep", writes a failing verification row and files a deduped issue.
+      # Proactive: catches a re-wedged trigger graph before the self-heal loop dies, unlike the lagging fm-trigger-depth
+      # recency check. Never fails the job.
+      - name: Sweep for D1 trigger-depth failures
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          python3 scripts/trigger_depth_sweep.py --selftest && python3 scripts/trigger_depth_sweep.py
+
+      # VIEW-HEALTH-1 (2026-11-04, BLINDSPOT-1): every qnfo-audit view is planned with EXPLAIN (reads no rows); a view that errors on read is filed as one BLINDSPOT-1 issue
+      # and closed when all compile. CONSUMER-SPEED-1: moved here from the tail of the consumer step, every cycle as before. Never fails the job.
+      - name: Plan every qnfo-audit view
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          python3 scripts/view_health.py && python3 scripts/view_health.py --run
+
+      # CLAIM-REAPER-1 (owner request 2026-10-09, scheduled audits that remediate): releases work claims whose PR merged or
+      # closed 30+ minutes ago, in work_claims and deploy_locks, so a session that stopped without releasing does not block
+      # the file for the rest of its TTL. Reads PR state with this run's token; never fails the job.
+      - name: Reap work claims on merged or closed pull requests
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/claim_reaper.py --selftest && python3 scripts/claim_reaper.py
+
+      # CONTINUITY-SNAPSHOT-1 (doctrine revision 4 section 14 resurrection): D1 Time Travel bookmark plus a logical snapshot of
+      # the qnfo-audit state tables to R2 (all tables, private) and, as a second provider, the public-safe subset (registers
+      # and the issue ledger without personal issues, owner cards, ops_config or claims; this repository is public) as an
+      # Actions artifact. Runs when the newest snapshot is older than 20 hours; never fails the job.
+      # CONSUMER-SPEED-1: the daily snapshot and the table sweeps that follow it (BAK-TABLE-SWEEP-1, BLOB-TRIM-1, COLD-TIER-1) stay in this job so they run every cycle
+      # and the 1260-minute cadence_sla of `continuity-snapshot` keeps its slack (a snapshot that failed on a D1 overload retries 40 minutes later, not 3 hours).
+      # The weekly export is the heavy part and moved to the heavy job.
+      - name: Snapshot qnfo-audit state for resurrection
+        id: continuity
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          SNAPSHOT_DIR: ${{ github.workspace }}/continuity-snapshot
+        run: |
+          python3 scripts/continuity_snapshot.py --selftest && python3 scripts/continuity_snapshot.py --only=daily,bak,blob,cold
+
+      - name: Upload the public-safe continuity snapshot
+        if: always() && hashFiles('continuity-snapshot/*.jsonl.gz') != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: continuity-snapshot
+          path: continuity-snapshot/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # CONSUMER-SPEED-1: the steps that need not run every cycle. The gate starts this job when the newest consumer-heavy-stamp artifact is 3 hours old (or absent),
+  # beside `consume` and `sweeps`, so a run without it finishes in the time of the contract run. Each script keeps its own freshness gate and ledger:
+  #   cost ledger     rewrites the same rows (cost_daily, the last 10 days and today), so one run in three hours loses no day, only the hourly refresh of today;
+  #   weekly export   scripts/continuity_snapshot.py --only=export resumes from its R2 progress file; a database with an ok export row younger than 6 days is skipped.
+  #                   The budget is 900 s here (270 s when it shared the consume job), so a full pass of the 1.4 GB qnfo-audit export needs fewer resumes;
+  #   restore drill   weekly after a pass, and once a day after an attempt that did not pass (d1_restore_drill.py DRILL_RETRY_HOURS).
+  # The stamp is uploaded last, always, so a heavy job that was killed is attempted again at the next cycle rather than skipped for three hours.
+  heavy:
+    needs: cadence-gate
+    if: needs.cadence-gate.outputs.run == 'true' && needs.cadence-gate.outputs.heavy == 'true'
+    concurrency:
+      group: remediation-consumer-heavy
+      cancel-in-progress: false
+    # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      # COST-LEDGER-DAILY-1 (owner request 2026-10-09: realistic budgets from actual usage across all billing, projected from
+      # the last 7-10 days): writes cost_daily for Workers AI, AI Gateway per provider, the Cloudflare plan and the owner's
+      # stated direct spend; v_cost_run_rate projects them. Never fails the job.
+      - name: Write the daily cost ledger
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          python3 scripts/cost_ledger.py --selftest && python3 scripts/cost_ledger.py
+
+      # D1-EXPORT-BEYOND-TIME-TRAVEL-1: the weekly full export of every account database to R2 (the daily snapshot is in the sweeps job). It stops at
+      # EXPORT_BUDGET_SEC and resumes on the next heavy run from export/<database>/_progress.json. Never fails the job.
+      - name: Export the account databases to R2
+        id: export
+        continue-on-error: true
+        timeout-minutes: 22
+        env:
+          EXPORT_BUDGET_SEC: "900"
+        run: |
+          python3 scripts/continuity_snapshot.py --selftest && python3 scripts/continuity_snapshot.py --only=export
+
+      # RESTORE-DRILL-1 (2026-11-04): restores the newest R2 exports into a scratch D1 database and compares counts
+      # (scripts/d1_restore_drill.py, table d1_export_restore_drills). Never fails the job; the failure mode detectors read the table.
+      # CONSUMER-SPEED-1: the drill's own budget (DRILL_BUDGET_SEC, 840 s) now ends before this step's timeout, so its finally-block deletes the scratch
+      # database; at the old 8-minute timeout the step was killed first and three drill-restore-* databases were left in the account.
+      - name: Restore drill from R2 into a scratch D1
+        id: restore-drill
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 22
+        run: |
+          python3 scripts/d1_restore_drill.py --selftest && python3 scripts/d1_restore_drill.py
+
+      - name: Stamp the heavy run
+        if: always()
+        run: |
+          mkdir -p heavy-stamp
+          printf 'heavy run %s at %s\n' "${{ github.run_id }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > heavy-stamp/stamp.txt
+
+      - name: Upload the heavy stamp
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: consumer-heavy-stamp
+          path: heavy-stamp/stamp.txt
+          retention-days: 1
+          if-no-files-found: ignore

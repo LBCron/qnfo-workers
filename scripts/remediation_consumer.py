@@ -1487,11 +1487,16 @@ def main():
 
     # VIEW-HEALTH-1 (2026-11-04): every qnfo-audit view is planned with EXPLAIN (reads no rows); a view that errors on read is filed
     # as one BLINDSPOT-1 issue and closed when all compile (scripts/view_health.py). A failure here never stops the contract run.
-    try:
-        import view_health
-        out["view_health"] = view_health.run(d1, VERIFIER)
-    except Exception as e:  # noqa: BLE001
-        out["view_health_error"] = str(e)[:200]
+    # CONSUMER-SPEED-1 (2026-11-04): 242 serial EXPLAINs took 4 to 6 minutes of a 9 to 11 minute step, on the path every issue close waits for. The workflow's `consume`
+    # job sets REMEDIATION_VIEW_HEALTH=sweeps and its `sweeps` job runs `view_health.py --run` beside the contract run, every cycle; any other caller still runs it here.
+    if os.environ.get("REMEDIATION_VIEW_HEALTH", "inline") == "inline":
+        try:
+            import view_health
+            out["view_health"] = view_health.run(d1, VERIFIER)
+        except Exception as e:  # noqa: BLE001
+            out["view_health_error"] = str(e)[:200]
+    else:
+        out["view_health"] = {"skipped": "runs in the sweeps job (REMEDIATION_VIEW_HEALTH=%s)" % os.environ.get("REMEDIATION_VIEW_HEALTH")}
 
     # FLEET-JOURNEYS-1 (2026-10-13): the end-to-end journeys from outside the account (runner gha, public hostnames), the second path
     # to qnfo-fleet-control's server-side journeyTick; at most every 50 minutes, self-filing and self-closing (scripts/fleet_journeys.py).
