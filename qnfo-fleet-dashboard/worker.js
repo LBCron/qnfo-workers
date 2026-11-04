@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.83.4";
+var VERSION = "1.84.0";
+// 1.84.0 UX-AUDITOR-1 (pillar reach; minor: new role): uxAudit fetches each active product host hourly and writes a deterministic layout, accessibility, typography and speed score to site_ux_checks (no model call); the staff-roster workflow files one deduped agent request per product per day for a low score.
 // 1.83.4 NOW-SPLIT-1 (pillar cost; patch): the Money card splits the monthly pace into what the fleet controls and the owner-stated subscription figure.
 // 1.83.3 (merge of PR 6935 onto main 1.83.0): keeps the 1.82.3 dashboard changes of this branch.
 // 1.83.1 (cont.) NOW-URGENT-1: the Now screen turns red only for cards that carry an IDENTITY-BOUND: line; owner-lane cards matched by a keyword alone are listed as optional.
@@ -464,6 +465,67 @@ __name2(probeTargets, "probeTargets");
 __name22(probeTargets, "probeTargets");
 __name222(probeTargets, "probeTargets");
 __name2222(probeTargets, "probeTargets");
+// UX-AUDITOR-1 (1.84.0, pillar reach; minor: a role that looks at each product the way a person meets it). Deterministic, no model call:
+// fetches each active product_registry host once an hour, reads the HTML it returns and scores layout (viewport), accessibility
+// (lang, title, h1, image alt, form labels, unnamed links and buttons, zoom lock), typography (tiny font sizes) and speed (ms, bytes).
+// Rows go to site_ux_checks; the staff-roster workflow turns a low score into one deduped agent request per product per day.
+function uxAnalyzeHtml(html, ms, status) {
+  const h = String(html || "");
+  const f = [];
+  const add = function(k, d, n) { f.push({ k: k, d: d, n: n }); };
+  if (status >= 400 || status === 0) add("unreachable", 40, 1);
+  if (!/<meta[^>]+name=["']viewport["']/i.test(h)) add("no-viewport", 15, 1);
+  else if (/user-scalable\s*=\s*(no|0)|maximum-scale\s*=\s*1(\.0)?\b/i.test(h)) add("zoom-locked", 8, 1);
+  if (!/<html[^>]+\blang=/i.test(h)) add("no-lang", 8, 1);
+  const t = /<title[^>]*>([^<]*)<\/title>/i.exec(h);
+  if (!t || !t[1].trim()) add("no-title", 8, 1);
+  const h1 = (h.match(/<h1[\s>]/gi) || []).length;
+  if (h1 === 0) add("no-h1", 5, 1); else if (h1 > 1) add("multiple-h1", 2, h1);
+  const noAlt = (h.match(/<img\b(?![^>]*\balt=)[^>]*>/gi) || []).length;
+  if (noAlt) add("img-no-alt", Math.min(12, 3 + noAlt), noAlt);
+  const unlabeled = (h.match(/<(input|select|textarea)\b(?![^>]*(type=["']?(hidden|submit|button)|aria-label|aria-labelledby|\bid=))[^>]*>/gi) || []).length;
+  if (unlabeled) add("form-no-label", Math.min(10, 3 + unlabeled), unlabeled);
+  const emptyLinks = (h.match(/<a\b[^>]*>\s*<\/a>/gi) || []).length;
+  if (emptyLinks) add("empty-link", Math.min(8, 2 + emptyLinks), emptyLinks);
+  const emptyBtn = (h.match(/<button\b(?![^>]*aria-label)[^>]*>\s*<\/button>/gi) || []).length;
+  if (emptyBtn) add("empty-button", Math.min(8, 2 + emptyBtn), emptyBtn);
+  const tiny = (h.match(/font-size\s*:\s*(\d(\.\d+)?|1[01](\.\d+)?)px/gi) || []).length;
+  if (tiny) add("tiny-text", Math.min(8, 2 + tiny), tiny);
+  if (ms > 3000) add("slow", 12, ms); else if (ms > 1500) add("slowish", 5, ms);
+  if (h.length > 600000) add("heavy-page", 8, h.length);
+  let score = 100;
+  for (const x of f) score -= x.d;
+  return { score: Math.max(0, score), findings: f };
+}
+async function uxAudit(env) {
+  try {
+    await env.AUDIT.prepare("CREATE TABLE IF NOT EXISTS site_ux_checks (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), product TEXT NOT NULL, host TEXT, status INTEGER, ms INTEGER, bytes INTEGER, score INTEGER, findings TEXT)").run();
+    const last = await env.AUDIT.prepare("SELECT MAX(ts) AS t FROM site_ux_checks").first();
+    if (last && last.t && Date.parse(last.t) > Date.now() - 50 * 60 * 1e3) return { skipped: "ran within 50 minutes" };
+    const rows = (await env.AUDIT.prepare("SELECT product, host FROM product_registry WHERE state = 'active' AND host LIKE '%.%'").all()).results || [];
+    let n = 0;
+    for (const r of rows) {
+      const t0 = Date.now();
+      let status = 0, html = "";
+      try {
+        const resp = await fetch("https://" + r.host + "/", { headers: { "user-agent": "qnfo-ux-auditor/1", accept: "text/html" }, redirect: "follow", signal: AbortSignal.timeout(8e3) });
+        status = resp.status;
+        html = (await resp.text()).slice(0, 700000);
+      } catch (e) {
+        status = 0;
+      }
+      const ms = Date.now() - t0;
+      const a = uxAnalyzeHtml(html, ms, status);
+      await env.AUDIT.prepare("INSERT INTO site_ux_checks (product, host, status, ms, bytes, score, findings) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(r.product, r.host, status, ms, html.length, a.score, JSON.stringify(a.findings)).run();
+      n++;
+    }
+    await env.AUDIT.prepare("DELETE FROM site_ux_checks WHERE ts < strftime('%Y-%m-%dT%H:%M:%SZ','now','-14 days')").run();
+    return { checked: n };
+  } catch (e) {
+    console.log(JSON.stringify({ worker: "qnfo-fleet-dashboard", where: "uxAudit", note: String(e && e.message || e) }));
+    return { error: String(e && e.message || e) };
+  }
+}
 async function healthProbes(env, liveNames) {
   const items = await probeTargets(env);
   const settled = await Promise.allSettled(items.map(async function(hp) {
@@ -4492,6 +4554,7 @@ var worker_default = {
     } catch (e) {
       console.log(JSON.stringify({ worker: NAME, where: "scheduled:fleet_heartbeat", note: String(e && e.message || e) }));
     }
+    ctx.waitUntil(uxAudit(env));
     if (!fullDashboardRefreshDue(controller)) {
       const saved = await loadState(env).catch(function() {
         return null;
