@@ -13,8 +13,8 @@ Every value is measured; a collector that cannot measure returns None and writes
         (an agent_issues row CONTROL-PLANE-REVERTED-1 naming the worker, created inside that worker's recorded window) counts as one failed deployment too. mttr_rollback_min_p95 is
         the p95 of minutes from the failed deployment to its rollback deployment: detection time is recorded nowhere, so this is an upper bound; with fewer than 5 rollbacks it is None.
   collect_ai_gateway    gateway_coverage, ai_cache_hit_rate
-        Cloudflare GraphQL over 7 days. ai_cache_hit_rate = cached / all AI Gateway requests (the gateway log has no flag for a deterministic route, so the all-routes rate understates the
-        rate on deterministic routes). gateway_coverage = gateway requests / (gateway requests + Workers AI inferences that bypassed the gateway), the second term being Workers AI
+        Cloudflare GraphQL over 7 days. ai_cache_hit_rate = cached / requests of the EMBEDDING models in the AI Gateway log (the catalogue defines the metric on deterministic-prompt routes;
+        an embedding is deterministic, a generation call is not; AI-CACHE-DETERMINISTIC-1, the all-routes figure stays in the note and the rows). gateway_coverage = gateway requests / (gateway requests + Workers AI inferences that bypassed the gateway), the second term being Workers AI
         inferences minus the non-cached Workers AI requests the gateway logged. A provider called directly from a Worker (not Workers AI) leaves no trace in Cloudflare: the figure is an
         upper bound and the note says so.
   collect_queues        dlq_depth
@@ -27,11 +27,12 @@ Every value is measured; a collector that cannot measure returns None and writes
   collect_log_ingest    log_ingest_gb_month
         No Cloudflare API reports the bytes Workers Logs ingested: the run asks the two candidate endpoints and records their answers; the value stays None until one answers.
   collect_ci_gate       ci_gate_bypass_count
-        Merged pull requests of the last 30 days whose required checks (scripts/github-main-ruleset.json: gate, guard, mirror-guard, identity-guard) were not all green on the head commit,
+        Merged pull requests of the last 30 days whose required checks (scripts/github-main-ruleset.json: versions, scans; a head commit with none of those names is judged against the
+        guard, mirror-guard and identity-guard of its own era; a check matches by job name, see CI-GATE-ERA-1) were not all green on the head commit,
         read from GitHub REST with a call budget per run (the consume job sends no token: 60 requests an hour, shared with the other collectors, so one batch of 16 merges every 50 minutes) and kept in qnfo-audit.ci_gate_audit, so the audited set grows run by run.
         The value is the count among audited merges; it is None while the count is 0 and fewer than 98 percent of the window's merges are audited (a lower bound of 0 is not a measurement).
-        The main-gate ruleset with those required checks is declared but NOT applied (GitHub enforces only main-safety: no deletion, no force push), and the stale-PR lane merges without
-        the gate job by design: both are counted as the data shows them.
+        The main-gate ruleset with those required checks is declared but NOT applied (GitHub enforces only main-safety: no deletion, no force push); a merge by hand with a red or missing
+        required check is counted as the data shows it. Rows classified by the pre-era rules (they name gate or a prefixed check) are audited again from their stored head sha.
 
 Usage:
   python3 scripts/bp26_cfapi.py --selftest     offline suite (no network, no secrets)
@@ -85,6 +86,13 @@ def _iso(t):
 
 
 # ---------------------------------------------------------------- deployments
+# DEPLOY-DENOMINATOR-STUB-1 (2026-11-05, BP26 breach deploys_via_gradual 0.0032): script `qnfo-workers` is the repository-root stub (root wrangler.toml: RETIRED-DUPLICATE-STUB, worker.js answers
+# 410 and carries no binding, cron or route). The Cloudflare Workers Builds git integration redeploys it on EVERY push to main: 813 of the 1854 recorded deployments (44 percent; 588 triggered
+# "deployment" and 225 "upload") on 2026-11-04. It serves no traffic worth staging, no pipeline can stage it, and it dwarfed the fleet's real releases in the denominator. It is excluded
+# from every figure of collect_deploys (change_failure_rate and mttr too); the other scripts keep counting.
+NON_PRODUCTION_SCRIPTS = ("qnfo-workers",)
+
+
 def normalise_deployment(worker, d):
     vs = d.get("versions") or []
     pcts = [float(v.get("percentage")) for v in vs if v.get("percentage") is not None]
@@ -139,7 +147,7 @@ def p95(values):
 def fetch_deployments(ctx, acc, rows):
     """Live: every script's latest deployments (bounded by the time budget). Returns (events, scripts seen, error | None)."""
     r = ctx.cf("/accounts/%s/workers/scripts" % acc)
-    scripts = [s.get("id") for s in (r.get("result") or []) if s.get("id")]
+    scripts = [s.get("id") for s in (r.get("result") or []) if s.get("id") and s.get("id") not in NON_PRODUCTION_SCRIPTS]
     events, n_ok = [], 0
     for name in scripts:
         if ctx.left() < 25:
@@ -197,7 +205,7 @@ def collect_deploys(ctx):
     for e in fetched:
         if e["created_on"] >= cutoff:
             merged[e["id"]] = e
-    events = list(merged.values())
+    events = [e for e in merged.values() if e["worker"] not in NON_PRODUCTION_SCRIPTS]
     if not events:
         return [Result(m, None, "no deployment recorded in the window", rows) for m in ("deploys_via_gradual", "change_failure_rate", "mttr_rollback_min_p95")]
     incidents = []
@@ -212,7 +220,8 @@ def collect_deploys(ctx):
     ages = sorted(round((ctx.now - t) / 86400.0, 1) for t in a["start"].values())
     median = ages[len(ages) // 2]
     scope = ("%d deployments of %d workers; per-worker history recorded covers %.1f to %.1f days (median %.1f; the API keeps only the latest 10 per script, so busy workers start later and the "
-             "window grows run by run); %d of %d scripts read" % (a["total"], a["workers"], ages[0], ages[-1], median, n_ok, n_scripts))
+             "window grows run by run); %d of %d scripts read; the retired root stub %s is not counted (Workers Builds redeploys it on every push, DEPLOY-DENOMINATOR-STUB-1)"
+             % (a["total"], a["workers"], ages[0], ages[-1], median, n_ok, n_scripts, "/".join(NON_PRODUCTION_SCRIPTS)))
     rows.append(("_scope", 1, scope))
     rows.append(("gradual", 1 if a["gradual"] else 0, "%d of %d deployments split traffic over versions or serve below 100 percent" % (a["gradual"], a["total"])))
     for w, fid, rid, mins, how in a["rollbacks"][:20]:
@@ -236,7 +245,7 @@ def collect_deploys(ctx):
 def gql_query(kind, acc, since, until):
     if kind == "gateway":
         return ('query { viewer { accounts(filter: { accountTag: "%s" }) { aiGatewayRequestsAdaptiveGroups(limit: 5000, filter: { datetime_geq: "%s", datetime_leq: "%s" }) '
-                '{ count dimensions { provider gateway cached } } } } }' % (acc, since, until))
+                '{ count dimensions { provider gateway model cached } } } } }' % (acc, since, until))
     return ('query { viewer { accounts(filter: { accountTag: "%s" }) { aiInferenceAdaptiveGroups(limit: 2000, filter: { datetime_geq: "%s", datetime_leq: "%s" }) '
             '{ count dimensions { modelId } } } } }' % (acc, since, until))
 
@@ -246,6 +255,10 @@ def _groups(resp, name):
         raise RuntimeError("GraphQL: %s" % json.dumps((resp or {}).get("errors") if isinstance(resp, dict) else resp)[:200])
     accs = ((resp.get("data") or {}).get("viewer") or {}).get("accounts") or [{}]
     return accs[0].get(name) or []
+
+
+EMBED_MODEL_RE = re.compile(r"embed|(^|/)bge-", re.I)
+DET_MIN_REQUESTS = 50  # fewer deterministic requests than this in 7 days: the share is not a rate
 
 
 def gateway_figures(gateway_rows, inference_rows):
@@ -259,7 +272,24 @@ def gateway_figures(gateway_rows, inference_rows):
     for r in gateway_rows:
         p = (r.get("dimensions") or {}).get("provider") or "?"
         by_provider[p] = by_provider.get(p, 0) + int(r.get("count") or 0)
-    return {"total": total, "cached": cached, "wai": wai, "wai_cached": wai_cached, "infer": infer, "direct": direct, "by_provider": by_provider}
+    # AI-CACHE-DETERMINISTIC-1 (2026-11-05, BP26 breach ai_cache_hit_rate 0.06): the catalogue defines the metric on DETERMINISTIC-prompt routes (docs/BEST-PRACTICES-2026.md); the earlier
+    # figure divided by every gateway request, 94 percent of them generation calls whose prompt never repeats (an agent turn carries a new 20-30k-token context each step), so no caching
+    # policy could move it. An embedding call is deterministic by construction (same text, same vector): the deterministic share is the embedding models' requests.
+    det_total = sum(int(r.get("count") or 0) for r in gateway_rows if EMBED_MODEL_RE.search(str((r.get("dimensions") or {}).get("model") or "")))
+    det_cached = sum(int(r.get("count") or 0) for r in gateway_rows if EMBED_MODEL_RE.search(str((r.get("dimensions") or {}).get("model") or "")) and (r.get("dimensions") or {}).get("cached") in (1, True, "1"))
+    # Where the bypass is: per model, Workers AI inferences minus the non-cached Workers AI gateway requests of that model (the same subtraction as `direct`, one model at a time).
+    inf_by, gw_by = {}, {}
+    for r in inference_rows:
+        m = (r.get("dimensions") or {}).get("modelId")
+        if m:
+            inf_by[m] = inf_by.get(m, 0) + int(r.get("count") or 0)
+    for r in gateway_rows:
+        d = r.get("dimensions") or {}
+        if d.get("provider") == "workers-ai" and d.get("model") and d.get("cached") not in (1, True, "1"):
+            gw_by[d["model"]] = gw_by.get(d["model"], 0) + int(r.get("count") or 0)
+    bypass_by_model = sorted(((m, n - gw_by.get(m, 0)) for m, n in inf_by.items() if n - gw_by.get(m, 0) > 0), key=lambda kv: -kv[1])
+    return {"total": total, "cached": cached, "wai": wai, "wai_cached": wai_cached, "infer": infer, "direct": direct, "by_provider": by_provider,
+            "det_total": det_total, "det_cached": det_cached, "bypass_by_model": bypass_by_model}
 
 
 def collect_ai_gateway(ctx):
@@ -276,15 +306,22 @@ def collect_ai_gateway(ctx):
     rows = [(p, 1, "%d gateway requests in 7 days" % n) for p, n in sorted(f["by_provider"].items(), key=lambda kv: -kv[1])]
     rows.append(("workers-ai-inferences", None, "%d Workers AI inferences in 7 days, %d of them not through the gateway" % (f["infer"], f["direct"])))
     out = []
-    if f["total"] > 0:
-        out.append(Result("ai_cache_hit_rate", f["cached"] / float(f["total"]), "%d cached / %d AI Gateway requests in the last 7 days (all routes: the log has no deterministic-route flag, so this understates the rate on deterministic routes)" % (f["cached"], f["total"]), rows))
+    all_routes = ("%d cached of %d AI Gateway requests on all routes" % (f["cached"], f["total"])) if f["total"] else "no gateway request"
+    rows.append(("all-routes", None, all_routes + " (not the metric: most are generation calls whose prompt never repeats)"))
+    if f["det_total"] >= DET_MIN_REQUESTS:
+        out.append(Result("ai_cache_hit_rate", f["det_cached"] / float(f["det_total"]),
+                          "%d cached / %d AI Gateway requests of embedding models (deterministic prompts: the same text always gives the same vector) in the last 7 days; %s" % (f["det_cached"], f["det_total"], all_routes), rows))
+    elif f["total"] > 0:
+        out.append(Result("ai_cache_hit_rate", None, "only %d embedding requests in 7 days (a rate needs %d); %s" % (f["det_total"], DET_MIN_REQUESTS, all_routes), rows))
     else:
         out.append(Result("ai_cache_hit_rate", None, "the AI Gateway logged no request in 7 days", rows))
     denom = f["total"] + f["direct"]
+    # Evidence of where the bypass is: models with the most Workers AI inferences that no gateway request accounts for.
+    gap_rows = [("bypass:" + m, 0, "%d Workers AI inference(s) of this model in 7 days not through the gateway" % n) for m, n in f["bypass_by_model"][:8]]
     if denom > 0:
         out.append(Result("gateway_coverage", f["total"] / float(denom),
-                          "%d gateway requests / (%d + %d Workers AI inferences that bypassed the gateway) over 7 days. Workers AI inferences are counted by Cloudflare itself; a provider called directly from a Worker leaves no trace there, so this is an upper bound"
-                          % (f["total"], f["total"], f["direct"]), []))
+                          "%d gateway requests / (%d + %d Workers AI inferences that bypassed the gateway) over 7 days; largest bypass: %s. Workers AI inferences are counted by Cloudflare itself; a provider called directly from a Worker leaves no trace there, so this is an upper bound"
+                          % (f["total"], f["total"], f["direct"], ", ".join("%s %d" % (m.split("/")[-1], n) for m, n in f["bypass_by_model"][:4]) or "none"), gap_rows))
     else:
         out.append(Result("gateway_coverage", None, "no model call recorded in 7 days", rows))
     return out
@@ -413,11 +450,37 @@ def required_checks(ctx):
         return ["gate", "guard", "mirror-guard", "identity-guard"]
 
 
-def classify_checks(check_runs, required):
-    """(state, missing, red): every required name needs a run whose conclusion is success, neutral or skipped."""
+# CI-GATE-ERA-1 (2026-11-05, BP26 breach ci_gate_bypass_count 53, agent_issues 1000702). The audit judged every merge of 30 days against ONE list, the list in
+# scripts/github-main-ruleset.json at the time of the run. That list changed on 2026-11-04 (PR-CHECK-CAP-5-1: gate, guard, mirror-guard, identity-guard became versions, scans), so
+# 38 of the 53 rows were measurement artifacts, not merges that skipped a check (D1 qnfo-audit.ci_gate_audit 2026-11-04T23Z):
+#   15 rows "missing gate"   deploy-gate is advisory on a pull request (MERGE-STREAMLINE-1, CLAUDE.md) and has produced no check run there since; a required name no pull request can
+#                            produce is a defect of the list, not a bypass (the ruleset file's own _required_checks_why says the same);
+#    3 rows "red gate"       the same advisory job;
+#   10 rows "version-bump-guard / guard" ... a reusable-workflow call names its check "<caller job> / <job>", which an exact-name match read as missing.
+# So: a check run matches a required name by its job name (the part after " / "), and a head commit that carries none of the current names (versions, scans) is judged against the
+# list of its own era (LEGACY_REQUIRED, without gate). Merges that really skipped a check stay counted: 15 with no guard check at all (2026-11-01 and 2026-11-03 bulk merges), 8 with a
+# red guard, and 2 with a red `scans` on 2026-11-04 21:15Z (sessions merged by hand 20 s after the failure).
+LEGACY_REQUIRED = ("guard", "mirror-guard", "identity-guard")
+
+
+def _job_name(name):
+    return str(name or "").rsplit(" / ", 1)[-1].strip()
+
+
+def stale_classification(row):
+    """True for a stored audit row classified by the pre-ERA rules: it names gate or a prefixed workflow-call check, so a re-audit can change its verdict."""
+    toks = (str(row.get("missing") or "") + "," + str(row.get("red") or "")).split(",")
+    return any(t.strip() == "gate" or " / " in t for t in toks)
+
+
+def classify_checks(check_runs, required, legacy=None):
+    """(state, missing, red): every required name needs a run whose conclusion is success, neutral or skipped. A run matches by job name (after ' / ').
+    With `legacy`, a head commit that has none of the `required` names is judged against `legacy` (the list of the era before the current names existed)."""
     by = {}
     for c in check_runs:
-        by.setdefault(c.get("name"), []).append(c)
+        by.setdefault(_job_name(c.get("name")), []).append(c)
+    if legacy and not any(n in by for n in required):
+        required = list(legacy)
     missing, red = [], []
     for name in required:
         runs = by.get(name)
@@ -454,7 +517,7 @@ def collect_ci_gate(ctx):
     rows, notes = [], []
     audited = {}
     try:
-        for r in ctx.d1("SELECT pr, merged_at, required_state, missing, red FROM ci_gate_audit WHERE merged_at >= ?1", [cutoff]):
+        for r in ctx.d1("SELECT pr, merged_at, merge_sha, head_sha, required_state, missing, red FROM ci_gate_audit WHERE merged_at >= ?1", [cutoff]):
             audited[int(r["pr"])] = r
     except Exception as e:  # noqa: BLE001
         if not ctx.dry:
@@ -486,6 +549,14 @@ def collect_ci_gate(ctx):
                 break
     except Exception as e:  # noqa: BLE001
         notes.append("GitHub pulls list: %s" % str(e)[:100])
+    # CI-GATE-ERA-1: rows classified by the old single-list rules are audited again, newest first, after the new merges (they need no list call: head_sha is stored).
+    room = CI_AUDIT_PER_RUN - len(todo)
+    for n, r in sorted(audited.items(), reverse=True):
+        if room <= 0:
+            break
+        if n not in todo and r.get("required_state") != "green" and r.get("head_sha") and stale_classification(r):
+            todo[n] = {"merged_at": r["merged_at"], "merge_sha": r.get("merge_sha") or "", "head_sha": r["head_sha"]}
+            room -= 1
     stamp = _iso(ctx.now)
     for n in sorted(todo, reverse=True)[:CI_AUDIT_PER_RUN]:
         if budget[0] <= 0 or ctx.left() < 15:
@@ -497,7 +568,7 @@ def collect_ci_gate(ctx):
             if "403" in str(e) or "429" in str(e):
                 break
             continue
-        state, missing, red = classify_checks(cr.get("check_runs") or [], req)
+        state, missing, red = classify_checks(cr.get("check_runs") or [], req, LEGACY_REQUIRED)
         audited[n] = {"pr": n, "merged_at": todo[n]["merged_at"], "required_state": state, "missing": ",".join(missing), "red": ",".join(red)}
         if not ctx.dry:
             try:
@@ -523,9 +594,10 @@ def collect_ci_gate(ctx):
         rows.append(("check:" + name, 0, "%d audited merge(s) without a green %s" % (c, name)))
     rows.append(("_coverage", (1 if coverage is not None and coverage >= CI_COVERAGE_MIN else None), "%d of %s merged pull requests of the last %d days audited%s" % (
         n_aud, population if population is not None else "an unknown number of", WINDOW_DAYS, (" (%.1f percent)" % (coverage * 100)) if coverage is not None else "")))
-    note = ("%d of %d audited merges to main had a declared required check (%s, scripts/github-main-ruleset.json) missing or not green on the head commit; %s of the window's merges audited. "
-            "The main-gate ruleset is declared but not applied (GitHub enforces only main-safety), and the stale-PR lane merges without the gate job by design; both are counted as the data shows them. %s"
-            % (len(bypass), n_aud, "/".join(req), ("%d" % n_aud) if population is None else "%d of %d" % (n_aud, population), "; ".join(notes)))[:700]
+    note = ("%d of %d audited merges to main had a declared required check (%s, scripts/github-main-ruleset.json; a head commit with none of those names is judged against %s, its own era, without "
+            "the advisory deploy-gate) missing or not green; %s of the window's merges audited. "
+            "The main-gate ruleset is declared but not applied (GitHub enforces only main-safety); a merge by hand is counted as the data shows it. %s"
+            % (len(bypass), n_aud, "/".join(req), "/".join(LEGACY_REQUIRED), ("%d" % n_aud) if population is None else "%d of %d" % (n_aud, population), "; ".join(notes)))[:700]
     if bypass:
         return [Result("ci_gate_bypass_count", len(bypass), "at least " + note, rows)]
     if coverage is not None and coverage >= CI_COVERAGE_MIN:
@@ -578,6 +650,13 @@ def selftest():
          {"count": 30, "dimensions": {"provider": "deepseek", "cached": 1}}, {"count": 8945, "dimensions": {"provider": "deepseek", "cached": 0}}, {"count": 517, "dimensions": {"provider": "anthropic", "cached": 0}}]
     f = gateway_figures(g, [{"count": 20000}, {"count": 5000}])
     ok(f["total"] == 22201 and f["cached"] == 2159 and f["wai"] == 12709 and f["direct"] == 25000 - 10580, "gateway figures: %r" % f)
+    # AI-CACHE-DETERMINISTIC-1: the rate is over embedding models only; the bypass is itemised per model
+    g2 = [{"count": 800, "dimensions": {"provider": "workers-ai", "model": "@cf/baai/bge-base-en-v1.5", "cached": 1}}, {"count": 2000, "dimensions": {"provider": "workers-ai", "model": "@cf/baai/bge-base-en-v1.5", "cached": 0}},
+          {"count": 30000, "dimensions": {"provider": "workers-ai", "model": "@cf/deepseek-ai/deepseek-v4.1-flash-1017", "cached": 0}}, {"count": 100, "dimensions": {"provider": "workers-ai", "model": "@cf/openai/gpt-oss-120b", "cached": 0}}]
+    i2 = [{"count": 30500, "dimensions": {"modelId": "@cf/deepseek-ai/deepseek-v4.1-flash-1017"}}, {"count": 17000, "dimensions": {"modelId": "@cf/openai/gpt-oss-120b"}}, {"count": 2000, "dimensions": {"modelId": "@cf/baai/bge-base-en-v1.5"}}]
+    f2 = gateway_figures(g2, i2)
+    ok(f2["det_total"] == 2800 and f2["det_cached"] == 800, "deterministic share is the embedding models: %r" % ((f2["det_total"], f2["det_cached"]),))
+    ok(f2["bypass_by_model"][0] == ("@cf/openai/gpt-oss-120b", 16900) and f2["bypass_by_model"][1] == ("@cf/deepseek-ai/deepseek-v4.1-flash-1017", 500) and len(f2["bypass_by_model"]) == 2, "bypass per model: %r" % (f2["bypass_by_model"],))
     # queues: a DLQ with an old backlog counts, a young one does not, a consumer without a DLQ is listed and not hidden
     qs = [{"queue_id": "q1", "queue_name": "jobs", "consumers": [{"script": "s", "dead_letter_queue": "jobs-dlq"}]}, {"queue_id": "q2", "queue_name": "jobs-dlq", "consumers": []},
           {"queue_id": "q3", "queue_name": "bare", "consumers": [{"script": "t"}]}]
@@ -621,6 +700,18 @@ INSERT INTO emails (recipient, subject, body_text, status, received_at) VALUES (
     ok(st == "not-green" and red == ["gate"] and miss == [], "a failed required check is red: %r" % ((st, miss, red),))
     st, miss, red = classify_checks([{"name": "guard", "conclusion": "success"}], ["gate", "guard"])
     ok(st == "not-green" and miss == ["gate"], "a required check that never ran is missing")
+    # CI-GATE-ERA-1: prefixed workflow-call names match by job name; a head commit without the current names is judged against its own era, which has no advisory gate
+    cur = ["versions", "scans"]
+    pref = [{"name": "version-bump-guard / guard", "conclusion": "success"}, {"name": "mirror-guard / mirror-guard", "conclusion": "success"}, {"name": "identity-guard / identity-guard", "conclusion": "success"}]
+    ok(classify_checks(pref, cur, LEGACY_REQUIRED)[0] == "green", "workflow-call prefixed check names match their job name")
+    ok(classify_checks([{"name": "gate", "conclusion": "failure"}] + pref, cur, LEGACY_REQUIRED)[0] == "green", "the advisory deploy-gate is not a required check of the earlier era")
+    st, miss, red = classify_checks([], cur, LEGACY_REQUIRED)
+    ok(st == "not-green" and miss == list(LEGACY_REQUIRED), "a merge with no check run at all is a bypass: %r" % ((st, miss, red),))
+    st, miss, red = classify_checks([{"name": "versions", "conclusion": "success"}, {"name": "scans", "conclusion": "failure"}], cur, LEGACY_REQUIRED)
+    ok(st == "not-green" and red == ["scans"] and miss == [], "a red scans on the current names is a bypass")
+    st, miss, red = classify_checks([{"name": "versions", "conclusion": "success"}], cur, LEGACY_REQUIRED)
+    ok(st == "not-green" and miss == ["scans"], "one current name present: judged on the current list, scans is missing")
+    ok(stale_classification({"missing": "gate", "red": ""}) and stale_classification({"missing": "", "red": "version-bump-guard / guard"}) and not stale_classification({"missing": "guard", "red": "scans"}), "stale rows are the ones that name gate or a prefixed check")
     # end to end on a sqlite shim: collect_deploys stores new deployments once and computes from the table
     import collections
     Resp = collections.namedtuple("Resp", "status headers set_cookies text final_url ms hops error")
@@ -657,7 +748,7 @@ CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, created_at INTEGE
         log = collect_log_ingest(log_ctx)[0]
         expected_start = _epoch("2026-11-01T00:00:00Z") * 1000
         expected_end = _epoch("2026-11-02T12:34:56Z") * 1000
-        ok(log.value == 1.25, "log ingest sums only cloudflare-workers eventSize in decimal GB: %r" % log)
+        ok(log.value == 1.25, "log ingest sums only cloudflare-workers eventSize in decimal GB: %r" % (log,))
         ok(log_ctx.path == "/accounts/acc/workers/observability/usage?from=%d&to=%d" % (expected_start, expected_end),
            "log ingest queries from UTC month start to the current run: %s" % log_ctx.path)
         ok(collect_log_ingest(LC({"result": {"breakdown": []}}))[0].value == 0,
@@ -671,7 +762,7 @@ CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, created_at INTEGE
 
         def mk(i, minute, vid, by="upload", pct=100):
             return {"id": "d%d" % i, "strategy": "percentage", "created_on": _iso(now - 7200 + minute * 60), "annotations": {"workers/triggered_by": by}, "versions": [{"version_id": vid, "percentage": pct}]}
-        api = {"/accounts/acc/workers/scripts": {"result": [{"id": "w1"}, {"id": "qnfo-gateway"}]},
+        api = {"/accounts/acc/workers/scripts": {"result": [{"id": "w1"}, {"id": "qnfo-gateway"}, {"id": "qnfo-workers"}]},  # qnfo-workers: the retired root stub, never requested
                "/accounts/acc/workers/scripts/w1/deployments": {"result": {"deployments": [mk(1, 0, "v1"), mk(2, 10, "v2"), mk(3, 20, "v1"), mk(4, 30, "v4", pct=50)]}},
                "/accounts/acc/workers/scripts/qnfo-gateway/deployments": {"result": {"deployments": [mk(5, 0, "g1"), mk(6, 5, "g2")]}}}
 
@@ -703,6 +794,11 @@ CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, created_at INTEGE
         ok(res["mttr_rollback_min_p95"].value is None and "1 rollback events" in res["mttr_rollback_min_p95"].note, "mttr stays unknown below five rollbacks: %s" % res["mttr_rollback_min_p95"].note[:80])
         res2 = {r.metric: r for r in collect_deploys(EC())}
         ok(db.execute("SELECT COUNT(*) FROM bp26_deploy_events").fetchone()[0] == 6 and abs(res2["deploys_via_gradual"].value - 1 / 6.0) < 1e-9, "a second run stores nothing new and computes the same")
+        # DEPLOY-DENOMINATOR-STUB-1: rows already stored for the retired root stub do not count either
+        for i in range(30):
+            db.execute("INSERT INTO bp26_deploy_events VALUES (?, 'qnfo-workers', ?, 'percentage', 1, 100, 'deployment', '', ?, ?)", ["stub%d" % i, _iso(now - 3000 + i), "sv%d" % i, _iso(now)])
+        res3 = {r.metric: r for r in collect_deploys(EC())}
+        ok(abs(res3["deploys_via_gradual"].value - 1 / 6.0) < 1e-9 and abs(res3["change_failure_rate"].value - 2 / 6.0) < 1e-9, "30 stored deployments of the retired stub change no figure: %r" % res3["deploys_via_gradual"].value)
         # CI gate: one audited merge without the gate check makes a count; three green merges at full coverage make a zero
         PRS = [{"number": 11, "merged_at": _iso(now - 1000), "merge_commit_sha": "m11", "head": {"sha": "h11"}, "updated_at": _iso(now)},
                {"number": 12, "merged_at": _iso(now - 2000), "merge_commit_sha": "m12", "head": {"sha": "h12"}, "updated_at": _iso(now)},
@@ -742,6 +838,22 @@ CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, created_at INTEGE
                 return http(url, **kw)
         out = collect_ci_gate(GC2())[0]
         ok(out.value is None and "coverage is below 98 percent" in out.note, "partial coverage with no bypass is unknown, not zero: %r" % (out.value,))
+
+        # CI-GATE-ERA-1: a stored row that blamed the advisory gate is audited again from its stored head sha and leaves the count
+        db.execute("DELETE FROM ci_gate_audit")
+        db.execute("INSERT INTO ci_gate_audit VALUES (21, ?, 'm21', 'h21', 'not-green', 'gate', '', '2026-01-01T00:00:00Z')", [_iso(now - 900)])
+        pref = [{"name": "version-bump-guard / guard", "conclusion": "success"}, {"name": "mirror-guard / mirror-guard", "conclusion": "success"}, {"name": "identity-guard / identity-guard", "conclusion": "success"}]
+
+        class GC3(GC):
+            def http(self, url, **kw):
+                if "/commits/h21/check-runs" in url:
+                    return Resp(200, {}, [], json.dumps({"check_runs": pref}), url, 1, [], None)
+                return http(url, **kw)
+
+            def read(self, rel):
+                return json.dumps({"required_checks": ["versions", "scans"]})
+        collect_ci_gate(GC3())
+        ok(db.execute("SELECT required_state, missing FROM ci_gate_audit WHERE pr = 21").fetchone() == ("green", ""), "a row classified by the old rules is re-audited and turns green: %r" % (db.execute("SELECT required_state, missing FROM ci_gate_audit WHERE pr = 21").fetchone(),))
     finally:
         if old_acc is None:
             os.environ.pop("CF_ACCOUNT_ID", None)

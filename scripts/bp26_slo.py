@@ -192,6 +192,21 @@ def collect_slo(ctx):
         rows.append(("canary-incidents", None, "agent_issues unreadable: " + str(e)[:100]))
 
     have = {r["incident_key"]: r for r in ctx.d1("SELECT incident_key, closed_at FROM incidents WHERE opened_at >= ?1", [cutoff])}
+    # PHANTOM-INCIDENT-1 (2026-11-05, BP26 breach postmortem_coverage): an availability incident row whose first bad sample was later relabelled "not sampled" (SLO-PROBE-BUDGET-1:
+    # the probe ran out of its own time budget, ok NULL) has no failed sample left, so no episode recomputes it, and its row stayed open for ever with a draft postmortem: ten rows
+    # of 2026-11-04T18:11:33Z (one per host, all "budget-exhausted"). Close such a row (it never was an outage) and mark its postmortem withdrawn; nothing is deleted.
+    live_keys = {k[0] for k in incidents}
+    # Rows opened inside the sample window only: an older row cannot be recomputed from the samples held (the window is 28 days, incidents 30).
+    # Key shape: avail:<surface>:<first bad sample, ISO>; a surface is a host name and holds no colon.
+    phantoms = [k for k, r in have.items() if k.startswith("avail:") and r["closed_at"] is None and k not in live_keys and len(k.split(":", 2)) == 3 and k.split(":", 2)[2] > since]
+    for k in phantoms:
+        stamp = k.split(":", 2)[2]
+        if not ctx.dry:
+            ctx.d1("UPDATE incidents SET closed_at = opened_at, summary = summary || ' [withdrawn: the failed sample was relabelled not-sampled, SLO-PROBE-BUDGET-1; no outage]' "
+                   "WHERE incident_key = ?1 AND closed_at IS NULL", [k])
+            ctx.d1("UPDATE postmortems SET state = 'withdrawn', completed_at = NULL, root_cause = 'withdrawn: no failed availability sample remains for this incident', "
+                   "actions = 'none: not an outage (the sample was relabelled not-sampled after the probe ran out of its time budget)' WHERE incident_key = ?1 AND state = 'draft'", [k])
+        rows.append(("incident-withdrawn:" + k, None, "open incident row with no failed sample left (first bad sample %s) closed, postmortem marked withdrawn" % stamp))
     new_pm = 0
     for key, kind, surface, opened, closed, summary, ref, details, n_bad in incidents:
         if not ctx.dry:
@@ -233,16 +248,29 @@ def collect_slo(ctx):
     for key, kind, surface, opened, closed, *_ in incidents:
         if closed is not None or parse(opened) <= now - JUDGE_AFTER_H * 3600:
             judged.append((key, opened))
-    done = 0
+    # PRE-LEDGER-GRACE-1 (2026-11-05, BP26 breach postmortem_coverage 0.9556 = 43 of 45): two deploy incidents (deploy:2138 opened 2026-10-07, deploy:1000171 opened 2026-10-25) predate the
+    # ledger; their postmortems were written by the ledger's first run (2026-10-28T12:57:26Z), so "within 72 h of opening" could never be true for them, whatever anyone did. The clock
+    # of an incident that predates the ledger starts when the ledger did (its earliest postmortem). An incident opened after that is judged from its own opening, unchanged.
+    try:
+        lr = ctx.d1("SELECT MIN(created_at) AS t FROM postmortems")
+        ledger_start = parse(lr[0]["t"]) if lr and lr[0].get("t") else None
+    except Exception:  # noqa: BLE001
+        ledger_start = None
+    done, graced = 0, 0
     for key, opened in judged:
         r = ctx.d1("SELECT completed_at, state FROM postmortems WHERE incident_key = ?1", [key])
-        if r and r[0]["state"] == "complete" and r[0]["completed_at"] and parse(r[0]["completed_at"]) - parse(opened) <= JUDGE_AFTER_H * 3600:
+        t0 = parse(opened)
+        if ledger_start is not None and t0 < ledger_start:
+            t0 = ledger_start
+            graced += 1
+        if r and r[0]["state"] == "complete" and r[0]["completed_at"] and parse(r[0]["completed_at"]) - t0 <= JUDGE_AFTER_H * 3600:
             done += 1
     if ctx.dry:
         done = len(judged)
     total = len(judged)
     note = ("%d of %d incidents of the last %d days judged (closed or older than %d h) have a completed postmortem within %d h; %d incidents total, %d postmortems written this run; "
-            "%d surfaces, %d with the budget spent (%s)" % (done, total, INCIDENT_DAYS, JUDGE_AFTER_H, JUDGE_AFTER_H, len(incidents), new_pm, len(defs), len(spent_surfaces), ",".join(spent_surfaces) or "none"))
+            "%d surfaces, %d with the budget spent (%s); %d incident(s) opened before the ledger's first postmortem are judged from that date; %d phantom open incident(s) withdrawn"
+            % (done, total, INCIDENT_DAYS, JUDGE_AFTER_H, JUDGE_AFTER_H, len(incidents), new_pm, len(defs), len(spent_surfaces), ",".join(spent_surfaces) or "none", graced, len(phantoms)))
     if total == 0:
         return [Result("postmortem_coverage", 1.0, "no incident to judge in the window: 1.0 by definition. " + note, rows)]
     return [Result("postmortem_coverage", done / float(total), note, rows)]
@@ -326,6 +354,24 @@ CREATE TABLE bp26_probe_results (id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TE
     d1("DELETE FROM bp26_probe_results WHERE subject = 'avail:a.example' AND run_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours')")
     c.execute("DELETE FROM postmortems WHERE incident_key LIKE 'avail:a.example:%'")
     ok(collect_slo(ctx)[0].value == 1.0 and d1("SELECT COUNT(*) n FROM postmortems")[0]["n"] == 3, "a missing postmortem is regenerated")
+    # PRE-LEDGER-GRACE-1: the 72 h clock of an incident that predates the ledger starts at the ledger's first postmortem; a late postmortem after that is still late.
+    d1("INSERT INTO postmortems (incident_key, created_at, completed_at, state, timeline, generator) VALUES ('seed', ?1, ?1, 'complete', 'seed', 'test')", [iso(now - 12 * 3600)])
+    d1("UPDATE postmortems SET completed_at = ?1 WHERE incident_key LIKE 'deploy:%'", [iso(now + 60 * 3600)])  # opened now-24h: 84 h after opening, 72 h after the ledger start
+    late_key = d1("SELECT MIN(incident_key) AS k FROM postmortems WHERE incident_key LIKE 'avail:a.example:%'")[0]["k"]
+    d1("UPDATE postmortems SET completed_at = ?1 WHERE incident_key = ?2", [iso(now + 200 * 3600), late_key])
+    res = collect_slo(ctx)[0]
+    ok(abs(res.value - 2.0 / 3.0) < 1e-9 and "1 incident(s) opened before the ledger" in res.note, "the pre-ledger deploy incident is judged from the ledger start, a postmortem 200 h after an ordinary incident is late: %r %s" % (res.value, res.note))
+    d1("UPDATE postmortems SET completed_at = ?1 WHERE incident_key = ?2", [iso(now), late_key])
+    # PHANTOM-INCIDENT-1: an open row with no failed sample behind it is withdrawn; a real open episode is left alone.
+    ph = "avail:b.example:" + iso(now - 5 * 3600)
+    d1("INSERT INTO incidents (incident_key, kind, surface, opened_at, closed_at, summary, source_ref) VALUES (?1, 'availability', 'b.example', ?2, NULL, 'phantom', 'bp26_probe_results')", [ph, iso(now - 5 * 3600)])
+    d1("INSERT INTO postmortems (incident_key, created_at, completed_at, state, timeline, generator) VALUES (?1, ?2, NULL, 'draft', 'x', 'test')", [ph, iso(now - 5 * 3600)])
+    d1("INSERT INTO bp26_probe_results (run_at, metric, subject, ok, detail) VALUES (?1, 'slo_attainment_28d_min', 'avail:b.example', 0, 'down: timeout')", [iso(now - 600)])
+    real_open = "avail:b.example:" + iso(now - 600)
+    collect_slo(ctx)
+    pr = d1("SELECT closed_at FROM incidents WHERE incident_key = ?1", [ph])[0]["closed_at"]
+    ok(pr == iso(now - 5 * 3600) and d1("SELECT state FROM postmortems WHERE incident_key = ?1", [ph])[0]["state"] == "withdrawn", "the phantom incident is closed and its postmortem withdrawn: %r" % (pr,))
+    ok(d1("SELECT closed_at FROM incidents WHERE incident_key = ?1", [real_open])[0]["closed_at"] is None and d1("SELECT state FROM postmortems WHERE incident_key = ?1", [real_open])[0]["state"] == "draft", "a real open episode keeps its open incident and draft postmortem")
     c.execute("DROP TABLE slo_definitions")
     ok(collect_slo(ctx)[0].value is None, "unreadable definitions: unknown, not zero")
     print("bp26_slo selftest %s" % ("ok" if not fails else "FAILED %d" % len(fails)))

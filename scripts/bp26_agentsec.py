@@ -13,7 +13,7 @@ Three metrics, each measured from the real thing and none written by hand (scrip
                                      and the digests send through their own bindings under the consent machinery and are not in this ledger. Evidence rows carry counts and
                                      email ids, never an address.
   agent_tool_calls_outside_allowlist tool calls of the last 7 days that no agent_tool_allowlist row permits: ops_ai_tool events of qnfo-ops (cloud_ops_events) and mcp_log of
-                                     qnfo-tools-mcp, by tool name; plus the egress calls whose URL host no egress row permits (web_fetch, git_clone_exec). Limits: network
+                                     qnfo-tools-mcp and qnfo-memory-mcp (both write the table), by tool name; plus the egress calls whose URL host no egress row permits (web_fetch, git_clone_exec). Limits: network
                                      access inside shell_exec, run_code_net and container tools is not attributable to a host from this log, and nothing records which tool
                                      calls came after untrusted content entered a session (both are code-tasks in the issue). A host outside the list is a review item, not
                                      proof of an incident. An empty allow-list is "unknown" (nothing written), never zero.
@@ -36,6 +36,7 @@ EVAL_RE = re.compile(r"INJECTION_EVAL pass=(\d+) total=(\d+)")
 FLEET_DOMAINS = ("qnfo.org", "q08.org", "qwav.org", "qwav.tech", "qwav.net", "qwav.uk", "qwave.tech", "q-wave.tech", "ipatent.me")
 OWNER = ("rwnquni@outlook.com", "rowan.quni@outlook.com", "rowan.quni@qnfo.org", "rwnquni@qnfo.org", "rwnquni@gmail.com")
 EGRESS_TOOLS = ("web_fetch", "git_clone_exec")
+MCP_LOG_SURFACES = ("qnfo-tools-mcp", "qnfo-memory-mcp")  # the two workers that INSERT INTO mcp_log
 LIVE_EMAIL_HEALTH = "https://qnfo-email.q08.workers.dev/health"
 
 
@@ -153,8 +154,14 @@ def collect_tool_calls(ctx):
     ops_calls = ctx.d1("SELECT text AS tool, COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'ops_ai_tool' AND ts >= ?1 GROUP BY text", [since])
     mcp_calls = ctx.d1("SELECT tool, COUNT(*) AS n FROM mcp_log WHERE ts >= ?1 GROUP BY tool", [since])
     outside, evidence, total_calls = 0, [], 0
+    # MCP-LOG-TWO-WRITERS-1 (2026-11-05, BP26 breach agent_tool_calls_outside_allowlist 5): mcp_log is written by TWO servers, qnfo-tools-mcp and qnfo-memory-mcp
+    # (both INSERT INTO mcp_log; the table has no server column). search_papers, a qnfo-memory-mcp tool, was counted against qnfo-tools-mcp's list and read as
+    # an unlisted tool. A logged MCP call is allowed when ANY MCP surface that writes the table lists the tool.
+    mcp_allowed = set()
+    for s in MCP_LOG_SURFACES:
+        mcp_allowed |= tools.get(s, set())
     for surface, calls in (("qnfo-ops", ops_calls), ("qnfo-tools-mcp", mcp_calls)):
-        allowed = tools.get(surface, set())
+        allowed = tools.get(surface, set()) if surface == "qnfo-ops" else mcp_allowed
         n_out = 0
         for c in calls:
             total_calls += int(c["n"])
@@ -262,6 +269,14 @@ CREATE TABLE mcp_log (id TEXT, ts TEXT, tool TEXT, args TEXT);
     # outside: tool rm_everything (ops) + owner_act (mcp) = 2; egress: evil.test x2 = 2
     ok(out.value == 4, "two unlisted tools and two fetches to an unlisted host: %r" % (out,))
     ok(any(r_[0] == "egress-host:evil.test" for r_ in out.rows) and any(r_[0] == "tool:qnfo-ops:rm_everything" for r_ in out.rows), "the evidence names the host and the tool")
+    # MCP-LOG-TWO-WRITERS-1: a tool that only the second MCP server (qnfo-memory-mcp) lists is not outside the list, and an unlisted one still is.
+    c.execute("INSERT INTO agent_tool_allowlist (surface, kind, pattern) VALUES ('qnfo-memory-mcp', 'tool', 'search_papers')")
+    c.execute("INSERT INTO mcp_log VALUES ('m3', '2026-10-25T10:00:00.000Z', 'search_papers', '{}')")
+    out = collect_tool_calls(ctx)[0]
+    ok(out.value == 4 and not any(r_[0] == "tool:qnfo-tools-mcp:search_papers" for r_ in out.rows), "search_papers listed by qnfo-memory-mcp is not an unlisted tool: %r" % (out,))
+    c.execute("INSERT INTO mcp_log VALUES ('m4', '2026-10-25T10:00:00.000Z', 'not_a_tool', '{}')")
+    out = collect_tool_calls(ctx)[0]
+    ok(out.value == 5 and any(r_[0] == "tool:qnfo-tools-mcp:not_a_tool" for r_ in out.rows), "an unlisted MCP tool is still counted: %r" % (out,))
     ok(len(COLLECTORS) == 3 and all(x.metrics for x in COLLECTORS), "three collectors with their metrics")
     print("bp26_agentsec selftest %s" % ("ok" if not fails else "FAILED %d" % len(fails)))
     return 1 if fails else 0
