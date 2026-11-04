@@ -95,7 +95,7 @@ const dash = fs.readFileSync(path.join(here, "..", "qnfo-fleet-dashboard", "work
 const dm = /read\("code-tasks"[\s\S]{0,200}?d1all\(env\.AUDIT, "([^"]+)"/.exec(dash);
 ok(!!dm && /FROM code_tasks/.test(dm[1]), "the dashboard's code-task owner-card query was found in qnfo-fleet-dashboard/worker.js", dm && dm[1]);
 const ownerCards = (env) => (dm ? env.AUDIT_DB._db.prepare(dm[1]).all() : [{ missing: true }]);
-const LADDER = ["@cf/moonshotai/kimi-k2.7-code", "@cf/zai-org/glm-5.3", "@cf/openai/gpt-oss-120b"]; // LADDER-DEAD-RUNG-1 (deepseek-v4-flash-0731 removed: empty replies disproved the 0.18.9 budget fix)
+const LADDER = ["@cf/openai/gpt-oss-120b", "@cf/moonshotai/kimi-k2.7-code", "@cf/zai-org/glm-5.3"]; // LADDER-COST-FIRST-1 (cheapest equal-yield rung first) // LADDER-DEAD-RUNG-1 (deepseek-v4-flash-0731 removed: empty replies disproved the 0.18.9 budget fix)
 
 // Issue #1763 as it reached the loop: an opted-in issue with a code-task and a code-anchor line (ISSUE-INTAKE-1).
 const GOAL_TEXT = "Part of #1758. Inside feedbackScan only, in BOTH SQL subqueries that read q08_feedback f, add the condition AND f.created_at >= '2026-10-03T00:00:00Z' directly after f.slug = p.slug. Change nothing else.";
@@ -121,7 +121,7 @@ function fileIssue(env) {
   // 1. window, not the file
   ok(cx.mode === "patch" && cx.anchor === ANCHOR && cx.win.we - cx.win.ws < 26000 && cx.mirror === "q08-signal-engine/deployed-current.worker.js", "A1 patch mode: an anchor-centred window of the 93 KB file and the mirror recorded", { mode: cx.mode, win: cx.win, mirror: cx.mirror });
   ok(calls.length === 3 && calls.every((c) => c.prompt.length < 30000 && c.prompt.includes(S1) && c.prompt.includes("Only part of the file")), "A1 every rung saw the window (under 30,000 chars), never the whole file", calls.map((c) => c.prompt.length));
-  ok(calls.map((c) => c.model).join() === LADDER.join(), "A1 round 1 climbed the default ladder: kimi-k2.7-code, then glm-5.3, then gpt-oss-120b (LADDER-DEAD-RUNG-1)", calls.map((c) => c.model));
+  ok(calls.map((c) => c.model).join() === LADDER.join(), "A1 round 1 climbed the default ladder: gpt-oss-120b, then kimi-k2.7-code, then glm-5.3 (LADDER-DEAD-RUNG-1)", calls.map((c) => c.model));
 
   // 2. feedback that names the places, and a classified, kept no-block reply
   const fb = calls[1].prompt.slice(calls[1].prompt.indexOf("Your previous attempt FAILED"));
