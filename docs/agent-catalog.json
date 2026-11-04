@@ -331,6 +331,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/D1-SPLIT-DESIGN-2026-11.md"
     },
     {
+      "path": "docs/D1-TIERING-2026-11.md",
+      "title": "D1 tiering and slimming, 2026-11-04 (COLD-TIER-1 and D1-HOTSPOTS-3, pillar cost)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/D1-TIERING-2026-11.md"
+    },
+    {
       "path": "docs/DATA-PLANE-DISPOSITIONS-2026-10-01.md",
       "title": "Data plane dispositions (2026-10-01)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/DATA-PLANE-DISPOSITIONS-2026-10-01.md"

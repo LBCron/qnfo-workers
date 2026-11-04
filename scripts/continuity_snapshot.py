@@ -547,6 +547,11 @@ def main(argv=None, d1=None, plane=None, call=cf, out_dir=None, deadline=None):
         export_step(d1, plane, call, deadline)
         bak_sweep(d1, call)
         blob_trim(d1, call)
+        try:    # COLD-TIER-1: rollup, archive to R2 and prune the biggest append-only telemetry tables (scripts/cold_tier.py); never raises
+            import cold_tier
+            cold_tier.run(d1)
+        except Exception as e:  # noqa: BLE001
+            print(json.dumps({"cold-tier": {"error": str(e)[:160]}}))
     return 0
 
 
@@ -836,5 +841,7 @@ INSERT INTO tags VALUES ('a', '1'), ('b', '2'), ('c', '3');
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         selftest()
+        import cold_tier
+        cold_tier.selftest()
         sys.exit(0)
     sys.exit(main())

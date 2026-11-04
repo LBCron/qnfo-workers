@@ -62,6 +62,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [cloud_ops_events insert cost (CLOUD-OPS-EVENTS-TRIGGER-COST-1, 2026-11-04)](D1-CLOUD-OPS-EVENTS-2026-11.md) - `docs/D1-CLOUD-OPS-EVENTS-2026-11.md`
 - [D1 restore runbook (D1-RESTORE-RUNBOOK-1)](D1-RESTORE-RUNBOOK.md) - `docs/D1-RESTORE-RUNBOOK.md`
 - [D1 split design: hot write paths off qnfo-audit (D1-SPLIT-1, pillar core)](D1-SPLIT-DESIGN-2026-11.md) - `docs/D1-SPLIT-DESIGN-2026-11.md`
+- [D1 tiering and slimming, 2026-11-04 (COLD-TIER-1 and D1-HOTSPOTS-3, pillar cost)](D1-TIERING-2026-11.md) - `docs/D1-TIERING-2026-11.md`
 - [Data plane dispositions (2026-10-01)](DATA-PLANE-DISPOSITIONS-2026-10-01.md) - `docs/DATA-PLANE-DISPOSITIONS-2026-10-01.md`
 - [DEGENERATE-TEXT-1: a model loop never stays on a paper page](DEGENERATE-TEXT.md) - `docs/DEGENERATE-TEXT.md`
 - [Every deploy proves itself (DEPLOY-PROBES-1, REVIEW-GATE-1; 2026-11-04)](DEPLOY-PROOF-2026-11.md) - `docs/DEPLOY-PROOF-2026-11.md`
