@@ -150,6 +150,30 @@ assert.equal(one("SELECT COUNT(*) n FROM cf_agent_requests WHERE id > ?", before
 const definitions = one("SELECT group_concat(definition) d FROM fleet_tasks").d;
 db.exec(sql);
 assert.equal(one("SELECT group_concat(definition) d FROM fleet_tasks").d, definitions, "migration replay is idempotent");
+
+// ISSUE-PROBE-CAP-3: the attempt cap must land on this live probe-request text (CAP-1 and CAP-2 matched the superseded October text and
+// changed nothing). Applied in a savepoint so the rollback assertions below still compare against the Nov-01 backup.
+db.exec("SAVEPOINT cap3");
+const cap3 = read("2026-11-04-issue-probe-cap-3.sql");
+const defBefore = one("SELECT definition FROM fleet_tasks WHERE id='issue-probe-agent'").definition;
+db.exec(cap3);
+const defAfter = one("SELECT definition FROM fleet_tasks WHERE id='issue-probe-agent'").definition;
+assert.notEqual(defAfter, defBefore, "CAP-3 changes the live probe-request step");
+assert.ok(defAfter.includes("/* probe-attempt-cap-3 */"), "the cap marker is in the workflow");
+db.exec(cap3);
+assert.equal(one("SELECT definition FROM fleet_tasks WHERE id='issue-probe-agent'").definition, defAfter, "CAP-3 replay is idempotent");
+issue(300, "Cap family", "unknown");
+const pr = () => db.prepare(steps("issue-probe-agent").find((x) => x.name === "probe-request").sql).run();
+const asks300 = () => one("SELECT COUNT(*) n FROM cf_agent_requests WHERE instance='probe-issue-300'").n;
+const age = () => db.exec("UPDATE issue_probe_requests SET requested_at='2000-01-01T00:00:00Z'; UPDATE cf_agent_requests SET status='done' WHERE instance='probe-issue-300'");
+pr(); assert.equal(asks300(), 1, "first ask");
+age(); pr(); assert.equal(asks300(), 2, "second ask after the 120-minute window");
+age(); pr(); assert.equal(asks300(), 2, "CAP-3: a third ask inside the retry window is refused");
+db.exec("UPDATE cf_agent_requests SET created_at='2000-01-01T00:00:00Z' WHERE instance='probe-issue-300'");
+pr(); assert.equal(asks300(), 3, "CAP-3: after issue_probe_retry_days a capped issue is asked once more");
+age(); pr(); assert.equal(asks300(), 3, "CAP-3: and not again inside the new window");
+db.exec("ROLLBACK TO cap3; RELEASE cap3");
+assert.equal(one("SELECT definition FROM fleet_tasks WHERE id='issue-probe-agent'").definition, defBefore, "the savepoint restores the Nov-01 text");
 assert.equal(one("SELECT COUNT(*) n FROM decision_log WHERE action LIKE 'ISSUE-BIRTH-DOER-PROBE-1:%'").n, 1);
 const readback = contract(1000814).verify_probe;
 for (const [metric, value] of [
