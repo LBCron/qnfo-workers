@@ -757,7 +757,10 @@ def run_checks(workers, base_ref, cwd=None):
     try:
         out.append(("suites", sh(["node", "scripts/run-suites.mjs", "--changed-file", changed, "--jobs", "4", "--timeout", "180"], cwd, check=False, timeout=1500, env=env).returncode == 0))
     finally:
-        os.remove(changed)
+        try:
+            os.remove(changed)
+        except FileNotFoundError:  # CONFLICT-REPAIR-LOCAL-1: the suite runner may already have removed it (seen on Windows, 2026-11-04)
+            pass
     out.append(("mirror-guard", sh([sys.executable, "scripts/mirror-guard.py", "--scope-to-diff=" + base_ref], cwd, check=False, env=env).returncode == 0))
     out.append(("version-bump-guard", sh([sys.executable, "scripts/version-bump-guard.py", git(["rev-parse", base_ref], cwd).strip(), git(["rev-parse", "HEAD"], cwd).strip()], cwd, check=False, env=env).returncode == 0))
     out.append(("workers-standards-guard", sh([sys.executable, "scripts/workers_standards_guard.py", base_ref], cwd, check=False, env=env).returncode == 0))
@@ -1337,6 +1340,12 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
+    # CONFLICT-REPAIR-LOCAL-1 (2026-11-04): the repair checks out, merges and hard-resets branches in the directory it runs in. Run by hand in a session's own
+    # worktree it replaced that worktree's branch and discarded uncommitted edits. It is a CI doer: outside GitHub Actions it refuses unless the caller says
+    # the directory is a throwaway clone (CONFLICT_REPAIR_ALLOW_LOCAL=1).
+    if not os.environ.get("GITHUB_ACTIONS") and os.environ.get("CONFLICT_REPAIR_ALLOW_LOCAL") != "1":
+        emit(json.dumps({"conflict_repair": {"outcome": "refused", "why": "not running in GitHub Actions; this script resets the checkout it runs in. Use a throwaway clone and set CONFLICT_REPAIR_ALLOW_LOCAL=1"}}))
+        return 0
     if not a.pr and not a.all and not a.dirty and not a.normalize:
         ap.error("--pr <n>, --all or --dirty")
     work = []  # (number, in_place)
