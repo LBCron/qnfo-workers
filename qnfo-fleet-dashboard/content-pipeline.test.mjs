@@ -11,7 +11,7 @@ const cut = (from, to) => { const a = src.indexOf(from), b = src.indexOf(to, a);
 const block = cut("// ---- CONTENT-PIPELINE-1:BEGIN ----", "// ---- CONTENT-PIPELINE-1:END ----");
 const kpi = cut("// ---- FLEET-KPI-1:BEGIN ----", "// ---- FLEET-KPI-1:END ----");
 const outcomes = cut("/* CODE-OUTCOMES:BEGIN", "/* CODE-OUTCOMES:END */"); // the KPI block builds its code-task read from the shared outcome SQL
-const d1allSrc = cut("async function d1all(db, sql, params) {", "__name(d1all, \"d1all\");");
+const d1allSrc = cut("const D1_PRIMARY_ONLY", "__name(d1all, \"d1all\");");
 const escSrc = cut("function esc(s) {", "__name(esc, \"esc\");");
 const migration = readFileSync(new URL("../migrations/2026-10-14-03-content-pipeline.sql", import.meta.url), "utf8");
 let pass = 0, fail = 0;

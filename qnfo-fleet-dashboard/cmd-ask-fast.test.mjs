@@ -16,7 +16,7 @@ ok(/var ASK_MODELS = \["glm-5\.3-flash", "deepseek-v4-flash-wa"/.test(src), "ASK
 ok(/var ASK_MODELS = \[[^\]]*"gpt-oss-120b"\]/.test(src) && !/var ASK_MODELS = \[[^\]]*llama/.test(src), "ASK_MODELS uses only ids qnfo-ai routes (no llama)");
 ok(/\[\[d1_databases\]\]\s*binding = "Q08"/.test(readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8")), "wrangler.toml declares the Q08 read binding");
 
-const helpers = cut("function squash(s) {", "__name(squash") + "\n" + cut("async function d1all(", "__name(d1all");
+const helpers = cut("function squash(s) {", "__name(squash") + "\n" + cut("const D1_PRIMARY_ONLY", "__name(d1all");
 const race = cut("var ASK_MODELS = ", "async function sha256hex(").replace("var ASK_HEDGE_MS = 4e3;", "var ASK_HEDGE_MS = 150;")
   + "\n" + cut("// CMD-ASK-FAST-1: race the models", "// One plain-English answer: models raced")
   + "\n" + cut("// One model call with a real abort", "// One plain-English answer: models raced");

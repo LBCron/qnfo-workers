@@ -9,7 +9,7 @@ const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 const cut = (from, to) => { const a = src.indexOf(from), b = src.indexOf(to, a); if (a < 0 || b < a) throw new Error("not found in worker.js: " + from); return src.slice(a, b); };
 const block = cut("// ---- FLEET-KPI-1:BEGIN ----", "// ---- FLEET-KPI-1:END ----");
 const outcomeSrc = cut("/* CODE-OUTCOMES:BEGIN", "/* CODE-OUTCOMES:END */");
-const d1allSrc = cut("async function d1all(db, sql, params) {", "__name(d1all, \"d1all\");");
+const d1allSrc = cut("const D1_PRIMARY_ONLY", "__name(d1all, \"d1all\");");
 const escSrc = cut("function esc(s) {", "__name(esc, \"esc\");");
 const rowSrc = cut("function reachRow(day, source, channel, type, id, metric, value, quality) {", "// /papers/<slug>");
 const hostSrc = cut("function reachRumHostRows(groups, day) {", "function reachRumReferrerRows(");

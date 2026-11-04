@@ -54,7 +54,7 @@ ok(YIELD_EXIT === 78, "yield exit code is 78");
 {
   const wf = (n) => readFileSync(join(root, ".github", "workflows", n), "utf8");
   for (const n of ["artifacts-canonical-sync.yml", "repository-age-policy.yml"]) ok(/gh-budget-floor\.mjs --floor 600 --class sweep/.test(wf(n)), n + " yields through the shared helper");
-  for (const n of ["merge-when-ready.yml", "pr-lane.yml", "canonical-deploy.yml"]) ok(!/gh-budget-floor/.test(wf(n)), n + " (merge lane / deploy) is untouched");
+  for (const n of ["pr-lane.yml", "canonical-deploy.yml"]) ok(!/gh-budget-floor/.test(wf(n)), n + " (merge lane / deploy) is untouched"); // merge-when-ready.yml folded into pr-lane.yml (PR-CHECK-CAP-5-1)
 }
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

@@ -16,7 +16,7 @@ const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m 
 
 const grab = (start, end) => { const i = src.indexOf(start), j = src.indexOf(end, i); return i >= 0 && j > i ? src.slice(i, j + end.length) : ""; };
 const parts = [
-  grab("async function d1all(db, sql, params) {", "\n__name(d1all, \"d1all\");"),
+  grab("const D1_PRIMARY_ONLY", "\n__name(d1all, \"d1all\");"),
   grab("var PSR_RISK_HIGH = 3;", "\n__name(psrReview, \"psrReview\");"),
 ];
 ok(parts.every((p) => p.length > 100), "d1all and the PSR block (psrNarrativeTier, psrNarrative, psrReview) are found in worker.js", parts.map((p) => p.length));

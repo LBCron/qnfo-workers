@@ -16,7 +16,7 @@ let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 300) : "")); } };
 const cut = (a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i + a.length); return i >= 0 && j > i ? src.slice(i, j) : ""; };
 
-const helpers = cut("function squash(s) {", "__name(squash") + "\n" + cut("async function d1all(", "__name(d1all");
+const helpers = cut("function squash(s) {", "__name(squash") + "\n" + cut("const D1_PRIMARY_ONLY", "__name(d1all");
 const outreach = cut("var OUTREACH_Q = ", "// MAIL-DRAFT-1 (1.34.0");
 const intent = cut("var CMD_FIXALL_RX = ", "var CMD_PROBE_DEAD_RX");
 const ctxBlock = cut("function askContextObj(v, mail, outreach) {", "var ASK_MAIL_RULE");

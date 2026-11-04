@@ -8,7 +8,7 @@ import vm from "node:vm";
 
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 const a = src.indexOf("// ---- FLEET-CHANGELOG-1:BEGIN ----"), b = src.indexOf("// ---- FLEET-CHANGELOG-1:END ----");
-const d = src.indexOf("async function d1all(db, sql, params) {"), e = src.indexOf("__name(d1all, \"d1all\");");
+const d = src.indexOf("const D1_PRIMARY_ONLY"), e = src.indexOf("__name(d1all, \"d1all\");");
 const f = src.indexOf("function esc(s) {"), g = src.indexOf("\n}\n", f);
 if (a < 0 || b < a || d < 0 || e < d || f < 0 || g < f) throw new Error("FLEET-CHANGELOG-1 block not found in worker.js");
 let pass = 0, fail = 0;

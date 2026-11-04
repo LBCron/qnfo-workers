@@ -18,7 +18,7 @@ ok(/schema_version: "fleet-human\/v2",\s*spend_decision: "fleet",/.test(hv), "/a
 
 // 2. Research facts for Ask and its fallback.
 const block = src.slice(src.indexOf("var RESEARCH_Q = "), src.indexOf("async function cmdAnswer("));
-const helpers = src.slice(src.indexOf("function squash(s) {"), src.indexOf("__name(squash")) + "\n" + src.slice(src.indexOf("async function d1all("), src.indexOf("__name(d1all"));
+const helpers = src.slice(src.indexOf("function squash(s) {"), src.indexOf("__name(squash")) + "\n" + src.slice(src.indexOf("const D1_PRIMARY_ONLY"), src.indexOf("__name(d1all"));
 const sb = {}; vm.createContext(sb);
 vm.runInContext(helpers + "\n" + block + "\n__f = { RESEARCH_Q, researchFacts, researchFactsText };", sb);
 const { RESEARCH_Q, researchFacts, researchFactsText } = sb.__f;

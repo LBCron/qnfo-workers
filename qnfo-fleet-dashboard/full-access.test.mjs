@@ -61,7 +61,7 @@ db.exec(`CREATE TABLE emails (id INTEGER PRIMARY KEY, sender TEXT, recipient TEX
 INSERT INTO emails VALUES (7, 'Editor <editor@theresearchletters.org>', 'rwnquni@qnfo.org', 'Invitation to review', '2026-10-12T08:00:00Z', 'received', 'person', '{}', 'Dear Dr Quni,\n\nWe invite you to review a manuscript. ' || printf('%.7000c', 'x'));
 INSERT INTO emails VALUES (8, 'alerts@qnfo.org', 'rwnquni@qnfo.org', 'internal', '2026-10-12T09:00:00Z', 'processed', NULL, '{}', 'tick');`);
 const D1 = { prepare(sql) { const st = db.prepare(sql); let args = []; const o = { bind(...a) { args = a; return o; }, async all() { return { results: st.all(...args) }; }, async first() { return st.get(...args) || null; }, async run() { const r = st.run(...args); return { meta: { changes: r.changes } }; } }; return o; } };
-const con = cut("async function d1all(", "__name(d1all") + "\n" + cut("var CON_DBS = ", "var CON_MAX_ROWS")
+const con = cut("const D1_PRIMARY_ONLY", "__name(d1all") + "\n" + cut("var CON_DBS = ", "var CON_MAX_ROWS")
   + "\n" + cut("function conIsOwner(owner) {", "// SQL text with string literals") + "\n" + cut("// DASHBOARD-FULL-ACCESS-1 (1.31.0): the inbox", "// Action commands: the same shape")
   + "\nasync function conSqlRead() { return { ok: true, text: 'read' }; }\nasync function conLogs() { return { text: 'logs' }; }\nfunction conDbOf(w) { w = String(w || '').toLowerCase(); return CON_DBS[w] ? w : null; }"
   + "\n" + cut("async function conSqlWrite(", "async function conFirst(");
@@ -114,7 +114,7 @@ const C = sb.__c, env = { AUDIT: D1, IDENTITY: D1 }, owner = { session: { stepup
   const D = { prepare(sql) { const st = db2.prepare(sql); let a = []; const o = { bind(...x) { a = x; return o; }, async all() { return { results: st.all(...a) }; }, async first() { return st.get(...a) || null; }, async run() { const r = st.run(...a); return { meta: { changes: r.changes } }; } }; return o; } };
   const sent = [];
   const svc = { fetch: async (u, o) => { sent.push({ u, b: JSON.parse(o.body) }); db2.prepare("UPDATE emails SET status = 'replied' WHERE id = ?").run(JSON.parse(o.body).reply_to_id); return { ok: true, status: 200, json: async () => ({ success: true }) }; } };
-  const code = cut("// INBOX-REPLY-1 (1.31.0", "// Read commands. Returns null") + "\n" + cut("async function d1all(", "__name(d1all") + "\n" + cut("function conClip(s, n) {", "function conCmd(") + "\nasync function mailFacts() { return [{}]; }\n__r = { conMailReply, conMailSpam };";
+  const code = cut("// INBOX-REPLY-1 (1.31.0", "// Read commands. Returns null") + "\n" + cut("const D1_PRIMARY_ONLY", "__name(d1all") + "\n" + cut("function conClip(s, n) {", "function conCmd(") + "\nasync function mailFacts() { return [{}]; }\n__r = { conMailReply, conMailSpam };";
   const sb3 = { JSON, Math, String, Number, Promise, Array, Object, Error, RegExp, Date, AbortSignal }; vm.createContext(sb3); vm.runInContext(code, sb3);
   const R = sb3.__r;
   const r1 = await R.conMailReply({ AUDIT: D, SVC_QNFO_EMAIL: svc }, 984, "Thank you, happy to help. Send me the draft.");

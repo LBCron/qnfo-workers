@@ -87,7 +87,7 @@ const g = (host, path, count) => ({ count, dimensions: { requestHost: host, requ
 const cx = vm.createContext({ console, Date, JSON, Math, Number, String, Object, Array, Map, isNaN, isFinite, AbortSignal, fetch: fakeFetch });
 vm.runInContext(
   ["var VERSION = 'test'; var NAME = 'qnfo-fleet-dashboard'; var DAY_MS = 864e5;", varSrc(src, "ACCOUNT"), varSrc(src, "REACH_RUM_LIMIT"),
-    fnSrc(src, "d1all"), fnSrc(src, "reachErr"), fnSrc(src, "reachShiftDay"), fnSrc(src, "reachYesterday"), fnSrc(src, "reachRumQuery"),
+    src.slice(src.indexOf("const D1_PRIMARY_ONLY"), src.indexOf("\n__name(d1all")), fnSrc(src, "reachErr"), fnSrc(src, "reachShiftDay"), fnSrc(src, "reachYesterday"), fnSrc(src, "reachRumQuery"),
     fnSrc(src, "reachGf"), fnSrc(src, "reachRumGroups"), src.slice(a, b),
     "this.__api = { q08ReviewWindow, q08ReviewTally, q08ReviewDecide, q08ReviewCap, q08ReviewMeasure, q08Review, q08ReviewStatus, reachRumQuery, K: { Q08_REVIEW_KEY, Q08_REVIEW_EVENT, Q08_REVIEW_DUE, Q08_CAP_KEY, Q08_CAP_DEFAULT, Q08_CAP_CUT, Q08_REVIEW_THRESHOLD } };"
   ].join("\n"), cx);

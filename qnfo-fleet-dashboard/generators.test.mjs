@@ -9,7 +9,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 const mig = readFileSync(new URL("../migrations/2026-10-05-text-generator-inventory.sql", import.meta.url), "utf8");
 const a = src.indexOf("var GENERATOR_RUNS = {"), b = src.indexOf("// WATCHMAKER-INDEX-1 (1.14.0");
-const d = src.indexOf("async function d1all(db, sql, params) {"), e = src.indexOf("__name(d1all, \"d1all\");");
+const d = src.indexOf("const D1_PRIMARY_ONLY"), e = src.indexOf("__name(d1all, \"d1all\");");
 if (a < 0 || b < a || d < 0 || e < d) throw new Error("TEXT-QUALITY-LOOP-1 block not found in worker.js");
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
