@@ -69,9 +69,31 @@ def d1(acct, token, db, sql, params=None):
     return http(CF + "/accounts/" + acct + "/d1/database/" + db + "/query", token, "POST", body)
 
 
-def q(acct, token, db, sql, params=None):
-    st, j = d1(acct, token, db, sql, params)
-    if not (200 <= st < 300) or not j.get("success"):
+D1_RETRY_DELAYS = (3, 8, 20, 45)  # seconds between attempts; D1 overload clears in tens of seconds
+
+
+def d1_transient(st, j):
+    """True for a D1 overload (code 7429) or a 5xx: the statement is valid, the database is busy."""
+    if st >= 500 or st == 429:
+        return True
+    errs = (j or {}).get("errors") or []
+    return any(isinstance(e, dict) and e.get("code") in (7429, 7500) for e in errs)
+
+
+def q(acct, token, db, sql, params=None, sleep=time.sleep):
+    # D1-OVERLOAD-RETRY-1 (issue 6918): the ledger read failed the whole sync on one 7429 ("D1 DB is overloaded")
+    # while the shared qnfo-audit database was busy; retry with backoff before giving up.
+    delays = iter(D1_RETRY_DELAYS)
+    while True:
+        st, j = d1(acct, token, db, sql, params)
+        ok = 200 <= st < 300 and j.get("success")
+        if not ok and d1_transient(st, j):
+            wait = next(delays, None)
+            if wait is not None:
+                sleep(wait)
+                continue
+        break
+    if not ok:
         return None, j.get("errors") or j
     res = j.get("result") or []
     return (res[0].get("results") if res else []), None
