@@ -9,7 +9,7 @@ WHAT  A backup that was never restored is a belief. Weekly, this step restores r
         - the Time Travel bookmark for one day ago is requested, proving the 30-day history answers.
       Per table the restored count must equal min(exported rows, DRILL_ROW_CAP) and the last restored row must equal the last
       source row. The scratch database (name prefix drill-restore-) is always deleted afterwards. One row per target goes to
-      d1_restore_drills; a passing qnfo-audit target stamps spof_registry 'qnfo-audit D1'.
+      d1_export_restore_drills; a passing qnfo-audit target stamps spof_registry 'qnfo-audit D1'.
       qnfo-identity and qnfo-outreach are never read (private; the run log is public) and no row content is printed.
 """
 import gzip
@@ -217,7 +217,7 @@ def time_travel_day_ago(call=CS.cf):
 
 
 def record(d1, rec):
-    d1("INSERT INTO d1_restore_drills (target, source_prefix, scratch_db, tables_total, tables_ok, rows_restored, schema_source, ok, seconds, note) "
+    d1("INSERT INTO d1_export_restore_drills (target, source_prefix, scratch_db, tables_total, tables_ok, rows_restored, schema_source, ok, seconds, note) "
        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
        [rec["target"], rec["source_prefix"], rec["scratch_db"], rec["tables_total"], rec["tables_ok"], rec["rows_restored"],
         rec["schema_source"], rec["ok"], rec["seconds"], rec["note"][:400]])
@@ -231,7 +231,7 @@ def main(argv=None, d1=None, plane=None, make_scratch=None, r2get=None, history=
     d1, plane = CS.retrying(d1 or RC.d1), CS.retrying(plane or RC.d1_plane)
     r2get = r2get or r2_get_bytes
     if "--force" not in argv:
-        fresh = d1("SELECT id FROM d1_restore_drills WHERE ok = 1 AND ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1) LIMIT 1", ["-%d days" % DRILL_MAX_AGE_DAYS])
+        fresh = d1("SELECT id FROM d1_export_restore_drills WHERE ok = 1 AND ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1) LIMIT 1", ["-%d days" % DRILL_MAX_AGE_DAYS])
         if fresh:
             print(json.dumps({"restore-drill": "fresh"}))
             return 0
@@ -253,7 +253,7 @@ def main(argv=None, d1=None, plane=None, make_scratch=None, r2get=None, history=
         if tgt == AUDIT_STATE and rec["ok"]:
             d1("UPDATE spof_registry SET alternate_path = ?1, alternate_tested_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE component = 'qnfo-audit D1'",
                ["D1 Time Travel bookmark (30 days, one-day-ago bookmark checked) plus a daily logical snapshot and a weekly full export to R2 qnfo-backups; "
-                "RESTORE-DRILL-1 rebuilds them into a scratch D1 weekly and compares counts (scripts/d1_restore_drill.py, table d1_restore_drills)"])
+                "RESTORE-DRILL-1 rebuilds them into a scratch D1 weekly and compares counts (scripts/d1_restore_drill.py, table d1_export_restore_drills)"])
     print(json.dumps({"restore-drill": out, "time_travel_history": bool(hist)}))
     return 0
 
@@ -263,7 +263,7 @@ def selftest():
     audit = sqlite3.connect(":memory:")
     audit.executescript("""
 CREATE TABLE continuity_snapshots (id INTEGER PRIMARY KEY, ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), tables_json TEXT, rows_total INTEGER, bytes INTEGER, sha256 TEXT, r2_prefix TEXT, artifact TEXT, time_travel_bookmark TEXT, integrity REAL, ok INTEGER, note TEXT);
-CREATE TABLE d1_restore_drills (id INTEGER PRIMARY KEY, ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), target TEXT, source_prefix TEXT, scratch_db TEXT, tables_total INTEGER, tables_ok INTEGER, rows_restored INTEGER, schema_source TEXT, ok INTEGER, seconds INTEGER, note TEXT);
+CREATE TABLE d1_export_restore_drills (id INTEGER PRIMARY KEY, ts TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), target TEXT, source_prefix TEXT, scratch_db TEXT, tables_total INTEGER, tables_ok INTEGER, rows_restored INTEGER, schema_source TEXT, ok INTEGER, seconds INTEGER, note TEXT);
 CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, status TEXT, text TEXT, job TEXT);
 CREATE TABLE spof_registry (component TEXT, alternate_path TEXT, alternate_tested_at TEXT);
 INSERT INTO spof_registry VALUES ('qnfo-audit D1', NULL, NULL);
@@ -307,7 +307,7 @@ CREATE TABLE tag_kv (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID;
         return name, (lambda sql, params: run(db, sql, params)), (lambda: deleted.append(name))
     r2get = lambda key: store.get(key)  # noqa: E731
     assert main(["--force"], d1, plane, make_scratch, r2get, history=lambda: True, targets=[AUDIT_STATE, "portfolio-state", "qnfo-identity"]) == 0
-    rows = run(audit, "SELECT target, ok, tables_ok, tables_total, rows_restored, schema_source, note FROM d1_restore_drills ORDER BY id")
+    rows = run(audit, "SELECT target, ok, tables_ok, tables_total, rows_restored, schema_source, note FROM d1_export_restore_drills ORDER BY id")
     assert [r["target"] for r in rows] == [AUDIT_STATE, "portfolio-state"], rows  # private databases never drilled
     a, p = rows
     assert a["ok"] == 1 and a["tables_ok"] == 2 and a["rows_restored"] == DRILL_ROW_CAP + 2 and a["schema_source"] == "live", a  # capped sample; live schema before RESTORE-SCHEMA-1
@@ -321,9 +321,9 @@ CREATE TABLE tag_kv (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID;
     # fresh: no second run inside the window
     assert main([], d1, plane, make_scratch, r2get, history=lambda: True, targets=[]) == 0
     # a failed Time Travel history check fails the audit target even when rows came back
-    audit.execute("DELETE FROM d1_restore_drills")
+    audit.execute("DELETE FROM d1_export_restore_drills")
     main(["--force"], d1, plane, make_scratch, r2get, history=lambda: False, targets=[AUDIT_STATE])
-    assert run(audit, "SELECT ok FROM d1_restore_drills")[0]["ok"] == 0
+    assert run(audit, "SELECT ok FROM d1_export_restore_drills")[0]["ok"] == 0
     print("d1_restore_drill selftest ok")
 
 

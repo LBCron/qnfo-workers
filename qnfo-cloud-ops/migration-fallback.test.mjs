@@ -51,7 +51,7 @@ else {
   const doFetch = async (url, init) => {
     const u = new URL(url), p = decodeURIComponent(u.pathname);
     const json = (o) => ({ ok: true, status: 200, json: async () => o, text: async () => "" });
-    if (p.endsWith("/contents/migrations")) return json(Object.keys(files).map((name) => ({ name, type: "file" })));
+    if (p.endsWith("/git/trees/main:migrations")) return json({ tree: Object.keys(files).map((path) => ({ path, type: "blob" })) });
     const m = /\/contents\/migrations\/(.+)$/.exec(p);
     if (m) return { ok: true, status: 200, text: async () => files[m[1]] };
     if (p.endsWith("/commits")) { const f = u.searchParams.get("path").split("/").pop(); return json([{ sha: "abc" + f.length, commit: { committer: { date: age[f] } } }]); }
@@ -71,6 +71,6 @@ else {
   check(db.prepare("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'migration-fallback'").get().n === 1, "one event for the run that did work");
 }
 check(/runs\.push\(jobMigrationFallback\(env\)/.test(src) && /"migration-fallback": jobMigrationFallback/.test(src), "the 10-minute tick and POST /run?job=migration-fallback run it");
-check(versionAtLeast((/var VERSION = "([^"]+)"/.exec(src) || [])[1], "1.44.0"), "VERSION is at least 1.44.0");
+check(versionAtLeast((/var VERSION = "([^"]+)"/.exec(src) || [])[1], "1.44.1"), "VERSION is at least 1.44.1");
 console.log(fails ? fails + " failed" : "all passed");
 if (fails) process.exit(1);
