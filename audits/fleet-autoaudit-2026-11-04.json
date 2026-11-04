@@ -1,15 +1,13 @@
 {
-  "audited_at": "2026-11-04 14:46:50",
-  "d1_write_failures": [],
-  "d1_writes_ok": 130,
+  "audited_at": "2026-11-04 14:50:19",
+  "d1_write_failures": [
+    [
+      "audits",
+      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
+    ]
+  ],
+  "d1_writes_ok": 128,
   "guard": {
-    "_drift_confirm": {
-      "first_pass": [
-        "qnfo-ai"
-      ],
-      "refreshed": true,
-      "second_pass": []
-    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -751,11 +749,6 @@
     "unmanaged_truncated": false,
     "unmanaged_workers": [
       {
-        "http": 404,
-        "version": null,
-        "worker": "career-engine"
-      },
-      {
         "http": 200,
         "route_drift": true,
         "version": null,
@@ -814,14 +807,6 @@
       "note": "NOT_DEPLOYED",
       "retired": "FOLDED",
       "worker": "calendar-api"
-    },
-    "career-engine": {
-      "before": null,
-      "http": 404,
-      "live": null,
-      "match": 0,
-      "note": "UNMANAGED_NO_HEALTH",
-      "worker": "career-engine"
     },
     "ci-status": {
       "before": null,
@@ -1890,5 +1875,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 2
 }
