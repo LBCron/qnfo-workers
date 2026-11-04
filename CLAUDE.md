@@ -207,7 +207,7 @@ because each one was broken at least once; the linked issue holds the evidence.
 ## Every deploy proves itself, every risky diff gets a second reader (DEPLOY-PROBES-1, REVIEW-GATE-1)
 - Owner brief 2026-11-04 (output quality). A worker declares what must still work after its deploy in `<worker>/probes.json` (HTTP routes with a marker the page really shows,
   a `/health` VERSION poll, D1 statements compiled with `EXPLAIN QUERY PLAN`, never executed). canonical-deploy.yml baselines the probes before the deploy and `scripts/canary_revert.py`
-  runs them after it: a probe that passed before and fails after reverts the push through the existing path and files `DEPLOY-PROBE-REVERTED-1`; a failure that was already there, a
+  runs them after it: a probe that passed before and fails after reverts the push through the existing path (as a pull request when a repository rule, ruleset require-build, refuses the direct push to main) and files `DEPLOY-PROBE-REVERTED-1`; a failure that was already there, a
   mistyped new marker, an inconclusive answer (D1 overload, runner offline), a worker the push created or did not touch is filed as `DEPLOY-PROBE-FAILED-1` and never reverted.
   A new worker, or a change to a worker not on `scripts/probes-allowlist.txt` (shrink-only), declares probes or puts `probes: none (<reason>)` in the PR description
   (`deploy_probes.py --check-pr` in the `scans` job). Detail, limits and the first live finding: `docs/DEPLOY-PROOF-2026-11.md`. Before a probe you add can revert anything, run

@@ -25,6 +25,7 @@ on:
 permissions:
   contents: write
   actions: write
+  pull-requests: write
 
 concurrency:
   group: deploy-code-orchestrator
@@ -197,6 +198,7 @@ jobs:
         if: always() && steps.wrangler.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
+          QNFO_GH_PAT: ${{ secrets.QNFO_GH_PAT }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -uo pipefail

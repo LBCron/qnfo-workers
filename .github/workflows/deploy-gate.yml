@@ -48,7 +48,11 @@ permissions:
 # PUSH-COALESCE-1 (2026-11-04, pillar autonomy): a burst of merges queued one run of this workflow per pushed sha (66 of 100 queued runs at 15:54Z were push runs, 38 merges in the last hour). Only the newest main matters, so a newer push cancels the older run; ci-watchdog reads only conclusion failure, so a cancelled run files nothing. Revert: group by github.sha and cancel only on pull_request.
 concurrency:
   group: deploy-gate-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'push' && 'main-push') || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # PUSH-CONCLUDE-1 (2026-11-04, requested by the open-issues session from the runs API): with cancel-in-progress true for a push, 94 of the last 100 push runs on main (16:56Z to
+  # 20:05Z) were cancelled by the next merge, 5 concluded (all red) and none was green: with a merge every ~2 minutes and a gate of ~4, the full suite concluded only in a quiet window,
+  # so a red main stayed unseen for hours. The constant main-push group with cancel-in-progress false keeps one run and one pending (a newer pending replaces an older one), so runner
+  # pressure stays bounded and the gate concludes every run-length. A pull request still cancels its older run. Revert: add `|| github.event_name == 'push'` back.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gate:

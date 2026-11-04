@@ -475,5 +475,128 @@ class DrillEndToEnd(unittest.TestCase):
                 os.environ.pop(k, None)
 
 
+class RevertThroughPullRequest(unittest.TestCase):
+    """The first live drill of DEPLOY-PROBES-1 (qnfo-evolve, 2026-11-04) detected the bad deploy and then could not push its revert: the require-build ruleset
+    refuses a direct push to main from the Actions token (GH013). Replayed with a bare origin whose pre-receive hook refuses main the same way: the revert must
+    travel as a pull request, a refusal must not be retried, and the issue must say so."""
+
+    def _git(self, cwd, *args):
+        import subprocess
+        return subprocess.run(["git"] + list(args), cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    def _setup(self, tmp):
+        origin, work = os.path.join(tmp, "origin.git"), os.path.join(tmp, "work")
+        self._git(tmp, "init", "--bare", "-b", "main", origin)
+        self._git(tmp, "clone", origin, work)
+        self._git(work, "config", "user.name", "drill")
+        self._git(work, "config", "user.email", "drill@example.com")
+        self._git(work, "checkout", "-b", "main")
+        os.makedirs(os.path.join(work, "w"))
+        for f in ("worker.js", "deployed-current.worker.js"):
+            with open(os.path.join(work, "w", f), "w", newline="\n") as fh:
+                fh.write('var VERSION = "1.0.0";\nexport default { fetch() { return new Response("GOOD"); } };\n')
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-m", "base")
+        self._git(work, "push", "origin", "main")
+        for f in ("worker.js", "deployed-current.worker.js"):
+            with open(os.path.join(work, "w", f), "w", newline="\n") as fh:
+                fh.write('var VERSION = "1.0.1";\nexport default { fetch() { return new Response("BAD"); } };\n')
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-m", "the bad deploy")
+        self._git(work, "push", "origin", "main")
+        pushed = self._git(work, "rev-parse", "HEAD").strip()
+        # from now on the origin refuses main exactly like the ruleset does
+        hook = os.path.join(origin, "hooks", "pre-receive")
+        with open(hook, "w", newline="\n") as fh:
+            fh.write('#!/bin/sh\nwhile read old new ref; do\n  if [ "$ref" = "refs/heads/main" ]; then\n'
+                     '    echo "remote: error: GH013: Repository rule violations found for refs/heads/main." >&2\n'
+                     '    echo "remote: - Required status check \\"Workers Builds: qnfo-workers\\" is expected." >&2\n    exit 1\n  fi\ndone\nexit 0\n')
+        os.chmod(hook, 0o755)
+        return origin, work, pushed
+
+    def test_a_refused_push_to_main_becomes_a_revert_pull_request(self):
+        import shutil
+        tmp = tempfile.mkdtemp(prefix="viapr-")
+        old_cwd = os.getcwd()
+        saved = {n: getattr(cr, n) for n in ("dispatch_redeploy", "create_pr")}
+        try:
+            origin, work, pushed = self._setup(tmp)
+            prs, sleeps = [], []
+            cr.dispatch_redeploy = lambda workers: {"redeploy": ["canonical-deploy.yml"]}
+            cr.create_pr = lambda branch, title, body: prs.append((branch, title, body)) or (True, "https://github.com/QNFO/qnfo-workers/pull/9999")
+            real_sleep = cr.time.sleep
+            cr.time.sleep = sleeps.append
+            os.chdir(work)
+            try:
+                out = cr.revert_push(pushed, [("w", "w", "1.0.1")], False, {"w": "marker GOOD absent"}, {})
+            finally:
+                cr.time.sleep = real_sleep
+            self.assertEqual(out.get("pr"), "https://github.com/QNFO/qnfo-workers/pull/9999", out)
+            self.assertNotIn("error", out)
+            self.assertEqual(sleeps, [], "a rule refusal is not retried")
+            self.assertEqual(len(prs), 1)
+            branch, title, body = prs[0]
+            self.assertEqual(branch, "canary-revert-" + out["sha"][:12])
+            self.assertTrue(title.startswith("revert: " + pushed[:7] + " failed the functional canary on w"), title)
+            self.assertIn("direct push to main was refused", body)
+            self.assertEqual(self._git(work, "ls-remote", "origin", "refs/heads/main").split()[0], pushed, "main on the origin is untouched")
+            on_branch = self._git(work, "ls-remote", "origin", "refs/heads/" + branch).split()
+            self.assertEqual(on_branch[0], out["sha"], "the revert commit is on the branch the pull request was opened from")
+            self._git(work, "fetch", "origin", branch)
+            js = self._git(work, "show", "FETCH_HEAD:w/worker.js")
+            self.assertIn('var VERSION = "1.0.2-revert-' + pushed[:7] + '"', js)
+            self.assertIn("GOOD", js)
+            title2, desc2 = cr.issue_text(pushed, {"w": {"want": "1.0.1", "state": "failed:functional", "seen": "1.0.1", "polls": 1, "functional": "x"}}, out)
+            self.assertTrue(title2.startswith("DEPLOY-PROBE-REVERTED-1: push " + pushed[:7] + " revert opened as a pull request"), title2)
+            self.assertIn("pull/9999", desc2)
+        finally:
+            os.chdir(old_cwd)
+            for n, f in saved.items():
+                setattr(cr, n, f)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_when_the_pull_request_cannot_be_opened_the_issue_says_nothing_was_reverted(self):
+        import shutil
+        tmp = tempfile.mkdtemp(prefix="viapr-")
+        old_cwd = os.getcwd()
+        saved = {n: getattr(cr, n) for n in ("dispatch_redeploy", "create_pr")}
+        try:
+            origin, work, pushed = self._setup(tmp)
+            cr.dispatch_redeploy = lambda workers: {"redeploy": []}
+            cr.create_pr = lambda branch, title, body: (False, "HTTP 403 Resource not accessible by integration")
+            os.chdir(work)
+            out = cr.revert_push(pushed, [("w", "w", "1.0.1")], False, {"w": "x"}, {})
+            self.assertIn("error", out)
+            self.assertIn("sha", out, "the local revert commit exists, which used to make the issue claim a revert on main")
+            title, desc = cr.issue_text(pushed, {"w": {"want": "1.0.1", "state": "failed:functional", "seen": "1.0.1", "polls": 1, "functional": "x"}}, out)
+            self.assertTrue(title.startswith("DEPLOY-PROBE-CANARY-FAILED-1:") and "could not be reverted" in title, title)
+            self.assertIn("revert pull request not opened", desc)
+        finally:
+            os.chdir(old_cwd)
+            for n, f in saved.items():
+                setattr(cr, n, f)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_create_pr_uses_the_fleet_credential_and_recognises_an_existing_pull_request(self):
+        calls = []
+        real_run = cr.subprocess.run
+
+        class R:
+            def __init__(self, rc, out="", err=""):
+                self.returncode, self.stdout, self.stderr = rc, out, err
+        answers = [R(0, "https://github.com/QNFO/qnfo-workers/pull/1\n"), R(1, "", "a pull request for branch \"x\" into branch \"main\" already exists:\nhttps://github.com/QNFO/qnfo-workers/pull/7"), R(1, "", "HTTP 403")]
+        cr.subprocess.run = lambda cmd, **k: calls.append((cmd, k.get("env", {}).get("GH_TOKEN"))) or answers.pop(0)
+        os.environ["QNFO_GH_PAT"] = "pat-value"
+        try:
+            self.assertEqual(cr.create_pr("b", "t", "body"), (True, "https://github.com/QNFO/qnfo-workers/pull/1"))
+            self.assertEqual(cr.create_pr("b", "t", "body"), (True, "https://github.com/QNFO/qnfo-workers/pull/7"))
+            self.assertEqual(cr.create_pr("b", "t", "body")[0], False)
+        finally:
+            cr.subprocess.run = real_run
+            os.environ.pop("QNFO_GH_PAT", None)
+        self.assertTrue(all(tok == "pat-value" for _, tok in calls), "the pull request is opened with QNFO_GH_PAT so the lane's workflows run on it")
+        self.assertEqual(calls[0][0][:3], ["gh", "pr", "create"])
+
+
 if __name__ == "__main__":
     unittest.main()

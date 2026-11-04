@@ -64,6 +64,8 @@ on:
 
 permissions:
   contents: write
+  # pull-requests: write for the canary's revert pull request (scripts/canary_revert.py revert_via_pr): a direct push to main is refused by the require-build ruleset.
+  pull-requests: write
   # actions: write for the canary's REVERT-REDEPLOY-1 dispatch (scripts/canary_revert.py): a revert commit pushed with
   # GITHUB_TOKEN starts no workflow run, so the canary runs `gh workflow run canonical-deploy.yml -f workers=...` (and
   # deploy-qnfo-ops.yml for qnfo-ops) itself, as apply-binding-install-gate-1.yml does for its commit-back.
@@ -286,6 +288,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }}
+          # QNFO_GH_PAT opens the revert pull request, so the lane's workflows run on it (a pull request opened with GITHUB_TOKEN starts none).
+          QNFO_GH_PAT: ${{ secrets.QNFO_GH_PAT }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -uo pipefail

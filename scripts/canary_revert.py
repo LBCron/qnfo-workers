@@ -350,6 +350,47 @@ def revert_line(bumped, reason):
     return "%s: pushed VERSION %s never answered on /health within the canary window; reverted to the previous content as %s." % tuple(bumped)
 
 
+# A repository ruleset (require-build, 2026-11-04 15:47Z) refuses a direct push to main from the Actions token (GH013): the first live drill of DEPLOY-PROBES-1 detected a
+# bad deploy and could not push its own revert, so the bad worker stayed live until a person made the revert by hand. The revert then travels as a pull request that the
+# lane merges like any other (the push to main that merge makes deploys the reverted code); a direct push is still tried first, so a repository without the rule is unchanged.
+RULE_REFUSAL = re.compile(r"GH013|Repository rule violations|protected branch|Required status check", re.I)
+
+
+def create_pr(branch, title, body):
+    """-> (ok, pull request url or the error). Created with the fleet user credential when QNFO_GH_PAT is set, because a pull request opened with GITHUB_TOKEN starts
+    none of the workflows the lane waits for."""
+    env = dict(os.environ)
+    if os.environ.get("QNFO_GH_PAT"):
+        env["GH_TOKEN"] = os.environ["QNFO_GH_PAT"]
+    repo = os.environ.get("GITHUB_REPOSITORY") or "QNFO/qnfo-workers"
+    try:
+        r = subprocess.run(["gh", "pr", "create", "--repo", repo, "--base", "main", "--head", branch, "--title", title, "--body", body],
+                           env=env, capture_output=True, text=True, timeout=90)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, type(e).__name__ + " " + str(e)[:160]
+    out = (r.stdout or "").strip().splitlines()
+    if r.returncode == 0 and out:
+        return True, out[-1]
+    err = (r.stderr or r.stdout or "").strip()
+    m = re.search(r"https://github\.com/\S+/pull/\d+", err)
+    if m and "already exists" in err:
+        return True, m.group(0)
+    return False, err[:200]
+
+
+def revert_via_pr(sha, title, body, bumped, refusal):
+    """The revert commit (HEAD of the canary-revert checkout) pushed as a branch and opened as a pull request. -> outcome dict."""
+    branch = "canary-revert-" + str(sha)[:12]
+    try:
+        git(["push", "-f", "origin", "HEAD:refs/heads/" + branch])
+    except subprocess.CalledProcessError as e:
+        return {"error": "revert branch push failed: " + str((e.stderr or e.stdout or str(e)))[:200], "sha": sha}
+    ok, url = create_pr(branch, title, body + "\n\nOpened by scripts/canary_revert.py because a direct push to main was refused (" + refusal.splitlines()[0][:120] + "). The lane merges it when its checks are green; the push to main that merge makes deploys the reverted code.")
+    if not ok:
+        return {"error": "revert pull request not opened: " + url, "sha": sha, "branch": branch}
+    return {"pr": url, "branch": branch, "sha": sha, "bumped": bumped, "title": title, "via": "pull request (direct push refused)"}
+
+
 def revert_push(pushed, failed, dry, why=None, bystanders=None):
     """failed: [(worker, dir, bad_version)]. Reverts the pushed commit on the current checkout, re-bumps each failed worker's
     VERSION above the bad one, mirrors it, commits, pushes to main and dispatches the redeploy. Returns a dict with sha or
@@ -413,9 +454,13 @@ def _revert_push(pushed, failed, dry, why=None, bystanders=None):
             return res
         except subprocess.CalledProcessError as e:
             last = (e.stderr or e.stdout or str(e))[:300]
+            if RULE_REFUSAL.search(last):
+                break  # a repository rule refuses a direct push however often it is retried
             time.sleep(2 * (attempt + 1))
             git(["fetch", "origin", "main"], check=False)
             git(["rebase", "origin/main"], check=False)
+    if last and RULE_REFUSAL.search(last):
+        return revert_via_pr(sha, title, body, bumped, last)
     return {"error": "push to main failed: " + str(last), "sha": sha}
 
 
@@ -439,10 +484,13 @@ def issue_text(pushed, results, outcome):
     cp = any(w in CANARY_WORKERS for w in failed)
     pre = "CONTROL-PLANE" if cp else "DEPLOY-PROBE"
     only_probe = bool(failed) and all(results[w].get("functional") for w in failed)
-    if "sha" in outcome and not outcome.get("redeploy_error"):
+    if outcome.get("pr") and not outcome.get("error"):
+        title = pre + "-REVERTED-1: push " + str(pushed)[:7] + " revert opened as a pull request, " + ", ".join(failed) + (" failed its post-deploy probes" if only_probe else " never reached the pushed VERSION")
+        step = "the revert is pull request " + str(outcome.get("pr")) + " (a direct push to main is refused by a repository rule); the lane merges it when its checks are green and the push it makes deploys the reverted code. Check that it merged."
+    elif "sha" in outcome and not outcome.get("error") and not outcome.get("redeploy_error"):
         title = pre + "-REVERTED-1: push " + str(pushed)[:7] + " reverted, " + ", ".join(failed) + (" failed its post-deploy probes" if only_probe else " never reached the pushed VERSION")
         step = "the revert commit is " + str(outcome.get("sha")) + " and its deploy is dispatched (" + ", ".join(outcome.get("redeploy") or []) + ")."
-    elif "sha" in outcome:
+    elif "sha" in outcome and not outcome.get("error"):
         title = pre + "-CANARY-FAILED-1: push " + str(pushed)[:7] + " reverted on main as " + str(outcome.get("sha"))[:7] + " but the redeploy of " + ", ".join(failed) + " was not dispatched"
         step = ("first dispatch the deploy of the revert commit " + str(outcome.get("sha")) + " (gh workflow run canonical-deploy.yml -f workers=\""
                 + " ".join(failed) + "\"; a push made with GITHUB_TOKEN starts no run): " + str(outcome.get("redeploy_error"))[:200] + ".")

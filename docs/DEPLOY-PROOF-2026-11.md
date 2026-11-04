@@ -121,6 +121,22 @@ read; it is not the criterion for `hold`. The `commits` input runs the gate on m
 * The review gate reads the diff, not the repository: a defect that needs code outside the hunks is invisible to it. Two models of different families still share blind spots
   (`docs/ENSEMBLE-POLICY.md`: a 9-judge panel was worth 2.18 votes); the evidence rule trades recall for precision.
 
+## First live drill, 2026-11-04 (#7208): the detection worked, the revert did not, and why
+
+`qnfo-evolve` 0.2.8 was merged on purpose with `/health` reporting `"worker":"qnfo-evolve-drill"` (nothing else changed). canonical-deploy run 41911551981:
+baseline read `{"f87f94d66cce": "ok", "__live_version__": "0.2.7"}` at 20:58:03Z; the deploy was `OK` at 20:58:16Z; the canary saw `qnfo-evolve ok (wanted 0.2.8, saw 0.2.8)` (the old canary
+would have stopped here, green) and then `functional qnfo-evolve failed (GET .../health: marker "worker":"qnfo-evolve" absent, 4 tries)` at 20:59:03Z, wrote the ledger row, and tried to
+revert. **The push of the revert to main was refused**: `GH013 Repository rule violations found for refs/heads/main: Required status check "Workers Builds: qnfo-workers" is expected`. The
+`require-build` ruleset was created today at 15:47Z with the repository admin role as its only bypass actor, so the Actions token cannot push to main any more; the automatic revert
+path that worked on 2026-11-03 (#6323) has been dead since, for every control-plane worker too, and nothing had exercised it. The drill is what found it. The bad `/health` stayed live
+until the same revert was made by hand as a pull request (#7212, merged, live again at 21:05Z, about 7 minutes).
+
+Two defects fixed in the follow-up: (1) when a direct push is refused by a repository rule the canary now pushes the revert commit as a branch and opens it as a pull request with the fleet
+credential (so the lane's workflows run on it), the lane merges it and the push it makes deploys the reverted code; the direct push is still tried first, a refusal is not retried, and
+`DrillEndToEnd`'s sibling `RevertThroughPullRequest` replays the refusal with a pre-receive hook; (2) the issue text claimed "reverted" whenever the local revert commit existed, even when
+its push had failed (`{"error": ..., "sha": ...}`): an error is now a `...-CANARY-FAILED-1` issue that says nothing was reverted. Issue 1001819 (filed by the drill) carries the
+`runtime-probe:` line and closes itself now that the route answers its marker again.
+
 ## Follow-up owed (CLOSED-LOOPS-1)
 
 * After 7 days: counts of `canary-functional` rows (ok / fail / inconclusive), `DEPLOY-PROBE-*` issues, reverts, and `review-gate` rows (cost, High findings, how many a human overruled) against the
