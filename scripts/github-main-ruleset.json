@@ -5,7 +5,8 @@
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
-  "required_checks": ["deploy-gate / gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard"],
+  "required_checks": ["versions", "scans", "suites"],
+  "_required_checks_why": "PR-CHECK-CAP-5-1 (2026-11-04): a pull request shows five checks, three of them the jobs of pr-checks.yml; the old names (deploy-gate / gate and three guards) are no longer produced on a pull request, so a ruleset requiring them would wait for ever. Not applied yet: the live rulesets are main-safety and require-build (Workers Builds).",
   "strict_required_status_checks_policy": false,
   "pull_request": {
     "required_approving_review_count": 0,

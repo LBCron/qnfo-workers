@@ -106,7 +106,8 @@ wf("mirror-guard.yml", "name: mirror-guard\n# comment\non:\n  push:\n    branche
 wf("identity-guard.yml", "name: identity-guard\non:\n  workflow_call:\njobs:\n  identity-guard:\n    name: identity-guard\n    runs-on: ubuntu-latest\n    steps: []\n");
 const prChecks = (trigger) => "name: pr-checks\non:\n" + trigger + "jobs:\n  deploy-gate:\n    uses: ./.github/workflows/deploy-gate.yml\n  version-bump-guard:\n    uses: ./.github/workflows/version-bump-guard.yml\n  mirror-guard:\n    uses: ./.github/workflows/mirror-guard.yml\n  identity-guard:\n    uses: ./.github/workflows/identity-guard.yml\n";
 wf("pr-checks.yml", prChecks("  pull_request:\n    paths:\n      - '*/worker.js'\n"));
-const cfg = JSON.parse(readFileSync(join(repoRoot, "scripts", "github-main-ruleset.json"), "utf8"));
+// the fixture pr-checks above calls four reusable workflows, so the fixture config names their four contexts; the committed config names the three jobs of the real pr-checks (PR-CHECK-CAP-5-1)
+const cfg = { ...JSON.parse(readFileSync(join(repoRoot, "scripts", "github-main-ruleset.json"), "utf8")), required_checks: ["deploy-gate / gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard"] };
 writeFileSync(join(wfRoot, "scripts", "github-main-ruleset.json"), JSON.stringify(cfg));
 
 // workflow check detection
@@ -122,7 +123,7 @@ ok(checkProblems({ ...cfg, required_checks: ["deploy-gate / gate", "nonesuch"] }
 // the real repository: the committed config names checks real pull_request jobs always produce
 const real = checkProblems(loadConfig(repoRoot), repoRoot);
 ok(real.length === 0, "the committed config's required checks are produced by unfiltered pull_request workflows in this repository", real);
-ok(JSON.stringify(loadConfig(repoRoot).required_checks) === JSON.stringify(["deploy-gate / gate", "version-bump-guard / guard", "mirror-guard / mirror-guard", "identity-guard / identity-guard"]), "the declared checks are the four named in agent_issues 2927");
+ok(JSON.stringify(loadConfig(repoRoot).required_checks) === JSON.stringify(["versions", "scans", "suites"]), "the declared checks are the three jobs of pr-checks (agent_issues 2927, PR-CHECK-CAP-5-1)");
 
 // payload
 const desired = buildRuleset(cfg, [{ slug: "qnfo-fleet", actor_id: 424242 }]);
