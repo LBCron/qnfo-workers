@@ -48,7 +48,7 @@ for (let i = 0; i < 999; i++) {
 db.exec(`CREATE TRIGGER issue_depth_start AFTER INSERT ON agent_issues
   BEGIN INSERT INTO issue_depth_0 VALUES (NEW.id); END`);
 assert.throws(() => db.exec("INSERT INTO fleet_tick_heavy (source) VALUES ('cron:qnfo-code-orchestrator')"),
-  /triggers nested too deep/, "the original issue-age trigger exhausts the heartbeat's nested trigger budget");
+  /triggers nested too deep|too many levels of trigger recursion/, "the original issue-age trigger exhausts the heartbeat's nested trigger budget");
 assert.equal(db.prepare("SELECT COUNT(*) n FROM fleet_tick_heavy").get().n, 0,
   "trigger exhaustion rolls back the heartbeat");
 assert.equal(db.prepare("SELECT COUNT(*) n FROM heavy_tick_marks").get().n, 0,
