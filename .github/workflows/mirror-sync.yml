@@ -54,9 +54,13 @@ name: mirror-sync
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "ci-status/**"
-      - "audits/**"
+    # CI-VELOCITY-1: only a worker source or mirror change can lag a mirror; docs, migrations and data pushes skip the sync
+    # and the workflow_run fan-out behind it (mirror-guard, ci-watchdog, artifacts-canonical-sync, fleet-autodeploy, selfheal).
+    paths:
+      - "**/worker.js"
+      - "**/deployed-current.worker.js"
+      - "scripts/mirror-guard.py"
+      - ".github/workflows/mirror-sync.yml"
   # Invocable by ci-watchdog: when mirror-guard goes red the watchdog
   # dispatches this repair actor. Without a workflow_dispatch trigger that
   # call returns 422, the finding stays unactionable, and the monitor can

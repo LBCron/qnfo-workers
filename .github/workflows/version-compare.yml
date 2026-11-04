@@ -29,6 +29,10 @@ on:
   workflow_call:
   push:
     branches: [main]
+    # CI-VELOCITY-1: the suite reads only the comparator and its test.
+    paths:
+      - "qnfo-fleet-control/**"
+      - ".github/workflows/version-compare.yml"
   workflow_dispatch:
 
 permissions:

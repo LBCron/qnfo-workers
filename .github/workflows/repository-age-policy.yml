@@ -37,7 +37,8 @@ jobs:
   enforce:
     if: >-
       github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
        github.event.workflow_run.head_branch == github.event.repository.default_branch)
     # RUNNER-PIN-2: pin Ubuntu 24 until the Ubuntu 26 trial is green after 2026-11-19.
     runs-on: ubuntu-24.04

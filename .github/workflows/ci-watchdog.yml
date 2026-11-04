@@ -73,7 +73,7 @@ permissions:
 # costs nothing and evicts nothing; every run that sweeps shares `ci-watchdog` exactly as before. Keep the two predicates identical
 # (scripts/runner-pin-annotations.test.mjs evaluates both for every trigger).
 concurrency:
-  group: ${{ (github.event_name != 'workflow_run' || github.event.workflow_run.name == 'mirror-sync' || !contains(fromJSON('["success", "cancelled", "skipped", "neutral"]'), github.event.workflow_run.conclusion)) && 'ci-watchdog' || format('ci-watchdog-skip-{0}', github.run_id) }}
+  group: ${{ (github.event_name != 'workflow_run' || (github.event.workflow_run.name == 'mirror-sync' && github.event.workflow_run.conclusion != 'cancelled') || !contains(fromJSON('["success", "cancelled", "skipped", "neutral"]'), github.event.workflow_run.conclusion)) && 'ci-watchdog' || format('ci-watchdog-skip-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -87,7 +87,7 @@ jobs:
     # runs is still picked up by the next sweep (6h window, unchanged). A skipped job costs no API call.
     if: >-
       github.event_name != 'workflow_run' ||
-      github.event.workflow_run.name == 'mirror-sync' ||
+      (github.event.workflow_run.name == 'mirror-sync' && github.event.workflow_run.conclusion != 'cancelled') ||
       !contains(fromJSON('["success", "cancelled", "skipped", "neutral"]'), github.event.workflow_run.conclusion)
     # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
     runs-on: ubuntu-24.04

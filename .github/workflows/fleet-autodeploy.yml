@@ -118,14 +118,9 @@ run-name: ${{ github.event_name == 'workflow_dispatch' && format('fleet-autodepl
 on:
   schedule:
     - cron: "43 8 * * *"
-  push:
-    branches: [main]
-    # CI-RUNAWAY-LOOP-1 (2026-09-30): pure-artifact commits must not start the
-    # fleet-autodeploy -> container-config-selfheal-cron -> commit -> fleet-autodeploy
-    # cycle. See the CI-RUNAWAY-LOOP-1 note above for the measured five-commit burst.
-    paths-ignore:
-      - "ci-status/**"
-      - "audits/**"
+  # CI-VELOCITY-1 (2026-11-04): no push trigger. The push run audits while canonical-deploy is still deploying the same commit
+  # (DRIFT-AUDIT-AFTER-DEPLOY-1 below), and every worker push ends in a mirror-sync or canonical-deploy completion that starts this
+  # workflow anyway. Dropping it also ends the CI-RUNAWAY-LOOP-1 push path (artifact commits cannot start it).
   workflow_run:
     # DRIFT-AUDIT-AFTER-DEPLOY-1 (2026-10-05, agent_issues 1993): the push run audits while canonical-deploy is still
     # deploying the same commit, so the just-merged worker is written to worker_live_audit as DRIFT (live still the old
@@ -152,6 +147,8 @@ concurrency:
 
 jobs:
   fleet:
+    # CI-VELOCITY-1: a workflow_run fires for a cancelled upstream run too (a superseded pending run); skip it before it takes a runner slot.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
     # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
     runs-on: ubuntu-24.04
     timeout-minutes: 20

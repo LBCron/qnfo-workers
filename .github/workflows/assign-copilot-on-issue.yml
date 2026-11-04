@@ -64,6 +64,8 @@ concurrency:
 
 jobs:
   assign:
+    # CI-VELOCITY-1: a workflow_run fires for a cancelled upstream run too (a superseded pending run); skip it before it takes a runner slot.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
     # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
