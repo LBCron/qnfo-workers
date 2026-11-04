@@ -32,7 +32,7 @@
 // 0.33.1 BACKLOG-DRIVER-PLAN-ORDER-1 (#2654, pillar autonomy; patch: planner candidates follow v_issue_queue_v2 age and score while retaining fallback ordering).
 // 0.36.0 FAMILY-YIELD-1 (#1000779, autonomy): favor path families with recent merges, select their cheapest proven merged model, and bound repeat rounds for families with low merge rates.
 // 0.37.1 PUBLISH-SUITE-SCOPE-ALL-1 (#6697 / #1001444, autonomy): discover all eligible failing suites across current and saved publisher feedback.
-var VERSION = "0.38.1-codeagent"; // 0.37.6 D1-OVERLOAD-1f (pillar autonomy; patch): intake skips a repeat pass for 10 minutes after an idle one. 0.37.5 NOOP-SQL-LITERAL-1 (#1001468, pillar autonomy; patch: a gate narrowed): the no-op gate no longer refuses a literal-only edit whose text holds upper-case SQL (SELECT/WHERE/IN (...)), so widening a status IN list is a real change. prior 0.37.4-codeagent; 0.37.4 CRON-ADVANCE-FIRST-1 (pillar autonomy; patch: fleet_crons next_fire advances before dispatch, never-fired crons go first, orphaned runs are closed after 2 hours). prior 0.37.3-codeagent; 0.37.3 LADDER-COST-FIRST-1 (pillar cost; patch: first rung is the cheapest rung with equal 7-day merge yield). prior 0.37.2-codeagent; 0.37.0 COMPANION-ANCHOR-LOCATOR-1 (#1001396, pillar autonomy; minor: locate a unique edit window for oversized companions before refusing the task). 0.35.0 ISSUE-AGE-REPAIR-PRIORITY-1 (#1001208, autonomy): repair notices inherit referenced 24h no-doer urgency; prior 0.34.1-codeagent;  0.34.0 ENQUEUE-CLAIM-RESERVATION-1 (#2168, pillar autonomy): reserve a task file at enqueue for 15 minutes; the first step renews it. prior 0.31.2-codeagent (FAIL-SIGNATURE-STOP-1 #5844); 0.31.1-codeagent (ANCHOR-FROM-ISSUE-1 #99916); 0.31.0 ISSUE-AGE-24H-REINTAKE-1 (#1001064, pillar autonomy; minor: requeue an open issue only when its 24h age probe confirms no live doer; bounded by trusted intake checks). prior 0.30.4-codeagent; 0.30.0 PUBLISH-SUITE-REBASE-1 (#100293, pillar autonomy; minor: after one publisher suite failure, rebuild the task from current main before retrying publication). prior 0.29.4-plan-large-file-anchors // 0.29.3 PLAN-FIRST-TIME-FIRST-1 (2026-10-26, pillar autonomy, agent_issues 1000428, BREACH-DOCTOR-1 rule R2-PLAN-FIRST; patch: an ordering fix, no new capability): planIssues now ranks a first-time plan (no issue_plans row) ahead of a re-plan (a verdict older than PLAN_RECHECK_DAYS) inside each priority class, so the daily cap of model calls is no longer spent on re-plans while first-time issues of the same class wait (2026-10-26: 48 of 48 calls used by 01:47Z, 32 of them re-plans, 6 high OWNER-TASK issues older than 120 minutes never planned); plan-first-time-first.test.mjs. // 0.29.2 INTAKE-IDLE-BEAT-1 (2026-10-26, pillar autonomy; patch: a step that ran and found nothing now leaves evidence): intakeIssues records one code-task.intake-idle event (at most once in 50 minutes, only after a successful candidate read) when it created no task, so the tick "pull" step reads ok in an hour with an empty queue; intake-idle.test.mjs. // 0.29.1 FOLDED-TARGET-AT-READ-1 (2026-10-26, pillar autonomy; patch: a gate applied to a path it missed): the read step now runs the two target rules enqueue() runs, so a row inserted straight into code_tasks (the RED-DRAIN-1 dispatch) on a FOLDED member is redirected to its host (FOLDED-TARGET-REDIRECT-1, judged before the scope as in enqueue) and one on a RETIRED or unregistered worker ends needs_human with no model call (RETIRED-TARGET-1): ct_im1000417 edited the FOLDED qnfo-backlog-exec, the merge runner merged PR 4620, the canonical deploy skips the directory and qnfo-lifecycle/backlog-fold.test.mjs turned the full suite red on main. // 0.29.0 SQL-VERIFY-1 (2026-10-26, pillar autonomy; minor: a file type the loop can now verify): a task on a migrations/*.sql file is scanned and checked (quotes, comments, parentheses, terminated, header lines kept, size 0.5x to 4x of a base of 400 characters or more) instead of parking as needs_human "no deterministic verifier for .sql" (LOOP-BREAKER-1 issue 1000330). prior 0.28.2-codeagent // 0.28.1 EMPTY-REPLY-NOTHINK-1: an empty kimi-k2.7-code reply (its reasoning used the whole output budget, about a third of its calls on 2026-10-25/26) is asked once more in the same call with thinking off, instead of spending a failed attempt. 0.28.0 FLEET-TICK-SPLIT-1: a second heartbeat statement (fleet_tick_heavy) for heavy D1 steps. 0.27.1 CODE-LOOP-BUDGET-CLAIM-SCAN-1: bounded scans past held claims do not consume the capped tick's one executable step. // 0.37.7 PROMPT-CACHE-CODE-1 (pillar cost; patch): ladder calls carry x-session-affinity so repeated task context bills at the cached-input rate. // 0.37.5 NOOP-SQL-LITERAL-1 (#1001468, pillar autonomy; patch: a gate narrowed): the no-op gate no longer refuses a literal-only edit whose text holds upper-case SQL (SELECT/WHERE/IN (...)), so widening a status IN list is a real change. prior 0.37.4-codeagent; 0.37.4 CRON-ADVANCE-FIRST-1 (pillar autonomy; patch: fleet_crons next_fire advances before dispatch, never-fired crons go first, orphaned runs are closed after 2 hours). prior 0.37.3-codeagent; 0.37.3 LADDER-COST-FIRST-1 (pillar cost; patch: first rung is the cheapest rung with equal 7-day merge yield). prior 0.37.2-codeagent; 0.37.0 COMPANION-ANCHOR-LOCATOR-1 (#1001396, pillar autonomy; minor: locate a unique edit window for oversized companions before refusing the task). 0.35.0 ISSUE-AGE-REPAIR-PRIORITY-1 (#1001208, autonomy): repair notices inherit referenced 24h no-doer urgency; prior 0.34.1-codeagent;  0.34.0 ENQUEUE-CLAIM-RESERVATION-1 (#2168, pillar autonomy): reserve a task file at enqueue for 15 minutes; the first step renews it. prior 0.31.2-codeagent (FAIL-SIGNATURE-STOP-1 #5844); 0.31.1-codeagent (ANCHOR-FROM-ISSUE-1 #99916); 0.31.0 ISSUE-AGE-24H-REINTAKE-1 (#1001064, pillar autonomy; minor: requeue an open issue only when its 24h age probe confirms no live doer; bounded by trusted intake checks). prior 0.30.4-codeagent; 0.30.0 PUBLISH-SUITE-REBASE-1 (#100293, pillar autonomy; minor: after one publisher suite failure, rebuild the task from current main before retrying publication). prior 0.29.4-plan-large-file-anchors // 0.29.3 PLAN-FIRST-TIME-FIRST-1 (2026-10-26, pillar autonomy, agent_issues 1000428, BREACH-DOCTOR-1 rule R2-PLAN-FIRST; patch: an ordering fix, no new capability): planIssues now ranks a first-time plan (no issue_plans row) ahead of a re-plan (a verdict older than PLAN_RECHECK_DAYS) inside each priority class, so the daily cap of model calls is no longer spent on re-plans while first-time issues of the same class wait (2026-10-26: 48 of 48 calls used by 01:47Z, 32 of them re-plans, 6 high OWNER-TASK issues older than 120 minutes never planned); plan-first-time-first.test.mjs. // 0.29.2 INTAKE-IDLE-BEAT-1 (2026-10-26, pillar autonomy; patch: a step that ran and found nothing now leaves evidence): intakeIssues records one code-task.intake-idle event (at most once in 50 minutes, only after a successful candidate read) when it created no task, so the tick "pull" step reads ok in an hour with an empty queue; intake-idle.test.mjs. // 0.29.1 FOLDED-TARGET-AT-READ-1 (2026-10-26, pillar autonomy; patch: a gate applied to a path it missed): the read step now runs the two target rules enqueue() runs, so a row inserted straight into code_tasks (the RED-DRAIN-1 dispatch) on a FOLDED member is redirected to its host (FOLDED-TARGET-REDIRECT-1, judged before the scope as in enqueue) and one on a RETIRED or unregistered worker ends needs_human with no model call (RETIRED-TARGET-1): ct_im1000417 edited the FOLDED qnfo-backlog-exec, the merge runner merged PR 4620, the canonical deploy skips the directory and qnfo-lifecycle/backlog-fold.test.mjs turned the full suite red on main. // 0.29.0 SQL-VERIFY-1 (2026-10-26, pillar autonomy; minor: a file type the loop can now verify): a task on a migrations/*.sql file is scanned and checked (quotes, comments, parentheses, terminated, header lines kept, size 0.5x to 4x of a base of 400 characters or more) instead of parking as needs_human "no deterministic verifier for .sql" (LOOP-BREAKER-1 issue 1000330). prior 0.28.2-codeagent // 0.28.1 EMPTY-REPLY-NOTHINK-1: an empty kimi-k2.7-code reply (its reasoning used the whole output budget, about a third of its calls on 2026-10-25/26) is asked once more in the same call with thinking off, instead of spending a failed attempt. 0.28.0 FLEET-TICK-SPLIT-1: a second heartbeat statement (fleet_tick_heavy) for heavy D1 steps. 0.27.1 CODE-LOOP-BUDGET-CLAIM-SCAN-1: bounded scans past held claims do not consume the capped tick's one executable step.
+var VERSION = "0.39.0-codeagent"; // 0.39.0 CODE-LOOP-NEURON-BUDGET-1 (2026-11-04, pillar cost; minor: the loop now has a daily neuron budget it keeps; BUDGET-SOFT-ROUTE-1, slower and cheaper, never stopped): the call threshold (code_loop_daily_calls, 10 since 11-02) only selected cheapest-first order and one lane, so ai_call_counters showed 194k to 688k neurons a day (11-03 245k, of which kimi-k2.7-code and glm-5.3 escalations 190k); ops_config code_loop_daily_neurons (default 100000) now ends the dear rungs once spent, and a spent day keeps one step per half hour. neuron-budget.test.mjs. // 0.37.6 D1-OVERLOAD-1f (pillar autonomy; patch): intake skips a repeat pass for 10 minutes after an idle one. 0.37.5 NOOP-SQL-LITERAL-1 (#1001468, pillar autonomy; patch: a gate narrowed): the no-op gate no longer refuses a literal-only edit whose text holds upper-case SQL (SELECT/WHERE/IN (...)), so widening a status IN list is a real change. prior 0.37.4-codeagent; 0.37.4 CRON-ADVANCE-FIRST-1 (pillar autonomy; patch: fleet_crons next_fire advances before dispatch, never-fired crons go first, orphaned runs are closed after 2 hours). prior 0.37.3-codeagent; 0.37.3 LADDER-COST-FIRST-1 (pillar cost; patch: first rung is the cheapest rung with equal 7-day merge yield). prior 0.37.2-codeagent; 0.37.0 COMPANION-ANCHOR-LOCATOR-1 (#1001396, pillar autonomy; minor: locate a unique edit window for oversized companions before refusing the task). 0.35.0 ISSUE-AGE-REPAIR-PRIORITY-1 (#1001208, autonomy): repair notices inherit referenced 24h no-doer urgency; prior 0.34.1-codeagent;  0.34.0 ENQUEUE-CLAIM-RESERVATION-1 (#2168, pillar autonomy): reserve a task file at enqueue for 15 minutes; the first step renews it. prior 0.31.2-codeagent (FAIL-SIGNATURE-STOP-1 #5844); 0.31.1-codeagent (ANCHOR-FROM-ISSUE-1 #99916); 0.31.0 ISSUE-AGE-24H-REINTAKE-1 (#1001064, pillar autonomy; minor: requeue an open issue only when its 24h age probe confirms no live doer; bounded by trusted intake checks). prior 0.30.4-codeagent; 0.30.0 PUBLISH-SUITE-REBASE-1 (#100293, pillar autonomy; minor: after one publisher suite failure, rebuild the task from current main before retrying publication). prior 0.29.4-plan-large-file-anchors // 0.29.3 PLAN-FIRST-TIME-FIRST-1 (2026-10-26, pillar autonomy, agent_issues 1000428, BREACH-DOCTOR-1 rule R2-PLAN-FIRST; patch: an ordering fix, no new capability): planIssues now ranks a first-time plan (no issue_plans row) ahead of a re-plan (a verdict older than PLAN_RECHECK_DAYS) inside each priority class, so the daily cap of model calls is no longer spent on re-plans while first-time issues of the same class wait (2026-10-26: 48 of 48 calls used by 01:47Z, 32 of them re-plans, 6 high OWNER-TASK issues older than 120 minutes never planned); plan-first-time-first.test.mjs. // 0.29.2 INTAKE-IDLE-BEAT-1 (2026-10-26, pillar autonomy; patch: a step that ran and found nothing now leaves evidence): intakeIssues records one code-task.intake-idle event (at most once in 50 minutes, only after a successful candidate read) when it created no task, so the tick "pull" step reads ok in an hour with an empty queue; intake-idle.test.mjs. // 0.29.1 FOLDED-TARGET-AT-READ-1 (2026-10-26, pillar autonomy; patch: a gate applied to a path it missed): the read step now runs the two target rules enqueue() runs, so a row inserted straight into code_tasks (the RED-DRAIN-1 dispatch) on a FOLDED member is redirected to its host (FOLDED-TARGET-REDIRECT-1, judged before the scope as in enqueue) and one on a RETIRED or unregistered worker ends needs_human with no model call (RETIRED-TARGET-1): ct_im1000417 edited the FOLDED qnfo-backlog-exec, the merge runner merged PR 4620, the canonical deploy skips the directory and qnfo-lifecycle/backlog-fold.test.mjs turned the full suite red on main. // 0.29.0 SQL-VERIFY-1 (2026-10-26, pillar autonomy; minor: a file type the loop can now verify): a task on a migrations/*.sql file is scanned and checked (quotes, comments, parentheses, terminated, header lines kept, size 0.5x to 4x of a base of 400 characters or more) instead of parking as needs_human "no deterministic verifier for .sql" (LOOP-BREAKER-1 issue 1000330). prior 0.28.2-codeagent // 0.28.1 EMPTY-REPLY-NOTHINK-1: an empty kimi-k2.7-code reply (its reasoning used the whole output budget, about a third of its calls on 2026-10-25/26) is asked once more in the same call with thinking off, instead of spending a failed attempt. 0.28.0 FLEET-TICK-SPLIT-1: a second heartbeat statement (fleet_tick_heavy) for heavy D1 steps. 0.27.1 CODE-LOOP-BUDGET-CLAIM-SCAN-1: bounded scans past held claims do not consume the capped tick's one executable step. // 0.37.7 PROMPT-CACHE-CODE-1 (pillar cost; patch): ladder calls carry x-session-affinity so repeated task context bills at the cached-input rate. // 0.37.5 NOOP-SQL-LITERAL-1 (#1001468, pillar autonomy; patch: a gate narrowed): the no-op gate no longer refuses a literal-only edit whose text holds upper-case SQL (SELECT/WHERE/IN (...)), so widening a status IN list is a real change. prior 0.37.4-codeagent; 0.37.4 CRON-ADVANCE-FIRST-1 (pillar autonomy; patch: fleet_crons next_fire advances before dispatch, never-fired crons go first, orphaned runs are closed after 2 hours). prior 0.37.3-codeagent; 0.37.3 LADDER-COST-FIRST-1 (pillar cost; patch: first rung is the cheapest rung with equal 7-day merge yield). prior 0.37.2-codeagent; 0.37.0 COMPANION-ANCHOR-LOCATOR-1 (#1001396, pillar autonomy; minor: locate a unique edit window for oversized companions before refusing the task). 0.35.0 ISSUE-AGE-REPAIR-PRIORITY-1 (#1001208, autonomy): repair notices inherit referenced 24h no-doer urgency; prior 0.34.1-codeagent;  0.34.0 ENQUEUE-CLAIM-RESERVATION-1 (#2168, pillar autonomy): reserve a task file at enqueue for 15 minutes; the first step renews it. prior 0.31.2-codeagent (FAIL-SIGNATURE-STOP-1 #5844); 0.31.1-codeagent (ANCHOR-FROM-ISSUE-1 #99916); 0.31.0 ISSUE-AGE-24H-REINTAKE-1 (#1001064, pillar autonomy; minor: requeue an open issue only when its 24h age probe confirms no live doer; bounded by trusted intake checks). prior 0.30.4-codeagent; 0.30.0 PUBLISH-SUITE-REBASE-1 (#100293, pillar autonomy; minor: after one publisher suite failure, rebuild the task from current main before retrying publication). prior 0.29.4-plan-large-file-anchors // 0.29.3 PLAN-FIRST-TIME-FIRST-1 (2026-10-26, pillar autonomy, agent_issues 1000428, BREACH-DOCTOR-1 rule R2-PLAN-FIRST; patch: an ordering fix, no new capability): planIssues now ranks a first-time plan (no issue_plans row) ahead of a re-plan (a verdict older than PLAN_RECHECK_DAYS) inside each priority class, so the daily cap of model calls is no longer spent on re-plans while first-time issues of the same class wait (2026-10-26: 48 of 48 calls used by 01:47Z, 32 of them re-plans, 6 high OWNER-TASK issues older than 120 minutes never planned); plan-first-time-first.test.mjs. // 0.29.2 INTAKE-IDLE-BEAT-1 (2026-10-26, pillar autonomy; patch: a step that ran and found nothing now leaves evidence): intakeIssues records one code-task.intake-idle event (at most once in 50 minutes, only after a successful candidate read) when it created no task, so the tick "pull" step reads ok in an hour with an empty queue; intake-idle.test.mjs. // 0.29.1 FOLDED-TARGET-AT-READ-1 (2026-10-26, pillar autonomy; patch: a gate applied to a path it missed): the read step now runs the two target rules enqueue() runs, so a row inserted straight into code_tasks (the RED-DRAIN-1 dispatch) on a FOLDED member is redirected to its host (FOLDED-TARGET-REDIRECT-1, judged before the scope as in enqueue) and one on a RETIRED or unregistered worker ends needs_human with no model call (RETIRED-TARGET-1): ct_im1000417 edited the FOLDED qnfo-backlog-exec, the merge runner merged PR 4620, the canonical deploy skips the directory and qnfo-lifecycle/backlog-fold.test.mjs turned the full suite red on main. // 0.29.0 SQL-VERIFY-1 (2026-10-26, pillar autonomy; minor: a file type the loop can now verify): a task on a migrations/*.sql file is scanned and checked (quotes, comments, parentheses, terminated, header lines kept, size 0.5x to 4x of a base of 400 characters or more) instead of parking as needs_human "no deterministic verifier for .sql" (LOOP-BREAKER-1 issue 1000330). prior 0.28.2-codeagent // 0.28.1 EMPTY-REPLY-NOTHINK-1: an empty kimi-k2.7-code reply (its reasoning used the whole output budget, about a third of its calls on 2026-10-25/26) is asked once more in the same call with thinking off, instead of spending a failed attempt. 0.28.0 FLEET-TICK-SPLIT-1: a second heartbeat statement (fleet_tick_heavy) for heavy D1 steps. 0.27.1 CODE-LOOP-BUDGET-CLAIM-SCAN-1: bounded scans past held claims do not consume the capped tick's one executable step.
 /* 0.26.0 VERIFIER-FAILURE-REPLAY-1 (2026-10-25, issue 1000111; pillar autonomy; minor: the loop now recovers terminal tasks after a verifier fix): once, a failed verify-step task with the generic container compile failure is reset to read and retried after deployment, only when it has no branch/PR or active task on the same path. The fresh read and all existing verifiers still gate publication. */
 /* 0.25.4 ARRAYBUFFER-EXEC-OUTPUT-1 (2026-10-25, issue 1000111): Container.exec exposes stdout/stderr as ArrayBuffer; treating them as non-Uint8Array discarded COMPILE_OK and made valid Python fail verification. Normalize both before the existing byte cap; container-output.test.mjs covers the fix. */
 /* 0.25.0 PLAN-TRUST-PARITY-1 + PLAN-RELAPSE-BRIEF-1 (2026-10-20, agent_issues 100303, owner task op-mvg9vjkbaedc; pillar autonomy; minor: the planner now decides on a list it did not decide on before): plan accepts every source the merge runner trusts (ops_config code_merge_trusted_sources, one list), and a metric-relapse issue is planned from the structured fields of metric_registry and analytics_metric_triggers instead of its prose. */
@@ -282,6 +282,20 @@ const MAX_OPEN_TASKS = 48;
 const TICK_LANES = 16;
 // CODE-LOOP-SOFT-BUDGET-1: the unchanged daily call threshold steers model order and batch size, never stops a tick.
 const DAILY_MODEL_CALLS_DEFAULT = 1500;
+// CODE-LOOP-NEURON-BUDGET-1 (0.39.0, 2026-11-04, pillar cost; BUDGET-SOFT-ROUTE-1). The call threshold above is a routing switch: with
+// code_loop_daily_calls at 10 it is crossed in the day's first minutes, after which the loop still ran one step on every 2-minute tick with
+// the whole ladder behind it, so a failing task climbed to kimi-k2.7-code (about 3.2k neurons a call) and glm-5.3 (about 2.5k) against
+// gpt-oss-120b's 190. ai_call_counters, qnfo-code-orchestrator: 11-01 542k, 11-02 653k, 11-03 245k neurons, 190k of the last from the two
+// dear rungs. The money is neurons, so the loop keeps a daily neuron budget (ops_config code_loop_daily_neurons, default 100000, about
+// USD 1.10; off or 0 disables). Under it nothing changes. Once it is spent the ladder keeps only the rungs priced within
+// CHEAP_RUNG_FACTOR of the cheapest (gpt-oss-120b), and a scheduled tick runs steps and planning only in the first 2-minute slot of every
+// CODE_FLOOR_EVERY_TICKS (one step per 30 minutes), so the loop slows to about 48 steps a day and does not stop. Near the budget a tick
+// starts no more lanes than the headroom buys at CODE_STEP_NEURONS_EST, so a burst cannot jump the budget by 16 dear steps.
+const DAILY_NEURONS_DEFAULT = 100000;
+const CODE_TICK_MS = 120000;
+const CODE_FLOOR_EVERY_TICKS = 15;
+const CHEAP_RUNG_FACTOR = 2;
+const CODE_STEP_NEURONS_EST = 3500;
 // LEASE-FENCE-1 (0.18.23): was 90 s. Measured in ai_call_counters 2026-10-18/19, a ladder call averages 44 s (gpt-oss-120b), 106 s
 // (kimi-k2.7-code) and 175 s (glm-5.3), so most propose steps outlived their lease and a second lane ran the same step: two model
 // calls for one attempt, and the slower lane overwrote the faster one. Five minutes covers the slowest rung's average; a crashed
@@ -3609,15 +3623,6 @@ async function loopRelease(env, holder) {
   try { await env.AUDIT_DB.prepare("DELETE FROM loop_lock WHERE k='tick' AND holder=?").bind(holder).run(); }
   catch (e) { console.error(JSON.stringify({ worker: WORKER, where: "loopRelease", error: String((e && e.message) || e).slice(0, 200) })); }
 }
-async function modelCallsToday(env) {
-  try {
-    const r = await env.AUDIT_DB.prepare("SELECT COALESCE(SUM(calls), 0) AS n FROM ai_call_counters WHERE day = date('now') AND worker = ?").bind(WORKER).first();
-    return Number((r && r.n) || 0);
-  } catch (e) {
-    console.error(JSON.stringify({ worker: WORKER, where: "modelCallsToday", error: String((e && e.message) || e).slice(0, 200) }));
-    return -1;
-  }
-}
 // CODE-LOOP-CEILINGS-TUNABLE-1 (0.18.26, agent_issues 100075): the planner's daily cap and the tick's lane count read
 // ops_config (code_plan_daily_cap, code_tick_lanes) so they move without a deploy and revert by deleting the row; the
 // literals are the defaults and [lo, hi] bounds a bad value. A read error keeps the default.
@@ -3637,16 +3642,45 @@ async function dailyCallCap(env) {
   } catch (e) { /* no ops_config here: the default applies */ }
   return DAILY_MODEL_CALLS_DEFAULT;
 }
+// CODE-LOOP-NEURON-BUDGET-1: today's calls and neurons of this worker in one read. -1 calls is an unreadable meter.
+async function modelUsageToday(env) {
+  try {
+    const r = await env.AUDIT_DB.prepare("SELECT COALESCE(SUM(calls), 0) AS n, COALESCE(SUM(neurons), 0) AS neurons FROM ai_call_counters WHERE day = date('now') AND worker = ?").bind(WORKER).first();
+    return { calls: Number((r && r.n) || 0), neurons: Number((r && r.neurons) || 0) };
+  } catch (e) {
+    console.error(JSON.stringify({ worker: WORKER, where: "modelUsageToday", error: String((e && e.message) || e).slice(0, 200) }));
+    return { calls: -1, neurons: 0 };
+  }
+}
+async function dailyNeuronBudget(env) {
+  try {
+    const r = await env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'code_loop_daily_neurons'").first();
+    const v = String((r && r.value) == null ? "" : r.value).trim().toLowerCase();
+    if (v === "off") return 0;
+    const n = Number(v);
+    if (v !== "" && Number.isFinite(n)) return n > 0 ? Math.floor(Math.min(n, 5e6)) : 0;
+  } catch (e) { /* no ops_config here: the default applies */ }
+  return DAILY_NEURONS_DEFAULT;
+}
+// The first 2-minute slot of every CODE_FLOOR_EVERY_TICKS slots is the spent day's step; stateless, so two ticks in that slot both run.
+function floorSlot(nowMs) {
+  return Math.floor(nowMs / CODE_TICK_MS) % CODE_FLOOR_EVERY_TICKS === 0;
+}
 async function spendGate(env) {
-  const used = await modelCallsToday(env);
+  const usage = await modelUsageToday(env);
+  const used = usage.calls;
   if (used < 0) return { ok: true, used: null, cap: null };
   const cap = await dailyCallCap(env);
-  if (used < cap) return { ok: true, used: used, cap: cap };
+  const nb = await dailyNeuronBudget(env);
+  const neurons = Math.round(usage.neurons);
+  const floor = nb > 0 && neurons >= nb;
+  if (used < cap && !floor) return { ok: true, used: used, cap: cap, neurons: neurons, neuron_budget: nb, headroom: nb > 0 ? nb - neurons : null };
   if (Date.now() - spendGate.lastAudit > 3600e3) {
     spendGate.lastAudit = Date.now();
-    await audit(env, "code-task.spend-cap", "today's model calls " + used + " >= threshold " + cap + "; cheapest-first ladder, one lane and one step per tick; work continues", { used: used, cap: cap, model: budgetLadder(env)[0] }, "routed");
+    const why = floor ? "today's neurons " + neurons + " >= budget " + nb + "; dear rungs off, one step per half hour" : "today's model calls " + used + " >= threshold " + cap + "; cheapest-first ladder, one lane and one step per tick";
+    await audit(env, "code-task.spend-cap", why + "; work continues", { used: used, cap: cap, neurons: neurons, neuron_budget: nb, floor: floor, model: (floor ? cheapLadder(env) : budgetLadder(env))[0] }, "routed");
   }
-  return { ok: true, capped: true, used: used, cap: cap };
+  return { ok: true, capped: true, used: used, cap: cap, neurons: neurons, neuron_budget: nb, floor: floor, headroom: nb > 0 ? nb - neurons : null };
 }
 spendGate.lastAudit = 0;
 function budgetLadder(env) {
@@ -3660,9 +3694,18 @@ function budgetLadder(env) {
     return (ra[0] + ra[1]) - (rb[0] + rb[1]);
   });
 }
+// CODE-LOOP-NEURON-BUDGET-1: the rungs a spent day keeps, the priced ones within CHEAP_RUNG_FACTOR of the cheapest. An unpriced model
+// is not evidence of a cheap one (budgetLadder keeps it only as a fallback), so it is dropped here.
+function cheapLadder(env) {
+  const priced = budgetLadder(env).filter(function (model) { return !!LADDER_RATES[model]; });
+  if (priced.indexOf(DEFAULT_LADDER[0]) < 0) priced.unshift(DEFAULT_LADDER[0]);
+  priced.sort(function (a, b) { return modelCost(a) - modelCost(b); });
+  const floorCost = modelCost(priced[0]);
+  return priced.filter(function (model) { return modelCost(model) <= CHEAP_RUNG_FACTOR * floorCost; });
+}
 function budgetEnv(env, gate) {
   if (!gate.capped) return env;
-  const models = budgetLadder(env);
+  const models = gate.floor ? cheapLadder(env) : budgetLadder(env);
   return Object.assign({}, env, { MODEL_LADDER: models.join(","), PLAN_MODEL: models[0], _budgetModel: models[0] });
 }
 // ---- SINGLE-FLIGHT-1 / SPEND-CAP-1:END ----
@@ -3757,13 +3800,17 @@ async function tick(env, opts) {
   if (!opts || opts.intake !== false) { try { await intakeIssues(env, 8); } catch (e) { await audit(env, "code-task.intake-error", String((e && e.message) || e).slice(0, 200), null, "error"); } }
   const gate = await spendGate(env);
   env = budgetEnv(env, gate);
+  // CODE-LOOP-NEURON-BUDGET-1: a scheduled tick of a day that has spent its neuron budget runs steps and planning only in the floor slot.
+  const floorSkip = gate.floor === true && !!(opts && opts.scheduled === true) && !floorSlot(Date.now());
   const budget = Math.min(Number(opts && opts.budgetMs) || 20000, 50000); // PLAN-RESERVE-1 (0.18.3): the plan step runs AFTER the lanes and the lanes spend the whole budget, so with a failing queue the tick never reached planning -- measured 2026-10-17: fleet_tick every 10 min, code_tasks moving every minute, WIP below PLAN_WIP, cap headroom, 40 candidates waiting, and issue_plans recorded nothing from 15:21:02Z. Planning gets a reserved slice instead of whatever is left over. The reserve never starves the lanes: it is skipped when the budget is too small to split.
   const PLAN_RESERVE_MS = 15000;
   const laneBudget = budget > PLAN_RESERVE_MS * 2 ? budget - PLAN_RESERVE_MS : budget; // CODE-LOOP-2X-1: caps 50 s / 48 steps (were 25 s / 12)
-  const maxSteps = Math.min(Number(opts && opts.maxSteps) || 16, gate.capped ? 1 : 64);
+  const maxSteps = floorSkip ? 0 : Math.min(Number(opts && opts.maxSteps) || 16, gate.capped ? 1 : 64);
   // TICK-PARALLEL-N (0.18.0): up to TICK_LANES task lanes run at once. Before, one lane took one step and awaited it, so a
   // single 20-40 s model call consumed the whole budget and the other 15 allowed steps never ran.
-  const lanes = gate.capped ? 1 : Math.max(1, Math.min(Number(opts && opts.lanes) || await opsInt(env, "code_tick_lanes", TICK_LANES, 1, 16), 16));
+  const lanesWanted = gate.capped ? 1 : Math.max(1, Math.min(Number(opts && opts.lanes) || await opsInt(env, "code_tick_lanes", TICK_LANES, 1, 16), 16));
+  // CODE-LOOP-NEURON-BUDGET-1: lanes the remaining neuron budget can pay for at a dear step each, never fewer than one.
+  const lanes = gate.headroom != null && !gate.capped ? Math.max(1, Math.min(lanesWanted, Math.floor(gate.headroom / CODE_STEP_NEURONS_EST))) : lanesWanted;
   const t0 = Date.now();
   const done = [];
   let executed = 0, scanned = 0, reserved = 0;
@@ -3799,12 +3846,12 @@ async function tick(env, opts) {
   if (!opts || opts.claims !== false) { try { claims = await claimsSweep(env); } catch (e) { claims = { error: String((e && e.message) || e).slice(0, 200) }; await audit(env, "code-task.claims-error", claims.error, null, "error"); } }
   // ISSUE-PLANNER-1: after the steps, turn at most one prose issue into a code task (or record why not).
   let plan = null;
-  if (!opts || opts.plan !== false) { try { plan = await planIssues(env); } catch (e) { plan = { planned: false, error: String((e && e.message) || e).slice(0, 200) }; await audit(env, "code-task.plan-error", plan.error, null, "error"); } }
+  if ((!opts || opts.plan !== false) && !floorSkip) { try { plan = await planIssues(env); } catch (e) { plan = { planned: false, error: String((e && e.message) || e).slice(0, 200) }; await audit(env, "code-task.plan-error", plan.error, null, "error"); } }
   // STEP-SLA-1 (0.18.0): every step's SLA is enforced after the steps, so a task parked behind a wait longer than its SLA
   // is claimable by the next tick instead of at the end of that wait.
   let sla = null;
   if (!opts || opts.sla !== false) { try { sla = await slaSweep(env); } catch (e) { sla = { error: String((e && e.message) || e).slice(0, 200) }; await audit(env, "code-task.sla-error", sla.error, null, "error"); } }
-  return { ok: true, steps: done.length, executed_steps: executed, lanes: lanes, budget_ms: Date.now() - t0, capped: gate.capped === true, calls_today: gate.used, daily_cap: gate.cap, done: done, plan: plan, claims: claims, sla: sla };
+  return { ok: true, steps: done.length, executed_steps: executed, lanes: lanes, budget_ms: Date.now() - t0, capped: gate.capped === true, floor: gate.floor === true, floor_skip: floorSkip, neurons_today: gate.neurons, neuron_budget: gate.neuron_budget, calls_today: gate.used, daily_cap: gate.cap, done: done, plan: plan, claims: claims, sla: sla };
 }
 async function handleV1(req, env, url) {
   if (!env.AUDIT_DB) return json({ ok: false, error: "AUDIT_DB binding missing" }, 503);
@@ -4217,7 +4264,7 @@ export default {
         await audit(env, "code-task.tick-skipped", "another tick still holds loop_lock; this minute is skipped rather than stacked", null, "held").catch(function () { return null; });
         return true;
       }
-      try { return await tick(env, { budgetMs: 40000, maxSteps: 48 }); }
+      try { return await tick(env, { budgetMs: 40000, maxSteps: 48, scheduled: true }); }
       finally { await loopRelease(env, held); }
     })()
       .then(function () { return true; }, function (e) { return audit(env, "code-task.tick-error", String((e && e.message) || e), null, "error").then(function () { return false; }, function (e2) { console.error("code-task tick-error audit failed: " + String((e2 && e2.message) || e2).slice(0, 200)); return false; }); })
