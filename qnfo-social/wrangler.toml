@@ -42,6 +42,10 @@ binding = "LIVING_PAPER"
 database_name = "living-paper"
 database_id = "70a58cb3-b2cd-498d-877f-ecca86859a22"
 
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "qnfo-media"
+
 [ai]
 binding = "AI"
 

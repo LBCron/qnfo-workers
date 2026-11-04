@@ -39,7 +39,8 @@ ok(!re.test("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/
 ok(!/qnfo-social link-probe\)"/.test(src) && !/qnfo-social link-gate\)"/.test(src), "the old agents without the bot marker are gone");
 ok(src === mirror, "deployed-current.worker.js is identical to worker.js");
 const v = /var VERSION = "([^"]+)"/.exec(src);
-ok(!!v && /^0\.21\.(1[5-9]|[2-9]\d)/.test(v[1]), "VERSION is 0.21.15 or above", v && v[1]);
+const vp = v ? v[1].split(".").map(Number) : [0, 0, 0];
+ok(!!v && (vp[0] > 0 || vp[1] > 21 || (vp[1] === 21 && vp[2] >= 15)), "VERSION is 0.21.15 or above", v && v[1]);
 
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
