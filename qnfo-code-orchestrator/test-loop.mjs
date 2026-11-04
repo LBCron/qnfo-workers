@@ -372,12 +372,12 @@ function fakeLoader(spinMs) {
   const src = (await import("node:fs")).readFileSync(new URL("./worker.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const m = /async function claim\(env\) \{[\s\S]*?\n\}/.exec(src);
   check("claim order (source check): merged-family priority, then waited-first, attempts ASC, created_at ASC in claim()",
-    !!m && m[0].includes('"ORDER BY CASE WHEN " + recentMerges + " >= 2 THEN 0 ELSE 1 END, CASE WHEN q.updated_at < ? THEN 0 ELSE 1 END, q.attempts ASC, q.created_at ASC'),
+    !!m && m[0].includes('"ORDER BY CASE WHEN " + PRODUCT_TASK_SQL + " THEN 0 ELSE 1 END, CASE WHEN " + recentMerges + " >= 2 THEN 0 ELSE 1 END, CASE WHEN q.updated_at < ? THEN 0 ELSE 1 END, q.attempts ASC, q.created_at ASC'),
     m && m[0].slice(0, 300));
   // CLAIM-AGE-1: run the shipped claim SQL on real SQL. A fresh task beats a retry that just failed (CLAIM-FAIRNESS-1),
   // and a retry that has waited 20+ minutes beats a fresh one (no starvation under continuous intake).
   const defs = /^const CODE_TASK_DONE = .*$/m.exec(src)[0] + "\n" + /^const CODE_TASK_DONE_SQL = .*$/m.exec(src)[0] + "\n" +
-    /^const FAMILY_HISTORY_DAYS = .*$/m.exec(src)[0] + "\n" +
+    /^const FAMILY_HISTORY_DAYS = .*$/m.exec(src)[0] + "\n" + /^const PRODUCT_TASK_SQL = .*$/m.exec(src)[0] + "\n" +
     /function taskFamilySql\(alias\) \{[\s\S]*?\n\}/.exec(src)[0] + "\n" +
     /function taskPathKeySql\(alias\) \{[\s\S]*?\n\}/.exec(src)[0] + "\n" +
     /const recentMerges = .*;\n/.exec(m[0])[0];
@@ -385,13 +385,14 @@ function fakeLoader(spinMs) {
   const sql = new Function(defs + "\nreturn (" + expression + ");")();
   const run = (rows, nowMs) => {
     const d = new DatabaseSync(":memory:");
-    d.exec("CREATE TABLE code_tasks (id TEXT PRIMARY KEY, repo TEXT, path TEXT, status TEXT, lease_until TEXT, attempts INTEGER, created_at TEXT, updated_at TEXT)");
-    for (const r of rows) d.prepare("INSERT INTO code_tasks VALUES (?,?,?,?,?,?,?,?)").run(r.id, "qnfo-workers", "docs/" + r.id + ".md", "queued", null, r.attempts, r.created_at, r.updated_at);
+    d.exec("CREATE TABLE code_tasks (id TEXT PRIMARY KEY, repo TEXT, path TEXT, goal TEXT, status TEXT, lease_until TEXT, attempts INTEGER, created_at TEXT, updated_at TEXT)");
+    for (const r of rows) d.prepare("INSERT INTO code_tasks VALUES (?,?,?,?,?,?,?,?,?)").run(r.id, "qnfo-workers", r.path || ("docs/" + r.id + ".md"), "g", "queued", null, r.attempts, r.created_at, r.updated_at);
     const iso = (ms) => new Date(ms).toISOString();
     return d.prepare(sql).get(iso(nowMs + 6e5), iso(nowMs), iso(nowMs), iso(nowMs - 20 * 6e4)).id;
   };
   const T = Date.parse("2026-10-02T08:00:00Z"), at = (min) => new Date(T - min * 6e4).toISOString();
   check("claim: a fresh task goes before a retry that failed 5 minutes ago", run([{ id: "retry", attempts: 1, created_at: at(60), updated_at: at(5) }, { id: "fresh", attempts: 0, created_at: at(1), updated_at: at(1) }], T) === "fresh");
+  check("claim: a product task goes before older fleet self-maintenance (PRODUCT-FIRST-CLAIM-1)", run([{ id: "self", path: "scripts/x.py", attempts: 0, created_at: at(90), updated_at: at(90) }, { id: "prod", path: "personal-companion/worker.js", attempts: 0, created_at: at(1), updated_at: at(1) }], T) === "prod");
   check("claim: a retry waiting 25 minutes goes before fresh intake (no starvation)", run([{ id: "retry", attempts: 1, created_at: at(60), updated_at: at(25) }, { id: "fresh", attempts: 0, created_at: at(1), updated_at: at(1) }], T) === "retry");
   check("claim: among long-waiting tasks, fewest attempts then oldest still decide", run([{ id: "r2", attempts: 2, created_at: at(90), updated_at: at(30) }, { id: "r1", attempts: 1, created_at: at(60), updated_at: at(30) }], T) === "r1");
 }
