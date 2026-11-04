@@ -11,13 +11,15 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.85.0";
+var VERSION = "1.87.0";
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
 // 1.85.0 (cont.) NOW-ONETAP-1: "I did it" asks the fleet to verify and close the card, and "Not needed" parks it for 90 days, so no one-tap option asks for a fresh email code (done and dismiss on /api/owner/respond are step-up actions).
 // 1.85.0 NOW-HANDBACK-1 (owner request 2026-11-04, pillar autonomy; minor, new route): each owner card has four one-tap options (Fleet: you do it, Snooze 7 days, I did it, Not needed); POST /api/v3/handback files the card as fleet work (OWNER-HANDBACK ticket, card set rerouted) so the owner never has to do reversible work; the Now screen also shows the last 24 hours of deploys, merges and issue churn.
 // 1.83.5 (cont.) NOW-PRIVATE-1: the Now screen shows card titles only to the signed-in owner; a stranger sees a placeholder (one title named the owner's work-authorization and permit status).
 // 1.83.5 (cont.) NOW-CMD-PROOF-1: the Is-it-running card shows when the command line last ran and how it ended (cmd_log kind agent), or that it never ran.
 // 1.83.5 NOW-FRESH-1 (pillar core; patch): the Money card shows how old its data is (the cost ledger row it reads) and turns amber after 3 hours, so the owner can see that it is updating.
+// 1.87.0 UX-AUDITOR-3 (pillar reach; minor: crawler 404 paths are audited): the auditor also fetches the top 5 paths crawlers got a 404 on (papers.qnfo.org /api/seo/crawl notFound, 7 days) and records them as crawl:<host>, kept out of every product score.
+// 1.86.0 UX-AUDITOR-2 (pillar reach; minor: the auditor follows real readers): targets now include the pages and papers people viewed most in 7 days (reach_signals cf-rum-human) next to every product host, a slow result is re-fetched once so a cold start is not scored as a defect, and a 401 or 403 sign-in wall is recorded as auth-gated, not unreachable.
 // 1.84.0 UX-AUDITOR-1 (pillar reach; minor: new role): uxAudit fetches each active product host hourly and writes a deterministic layout, accessibility, typography and speed score to site_ux_checks (no model call); the staff-roster workflow files one deduped agent request per product per day for a low score.
 // 1.83.4 NOW-SPLIT-1 (pillar cost; patch): the Money card splits the monthly pace into what the fleet controls and the owner-stated subscription figure.
 // 1.83.3 (merge of PR 6935 onto main 1.83.0): keeps the 1.82.3 dashboard changes of this branch.
@@ -479,7 +481,8 @@ function uxAnalyzeHtml(html, ms, status) {
   const h = String(html || "");
   const f = [];
   const add = function(k, d, n) { f.push({ k: k, d: d, n: n }); };
-  if (status >= 400 || status === 0) add("unreachable", 40, 1);
+  if (status === 401 || status === 403) add("auth-gated", 0, 1);
+  else if (status >= 400 || status === 0) add("unreachable", 40, 1);
   if (!/<meta[^>]+name=["']viewport["']/i.test(h)) add("no-viewport", 15, 1);
   else if (/user-scalable\s*=\s*(no|0)|maximum-scale\s*=\s*1(\.0)?\b/i.test(h)) add("zoom-locked", 8, 1);
   if (!/<html[^>]+\blang=/i.test(h)) add("no-lang", 8, 1);
@@ -503,27 +506,82 @@ function uxAnalyzeHtml(html, ms, status) {
   for (const x of f) score -= x.d;
   return { score: Math.max(0, score), findings: f };
 }
+async function uxFetch(url) {
+  const t0 = Date.now();
+  let status = 0, html = "";
+  try {
+    const resp = await fetch(url, { headers: { "user-agent": "qnfo-ux-auditor/1", accept: "text/html" }, redirect: "follow", signal: AbortSignal.timeout(8e3) });
+    status = resp.status;
+    html = (await resp.text()).slice(0, 700000);
+  } catch (e) {
+    status = 0;
+  }
+  return { status: status, html: html, ms: Date.now() - t0 };
+}
+// UX-AUDITOR-2 (1.86.0): the auditor also checks the pages readers actually land on. Targets are every active product host plus the
+// pages and papers people viewed most in the last 7 days (reach_signals cf-rum-human), so the check follows real traffic.
+async function uxTargets(env) {
+  const out = [];
+  const seen = {};
+  const add = function(product, host, path) {
+    const key = host + path;
+    if (seen[key]) return;
+    seen[key] = 1;
+    out.push({ product: product, host: host, path: path });
+  };
+  const reg = (await env.AUDIT.prepare("SELECT product, host FROM product_registry WHERE state = 'active' AND host LIKE '%.%'").all()).results || [];
+  const byHost = {};
+  for (const r of reg) { byHost[r.host] = r.product; add(r.product, r.host, "/"); }
+  try {
+    const pages = (await env.AUDIT.prepare("SELECT entity_id, SUM(value) v FROM reach_signals WHERE source = 'cf-rum-human' AND metric = 'pageviews' AND entity_type = 'page' AND date >= date('now','-7 days') GROUP BY entity_id ORDER BY v DESC LIMIT 14").all()).results || [];
+    for (const g of pages) {
+      const i = String(g.entity_id).indexOf("/");
+      const host = i < 0 ? g.entity_id : g.entity_id.slice(0, i);
+      const path = i < 0 ? "/" : g.entity_id.slice(i);
+      if (!/^[a-z0-9.-]+\.[a-z]+$/i.test(host) || /[\s?#]/.test(path)) continue;
+      add(byHost[host] || ("site:" + host), host, path);
+    }
+    const papers = (await env.AUDIT.prepare("SELECT entity_id, SUM(value) v FROM reach_signals WHERE source = 'cf-rum-human' AND metric = 'pageviews' AND entity_type = 'paper' AND date >= date('now','-7 days') GROUP BY entity_id ORDER BY v DESC LIMIT 3").all()).results || [];
+    for (const g of papers) {
+      if (/^[a-z0-9-]+$/i.test(g.entity_id)) add(byHost["papers.qnfo.org"] || "site:papers.qnfo.org", "papers.qnfo.org", "/papers/" + g.entity_id);
+    }
+  } catch (e) {
+  }
+  // UX-AUDITOR-3: the paths crawlers (Google first) asked for and got a 404 on, from the gateway's own crawl log (seo_404_paths).
+  // Recorded under product crawl:<host> so they never move a product's score or the site_ux_score_min metric.
+  try {
+    const resp = await fetch("https://papers.qnfo.org/api/seo/crawl?days=7", { headers: { "user-agent": "qnfo-ux-auditor/1" }, signal: AbortSignal.timeout(6e3) });
+    const j = resp.ok ? await resp.json() : null;
+    const nf = (j && Array.isArray(j.notFound) ? j.notFound : []).slice(0, 5);
+    for (const g of nf) {
+      const host = String(g.host || "");
+      const path = String(g.path || "");
+      if (!/^[a-z0-9.-]+\.[a-z]+$/i.test(host) || path.charAt(0) !== "/" || /[\s?#]/.test(path)) continue;
+      add("crawl:" + host, host, path);
+    }
+  } catch (e) {
+  }
+  return out;
+}
 async function uxAudit(env) {
   try {
     await env.AUDIT.prepare("CREATE TABLE IF NOT EXISTS site_ux_checks (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), product TEXT NOT NULL, host TEXT, status INTEGER, ms INTEGER, bytes INTEGER, score INTEGER, findings TEXT)").run();
     const last = await env.AUDIT.prepare("SELECT MAX(ts) AS t FROM site_ux_checks").first();
     if (last && last.t && Date.parse(last.t) > Date.now() - 50 * 60 * 1e3) return { skipped: "ran within 50 minutes" };
-    const rows = (await env.AUDIT.prepare("SELECT product, host FROM product_registry WHERE state = 'active' AND host LIKE '%.%'").all()).results || [];
+    const targets = await uxTargets(env);
     let n = 0;
-    for (const r of rows) {
-      const t0 = Date.now();
-      let status = 0, html = "";
-      try {
-        const resp = await fetch("https://" + r.host + "/", { headers: { "user-agent": "qnfo-ux-auditor/1", accept: "text/html" }, redirect: "follow", signal: AbortSignal.timeout(8e3) });
-        status = resp.status;
-        html = (await resp.text()).slice(0, 700000);
-      } catch (e) {
-        status = 0;
-      }
-      const ms = Date.now() - t0;
-      const a = uxAnalyzeHtml(html, ms, status);
-      await env.AUDIT.prepare("INSERT INTO site_ux_checks (product, host, status, ms, bytes, score, findings) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(r.product, r.host, status, ms, html.length, a.score, JSON.stringify(a.findings)).run();
-      n++;
+    for (let i = 0; i < targets.length; i += 5) {
+      await Promise.all(targets.slice(i, i + 5).map(async function(r) {
+        const url = "https://" + r.host + r.path;
+        let f = await uxFetch(url);
+        if (f.ms > 1500 && f.status >= 200 && f.status < 400) {
+          const again = await uxFetch(url);
+          if (again.status === f.status && again.ms < f.ms) f = again;
+        }
+        const a = uxAnalyzeHtml(f.html, f.ms, f.status);
+        await env.AUDIT.prepare("INSERT INTO site_ux_checks (product, host, status, ms, bytes, score, findings) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(r.product, r.host + (r.path === "/" ? "" : r.path), f.status, f.ms, f.html.length, a.score, JSON.stringify(a.findings)).run();
+        n++;
+      }));
     }
     await env.AUDIT.prepare("DELETE FROM site_ux_checks WHERE ts < strftime('%Y-%m-%dT%H:%M:%SZ','now','-14 days')").run();
     return { checked: n };
