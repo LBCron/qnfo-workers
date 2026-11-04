@@ -26,15 +26,11 @@ name: codeql
 # read runs it.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'ci-status/**'
-      - 'audits/**'
-  # MERGE-WHEN-READY-1 (2026-11-04): no pull_request trigger. The three analyze jobs averaged 258 s (max 361 s) on every PR and are not a merge condition;
-  # the same scan runs on the push to main and weekly. Revert: restore the pull_request block (branches: [main], the same paths-ignore).
+  # RUNNER-QUEUE-1 (2026-11-04): no push or pull_request trigger. At 15:15Z the hosted-runner queue held 59 runs with waits up to 6 minutes (merge-when-ready, mirror-guard and
+  # version-bump-guard sat behind them) and 4 push-to-main CodeQL runs (3 analyze jobs each, 4 to 6 minutes) were running at once: about 11 merges an hour each started one.
+  # The scan runs once a day on main instead, and on demand. Revert: restore the push block (branches: [main], paths-ignore ci-status/** and audits/**) and use cron '17 4 * * 1'.
   schedule:
-    - cron: '17 4 * * 1'
+    - cron: '17 4 * * *'
   workflow_dispatch:
 
 permissions:
