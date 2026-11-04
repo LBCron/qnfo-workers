@@ -1,14 +1,19 @@
 """YT-SERVER-1 render core, shared by server.py (Cloudflare Container) and the GitHub-runner fallback.
 
 render(job, outdir) -> dict(path, duration_s). job = {"title", "beats": [{"kind", ..., "sentences": [{"text", "audio_b64"}]}]}.
-Word times are not returned by Workers AI TTS, so each sentence's measured length is split over its words by character count
-(sentence-level timing is exact, word-level is proportional).
+Voice, YT-VOICE-1: a beat whose sentences carry no audio_b64 is spoken here by Kokoro-82M (Apache-2.0, CPU, no per-minute cost) in ONE pass over the
+whole beat, so intonation runs across sentence ends, and the model's own token times give real word timing for the captions. A beat that carries audio
+(the Workers AI Aura/melotts fallback) keeps the old path: each sentence's measured length is split over its words by character count.
 """
 import base64, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CR, NL = chr(13), chr(10)
+KOKORO_VOICE = os.environ.get("KOKORO_VOICE", "af_heart")
+KOKORO_SPEED = float(os.environ.get("KOKORO_SPEED", "1.05"))     # a little brisker than the default 1.0, for short-form pace
+KOKORO_RATE = 24000
+PUNCT = ".,;:!?\"'()-—–…"
 FONT = os.environ.get("SHORT_FONT", "DejaVu Sans")
 
 
@@ -106,25 +111,82 @@ def split_words(text, start, dur):
     return out
 
 
+def words_from_tokens(tokens, offset):
+    """(word, start, duration) from Kokoro tokens. A punctuation-only token is glued to the word before it (the caption chunker breaks on a trailing , . ? !),
+    a token with no time (None) inherits the end of the previous word so nothing is dropped."""
+    out = []
+    for tk in tokens or []:
+        text = (getattr(tk, "text", "") or "").strip()
+        if not text:
+            continue
+        st, en = getattr(tk, "start_ts", None), getattr(tk, "end_ts", None)
+        if all(c in PUNCT for c in text):
+            if out:
+                w, s0, d0 = out[-1]
+                out[-1] = (w + text, s0, d0)
+            continue
+        if st is None or en is None:
+            st = (out[-1][1] - offset + out[-1][2]) if out else 0.0
+            en = st + 0.18
+        out.append((text, offset + st, max(en - st, 0.06)))
+    return out
+
+
+def speakable(text):
+    """Dashes become a spoken comma (a model reads an em dash as nothing or as a glitch) and runs of spaces collapse."""
+    return re.sub(r"\s+", " ", re.sub(r"\s*[—–]\s*", ", ", text)).strip()
+
+
+def kokoro_beat(text, wav_path, t0, voice=None, _p={}):
+    """Speak one beat in a single pass; write the mono wav and return (words with absolute times from t0, seconds)."""
+    import numpy as np, soundfile as sf
+    if "p" not in _p:
+        from kokoro import KPipeline
+        _p["p"] = KPipeline(lang_code="a", device="cpu")
+    audio, words, off = [], [], 0.0
+    for res in _p["p"](text, voice=voice or KOKORO_VOICE, speed=KOKORO_SPEED, split_pattern=r"\n+"):
+        if res.audio is None:
+            continue
+        a = res.audio.detach().cpu().numpy() if hasattr(res.audio, "detach") else np.asarray(res.audio)
+        words += words_from_tokens(res.tokens, t0 + off)
+        off += len(a) / KOKORO_RATE
+        audio.append(a)
+    if not audio:
+        raise RuntimeError("kokoro returned no audio")
+    sf.write(str(wav_path), np.concatenate(audio), KOKORO_RATE)
+    return words, off
+
+
 def render(job, out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     beats = job["beats"]
     t, allw, lst = 0.0, [], []
     for i, b in enumerate(beats):
-        parts, bt = [], 0.0
-        for j, s in enumerate(b["sentences"]):
-            f = out / f"b{i}s{j}.mp3"
-            f.write_bytes(base64.b64decode(s["audio_b64"]))
-            d = probe(f)
-            allw += split_words(s["text"], t + bt, d)
-            bt += d
-            parts.append(f)
-        dur = round(bt + 0.3, 2)   # tight beats; the voice already ends on a breath
-        b["dur"] = dur
-        (out / f"b{i}.txt").write_text("".join(f"file '{p.as_posix()}'\n" for p in parts))
         wav = out / f"b{i}.wav"
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(out / f"b{i}.txt"), "-af", "apad", "-t", str(dur), "-ar", "24000", "-ac", "1", str(wav)], check=True)
+        if all(not s.get("audio_b64") for s in b["sentences"]):      # YT-VOICE-1: spoken here, whole beat at once
+            try:
+                src = out / f"b{i}.k.wav"
+                ws, bt = kokoro_beat(speakable(" ".join(s["text"] for s in b["sentences"])), src, t, job.get("voice"))
+            except Exception as e:      # the Worker reads "kokoro:" and re-voices the job with Aura on its next attempt
+                raise RuntimeError("kokoro: " + repr(e)[:300])
+            allw += ws
+            dur = round(bt + 0.3, 2)
+            b["dur"] = dur
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-af", "apad", "-t", str(dur), "-ar", "24000", "-ac", "1", str(wav)], check=True)
+        else:
+            parts, bt = [], 0.0
+            for j, s in enumerate(b["sentences"]):
+                f = out / f"b{i}s{j}.mp3"
+                f.write_bytes(base64.b64decode(s["audio_b64"]))
+                d = probe(f)
+                allw += split_words(s["text"], t + bt, d)
+                bt += d
+                parts.append(f)
+            dur = round(bt + 0.3, 2)   # tight beats; the voice already ends on a breath
+            b["dur"] = dur
+            (out / f"b{i}.txt").write_text("".join(f"file '{p.as_posix()}'\n" for p in parts))
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(out / f"b{i}.txt"), "-af", "apad", "-t", str(dur), "-ar", "24000", "-ac", "1", str(wav)], check=True)
         lst.append(f"file '{wav.as_posix()}'")
         t += dur
     (out / "a.txt").write_text("\n".join(lst) + "\n")

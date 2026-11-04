@@ -172,3 +172,22 @@ had already published (two public Shorts on 2026-10-27), not only to the laptop 
 - Deploy: merge to main runs deploy-youtube-shorts.yml (wrangler deploy of the worker and the container image, `/health` gate on 0.2.0, `/status` container check).
 - Verify after deploy: `GET /status` shows version 0.2.0-quality; the next queued paper's row reaches `uploaded` with a `beats.json` containing at least four kinds
   (`youtube/<id>/beats.json` in R2). Known limit: Workers AI TTS returns no word times, so captions split each sentence's measured length by character count.
+
+## Update 2026-11-04: voice and script (YT-VOICE-1, YT-SCRIPT-1)
+Owner feedback: the Shorts read numbers and copy off the screen like a slide, in unnatural, unsentenced speech, on the same layout every time.
+Measured first (read from the public channel pages, 2026-11-04): the channel `@rwnquni` has 2 subscribers; the pipeline's Shorts have 6, 9, 12 and 40 views.
+`youtube_videos.views` is still NULL: the analytics consent (IDENTITY-BOUND, human_actions yt-analytics-consent) has not been given, so retention is unmeasured.
+Cause found in the code: the director asked for "110-150 words" cut straight into beats, each a template with on-screen text, and voiced each sentence separately (Aura per sentence, no
+phrase-level intonation, word times split by character count).
+Changes (qnfo-youtube-shorts 0.5.0):
+- **Script first.** The director writes the whole voice-over as a story (hook, stakes, idea plus one everyday comparison, a turn that carries the caveat, payoff, closing question),
+  then cuts it into 5-7 beats; pictures illustrate and never repeat the words; data templates only for figures the article states. The closing line varies by paper. Checked live on
+  `2-context` with kimi-k2.6: the script reads as speech and keeps the arc; it also showed the failure the prompt now forbids (invented bars and a filler `bignum`).
+- **Voice.** Kokoro-82M (Apache-2.0, CPU, 2.5x real time reported) speaks each beat in one pass inside the render container; its token times give true word timing for the
+  captions (verified locally: 41 words with start and duration, punctuation glued to the word so the caption chunker breaks on it). Aura/melotts stay as the retry path.
+  Compared with the survey above: Chatterbox (MIT) is more expressive but wants a GPU; Piper is lighter and flatter; ElevenLabs is paid.
+- **Cost:** no TTS spend on the first attempt (was about USD 0.02 a Short); the image grows by CPU torch and the model.
+- Not yet done: a blind listening test by the owner, the container image build (runs in deploy-youtube-shorts.yml) and visual variety beyond the five themes and eleven templates.
+Reach reality check: even a perfect Short on a channel with 2 subscribers starts with almost no audience. Improving the Short is necessary, not sufficient; the other levers
+(topic choice by what people search for, publishing the same vertical file to the other short-video surfaces, putting the Short on the paper page itself) are in the roadmap rows
+filed with this change.

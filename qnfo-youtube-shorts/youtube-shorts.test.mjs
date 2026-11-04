@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitSentences, numTokens, validateBeats, capAllows, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
+import { splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
 
 const article = {
   title: "Why scientists stop testing ideas", short: "Safe stories pay better than risky guesses.",
@@ -193,4 +193,24 @@ test("YT-3: the hourly worker wires eligible articles through server-side render
   assert.match(source, /env\.MEDIA\.put\("youtube\/" \+ row\.id \+ "\/short\.mp4", bytes/);
   assert.match(source, /upload\/youtube\/v3\/videos\?uploadType=resumable/);
   assert.match(source, /setState\(env, row\.id, "uploaded", \{ video_id: uj\.id/);
+});
+
+test("YT-VOICE-1: the first attempt uses Kokoro, a retry re-voices with Aura", () => {
+  assert.equal(ttsEngine(0), "kokoro");
+  assert.equal(ttsEngine(undefined), "kokoro");
+  assert.equal(ttsEngine(1), "aura");
+  assert.equal(ttsEngine(3), "aura");
+});
+
+test("YT-SCRIPT-1: the director writes the whole script first, with an arc, and data kinds only for real figures", () => {
+  const p = directorPrompt();
+  for (const k of ["STEP 1, the script", "HOOK", "STAKES", "TURN", "PAYOFF", "never repeats it", "only when the article states those exact figures"]) assert.ok(p.includes(k), k);
+  assert.ok(p.includes('"script"'));
+});
+test("YT-SCRIPT-1: the closing line varies by paper, is stable per paper and speaks no URL", () => {
+  const a = ctaBeat("paper-a"), b = ctaBeat("paper-a");
+  assert.equal(a.narr, b.narr);
+  const seen = new Set(["a", "bb", "ccc", "dddd", "eeeee", "ffffff", "g7", "h88"].map((s) => ctaBeat(s).narr));
+  assert.ok(seen.size >= 2);
+  for (const n of seen) assert.ok(!/qnfo\.org|http|www/i.test(n));
 });

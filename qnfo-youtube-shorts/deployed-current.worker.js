@@ -1,4 +1,5 @@
-var VERSION = "0.4.2-oauth"; /* 0.4.1: new Shorts descriptions include the QNFO channel context. */ /* #5479, pillar reach: authenticated re-consent and code exchange with the stored OAuth client. */ /* 0.3.0 YT-6 (2026-10-28, pillar reach; minor: a data product; agent_issues 1000597): views and average view duration of each uploaded Short are read hourly from the YouTube Data and Analytics APIs into youtube_videos (views, avg_view_duration_s) and metric youtube_avg_view_duration_s; without the extra owner consent (human_actions yt-analytics-consent) the read is refused, recorded as youtube.retention_scope and nothing is written. */ /* 0.2.1 HEALTH-CONTRACT-1 (2026-10-28, pillar autonomy; patch; agent_issues 2852): /health declares capabilities[] and limitations[], so capability_contract_conformance counts this worker. */ /* 0.2.0 YT-QUALITY-1 (2026-10-28, pillar reach; minor: new capabilities): the Shorts stop looking alike and sounding flat. Voice: Workers AI Deepgram Aura 2 (more natural than melotts, which stays as the per-sentence fallback). Director: four new templates (bignum, flow, compare, list) beside the old ones, rules for speech-written narration (contractions, short sentences, pitch-bearing punctuation, no spoken URL) and for variety (at least four kinds, never one kind three times). Render image: scene fitted to a safe width so nothing leaves the frame, five themes (palette plus animated background) chosen per paper, captions measured in the real font and chunked at phrases in the Shorts safe zone, loudness-normalised audio, an AI-generated mp4 comment tag and provenance.json (BP26-AI-ACT-ART50-1). Closing line no longer speaks a URL. Sources: scripts/youtube_poc (YT-POC-3/4), docs/YOUTUBE-PIPELINE.md. */ /* prior: 0.1.5 */ /* 0.1.5 YT-MANIM-PIN-1 (2026-10-27, pillar reach; patch): the render image pins manim 0.22.0, the version the scene was tested on; 0.18.1 has no Scene.time and the first container render failed with that AttributeError (visible since 0.1.4 returns the Manim stderr). */ /* prior: 0.1.4 */ /* 0.1.4 YT-RENDER-ERR-1 (2026-10-27, pillar reach; patch): the render container returns the Manim stderr tail when Manim fails (the first live render failed with only a traceback of the wrapper). */ /* prior: 0.1.3 */ /* 0.1.3 YT-DIRECTOR-1 (2026-10-27, pillar reach; patch): the director takes the first reply that holds a beats array from qnfo-ai, then Workers AI kimi, then gpt-oss, and a failure note quotes each reply (the first live run failed with "no JSON in model reply" from one model). */ /* prior: 0.1.2 */ /* 0.1.2 YT-EXPORTS-1 (2026-10-27, pillar reach; patch): wrangler.toml declares RenderContainer in `exports` instead of `migrations`, so a deploy after a secrets write through the script API is accepted and re-attaches the container (the pilot incident 1485 class). */ /* prior: 0.1.1 */ /* 0.1.1 YT-RUN-SYNC-1 (2026-10-27, pillar reach; patch): POST /run did its pass inside ctx.waitUntil, which a fetch handler loses 30 s after the response, so a manual run died at the director; it now awaits one bounded pass (budget_s, default 80, under the edge 100 s limit) and returns the row states. */ /* prior: 0.1.0 */ /* 0.1.0 YT-SERVER-1 (2026-10-27, pillar reach; minor: a new worker): the plain-language paper to YouTube Short pipeline runs on Cloudflare only. One hourly tick takes the newest plain_article (living-paper, status ok) with no youtube_videos row (cap 2 videos a week), an LLM director writes the beats, a second model family and a number check drop any beat the article does not support, Workers AI TTS speaks each sentence, a Cloudflare Container renders 1080x1920 with Manim, word-timed captions and the visible AI-narration tag into R2, and videos.insert uploads it (public by default, owner directive 2026-10-27) with containsSyntheticMedia. */
+var VERSION = "0.5.0-oauth";
+/* 0.4.1: new Shorts descriptions include the QNFO channel context. */ /* #5479, pillar reach: authenticated re-consent and code exchange with the stored OAuth client. */ /* 0.3.0 YT-6 (2026-10-28, pillar reach; minor: a data product; agent_issues 1000597): views and average view duration of each uploaded Short are read hourly from the YouTube Data and Analytics APIs into youtube_videos (views, avg_view_duration_s) and metric youtube_avg_view_duration_s; without the extra owner consent (human_actions yt-analytics-consent) the read is refused, recorded as youtube.retention_scope and nothing is written. */ /* 0.2.1 HEALTH-CONTRACT-1 (2026-10-28, pillar autonomy; patch; agent_issues 2852): /health declares capabilities[] and limitations[], so capability_contract_conformance counts this worker. */ /* 0.2.0 YT-QUALITY-1 (2026-10-28, pillar reach; minor: new capabilities): the Shorts stop looking alike and sounding flat. Voice: Workers AI Deepgram Aura 2 (more natural than melotts, which stays as the per-sentence fallback). Director: four new templates (bignum, flow, compare, list) beside the old ones, rules for speech-written narration (contractions, short sentences, pitch-bearing punctuation, no spoken URL) and for variety (at least four kinds, never one kind three times). Render image: scene fitted to a safe width so nothing leaves the frame, five themes (palette plus animated background) chosen per paper, captions measured in the real font and chunked at phrases in the Shorts safe zone, loudness-normalised audio, an AI-generated mp4 comment tag and provenance.json (BP26-AI-ACT-ART50-1). Closing line no longer speaks a URL. Sources: scripts/youtube_poc (YT-POC-3/4), docs/YOUTUBE-PIPELINE.md. */ /* prior: 0.1.5 */ /* 0.1.5 YT-MANIM-PIN-1 (2026-10-27, pillar reach; patch): the render image pins manim 0.22.0, the version the scene was tested on; 0.18.1 has no Scene.time and the first container render failed with that AttributeError (visible since 0.1.4 returns the Manim stderr). */ /* prior: 0.1.4 */ /* 0.1.4 YT-RENDER-ERR-1 (2026-10-27, pillar reach; patch): the render container returns the Manim stderr tail when Manim fails (the first live render failed with only a traceback of the wrapper). */ /* prior: 0.1.3 */ /* 0.1.3 YT-DIRECTOR-1 (2026-10-27, pillar reach; patch): the director takes the first reply that holds a beats array from qnfo-ai, then Workers AI kimi, then gpt-oss, and a failure note quotes each reply (the first live run failed with "no JSON in model reply" from one model). */ /* prior: 0.1.2 */ /* 0.1.2 YT-EXPORTS-1 (2026-10-27, pillar reach; patch): wrangler.toml declares RenderContainer in `exports` instead of `migrations`, so a deploy after a secrets write through the script API is accepted and re-attaches the container (the pilot incident 1485 class). */ /* prior: 0.1.1 */ /* 0.1.1 YT-RUN-SYNC-1 (2026-10-27, pillar reach; patch): POST /run did its pass inside ctx.waitUntil, which a fetch handler loses 30 s after the response, so a manual run died at the director; it now awaits one bounded pass (budget_s, default 80, under the edge 100 s limit) and returns the row states. */ /* prior: 0.1.0 */ /* 0.1.0 YT-SERVER-1 (2026-10-27, pillar reach; minor: a new worker): the plain-language paper to YouTube Short pipeline runs on Cloudflare only. One hourly tick takes the newest plain_article (living-paper, status ok) with no youtube_videos row (cap 2 videos a week), an LLM director writes the beats, a second model family and a number check drop any beat the article does not support, Workers AI TTS speaks each sentence, a Cloudflare Container renders 1080x1920 with Manim, word-timed captions and the visible AI-narration tag into R2, and videos.insert uploads it (public by default, owner directive 2026-10-27) with containsSyntheticMedia. */
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -235,16 +236,17 @@ function modelText(w) {
 }
 // YT-DIRECTOR-1: the first reply that holds JSON wins; the order is qnfo-ai (router), then Workers AI kimi, then gpt-oss, so one model that
 // answers with prose, an empty reply or only reasoning does not strand a paper. The failure note carries a snippet of each reply.
-async function aiJson(env, system, user, maxTokens) {
+async function aiJson(env, system, user, maxTokens, temp) {
+  temp = typeof temp === "number" ? temp : 0.3; // YT-SCRIPT-1: the director writes a script, so it runs warmer than the checkers
   var msgs = [{ role: "system", content: system }, { role: "user", content: user }], notes = [];
   var sources = [];
   if (env.QNFO_AI && typeof env.QNFO_AI.fetch === "function") sources.push({ n: "qnfo-ai", run: async function () {
-    var r = await env.QNFO_AI.fetch("https://qnfo-ai.internal/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "auto", messages: msgs, max_tokens: maxTokens, stream: false, temperature: 0.3 }) });
+    var r = await env.QNFO_AI.fetch("https://qnfo-ai.internal/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "auto", messages: msgs, max_tokens: maxTokens, stream: false, temperature: temp }) });
     if (!r.ok) throw new Error("http " + r.status + " " + (await r.text()).slice(0, 120));
     return modelText(await r.json());
   } });
-  sources.push({ n: "kimi", run: async function () { return modelText(await env.AI.run(WRITE_FALLBACK_MODEL, { messages: msgs, max_tokens: maxTokens, reasoning_effort: "none", temperature: 0.3 })); } });
-  sources.push({ n: "gpt-oss", run: async function () { return modelText(await env.AI.run(CHECK_MODEL, { messages: msgs, max_tokens: maxTokens + 1500, reasoning_effort: "low", temperature: 0.3 })); } });
+  sources.push({ n: "kimi", run: async function () { return modelText(await env.AI.run(WRITE_FALLBACK_MODEL, { messages: msgs, max_tokens: maxTokens, reasoning_effort: "none", temperature: temp })); } });
+  sources.push({ n: "gpt-oss", run: async function () { return modelText(await env.AI.run(CHECK_MODEL, { messages: msgs, max_tokens: maxTokens + 1500, reasoning_effort: "low", temperature: temp })); } });
   for (var i = 0; i < sources.length; i++) {
     try {
       var t = await sources[i].run();
@@ -255,24 +257,31 @@ async function aiJson(env, system, user, maxTokens) {
   }
   throw new Error("director: " + notes.join(" | ").slice(0, 700));
 }
+var CTA_LINES = ["Want the full story, in plain language? It is free, and the link is in the description.", "There is more to this than fits in a minute. The whole article is free, linked in the description.", "If that got you curious, the plain-language version is free, and the link is below."];
+function ctaBeat(slug) {
+  var h = 0, t = String(slug || "");
+  for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+  return { kind: "cta", narr: CTA_LINES[h % CTA_LINES.length], title: "Read it free", url: "papers.qnfo.org", sub: "No jargon. No mathematics." };
+}
 function directorPrompt() {
-  return "You turn a plain-language article into a 40-55 second vertical video script (a voice-over plus one animated diagram per beat): 6 to 8 beats and 110-150 spoken words IN TOTAL. Output JSON only: {\"title\":\"<=70 chars, plain\",\"beats\":[...]}.\n" +
-    "Each beat: {\"kind\":K,\"narr\":\"1-3 short spoken sentences\", ...fields}. Kinds and fields:\n" +
-    "hook {lines:[<=5 short lines shown big, each <=16 chars], hi:[indexes of lines to highlight]} (beat 1 only: a concrete question or surprising claim from the article, under 12 spoken words, no greeting)\n" +
+  return "You write a 35-45 second vertical video for people who have never heard of this paper, from its plain-language article. Think like a good science storyteller, not a slide reader. Output JSON only: {\"title\":\"<=70 chars, plain\",\"script\":\"the whole voice-over, 90-130 words\",\"beats\":[...]}.\n" +
+    "STEP 1, the script. Write the complete voice-over FIRST, as one piece of natural speech with an arc: (1) HOOK, one concrete question or surprising claim from the article, under 12 words, no greeting; (2) STAKES, why a curious person should care, in everyday words; (3) the IDEA, explained step by step, with at most one everyday comparison introduced by 'think of it like' or 'imagine' that adds no factual claim; (4) a TURN, a spoken pivot such as 'But here is the catch' or 'So what does that mean?' that carries the article's caveat (assumed, modelled, does not show); (5) PAYOFF, what changes in how we should see the world, in one plain sentence; (6) a closing question or teaser that makes the listener want the article. Write for the ear: full, grammatical sentences, contractions, sentences of 4 to 16 words with deliberate variety (a short one after a long one), questions and commas where a speaker's pitch moves, numbers spelled as words, no URLs, no brackets, no jargon without a plain gloss, never read a list aloud. Talk to one person ('you'). The voice must sound like someone explaining this to a friend.\n" +
+    "STEP 2, the storyboard. Cut the script into 5 to 7 beats in order; each beat's narr is the exact consecutive piece of the script it covers (1 to 3 sentences) and together they are the whole script. Give each beat a picture that ILLUSTRATES what is said and never repeats it: on-screen text is two to five words, a label or a number, never the sentence being spoken. Beat fields: {\"kind\":K,\"narr\":\"...\", ...fields}. Kinds:\n" +
+    "hook {lines:[<=5 short lines shown big, each <=16 chars], hi:[indexes of lines to highlight]} (beat 1, and optionally the last beat to show the closing question as big text)\n" +
     "flow {nodes:[2-4 labels, each <=22 chars]} (a process or chain: A leads to B leads to C)\n" +
-    "list {title:\"<=24 chars\", items:[2-4 short points, each <=38 chars]} (steps, parts, or the article's caveats)\n" +
+    "list {title:\"<=24 chars\", items:[2-4 short points, each <=38 chars]} (parts or caveats, as keywords)\n" +
     "compare {title:\"<=30 chars\", items:[[\"label\", fraction 0-1, \"c1\", \"value text <=18 chars\"], ...2-3 rows, colours c1 c2 c3]} (two or three quantities the article gives)\n" +
     "bignum {value: a NUMBER that is in the article, frac:0-1 ring fill, color:\"c1\"|\"c2\"|\"c3\", label:\"what it counts\", sub:\"<=36 chars\"}\n" +
     "versus {left:\"<=18 chars\", right:\"<=18 chars\"} (two things the article contrasts)\n" +
     "payoff {bars:[[x,value,\"c1\",\"label\"],...]} x in -2.4,0,2.4; value -2..3 (only when the article gives outcomes)\n" +
     "meter {need:0-1, have:0-1, need_label, have_label, axis_label, verdict} (only when the article gives a threshold and an actual value)\n" +
     "dots {from:0-1, to:0-1, a:\"group\", b:\"group\"} (only when the article describes a share changing)\n" +
-    "RULES: use ONLY facts, numbers and claims that are written in the article; keep its caveats (assumed, model, does not show) in one beat; no new numbers, no outside facts, no hype. Write narr for the ear: contractions, sentences of at most 15 words, vary their length, use commas and question marks where a speaker changes pitch, spell numbers as words (\"three hundred and fifty\"), no URLs, no brackets, no unexplained jargon. Use at least four different kinds and never the same kind three times; fit the picture to the idea (a quantity: bignum; a chain: flow; a contrast: versus; a change in mix: dots or compare; caveats: list). Do not write a closing beat (a link card is added after yours).\n";
+    "RULES: bignum, compare, payoff, meter and dots draw DATA: use one only when the article states those exact figures, never to decorate an idea (an idea without figures is shown with flow, list, versus or hook); every fact, number and claim must be written in the article (the one everyday comparison is the only exception and carries no numbers); keep its caveats; no outside facts, no hype, no invented quotes. Use at least four different kinds, never the same kind twice in a row, and fit the picture to the idea (a quantity: bignum; a chain: flow; a contrast: versus; a change in mix: dots or compare; caveats: list). Do not write a closing beat (a link card is added after yours).\n";
 }
 async function stageDirect(env, row) {
   var article = await loadArticle(env, row.slug);
   var text = article.title + "\nSummary: " + article.short + "\n\n" + article.sections.map(function (s) { return "## " + s.h + "\n" + s.paras.join("\n"); }).join("\n\n");
-  var dj = await aiJson(env, directorPrompt(), text.slice(0, 9000), 2500);
+  var dj = await aiJson(env, directorPrompt(), text.slice(0, 9000), 3500, 0.7);
   var spec = dj.json;
   await addSpend(env, row.id, "llm", 2, "director " + dj.source + " + checker");
   var pre = validateBeats(spec.beats, article, []);
@@ -280,7 +289,7 @@ async function stageDirect(env, row) {
   if (pre.kept.length) {
     var chk = await env.AI.run(CHECK_MODEL, {
       messages: [
-        { role: "system", content: "You check video narration against its source article. For each numbered narration, decide if EVERY factual claim in it is stated in the article. Reply JSON only: {\"unsupported\":[numbers of narrations with any claim not in the article]}." },
+        { role: "system", content: "You check video narration against its source article. For each numbered narration, decide if EVERY factual claim in it is stated in the article. An everyday comparison introduced by 'think of it like' or 'imagine' is allowed when it adds no factual claim about the paper. Reply JSON only: {\"unsupported\":[numbers of narrations with any claim not in the article]}." },
         { role: "user", content: "ARTICLE:\n" + text.slice(0, 9000) + "\n\nNARRATIONS:\n" + (spec.beats || []).map(function (b, i) { return i + ". " + (b && b.narr); }).join("\n") }],
       max_tokens: 800, reasoning_effort: "low", temperature: 0
     });
@@ -289,12 +298,12 @@ async function stageDirect(env, row) {
     unsupported = (Array.isArray(cj.unsupported) ? cj.unsupported : []).map(Number);
   }
   var v = validateBeats(spec.beats, article, unsupported);
-  await env.MEDIA.put("youtube/" + row.id + "/beats.json", JSON.stringify({ title: spec.title, kept: v.kept, dropped: v.dropped, checker_unsupported: unsupported }), { httpMetadata: { contentType: "application/json" } });
+  await env.MEDIA.put("youtube/" + row.id + "/beats.json", JSON.stringify({ title: spec.title, script: spec.script, kept: v.kept, dropped: v.dropped, checker_unsupported: unsupported }), { httpMetadata: { contentType: "application/json" } });
   if (v.kept.length < MIN_CONTENT_BEATS) {
     await setState(env, row.id, "rejected", { note: "director left " + v.kept.length + " supported beats; dropped " + JSON.stringify(v.dropped).slice(0, 600) });
     return null;
   }
-  var cta = { kind: "cta", narr: "Want the full story, in plain language? It is free, and the link is in the description.", title: "Read it free", url: "papers.qnfo.org", sub: "No jargon. No mathematics." };
+  var cta = ctaBeat(row.slug);
   var beats = v.kept.concat([cta]);
   await setState(env, row.id, "directed", { title: String(spec.title || article.title).slice(0, 80), note: "beats " + beats.length + ", dropped " + v.dropped.length });
   return beats;
@@ -313,19 +322,23 @@ async function ttsSentence(env, text) {
   if (r && r.byteLength !== undefined) return { b64: b64FromBytes(new Uint8Array(r)), aura: false };
   throw new Error("TTS returned no audio: " + JSON.stringify(r).slice(0, 120));
 }
+// YT-VOICE-1: the first attempt is voiced in the render container by Kokoro-82M (CPU, no per-character cost, one pass per beat, real word times for the captions);
+// a row that has already failed once is re-voiced here with Aura/melotts, so a Kokoro fault never costs the Short.
+function ttsEngine(attempts) { return (attempts || 0) < 1 ? "kokoro" : "aura"; }
 async function stageAudio(env, row, beats) {
-  var out = [], auraChars = 0, melChars = 0;
+  var out = [], auraChars = 0, melChars = 0, engine = ttsEngine(row.attempts);
   for (var i = 0; i < beats.length; i++) {
     var b = Object.assign({}, beats[i]), ss = [];
     var sents = splitSentences(b.narr);
+    if (engine === "kokoro") { b.sentences = sents.map(function (t) { return { text: t }; }); out.push(b); continue; }
     for (var j = 0; j < sents.length; j++) { var tr = await ttsSentence(env, sents[j]); ss.push({ text: sents[j], audio_b64: tr.b64 }); if (tr.aura) auraChars += sents[j].length; else melChars += sents[j].length; }
     b.sentences = ss;
     out.push(b);
   }
   if (auraChars) await addSpend(env, row.id, "tts_aura", auraChars, "aura-2 characters");
   if (melChars) await addSpend(env, row.id, "tts", melChars, "melotts characters");
-  await env.MEDIA.put("youtube/" + row.id + "/job.json", JSON.stringify({ id: String(row.id), slug: row.slug, title: row.title, beats: out }), { httpMetadata: { contentType: "application/json" } });
-  await setState(env, row.id, "audio", { note: "tts " + out.length + " beats" });
+  await env.MEDIA.put("youtube/" + row.id + "/job.json", JSON.stringify({ id: String(row.id), slug: row.slug, title: row.title, tts: engine, beats: out }), { httpMetadata: { contentType: "application/json" } });
+  await setState(env, row.id, "audio", { note: engine + " voice, " + out.length + " beats" });
 }
 function renderStub(env) { return env.RENDER.get(env.RENDER.idFromName("default")); }
 async function stageSubmit(env, row) {
@@ -460,7 +473,7 @@ async function advance(env, row, deadline) {
       if (row.state === "queued") { if (!(await stageDirect(env, row))) return row.id; }
       else if (row.state === "directed") {
         var bo = await env.MEDIA.get("youtube/" + row.id + "/beats.json");
-        var beats = JSON.parse(await bo.text()).kept.concat([{ kind: "cta", narr: "Want the full story, in plain language? It is free, and the link is in the description.", title: "Read it free", url: "papers.qnfo.org", sub: "No jargon. No mathematics." }]);
+        var beats = JSON.parse(await bo.text()).kept.concat([ctaBeat(row.slug)]);
         await stageAudio(env, row, beats);
       }
       else if (row.state === "audio") await stageSubmit(env, row);
@@ -472,6 +485,7 @@ async function advance(env, row, deadline) {
       var attempts = (row.attempts || 0) + 1;
       var state = attempts >= MAX_ATTEMPTS ? "failed" : (row.state === "rendering" ? "audio" : row.state);
       // YT-FM-RENDER-1: the container failed twice on this job; the job stays in R2 for youtube-render-runner.yml (a GitHub-runner render), and this row stops blocking new papers.
+      if (attempts === 1 && (row.state === "audio" || row.state === "rendering")) state = "directed"; // YT-VOICE-1: back to the voice stage, which now uses Aura
       if (attempts >= 2 && attempts < MAX_ATTEMPTS && (row.state === "audio" || row.state === "rendering")) state = "runner_pending";
       await setState(env, row.id, state, { note: row.state + ": " + msg, bump: true });
       await logEvent(env, "youtube.stage_error", row.slug + " " + row.state, { error: msg.slice(0, 500), attempts: attempts }, "error");
@@ -677,5 +691,5 @@ var worker_default = {
     ctx.waitUntil(runTick(env, {}).then(function (r) { return logEvent(env, "youtube.tick", JSON.stringify(r), r, "ok"); }).catch(function (e) { console.error(JSON.stringify({ worker: WORKER, where: "scheduled", error: String(e && e.message || e) })); return logEvent(env, "youtube.tick", String(e && e.message || e), null, "error"); }));
   }
 };
-export { RenderContainer, spendUsd, spendAllows, splitSentences, numTokens, validateBeats, capAllows, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION, parseRetentionReport, parseVideoStats, retentionDue, retentionFailure, readRetention };
+export { RenderContainer, spendUsd, spendAllows, splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION, parseRetentionReport, parseVideoStats, retentionDue, retentionFailure, readRetention };
 export default worker_default;

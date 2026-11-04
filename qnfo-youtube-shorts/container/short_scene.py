@@ -5,7 +5,7 @@ slowly (a gentle zoom) until the narration ends. Every Text is fitted to the saf
 (palette + animated background style) is chosen per paper by make_short.py, so two papers do not look alike.
 Layout: top 1.6 units kept clear for the Shorts UI, bottom 4.3 units (caption + Shorts UI) kept clear; content lives between y=+5.4 and y=-3.3.
 """
-import json, math, os
+import json, math, os, re
 from manim import *
 
 config.frame_width, config.frame_height = 9, 16
@@ -24,7 +24,11 @@ FONT = os.environ.get("SHORT_FONT", "DejaVu Sans")   # container fonts: DejaVu; 
 def col(x):
     """Director colours may be 'c1'/'c2'/'c3' or the legacy hex values; both map onto the theme."""
     x = LEGACY.get(x, x)
-    return {"c1": C1, "c2": C2, "c3": C3}.get(x, x)
+    if x in ("c1", "c2", "c3"):
+        return {"c1": C1, "c2": C2, "c3": C3}[x]
+    if isinstance(x, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", x):
+        return x
+    return C1      # YT-COLOR-1: a director value that is no colour ("hundreds", agent_issues: row 3, "Color hundreds not found") must not kill the render
 
 
 def fit(m, w=SAFE_W, h=None):

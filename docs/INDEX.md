@@ -422,6 +422,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-twin-maintain](../qnfo-twin-maintain/README.md) - `qnfo-twin-maintain/README.md`
 - [qnfo-venue-radar](../qnfo-venue-radar/README.md) - `qnfo-venue-radar/README.md`
 - [qnfo-web-unified — the QNFO design system (QDS-1, 2026-10-02)](../qnfo-web-unified/README.md) - `qnfo-web-unified/README.md`
+- [qnfo-youtube-shorts 0.5.0-oauth (2026-11-04)](../qnfo-youtube-shorts/releases/0.5.0-oauth.md) - `qnfo-youtube-shorts/releases/0.5.0-oauth.md`
 - [research-code](../research-code/README.md) - `research-code/README.md`
 - [agentic-collapse](../research-code/agentic-collapse/README.md) - `research-code/agentic-collapse/README.md`
 - [ignorance-audit](../research-code/ignorance-audit/README.md) - `research-code/ignorance-audit/README.md`
