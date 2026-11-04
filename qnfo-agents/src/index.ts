@@ -45,6 +45,9 @@ const SDK = "agents@0.30.1";
 const REPO = "QNFO/qnfo-workers";
 const DEFAULT_MODEL = "dynamic/standard";
 const MAX_STEPS = 16;
+// AI-METER-1 (2026-11-04): a defect-check turn needs a few reads; every step resends the whole context (about 32k tokens per call on
+// 2026-11-04), so cost grows with the square of the steps. Probe turns stop at PROBE_MAX_STEPS.
+const PROBE_MAX_STEPS = 6;
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 // ALARM-TIMEOUT-1: one hung model call used to hold a Durable Object until the whole-turn timeout and surfaced as an alarm exception
 // ("The operation was aborted due to timeout", post_deploy_error_workers); a step now fails after STEP_TIMEOUT_MS and the fallback model answers.
@@ -292,6 +295,25 @@ async function modelFor(env: Env, purpose?: string) {
   return { id, model: (ai as any)(id) };
 }
 
+// AI-METER-1: Workers AI calls made here go straight to env.AI (through AI Gateway), not through qnfo-ai, so ai_spend_ledger never saw
+// them (Cloudflare's meter showed 147.7M input tokens in 24 h for this worker's model against about 3M in the ledger). Each turn now adds its
+// token use to the ledger row (day, workers-ai, qnfo-agents, model); usd comes from cf_model_catalog price_in / price_out (USD per million tokens).
+function usageOf(o: any): { i: number; o: number; n: number } {
+  let i = 0, out = 0, n = 0;
+  const add = (u: any) => { if (!u) return; i += Number(u.inputTokens ?? u.promptTokens ?? 0) || 0; out += Number(u.outputTokens ?? u.completionTokens ?? 0) || 0; n++; };
+  if (Array.isArray(o && o.steps) && o.steps.length) for (const st of o.steps) add(st.usage); else add(o && (o.totalUsage || o.usage));
+  return { i, o: out, n };
+}
+async function meter(env: Env, modelId: string, u: { i: number; o: number; n: number }) {
+  if (!u.n && !u.i) return;
+  try {
+    const p: any = await env.AUDIT_DB.prepare("SELECT price_in, price_out FROM cf_model_catalog WHERE model_id = ?1").bind(modelId).first();
+    const usd = (u.i * (Number(p && p.price_in) || 0) + u.o * (Number(p && p.price_out) || 0)) / 1e6;
+    await env.AUDIT_DB.prepare("INSERT INTO ai_spend_ledger (day, provider, caller, model, calls, in_tok, out_tok, usd, downgraded, refused) VALUES (?1,'workers-ai','qnfo-agents',?2,?3,?4,?5,?6,0,0) ON CONFLICT(day, provider, caller, model) DO UPDATE SET calls=calls+excluded.calls, in_tok=in_tok+excluded.in_tok, out_tok=out_tok+excluded.out_tok, usd=usd+excluded.usd")
+      .bind(new Date().toISOString().slice(0, 10), String(modelId).slice(0, 120), u.n, u.i, u.o, usd).run();
+  } catch (e) { logErr("meter", e); }
+}
+
 async function ledger(env: Env, row: Record<string, unknown>) {
   try {
     await env.AUDIT_DB.prepare("INSERT OR REPLACE INTO cf_agent_runs (id, instance, caller, scope, status, model, steps, tools_used, prompt, result, error, created_ms, finished_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")
@@ -361,8 +383,9 @@ export class FleetCodeAgent extends Agent<Env, State> {
       const m = await modelFor(this.env);
       modelId = m.id;
       const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, runId: id, proposals });
-      const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(MAX_STEPS), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
+      const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(/^issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
       result = String(out.text || "").trim() || lastStepText(out.steps);
+      await meter(this.env, modelId, usageOf(out));
       steps = Array.isArray(out.steps) ? out.steps.length : 0;
       for (const s of out.steps || []) for (const tc of s.toolCalls || []) if (used.indexOf(tc.toolName) < 0) used.push(tc.toolName);
       // EMPTY-TURN-ANSWER-1: no step wrote text, so one more call without tools turns what the tools returned into the answer.
@@ -370,6 +393,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
         try {
           const fin: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: "Request:\n" + clip(r.prompt, 6000) + "\n\nTool results so far:\n" + (toolTranscript(out.steps, 24000) || "(none)") + "\n\n" + FINAL_ANSWER_ASK, abortSignal: AbortSignal.timeout(FINAL_ANSWER_TIMEOUT_MS) } as any);
           result = String(fin.text || "").trim();
+          await meter(this.env, modelId, usageOf(fin));
           if (result) used.push("final-answer");
         } catch (eF) { logErr("final-answer", eF); }
       }
