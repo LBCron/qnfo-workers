@@ -1864,6 +1864,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-gateway/releases/3.56.1-codeagent.md"
     },
     {
+      "path": "qnfo-gateway/releases/3.57.0-codeagent.md",
+      "title": "qnfo-gateway 3.57.0-codeagent (2026-11-04)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-gateway/releases/3.57.0-codeagent.md"
+    },
+    {
       "path": "qnfo-github-steward/README.md",
       "title": "qnfo-github-steward",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-github-steward/README.md"

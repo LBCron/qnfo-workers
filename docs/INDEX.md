@@ -383,6 +383,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-gateway — QNFO site router (papers.qnfo.org, ideas, archive, ipatent, graph-api, legal)](../qnfo-gateway/README.md) - `qnfo-gateway/README.md`
 - [qnfo-gateway 3.55.0-codeagent (2026-11-04)](../qnfo-gateway/releases/3.55.0-codeagent.md) - `qnfo-gateway/releases/3.55.0-codeagent.md`
 - [qnfo-gateway 3.56.1-codeagent (2026-11-04)](../qnfo-gateway/releases/3.56.1-codeagent.md) - `qnfo-gateway/releases/3.56.1-codeagent.md`
+- [qnfo-gateway 3.57.0-codeagent (2026-11-04)](../qnfo-gateway/releases/3.57.0-codeagent.md) - `qnfo-gateway/releases/3.57.0-codeagent.md`
 - [qnfo-github-steward](../qnfo-github-steward/README.md) - `qnfo-github-steward/README.md`
 - [qnfo-idea-factory — QNFO Ideas (ideas.qnfo.org)](../qnfo-idea-factory/README.md) - `qnfo-idea-factory/README.md`
 - [qnfo-intent-orchestrator](../qnfo-intent-orchestrator/README.md) - `qnfo-intent-orchestrator/README.md`
