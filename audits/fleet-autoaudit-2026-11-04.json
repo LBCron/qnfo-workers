@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-04 09:04:20",
+  "audited_at": "2026-11-04 13:15:45",
   "d1_write_failures": [],
   "d1_writes_ok": 129,
   "guard": {
@@ -706,7 +706,7 @@
       },
       {
         "dir": "qnfo-social",
-        "version": "0.21.13-codeagent",
+        "version": "0.21.14-codeagent",
         "worker": "qnfo-social"
       },
       {
@@ -1744,9 +1744,9 @@
       "worker": "qnfo-skills-discovery"
     },
     "qnfo-social": {
-      "before": "0.21.13-codeagent",
+      "before": "0.21.14-codeagent",
       "http": 200,
-      "live": "0.21.13-codeagent",
+      "live": "0.21.14-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-social"
