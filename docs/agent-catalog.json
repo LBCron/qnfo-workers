@@ -386,6 +386,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/GITHUB-CLOUD-QUNIVERSE.md"
     },
     {
+      "path": "docs/GOOGLE-HUB-INTEGRATION.md",
+      "title": "Google, GitHub and Cloudflare as one system (GOOGLE-HUB-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/GOOGLE-HUB-INTEGRATION.md"
+    },
+    {
       "path": "docs/GRADUAL-DEPLOYS.md",
       "title": "Gradual deploys with automatic rollback (BP26-GRADUAL-DEPLOYS-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/GRADUAL-DEPLOYS.md"
@@ -434,6 +439,11 @@
       "path": "docs/HANDOFF-2026-10-19-red-drain.md",
       "title": "HANDOFF — 2026-10-19 (handoff backlog + R2 Basin Catalog + red drain)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/HANDOFF-2026-10-19-red-drain.md"
+    },
+    {
+      "path": "docs/INFRA-AUDIT-2026-11-04.md",
+      "title": "Infrastructure and AI-spend audit, 2026-11-04 (pillar: cost)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/INFRA-AUDIT-2026-11-04.md"
     },
     {
       "path": "docs/KILL-SWITCH-DRILL.md",
@@ -564,6 +574,11 @@
       "path": "docs/RADAR-TITLE-CLEANUP-2026-10-05.md",
       "title": "Radar title cleanup 2026-10-05 (RADAR-TITLE-NOISE-2, #1885, pillar: personal)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/RADAR-TITLE-CLEANUP-2026-10-05.md"
+    },
+    {
+      "path": "docs/READER-YIELD.md",
+      "title": "Reader yield (READER-YIELD-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/READER-YIELD.md"
     },
     {
       "path": "docs/README.md",
@@ -843,6 +858,16 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/issues/rum-zero-13.md"
     },
     {
+      "path": "docs/infra-records/FOLDED.md",
+      "title": "Folded repository",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/infra-records/FOLDED.md"
+    },
+    {
+      "path": "docs/infra-records/README.md",
+      "title": "QNFO Infrastructure (QNFO.INFRA)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/infra-records/README.md"
+    },
+    {
       "path": "docs/keys/owner-api-keys.md",
       "title": "Owner API keys: which exist, where they live, how they are issued",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/keys/owner-api-keys.md"
@@ -913,6 +938,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/PLCY/SECRETS-INVENTORY.md"
     },
     {
+      "path": "docs/ops-governance/PRESS-KIT.md",
+      "title": "QNFO/QWAV Press Kit",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/PRESS-KIT.md"
+    },
+    {
       "path": "docs/ops-governance/README.md",
       "title": "Operations governance (folded from QNFO/qnfo-ops)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/README.md"
@@ -926,6 +956,11 @@
       "path": "docs/ops-governance/SOURCE-README.md",
       "title": "QNFO Operations & Governance (QNFO.OPS)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/SOURCE-README.md"
+    },
+    {
+      "path": "docs/ops-governance/SYNC-PORTFOLIO-GITHUB.md",
+      "title": "SYNC-PORTFOLIO-GITHUB.md — Public Ledger Sync",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/SYNC-PORTFOLIO-GITHUB.md"
     },
     {
       "path": "docs/ops-governance/WBS/GITHUB-SYNC.md",
@@ -971,6 +1006,21 @@
       "path": "docs/ops-governance/audits/2026-09-13-RETRACTION-monitor-outage-false.md",
       "title": "RETRACTION — the \"acute monitor outage\" was FALSE",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/audits/2026-09-13-RETRACTION-monitor-outage-false.md"
+    },
+    {
+      "path": "docs/ops-governance/cloud/fleet-executor/README.md",
+      "title": "fleet-executor",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/cloud/fleet-executor/README.md"
+    },
+    {
+      "path": "docs/ops-governance/cloud/fleet-scheduler/README.md",
+      "title": "fleet-scheduler",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/cloud/fleet-scheduler/README.md"
+    },
+    {
+      "path": "docs/ops-governance/cloud/scheduler/README.md",
+      "title": "QNFO Cloud Scheduler (qnfo-cloud-ops)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/cloud/scheduler/README.md"
     },
     {
       "path": "docs/ops-governance/docs/ADVERSARIAL-REASONING.md",
@@ -1333,6 +1383,16 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/docs/fleet-dashboard/README.md"
     },
     {
+      "path": "docs/ops-governance/scripts/README.md",
+      "title": "qnfo-ops/scripts — Ops Toolbox (bootstrapped 2026-08-05)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/scripts/README.md"
+    },
+    {
+      "path": "docs/ops-governance/scripts/github-management/README.md",
+      "title": "GitHub Management Scripts",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/ops-governance/scripts/github-management/README.md"
+    },
+    {
       "path": "docs/outreach/ipatent-launch-kit.md",
       "title": "iPatent launch kit (2026-10-02, STRATEGY-1 s2.4a)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/outreach/ipatent-launch-kit.md"
@@ -1371,6 +1431,31 @@
       "path": "docs/root-cause-contract/README.md",
       "title": "ROOT-CAUSE-CONTRACT-1: the kept design for agent_issues 1000419",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/root-cause-contract/README.md"
+    },
+    {
+      "path": "docs/schemas-p0/FOLDED.md",
+      "title": "Folded repository",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/schemas-p0/FOLDED.md"
+    },
+    {
+      "path": "docs/schemas-p0/README.md",
+      "title": "qnfo-schemas — QNFO Code-Parsable Artifact Registry",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/schemas-p0/README.md"
+    },
+    {
+      "path": "docs/schemas-p0/runbooks/dr.md",
+      "title": "Disaster Recovery: service-failure resolution sequence",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/schemas-p0/runbooks/dr.md"
+    },
+    {
+      "path": "docs/schemas-p0/runbooks/kaizen.md",
+      "title": "Kaizen ops cycle (continuous-improvement watchtower)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/schemas-p0/runbooks/kaizen.md"
+    },
+    {
+      "path": "docs/schemas-p0/runbooks/publish.md",
+      "title": "Research publication pipeline (P1 pre-flight to P8 publish + post-publish)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/schemas-p0/runbooks/publish.md"
     },
     {
       "path": "events-radar/README.md",

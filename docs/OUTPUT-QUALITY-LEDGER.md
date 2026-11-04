@@ -38,9 +38,9 @@ ask product. Clearing breaches, closing issues and passing gates measure the fle
 
 | Surface | Outcome measures | Proxies / validity |
 |---|---|---|
-| papers | `papers_with_open_high_errata_pct` (lower), `errata_high_net_inflow_7d` (lower) | `paper_same_paper_score_delta_7d`, `paper_new_score_saturation_14d`, `golden_run_complement_share_30d` |
+| papers | `papers_with_open_high_errata_pct` (lower), `errata_high_net_inflow_7d` (lower), `engaged_reader_sessions_7d` (higher), `research_neurons_per_engaged_session_7d` (lower) | `paper_same_paper_score_delta_7d`, `paper_new_score_saturation_14d`, `golden_run_complement_share_30d` |
 | essays (q08) | `q08_human_reads_7d`; `q08_retraction_rate_30d` (written by q08-signal-engine 0.36.0) | `q08_panel_effective_votes_30d` |
-| promotion | `outreach_human_clicks_7d`, `outreach_clicks_per_post_7d`, `social_engagement_rate_30d` | |
+| promotion | `social_engaged_sessions_7d` (GA4 engaged sessions from social), `social_engagement_rate_30d`; `outreach_human_clicks_7d` and `outreach_clicks_per_post_7d` are outcomes until PROBE-UA-BOT-1 (migration `2026-11-04-probe-ua-bot-1.sql`) makes them proxies: the fleet's own link probes were counted in them | `outreach_engaged_per_100_clicks_7d` (validity: about 2 of 100 counted clicks became an engaged session on 2026-11-03) |
 | site | `engaged_human_sessions_28d` | |
 | code | `code_task_success_rate_30d`, `remediation_latest_pass_pct_7d` | |
 | ask | `ask_helpful_rate_30d` (visitor ratings; unmeasured below 10 ratings in 30 days) | `ask_citation_validity_7d`; `ask_plain_share_7d` |
@@ -75,6 +75,10 @@ no matched subjects means `insufficient_history`. The all-subject integrity guar
 
 The measures are written by `output_quality_heavy_tick`, a trigger on `fleet_tick_heavy` (never on `fleet_tick`, FLEET-TICK-SPLIT-1), each statement gated on its metric being
 50 minutes old. `metric_history` (qnfo-fleet-control, daily) supplies the history; the new measures have none for a week, and `output_quality_outcomes_unmeasured` shows it.
+
+## Readers of papers (READER-YIELD-1, 2026-11-04)
+
+The papers surface had no reader outcome. `engaged_reader_sessions_7d` (GA4 engaged sessions from sources outside the fleet, the one reader count a generator cannot satisfy; 44 in the 7 days to 11-03 against 122 from all sources) and `research_neurons_per_engaged_session_7d` (cost of one engaged reader) now carry it; `outreach_engaged_per_100_clicks_7d` is the validity finding that `outreach_human_clicks_7d` counts fetchers. Definitions, the per-paper table and the research volume governor are in `docs/READER-YIELD.md`; migration `migrations/2026-11-04-reader-yield-1.sql`, suite `migrations/reader-yield-1.test.mjs`. No verdict before 2026-11-07 (history is backfilled from 2026-10-31).
 
 ## Caveats and what would falsify the ledger
 

@@ -74,6 +74,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [FLEET-NODE-MAP (canonical, 2026-09-26)](FLEET-NODE-MAP.md) - `docs/FLEET-NODE-MAP.md`
 - [FLEET REPORT CARD — Objective Function & Constraints (canonical)](FLEET-REPORT-CARD.md) - `docs/FLEET-REPORT-CARD.md`
 - [GitHub cloud access to Quniverse](GITHUB-CLOUD-QUNIVERSE.md) - `docs/GITHUB-CLOUD-QUNIVERSE.md`
+- [Google, GitHub and Cloudflare as one system (GOOGLE-HUB-1)](GOOGLE-HUB-INTEGRATION.md) - `docs/GOOGLE-HUB-INTEGRATION.md`
 - [Gradual deploys with automatic rollback (BP26-GRADUAL-DEPLOYS-1)](GRADUAL-DEPLOYS.md) - `docs/GRADUAL-DEPLOYS.md`
 - [Handoff 2026-10-03: personal twin + priority queue (session_0166enPmfw7U4JuwhPciSCSG)](HANDOFF-2026-10-03-PERSONAL-TWIN-AND-PRIORITY-QUEUE.md) - `docs/HANDOFF-2026-10-03-PERSONAL-TWIN-AND-PRIORITY-QUEUE.md`
 - [Handoff — remediation verification audit (2026-10-18)](HANDOFF-2026-10-18-VERIFICATION-AUDIT.md) - `docs/HANDOFF-2026-10-18-VERIFICATION-AUDIT.md`
@@ -84,6 +85,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Handoff: the Personal Companion runs on the fleet (2026-10-19)](HANDOFF-2026-10-19-personal-companion.md) - `docs/HANDOFF-2026-10-19-personal-companion.md`
 - [Handoff: Quick Read on the living papers (2026-10-19)](HANDOFF-2026-10-19-quick-read.md) - `docs/HANDOFF-2026-10-19-quick-read.md`
 - [HANDOFF — 2026-10-19 (handoff backlog + R2 Basin Catalog + red drain)](HANDOFF-2026-10-19-red-drain.md) - `docs/HANDOFF-2026-10-19-red-drain.md`
+- [Infrastructure and AI-spend audit, 2026-11-04 (pillar: cost)](INFRA-AUDIT-2026-11-04.md) - `docs/INFRA-AUDIT-2026-11-04.md`
 - [Kill-switch drill protocol (BP26-LEASES-KILLSWITCH-1)](KILL-SWITCH-DRILL.md) - `docs/KILL-SWITCH-DRILL.md`
 - [Leases, fencing tokens, caps, breakers and the kill switch (BP26-LEASES-KILLSWITCH-1)](LEASES-FENCING.md) - `docs/LEASES-FENCING.md`
 - [MODEL-MATRIX-1: which Cloudflare model for which job](MODEL-MATRIX.md) - `docs/MODEL-MATRIX.md`
@@ -110,6 +112,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qwav demo cross-check (RM-QWAV-CROSS-SIMULATOR-1)](QWAV-CROSS-SIMULATOR.md) - `docs/QWAV-CROSS-SIMULATOR.md`
 - [RADAR-TITLE-NOISE-1 one-off cleanup (2026-10-04)](RADAR-TITLE-CLEANUP-2026-10-04.md) - `docs/RADAR-TITLE-CLEANUP-2026-10-04.md`
 - [Radar title cleanup 2026-10-05 (RADAR-TITLE-NOISE-2, #1885, pillar: personal)](RADAR-TITLE-CLEANUP-2026-10-05.md) - `docs/RADAR-TITLE-CLEANUP-2026-10-05.md`
+- [Reader yield (READER-YIELD-1)](READER-YIELD.md) - `docs/READER-YIELD.md`
 - [Quniverse documentation directory](README.md) - `docs/README.md`
 - [Register Execution Architecture (remediated 2026-09-09)](REGISTER-EXECUTION-ARCHITECTURE.md) - `docs/REGISTER-EXECUTION-ARCHITECTURE.md`
 - [Repository map (REPO-UNIFY-1)](REPO-MAP.md) - `docs/REPO-MAP.md`
@@ -165,6 +168,8 @@ and [the machine-readable catalog](agent-catalog.json).
 - [COST-DECISION-OWNER-LOCAL-TEXT-1: owner-local sentence contradicts the $0 spend and the credit runway divides by unbilled third-party list cost](handoff/issues/COST-DECISION-OWNER-LOCAL-TEXT-1.md) - `docs/handoff/issues/COST-DECISION-OWNER-LOCAL-TEXT-1.md`
 - [COST-FEED-7D-WINDOW-1: /api/cost by_model_7d and by_worker_7d sum 8 UTC day buckets (today partial) under a 7d label, with est_usd unlabelled as list price](handoff/issues/by-window-8-buckets.md) - `docs/handoff/issues/by-window-8-buckets.md`
 - [RUM-ZERO-DAY-1: a stored false zero for 2026-10-13 understates the 7- and 28-day pageviews, and the dashboard top pages read the unfiltered source](handoff/issues/rum-zero-13.md) - `docs/handoff/issues/rum-zero-13.md`
+- [Folded repository](infra-records/FOLDED.md) - `docs/infra-records/FOLDED.md`
+- [QNFO Infrastructure (QNFO.INFRA)](infra-records/README.md) - `docs/infra-records/README.md`
 - [Owner API keys: which exist, where they live, how they are issued](keys/owner-api-keys.md) - `docs/keys/owner-api-keys.md`
 - [QNFO-ULA v2.1: Software Terms (draft for QNFO/license)](license/README.md) - `docs/license/README.md`
 - [QNFO Unified License Agreement (QNFO-ULA) — Version 2.1](license/for-QNFO-license/QNFO-ULA-v2.1.md) - `docs/license/for-QNFO-license/QNFO-ULA-v2.1.md`
@@ -179,9 +184,11 @@ and [the machine-readable catalog](agent-catalog.json).
 - [PLCY — Decide-Implement-Deploy Mandate (DID)](ops-governance/PLCY/EXECUTION-MANDATE.md) - `docs/ops-governance/PLCY/EXECUTION-MANDATE.md`
 - [PLCY — Map–Territory Realization Gate & Ontic Gate (DPRF G1/G2)](ops-governance/PLCY/MAP-TERRITORY-REALIZATION-GATE.md) - `docs/ops-governance/PLCY/MAP-TERRITORY-REALIZATION-GATE.md`
 - [SECRETS-INVENTORY — QNFO Token/Key/Password Map (2026-09-01)](ops-governance/PLCY/SECRETS-INVENTORY.md) - `docs/ops-governance/PLCY/SECRETS-INVENTORY.md`
+- [QNFO/QWAV Press Kit](ops-governance/PRESS-KIT.md) - `docs/ops-governance/PRESS-KIT.md`
 - [Operations governance (folded from QNFO/qnfo-ops)](ops-governance/README.md) - `docs/ops-governance/README.md`
 - [SKIL — Framework Level Discipline (DPRF)](ops-governance/SKIL/FRAMEWORK-LEVEL-DISCIPLINE.md) - `docs/ops-governance/SKIL/FRAMEWORK-LEVEL-DISCIPLINE.md`
 - [QNFO Operations & Governance (QNFO.OPS)](ops-governance/SOURCE-README.md) - `docs/ops-governance/SOURCE-README.md`
+- [SYNC-PORTFOLIO-GITHUB.md — Public Ledger Sync](ops-governance/SYNC-PORTFOLIO-GITHUB.md) - `docs/ops-governance/SYNC-PORTFOLIO-GITHUB.md`
 - [GitHub ↔ Cloudflare Sync Contract (QNFO.GOV)](ops-governance/WBS/GITHUB-SYNC.md) - `docs/ops-governance/WBS/GITHUB-SYNC.md`
 - [WBS-AGENT-PROTOCOL — Agent Execution Standard](ops-governance/WBS/WBS-AGENT-PROTOCOL.md) - `docs/ops-governance/WBS/WBS-AGENT-PROTOCOL.md`
 - [WBS.TAXONOMY — Canonical Program/Project Registry](ops-governance/WBS/WBS.TAXONOMY.md) - `docs/ops-governance/WBS/WBS.TAXONOMY.md`
@@ -191,6 +198,9 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Fleetwide worker productivity audit + consolidation plan](ops-governance/audits/2026-09-13-FLEETWIDE-PRODUCTIVITY-CONSOLIDATION.md) - `docs/ops-governance/audits/2026-09-13-FLEETWIDE-PRODUCTIVITY-CONSOLIDATION.md`
 - [LOOP EXECUTOR ACCOUNTS FOR NOTHING — why fleet errors never resolve](ops-governance/audits/2026-09-13-LOOP-EXECUTOR-ACCOUNTS-FOR-NOTHING.md) - `docs/ops-governance/audits/2026-09-13-LOOP-EXECUTOR-ACCOUNTS-FOR-NOTHING.md`
 - [RETRACTION — the "acute monitor outage" was FALSE](ops-governance/audits/2026-09-13-RETRACTION-monitor-outage-false.md) - `docs/ops-governance/audits/2026-09-13-RETRACTION-monitor-outage-false.md`
+- [fleet-executor](ops-governance/cloud/fleet-executor/README.md) - `docs/ops-governance/cloud/fleet-executor/README.md`
+- [fleet-scheduler](ops-governance/cloud/fleet-scheduler/README.md) - `docs/ops-governance/cloud/fleet-scheduler/README.md`
+- [QNFO Cloud Scheduler (qnfo-cloud-ops)](ops-governance/cloud/scheduler/README.md) - `docs/ops-governance/cloud/scheduler/README.md`
 - [ADVERSARIAL-REASONING-1 — Error-Mitigation Standard (anti-sycophancy / anti-confirmation-bias)](ops-governance/docs/ADVERSARIAL-REASONING.md) - `docs/ops-governance/docs/ADVERSARIAL-REASONING.md`
 - [AI HAPPY PATH (QNFO) — canonical endpoints & models](ops-governance/docs/AI-HAPPY-PATH.md) - `docs/ops-governance/docs/AI-HAPPY-PATH.md`
 - [QNFO Autonomous Fleet Architecture (AF-1)](ops-governance/docs/AUTONOMOUS-FLEET-ARCHITECTURE.md) - `docs/ops-governance/docs/AUTONOMOUS-FLEET-ARCHITECTURE.md`
@@ -263,6 +273,8 @@ and [the machine-readable catalog](agent-catalog.json).
 - [WORKER CONSOLIDATION PLAN (2026-09-11)](ops-governance/docs/WORKER-CONSOLIDATION-PLAN.md) - `docs/ops-governance/docs/WORKER-CONSOLIDATION-PLAN.md`
 - [QNFO FLEET WIRING MATRIX (live)](ops-governance/docs/fleet-architecture/wiring-summary.md) - `docs/ops-governance/docs/fleet-architecture/wiring-summary.md`
 - [QNFO Fleet Operations Dashboard](ops-governance/docs/fleet-dashboard/README.md) - `docs/ops-governance/docs/fleet-dashboard/README.md`
+- [qnfo-ops/scripts — Ops Toolbox (bootstrapped 2026-08-05)](ops-governance/scripts/README.md) - `docs/ops-governance/scripts/README.md`
+- [GitHub Management Scripts](ops-governance/scripts/github-management/README.md) - `docs/ops-governance/scripts/github-management/README.md`
 - [iPatent launch kit (2026-10-02, STRATEGY-1 s2.4a)](outreach/ipatent-launch-kit.md) - `docs/outreach/ipatent-launch-kit.md`
 - [Launch queue, October 2026 (STRATEGY-1)](outreach/launch-queue-2026-10.md) - `docs/outreach/launch-queue-2026-10.md`
 - [Living Papers launch, October 2026 (LIVING-PAPERS-LAUNCH-1)](outreach/living-papers-launch-2026-10.md) - `docs/outreach/living-papers-launch-2026-10.md`
@@ -271,6 +283,11 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Notation-Commissioning Audit: Five Quantum Formulations](research-memos/2026-10-02-qm-notation-commissioning-audit.md) - `docs/research-memos/2026-10-02-qm-notation-commissioning-audit.md`
 - [Research memos](research-memos/README.md) - `docs/research-memos/README.md`
 - [ROOT-CAUSE-CONTRACT-1: the kept design for agent_issues 1000419](root-cause-contract/README.md) - `docs/root-cause-contract/README.md`
+- [Folded repository](schemas-p0/FOLDED.md) - `docs/schemas-p0/FOLDED.md`
+- [qnfo-schemas — QNFO Code-Parsable Artifact Registry](schemas-p0/README.md) - `docs/schemas-p0/README.md`
+- [Disaster Recovery: service-failure resolution sequence](schemas-p0/runbooks/dr.md) - `docs/schemas-p0/runbooks/dr.md`
+- [Kaizen ops cycle (continuous-improvement watchtower)](schemas-p0/runbooks/kaizen.md) - `docs/schemas-p0/runbooks/kaizen.md`
+- [Research publication pipeline (P1 pre-flight to P8 publish + post-publish)](schemas-p0/runbooks/publish.md) - `docs/schemas-p0/runbooks/publish.md`
 
 ## Component documentation
 
