@@ -841,9 +841,17 @@ def ensure_bookmark_column(acct, token, ledger_id):
     return True
 
 
+D1_OVERLOAD_BACKOFF_S = (5, 10, 20, 30, 45)  # D1-429-RETRY-1: "D1 DB is overloaded ... 10 second window" rejects the statement, so a retry is safe
+
+
 def d1(acct, token, db_id, sql, params=None):
+    import time
     import cf_ops_actions as C
-    st, j = C.call("POST", f"/accounts/{acct}/d1/database/{db_id}/query", token, {"sql": sql, "params": params or []}, timeout=90)
+    for wait in D1_OVERLOAD_BACKOFF_S + (None,):
+        st, j = C.call("POST", f"/accounts/{acct}/d1/database/{db_id}/query", token, {"sql": sql, "params": params or []}, timeout=90)
+        if st != 429 or wait is None:
+            break
+        time.sleep(wait)
     if st != 200 or not j.get("success", False):
         raise RuntimeError("D1 HTTP " + str(st) + ": " + json.dumps(j.get("errors") or j)[:300])
     res = j.get("result") or []
