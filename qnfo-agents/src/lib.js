@@ -268,3 +268,24 @@ export function validateRequest(row) {
   }
   return { kind };
 }
+
+// AGENTS-LEAN-1 (2026-11-04, pillar cost): the two loop callers that bulk the agent's Workers AI input (issue-probe-agent, program-manager:*) send
+// a self-contained prompt. Measured over 24 h: the caller arrives as "loop:issue-probe-agent", so the old /^issue-probe-agent/ step cap never matched
+// (241 of 402 probe turns ran the full 16 steps; 41% of those yielded a probe, against 90%+ of the turns that stopped at 4 to 15 steps), and each
+// step resent the whole qnfo-ops tool catalog (codemode, ops_catalog, ops_call) at about 17.9k input tokens. A lean turn gets fleet_sql and
+// repo_read_file only, at most LEAN_MAX_STEPS steps, and tool results capped at LEAN_RESULT_CHARS.
+export const LEAN_MAX_STEPS = 6;
+export const LEAN_RESULT_CHARS = 6000;
+export function leanCaller(caller) {
+  return /(^|:)(issue-probe-agent|program-manager)(:|$)/.test(String(caller || ""));
+}
+export function leanConfigOn(value) {
+  return String(value == null ? "on" : value).trim().toLowerCase() !== "off";
+}
+export function capResult(obj, maxChars) {
+  const n = Math.max(500, Number(maxChars) || LEAN_RESULT_CHARS);
+  let s;
+  try { s = JSON.stringify(obj); } catch (e) { s = String(obj); }
+  if (s.length <= n) return obj;
+  return { ok: !!(obj && obj.ok), truncated: true, note: "result cut to " + n + " characters; narrow the query (fewer columns, a WHERE, LIMIT)", head: s.slice(0, n) };
+}

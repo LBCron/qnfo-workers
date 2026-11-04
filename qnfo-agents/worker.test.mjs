@@ -2,7 +2,7 @@
 // ADVERSARIAL: the helpers are tested directly; the bundle is checked by shape (it needs the Workers runtime to run). The live proof
 // is GET https://agents.qnfo.org/health answering this VERSION, a public POST /run answering 403, and a console turn reaching done.
 import { readFileSync } from "node:fs";
-import { callerOf, scopeOf, opsToolAllowed, readOnlySql, repoPathOk, codeTaskText, scheduleWhen, safeToolName, sliceLines, OPS_READ_ONLY, validateRequest, loopInstance, requesterOk, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_FLOOR_EVERY_TICKS, AGENT_TICK_MS, AGENT_SHED_MIN, EMPTY_TEXT, lastStepText, pickAnswer, hasToolMarkup, stripToolMarkup, SHORT_ANSWER_CHARS, FINAL_ANSWER_ASK, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute } from "./src/lib.js";
+import { callerOf, scopeOf, opsToolAllowed, readOnlySql, repoPathOk, codeTaskText, scheduleWhen, safeToolName, sliceLines, OPS_READ_ONLY, validateRequest, loopInstance, requesterOk, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_FLOOR_EVERY_TICKS, AGENT_TICK_MS, AGENT_SHED_MIN, EMPTY_TEXT, lastStepText, pickAnswer, hasToolMarkup, stripToolMarkup, SHORT_ANSWER_CHARS, FINAL_ANSWER_ASK, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS } from "./src/lib.js";
 const here = (p) => new URL(p, import.meta.url);
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
@@ -192,6 +192,21 @@ ok(/COALESCE\(instance, ''\) NOT LIKE 'lever-%' AND COALESCE\(kind, 'run'\) = 'r
 ok(/if \(gov\.plan\.limited\) \{\s*const old: any = await db\.prepare\("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND COALESCE\(instance, ''\) NOT LIKE 'lever-%' AND COALESCE\(kind, 'run'\) = 'run' AND created_at < strftime/.test(ts) && /shed: waited over/.test(ts), "while limited, a queued non-critical model request older than AGENT_SHED_MIN minutes is failed with the reason");
 ok(ts.indexOf("const gov = await agentPlan(env);") < ts.indexOf("const queued: any = await db.prepare(\"SELECT * FROM cf_agent_requests WHERE status = 'queued'"), "the shed runs before the queue is read, so a shed request is never started");
 ok(/qnfo_agents_daily_neurons/.test(ts) && /raw === "off" \? 0/.test(ts), "ops_config qnfo_agents_daily_neurons sets the budget and off disables it");
+
+// AGENTS-LEAN-1
+ok(leanCaller("loop:issue-probe-agent") && leanCaller("issue-probe-agent") && leanCaller("loop:program-manager:QNFO.OPS"), "the loop callers as they arrive (loop:<requester>) are lean");
+ok(!leanCaller("qnfo-fleet-dashboard") && !leanCaller("loop:code-agent") && !leanCaller("") && !leanCaller(null), "console and other loop callers keep every tool");
+ok(leanConfigOn(undefined) && leanConfigOn("on") && !leanConfigOn("off") && !leanConfigOn(" OFF "), "ops_config qnfo_agents_lean = off is the kill switch");
+ok(LEAN_MAX_STEPS <= 6, "a lean turn stops at 6 steps");
+{
+  const small = { ok: true, rows: 1, results: [{ a: 1 }] };
+  ok(capResult(small, LEAN_RESULT_CHARS) === small, "a small tool result passes unchanged");
+  const big = capResult({ ok: true, rows: 200, results: new Array(200).fill({ k: "x".repeat(100) }) }, LEAN_RESULT_CHARS);
+  ok(big.truncated === true && JSON.stringify(big).length < LEAN_RESULT_CHARS + 400, "a big tool result is cut to the hard cap");
+}
+ok(/if \(c\.lean\) return t;/.test(ts) && /if \(c\.lean\) return tools;/.test(ts), "lean turns get no ops catalog, writes, code mode or MCP tools");
+ok(/stepCountIs\(lean \? LEAN_MAX_STEPS/.test(ts) && !/\/\^issue-probe-agent\//.test(ts), "the step cap matches the loop: caller and no longer anchors on the bare requester name");
+ok(/qnfo_agents_lean/.test(ts), "the kill switch key is read");
 
 console.log("qnfo-agents worker.test: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
