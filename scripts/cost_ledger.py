@@ -59,14 +59,47 @@ def day_window(day):
     return start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def workers_ai_day(day, call=cf):
+def workers_ai_day_models(day, call=cf):
+    """AI-METER-MODEL-1 (2026-11-04): the day's account-wide Workers AI usage with its modelId dimension, in the same one GraphQL call
+    that used to return only the total. Returns (usd, requests, neurons, models) where models is [(modelId, neurons, requests, input
+    tokens, output tokens)]. A row without a modelId dimension is kept as 'unknown', so the total never drops a group."""
     a, b = day_window(day)
-    acc = gql('query { viewer { accounts(filter: { accountTag: "%s" }) { aiInferenceAdaptiveGroups(limit: 1000, filter: { datetime_geq: "%s", datetime_lt: "%s" }) { count sum { totalNeurons } } } } }'
+    acc = gql('query { viewer { accounts(filter: { accountTag: "%s" }) { aiInferenceAdaptiveGroups(limit: 1000, filter: { datetime_geq: "%s", datetime_lt: "%s" }) { count sum { totalNeurons totalInputTokens totalOutputTokens } dimensions { modelId } } } } }'
               % (RC.ACCOUNT, a, b), call)
     rows = acc.get("aiInferenceAdaptiveGroups") or []
-    neurons = sum(float((r.get("sum") or {}).get("totalNeurons") or 0) for r in rows)
-    reqs = sum(int(r.get("count") or 0) for r in rows)
-    return max(0.0, neurons - FREE_NEURONS_PER_DAY) / 1000 * NEURON_USD_PER_1K, reqs, neurons
+    models = {}
+    for r in rows:
+        sm = r.get("sum") or {}
+        mid = str((r.get("dimensions") or {}).get("modelId") or "unknown")[:120]
+        m = models.setdefault(mid, [0.0, 0, 0, 0])
+        m[0] += float(sm.get("totalNeurons") or 0)
+        m[1] += int(r.get("count") or 0)
+        m[2] += int(sm.get("totalInputTokens") or 0)
+        m[3] += int(sm.get("totalOutputTokens") or 0)
+    neurons = sum(m[0] for m in models.values())
+    reqs = sum(m[1] for m in models.values())
+    return (max(0.0, neurons - FREE_NEURONS_PER_DAY) / 1000 * NEURON_USD_PER_1K, reqs, neurons,
+            [(mid, m[0], m[1], m[2], m[3]) for mid, m in sorted(models.items())])
+
+
+def workers_ai_day(day, call=cf):
+    usd, reqs, neurons, _ = workers_ai_day_models(day, call)
+    return usd, reqs, neurons
+
+
+def write_model_meter(d1, date, models):
+    """AI-METER-MODEL-1: one ai_meter_model_daily row per (date, model); the Cloudflare meter, not the per-worker counters. A model that
+    stopped appearing in a re-read day is removed so the day's rows always sum to the meter."""
+    seen = []
+    for mid, neurons, reqs, tin, tout in models:
+        d1("INSERT INTO ai_meter_model_daily (date, model, neurons, requests, input_tokens, output_tokens, observed_at) "
+           "VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) "
+           "ON CONFLICT(date, model) DO UPDATE SET neurons = excluded.neurons, requests = excluded.requests, input_tokens = excluded.input_tokens, "
+           "output_tokens = excluded.output_tokens, observed_at = excluded.observed_at",
+           [date, mid, round(neurons, 2), int(reqs), int(tin), int(tout)])
+        seen.append(mid)
+    if seen:
+        d1("DELETE FROM ai_meter_model_daily WHERE date = ?1 AND model NOT IN (%s)" % ",".join("?%d" % (i + 2) for i in range(len(seen))), [date] + seen)
 
 
 def gateway_day(day, call=cf):
@@ -785,8 +818,12 @@ def main(d1=None, call=cf, today=None):
     for day in days:
         ds = day.isoformat()
         try:
-            usd, reqs, neurons = workers_ai_day(day, call)
+            usd, reqs, neurons, models = workers_ai_day_models(day, call)
             upsert(d1, ds, "workers_ai", "fleet", usd, reqs, "GraphQL aiInferenceAdaptiveGroups: %d neurons, 10k/day free, $0.011/1k" % neurons)
+            try:
+                write_model_meter(d1, ds, models)
+            except Exception as e2:  # noqa: BLE001
+                out["errors"].append("ai_meter_model_daily %s: %s" % (ds, str(e2)[:100]))
         except Exception as e:  # noqa: BLE001
             out["errors"].append("workers_ai %s: %s" % (ds, str(e)[:100]))
         try:
@@ -848,7 +885,9 @@ def selftest():
         ('2026-10-09', 'gw', 'anthropic', 'claude-opus-5.5', 1140, 97.026573), ('2026-10-09', 'gw', 'openai', 'gpt-5.5', 2, 0.2),
         ('2026-10-09', 'gw', 'mistral', 'large', 4, 3.0);
       CREATE TABLE metric_registry (metric TEXT PRIMARY KEY, last_value TEXT, last_refreshed TEXT, state TEXT,
-        formula TEXT, source_of_truth TEXT);""")
+        formula TEXT, source_of_truth TEXT);
+      CREATE TABLE ai_meter_model_daily (date TEXT NOT NULL, model TEXT NOT NULL, neurons REAL NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, observed_at TEXT, PRIMARY KEY (date, model));""")
 
     def d1(sql, params=None):
         sql = sql.replace("strftime('%Y-%m-%dT%H:%M:%SZ', 'now')", "'now'")
@@ -867,6 +906,11 @@ def selftest():
                 return 200, {"data": {"viewer": {"accounts": [{"aiInferenceAdaptiveGroups": [
                     {"count": 100, "sum": {"totalNeurons": 210000}, "dimensions": {"date": "2026-10-09"}}
                 ]}]}}}
+            if "dimensions { modelId }" in q:
+                return 200, {"data": {"viewer": {"accounts": [{"aiInferenceAdaptiveGroups": [
+                    {"count": 60, "sum": {"totalNeurons": 150000, "totalInputTokens": 9000000, "totalOutputTokens": 90000}, "dimensions": {"modelId": "@cf/deepseek-ai/deepseek-v4.1-flash-1017"}},
+                    {"count": 30, "sum": {"totalNeurons": 40000, "totalInputTokens": 700000, "totalOutputTokens": 70000}, "dimensions": {"modelId": "@cf/openai/gpt-oss-120b"}},
+                    {"count": 10, "sum": {"totalNeurons": 20000, "totalInputTokens": 100000, "totalOutputTokens": 50000}, "dimensions": {"modelId": "@cf/openai/gpt-oss-120b"}}]}]}}}
             return 200, {"data": {"viewer": {"accounts": [{"aiInferenceAdaptiveGroups": [{"count": 100, "sum": {"totalNeurons": 210000}}]}]}}}
         return 200, {"data": {"viewer": {"accounts": [{"aiGatewayRequestsAdaptiveGroups": [
             {"count": 3, "sum": {"cost": 0.5}, "dimensions": {"provider": "openai", "model": "gpt-5.5"}},
@@ -882,6 +926,23 @@ def selftest():
     assert ("2026-10-09", "ai_gateway:workers-ai") not in rows  # neuron-billed, never double counted
     assert abs(rows[("2026-10-09", "cloudflare_plan:daily")] - 200 / 30) < 1e-3 and abs(rows[("2026-10-09", "direct_providers_external:daily")] - 15) < 1e-9
     assert len([k for k in rows if k[1] == "workers_ai"]) == 11  # 10 complete days plus today
+    # AI-METER-MODEL-1: the per-model meter sums to the day's total, merges a model that GraphQL returns in two groups, and is idempotent
+    mm = {(r["date"], r["model"]): r for r in d1("SELECT * FROM ai_meter_model_daily")}
+    assert len(mm) == 22 and abs(mm[("2026-10-09", "@cf/openai/gpt-oss-120b")]["neurons"] - 60000) < 1e-6 and mm[("2026-10-09", "@cf/openai/gpt-oss-120b")]["requests"] == 40, mm
+    assert abs(sum(v["neurons"] for k, v in mm.items() if k[0] == "2026-10-09") - 210000) < 1e-6, mm
+    assert mm[("2026-10-09", "@cf/deepseek-ai/deepseek-v4.1-flash-1017")]["input_tokens"] == 9000000, mm
+    d1("INSERT INTO ai_meter_model_daily (date, model, neurons) VALUES ('2026-10-09', '@cf/gone/model', 5)")
+    assert main(d1, call, dt.date(2026, 10, 9)) == 0 and not d1("SELECT 1 FROM ai_meter_model_daily WHERE model = '@cf/gone/model'") and len(d1("SELECT * FROM ai_meter_model_daily")) == 22
+    c.execute("DROP TABLE ai_meter_model_daily")
+    out_missing = {"errors": []}
+    try:
+        write_model_meter(d1, "2026-10-09", [("m", 1.0, 1, 1, 1)])
+        raise SystemExit("write_model_meter must raise when the table is missing")
+    except sqlite3.OperationalError:
+        pass
+    assert main(d1, call, dt.date(2026, 10, 9)) == 0  # a missing table is reported in the run, never fatal: cost_daily is still written
+    c.execute("CREATE TABLE ai_meter_model_daily (date TEXT NOT NULL, model TEXT NOT NULL, neurons REAL NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, observed_at TEXT, PRIMARY KEY (date, model))")
+    assert main(d1, call, dt.date(2026, 10, 9)) == 0
     assert main(d1, call, dt.date(2026, 10, 9)) == 0 and len(rows) == len(d1("SELECT * FROM cost_daily"))  # idempotent
     # COST-OWNER-SPLIT-1: the owner's untagged client spend (ai_spend_owner_local) is its own owner_gateway:<provider> row, never in the fleet row.
     # (a) the owner term equals the provider's gateway total: the fleet row is 0 and the owner row carries the day (2026-10-18: anthropic 97.03)
