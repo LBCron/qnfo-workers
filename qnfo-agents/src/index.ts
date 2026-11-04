@@ -773,13 +773,13 @@ async function drainRequests(env: Env) {
   let modelSlots = gov.plan.take;
   out.governor = { limited: gov.plan.limited, spent: gov.spent, budget: gov.budget, duty: gov.plan.duty };
   if (gov.plan.limited) {
-    const old: any = await db.prepare("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND requester NOT LIKE 'lever-%' AND COALESCE(kind, 'run') = 'run' AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-" + AGENT_SHED_MIN + " minutes') LIMIT 25").all();
+    const old: any = await db.prepare("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND COALESCE(instance, '') NOT LIKE 'lever-%' AND COALESCE(kind, 'run') = 'run' AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-" + AGENT_SHED_MIN + " minutes') LIMIT 25").all();
     for (const o of old.results || []) { await finishRequest(env, o.id, "failed", null, "shed: waited over " + AGENT_SHED_MIN + " minutes under the daily neuron budget (QNFO-AGENTS-BUDGET-1)"); out.shed = (out.shed || 0) + 1; }
   }
   const queued: any = await db.prepare("SELECT * FROM cf_agent_requests WHERE status = 'queued' ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, id LIMIT ?1").bind(DRAIN_PER_TICK).all();
   for (const q of queued.results || []) {
-    // A critical request, a lever-* request (the agents_lever_usable_share_48h verdict window, decision 1552, needs every lever row) and a request that calls no model (sandbox, schedule) are never deferred; the rest take the tick's model slots.
-    if (q.priority !== "critical" && !/^lever-/.test(String(q.requester || "")) && String(q.kind || "run") === "run") {
+    // A critical request, a request on a lever-* instance (cf_agent_requests.instance; the requester is program-manager:QNFO.*; the agents_lever_usable_share_48h verdict window, decision 1552, needs every lever row) and a request that calls no model (sandbox, schedule) are never deferred; the rest take the tick's model slots.
+    if (q.priority !== "critical" && !/^lever-/.test(String(q.instance || "")) && String(q.kind || "run") === "run") {
       if (modelSlots <= 0) { out.deferred++; continue; }
       modelSlots--;
     }
