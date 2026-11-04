@@ -1,7 +1,7 @@
 -- CODE-TASKS-CTX-SLIM-1 (2026-11-04, charter pillar cost; owner request: "more efficient data structures ... old data we don't need anymore needs to be automatically cleaned").
 -- APPLY-BY: ci
 -- DB: qnfo-audit
--- BACKUP: code_task_ctx_archive
+-- (no BACKUP header: this file deletes nothing when it is applied. The trigger it creates copies base and patch into code_task_ctx_archive before it json_removes them from the live row, so the archive is the backup; the runner refuses a BACKUP table the file creates empty, BACKUP-SELF-EMPTY-1, run 41885084976.)
 -- spof-review: non-critical housekeeping; if it stops only the scan cost returns. Second path: ops_config retention_prune=off pauses it; the archive table holds every removed value.
 -- Rollback: DROP TRIGGER IF EXISTS code_tasks_ctx_slim_heavy_tick; UPDATE code_tasks SET ctx = json_patch(COALESCE(ctx, '{}'), json_object('base', (SELECT a.base FROM code_task_ctx_archive a WHERE a.task_id = code_tasks.id), 'patch', (SELECT a.patch FROM code_task_ctx_archive a WHERE a.task_id = code_tasks.id))) WHERE id IN (SELECT task_id FROM code_task_ctx_archive WHERE slimmed = 1);
 -- Measured 2026-11-04 (qnfo-audit): code_tasks has 1,449 rows and 318 MB of ctx (average 220 KB, up to 1.0 MB). The two keys ctx.base (whole file
