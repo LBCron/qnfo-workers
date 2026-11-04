@@ -12,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { familyOf, familyDenied, run, normalize, trusted, isCopilot, mirrorId, parseRefs, agentProblems, sinceIso, makeApi, syncOrgAgent, INSTRUCTIONS, AGENT, COPILOT_BOT, AGENT_SOURCE, AGENT_TARGET, LOCKS_URL, DEFAULTS, TARGET_OVERRIDES, startFailures, creditsBreaker, START_FAILED_RE, CREDITS_RE, PRIORITY_LABEL } from "./assign-copilot-sweep.mjs";
+import { budgetGate, familyOf, familyDenied, run, normalize, trusted, isCopilot, mirrorId, parseRefs, agentProblems, sinceIso, makeApi, syncOrgAgent, INSTRUCTIONS, AGENT, COPILOT_BOT, AGENT_SOURCE, AGENT_TARGET, LOCKS_URL, DEFAULTS, TARGET_OVERRIDES, startFailures, creditsBreaker, START_FAILED_RE, CREDITS_RE, PRIORITY_LABEL } from "./assign-copilot-sweep.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -413,6 +413,18 @@ ok(deny("OWNER-TASK-op-1: x", CT, { labels: [{ name: "ci-watchdog" }] }) === nul
   ok(s.assigned === 2 && s.skipped["family-record-owned"] === 1 && s.skipped["code-loop-owns"] === 1 && !g.log.some((c) => /\/(951|952)\//.test(c.path)), "the sweep assigns only 953 and 954 and spends no read on the filtered issues", s);
   const off = await go({ issues: [item(951, { title: "OWNER-TASK-op-9: x" }), item(952, { title: "CF-OBS-ISSUE-1: y", body: CT })] }, { familyFilter: false });
   ok(off.s.assigned === 2 && !off.s.skipped["family-record-owned"], "ASSIGN_COPILOT_FAMILY_FILTER=off restores the unfiltered sweep", off.s);
+}
+
+// GH-BUDGET-FLOOR-1: the sweep yields before any search or assignment call when the shared token is under the floor
+{
+  const rl = (rem) => { const log = []; const fetchImpl = async (u) => { log.push(String(u)); return { ok: true, status: 200, json: async () => ({ resources: { core: { limit: 5000, remaining: rem, reset: 1762276860 } } }) }; }; return { log, fetchImpl }; };
+  const lo = rl(400), hi = rl(3000), z = rl(0);
+  const a = await budgetGate({ token: "t", mode: "live" }, { fetchImpl: lo.fetchImpl, env: { GH_BUDGET_FLOOR: "1500" } });
+  ok(a && a.status === "budget-floor" && /budget-floor: remaining=400 floor=1500/.test(a.note) && lo.log.length === 1 && /\/rate_limit$/.test(lo.log[0]), "remaining 400 under floor 1500 yields after one free rate_limit read", a);
+  ok((await budgetGate({ token: "t", mode: "live" }, { fetchImpl: hi.fetchImpl, env: { GH_BUDGET_FLOOR: "1500" } })) === null, "remaining 3000 proceeds as before");
+  ok((await budgetGate({ token: "t", mode: "live" }, { fetchImpl: z.fetchImpl, env: { GH_BUDGET_FLOOR: "0" } })) === null && z.log.length === 0, "floor 0 disables the gate and spends no read");
+  ok((await budgetGate({ token: "", mode: "live" }, { fetchImpl: z.fetchImpl, env: {} })) === null, "no credential leaves the decision to run()");
+  ok((await budgetGate({ token: "t", mode: "live" }, { fetchImpl: async () => { throw new Error("net"); }, env: {} })) === null, "a failed probe proceeds");
 }
 
 console.log(pass + " passed, " + fail + " failed");

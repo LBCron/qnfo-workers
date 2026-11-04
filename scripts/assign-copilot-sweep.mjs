@@ -48,6 +48,7 @@
 //        [--mode live|dry] [--no-agent-sync]; ISSUE_REPO=QNFO/x ISSUE_NUMBER=7 (set by the `issues` trigger) puts that one issue first in the run.
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { checkBudget, resolveFloor, yieldLine } from "./gh-budget-floor.mjs";
 import { CODE_DELIVERY_DOD, withCodeDeliveryDoD } from "./code-delivery.mjs";
 
 const API = "https://api.github.com";
@@ -461,6 +462,16 @@ function summaryMarkdown(s) {
   return "### Assign Copilot to new issues (" + s.mode + ", agent " + s.agent + ", status " + s.status + ")\n\n" + rows.map((r) => "- " + r[0] + ": " + r[1]).join("\n") + (skipped ? "\n\nSkipped\n" + skipped : "") + (s.agent_sync ? "\n\nOrganization agent: " + s.agent_sync.status : "") + "\n";
 }
 
+// GH-BUDGET-FLOOR-1 (issue 7071): the sweep is a convenience; the merge lane keeps the last of the shared token's budget. Reads /rate_limit (free) with the
+// token the sweep would spend; under the floor (GH_BUDGET_FLOOR, default 600, 0 disables) returns a summary and the sweep makes no other call.
+export async function budgetGate(opts, deps) {
+  const d = Object.assign({ fetchImpl: fetch, env: process.env }, deps || {});
+  if (!opts || !opts.token) return null;
+  const r = await checkBudget({ token: opts.token, cls: "sweep", floor: resolveFloor("sweep", undefined, d.env.GH_BUDGET_FLOOR), fetchImpl: d.fetchImpl });
+  if (!r.yield) return null;
+  return { action: "assign-copilot-sweep", status: "budget-floor", considered: 0, assigned: 0, redriven: 0, skipped: {}, deferred: 0, errors: [], mode: opts.mode, agent: AGENT, note: "budget-floor: remaining=" + r.remaining + " floor=" + r.floor + " reset=" + r.reset + "; skipped", budget: r };
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const arg = (k, dflt) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : dflt; };
@@ -475,9 +486,10 @@ async function main() {
   };
   if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.ISSUE_REPO || "") && /^\d+$/.test(env.ISSUE_NUMBER || "")) opts.priority = { repo: env.ISSUE_REPO, number: Number(env.ISSUE_NUMBER) };
   let s;
-  try { s = await run(opts); }
+  try { s = (await budgetGate(opts)) || (await run(opts)); }
   catch (e) { s = { action: "assign-copilot-sweep", status: "crashed", considered: 0, assigned: 0, redriven: 0, skipped: {}, deferred: 0, errors: [{ where: "run", message: String((e && e.message) || e).slice(0, 200) }], mode: opts.mode, agent: AGENT }; }
   console.log("RESULT_JSON=" + JSON.stringify(s));
+  if (s.status === "budget-floor") console.log(yieldLine(s.budget, "assign-copilot-sweep") + "\n" + s.note);
   if (s.status === "no-credential") console.log("::warning::assign-copilot-sweep: " + s.note);
   if (s.credits_exhausted) console.log("::warning::assign-copilot-sweep: Copilot cannot start sessions because the account is out of AI credits (" + s.credits_exhausted + "); issues are assigned again once it can");
   for (const e of s.errors || []) console.log("::warning::assign-copilot-sweep " + e.where + ": " + (e.http !== undefined ? "http " + e.http + " " : "") + (e.message || ""));

@@ -52,7 +52,18 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+      # GH-BUDGET-FLOOR-1 (issue 7071): a sweep yields the shared token's last calls to the merge lane; a skipped run exits success.
+      - name: Yield when the shared token budget is low
+        id: budget
+        env:
+          GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+          GH_BUDGET_FLOOR: ${{ vars.GH_BUDGET_FLOOR }}
+        run: |
+          rc=0
+          node scripts/gh-budget-floor.mjs --floor 600 --class sweep || rc=$?
+          if [ "$rc" -eq 78 ]; then echo "yield=true" >> "$GITHUB_OUTPUT"; fi
       - name: Enforce draft and issue age
+        if: steps.budget.outputs.yield != 'true'
         env:
           # A user-token readiness mutation emits ready_for_review, waking the
           # existing review and merge lanes; GITHUB_TOKEN suppresses that event.
