@@ -34,6 +34,13 @@ WHY    CONTROL-PLANE-MANUAL-1 (2026-10-02, human_actions 21) kept qnfo-fleet-con
        VERSION that never arrived; one cloud_ops_events row (kind canary-functional) records each run. CANARY_FUNCTIONAL=
        observe files the finding without reverting, off skips the step. The step proves a read path, not every route:
        inference on qnfo-ai needs the router key, which the canary does not hold, so LOOP-WATCH-1 stays the next line.
+       DEPLOY-PROBES-1 (2026-11-04) generalises the functional step: every worker in the push that declares `<worker>/probes.json` (scripts/
+       deploy_probes.py) gets its HTTP routes and D1 `EXPLAIN QUERY PLAN` statements checked after the deploy, not only the seven control-plane
+       workers, and the seven now declare theirs in the same file instead of in this script. A probe that passed before the deploy (the
+       baseline step of canonical-deploy.yml) and fails after it is a regression and reverts the push exactly like a missing VERSION; a probe
+       that already failed before, a probe of a worker created by this push, an inconclusive answer (D1 overloaded, the runner offline) and a
+       worker a later push has since changed are filed or logged and never reverted. A revert redeploys every worker it changed, not only the
+       failed one.
 USAGE  python3 scripts/canary_revert.py --targets /tmp/targets.txt --pushed <sha> [--canary-min 8] [--poll-sec 20] [--dry-run]
        python3 scripts/canary_revert.py --selftest
        --targets is the canonical-deploy target file ("<worker> <path> [create]" per line). Reads CLOUDFLARE_API_TOKEN and
@@ -52,6 +59,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import deploy_probes as DP  # noqa: E402  DEPLOY-PROBES-1: declarations, probe evaluation, classification
 
 # Control-plane workers with a versioned /health route (read 2026-10-06: every one answered 200 with {"version": ...}).
 # Mirrors CP_CANARY_WORKERS in qnfo-fleet-control (bhControlPlaneDecide); fold-guard parity is the test's job.
@@ -65,18 +73,11 @@ VERSION_RE = re.compile(r'^var\s+VERSION\s*=\s*"([^"\n]*)"', re.M)
 VERSION_LINE_RE = re.compile(r'^(var\s+VERSION\s*=\s*")[^"\n]*(")', re.M)
 DB_ID = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
 
-# CONTROL-PLANE-FUNCTIONAL-CANARY-1: per worker, the read-only routes that prove it works beyond /health. Each check is
-# (url, [markers that must all occur in the body]); the status must be 200. Read 2026-10-12: every one answered 200 with
-# its markers. No route here takes a secret, writes, or calls a model. A worker absent from this map has no functional step.
-FUNCTIONAL = {
-    "qnfo-fleet-control": [("https://qnfo-fleet-control.q08.workers.dev/loops", ['"ok":true', '"findings"'])],
-    "qnfo-ops": [("https://qnfo-ops.q08.workers.dev/registry", ['"ok":true', '"registry":['])],
-    "qnfo-deploy-guard": [("https://qnfo-deploy-guard.q08.workers.dev/work-locks", ['"claims":['])],
-    "qnfo-gateway": [("https://qnfo.org/", ['data-brand="qnfo"', "<title>QNFO"])],
-    "qnfo-ai": [("https://qnfo-ai.q08.workers.dev/v1/models", ['"object":"list"', '"id":']), ("https://qnfo-ai.q08.workers.dev/spend", ['"ok":true', '"governor"'])],
-    "qnfo-observability": [("https://qnfo-observability.q08.workers.dev/integration", ['"ok":true', '"chains":['])],
-    "qnfo-code-orchestrator": [("https://qnfo-code-orchestrator.q08.workers.dev/fleet-exec/health", ['"ok":true', '"worker":"fleet-exec"'])],
-}
+# CONTROL-PLANE-FUNCTIONAL-CANARY-1 (2026-10-12) kept a table here of the read-only routes that prove each control-plane worker works beyond
+# /health. DEPLOY-PROBES-1 moved those checks into `<worker>/probes.json` next to each worker (scripts/deploy_probes.py), so a worker outside
+# the control plane declares its own the same way. HEALTH_URLS holds the VERSION-poll URL of a worker that declares `health`; a control-plane
+# worker uses HEALTH_URL.
+HEALTH_URLS = {}
 
 
 def emit(msg):
@@ -129,8 +130,9 @@ def judge(health, want):
 
 
 def is_revert_commit(message):
-    m = str(message or "").strip().lower()
-    return m.startswith("revert") or "control-plane-canary-1" in m
+    lines = str(message or "").strip().lower().splitlines()
+    first = lines[0] if lines else ""
+    return first.startswith("revert") or "control-plane-canary-1" in first
 
 
 def bump_for_revert(base_content, bad_version, tag):
@@ -149,7 +151,7 @@ def bump_for_revert(base_content, bad_version, tag):
 
 
 def fetch_health(worker, timeout=10):
-    req = urllib.request.Request(HEALTH_URL.format(worker=worker), headers={"User-Agent": "qnfo-canary/1.0 (+canonical-deploy)"})
+    req = urllib.request.Request(HEALTH_URLS.get(worker) or HEALTH_URL.format(worker=worker), headers={"User-Agent": "qnfo-canary/1.0 (+canonical-deploy)"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8", "replace"))
@@ -178,58 +180,58 @@ def poll(wanted, minutes, poll_sec, fetch=fetch_health, clock=time.monotonic, sl
     return out
 
 
-def fetch_text(url, timeout=25):
-    """(status, body text) of one GET; (0, error text) when the request itself fails."""
-    req = urllib.request.Request(url, headers={"User-Agent": "qnfo-canary/1.0 (+canonical-deploy functional)", "Cache-Control": "no-cache"})
+def git_show(ref, path):
+    """The text of `path` at `ref`, or None when it does not exist there."""
+    r = subprocess.run(["git", "show", ref + ":" + path], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else None
+
+
+def load_declarations(targets, ref, reader=None):
+    """DEPLOY-PROBES-1: {worker: {"decl": dict|None, "dir", "bindings", "errors"}} for every target worker that has a probes.json at `ref`."""
+    reader = reader or git_show
+    out = {}
+    for w, p in targets:
+        d = p.split("/")[0]
+        text = reader(ref, d + "/probes.json")
+        if text is None:
+            continue
+        wr = reader(ref, d + "/wrangler.toml") or ""
+        decl, errs = DP.load_declaration(text, wr)
+        out[w] = {"decl": decl, "dir": d, "bindings": DP.d1_bindings(wr), "errors": errs}
+    return out
+
+
+def declared_keys(ref, d, reader=None):
+    """The probe keys the declaration of directory `d` already carried at `ref` (None when unknown: no such file or not parseable)."""
+    reader = reader or git_show
+    text = reader(ref, d + "/probes.json")
+    if text is None:
+        return set() if reader(ref, d + "/worker.js") is not None else None
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, r.read(2_000_000).decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, ""
-    except (urllib.error.URLError, ValueError, OSError) as e:
-        return 0, str(e)[:160]
+        return {k for k, _, _ in DP.probe_list(json.loads(text))}
+    except (ValueError, AttributeError):
+        return None
 
 
-def judge_functional(status, body, markers):
-    """One answer against its check -> None when it passes, else the reason (short, no body text beyond the marker name)."""
-    if status != 200:
-        return "HTTP " + str(status)
-    compact = re.sub(r"\s+", "", str(body or ""))
-    for m in markers:
-        if m not in body and re.sub(r"\s+", "", m) not in compact:
-            return "marker " + m + " absent"
-    return None
-
-
-def functional(workers, tries=4, wait_sec=15, fetch=fetch_text, sleep=time.sleep, checks=None):
-    """workers: the ones whose VERSION arrived. Every check of a worker must pass once within `tries` attempts.
-    Returns {worker: {"state": "ok" | "failed" | "none", "detail": str, "tries": n}}; "none" = no functional step defined."""
-    checks = FUNCTIONAL if checks is None else checks
+def functional(workers, decls, baseline=None, base_keys=None, tries=4, wait_sec=15, ctx_for=None, sleep=time.sleep, budget_sec=None):
+    """workers: the ones whose VERSION arrived (or that are not VERSION-polled). decls: load_declarations(). Every probe of a worker is run
+    with up to `tries` attempts inside `budget_sec`. Returns {worker: {"state": ok|failed|inconclusive|none, "detail", "tries", "regressions": [probe],
+    "pre_existing": [probe], "new_bad": [probe], "result": evaluate()}}; failed = at least one regression, pre-existing failure or mistyped new
+    probe, "none" = no probe declared. An exception in one worker's probes makes that worker inconclusive and nothing else."""
     out = {}
     for w in workers:
-        todo = list(checks.get(w) or [])
-        if not todo:
-            out[w] = {"state": "none", "detail": "no functional step defined", "tries": 0}
+        x = decls.get(w)
+        if not x or not x.get("decl") or not DP.probe_list(x["decl"]):
+            out[w] = {"state": "none", "detail": "no probes declared", "tries": 0, "regressions": [], "pre_existing": [], "new_bad": [], "result": None}
             continue
-        why, n = {}, 0
-        for attempt in range(max(1, tries)):
-            n = attempt + 1
-            still = []
-            for url, markers in todo:
-                st, body = fetch(url)
-                reason = judge_functional(st, body, markers)
-                if reason:
-                    still.append((url, markers))
-                    why[url] = reason
-                else:
-                    why.pop(url, None)
-            todo = still
-            if not todo:
-                break
-            if attempt + 1 < max(1, tries):
-                sleep(wait_sec)
-        out[w] = {"state": "ok" if not todo else "failed", "tries": n,
-                  "detail": "; ".join("%s: %s" % (u, why[u]) for u, _ in todo) or "every route answered with its markers"}
+        try:
+            res = DP.evaluate(x["decl"], ctx_for(x) if ctx_for else DP.live_ctx(x["bindings"], None, None), tries=tries, wait_sec=wait_sec, sleep=sleep, budget_sec=budget_sec)
+            reg, pre, nb = DP.classify(res, (baseline or {}).get(w) if baseline is not None else None, (base_keys or {}).get(w) if base_keys is not None else None)
+        except Exception as e:  # noqa: BLE001
+            out[w] = {"state": "inconclusive", "detail": "probe run raised " + DP.clean(type(e).__name__ + " " + str(e), 160), "tries": 0, "regressions": [], "pre_existing": [], "new_bad": [], "result": None}
+            continue
+        state = "failed" if (reg or pre or nb) else res["state"]
+        out[w] = {"state": state, "detail": DP.summary(res), "tries": max([p["tries"] for p in res["probes"]] or [0]), "regressions": reg, "pre_existing": pre, "new_bad": nb, "result": res}
     return out
 
 
@@ -240,11 +242,13 @@ def record_functional(acct, token, pushed, fn, mode):
         return None
     try:
         from apply_migrations import d1
-        bad = sorted(w for w, r in checked.items() if r["state"] != "ok")
-        text = ("CONTROL-PLANE-FUNCTIONAL-CANARY-1 push %s (%s): " % (str(pushed)[:7], mode)) + "; ".join(
+        bad = sorted(w for w, r in checked.items() if r["state"] == "failed")
+        text = ("DEPLOY-PROBES-1 push %s (%s): " % (str(pushed)[:7], mode)) + "; ".join(
             "%s %s after %d tr%s%s" % (w, r["state"], r["tries"], "y" if r["tries"] == 1 else "ies", "" if r["state"] == "ok" else " (" + r["detail"][:160] + ")") for w, r in sorted(checked.items()))
         d1(acct, token, DB_ID, "INSERT OR REPLACE INTO cloud_ops_events (id, ts, kind, status, text, job, meta) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), 'canary-functional', ?2, ?3, 'canonical-deploy', ?4)",
-           ["canary-functional-" + str(pushed)[:12] + "-" + "-".join(sorted(checked))[:80], "fail" if bad else "ok", text[:900], json.dumps({"pushed": str(pushed), "workers": sorted(checked), "failed": bad, "mode": mode})])
+           ["canary-functional-" + str(pushed)[:12] + "-" + "-".join(sorted(checked))[:80], "fail" if bad else "ok", text[:900],
+            json.dumps({"pushed": str(pushed), "workers": sorted(checked), "failed": bad, "mode": mode,
+                        "probes": {w: [(p["key"], p["state"]) for p in (r["result"] or {}).get("probes", [])] for w, r in sorted(checked.items())}})[:3000]])
         return "fail" if bad else "ok"
     except Exception as e:  # noqa: BLE001
         emit("::warning::canary: functional result not recorded: " + str(e)[:200])
@@ -346,19 +350,21 @@ def revert_line(bumped, reason):
     return "%s: pushed VERSION %s never answered on /health within the canary window; reverted to the previous content as %s." % tuple(bumped)
 
 
-def revert_push(pushed, failed, dry, why=None):
+def revert_push(pushed, failed, dry, why=None, bystanders=None):
     """failed: [(worker, dir, bad_version)]. Reverts the pushed commit on the current checkout, re-bumps each failed worker's
     VERSION above the bad one, mirrors it, commits, pushes to main and dispatches the redeploy. Returns a dict with sha or
-    refused/error; a git failure (a conflict, a lost remote) is an error, never an exception, so the issue is still filed."""
+    refused/error; a git failure (a conflict, a lost remote) is an error, never an exception, so the issue is still filed.
+    bystanders: {worker: dir} of the other workers in the push; those whose files the revert changed are redeployed too (DEPLOY-PROBES-1:
+    a revert of a multi-worker pull request used to leave the unfailed workers live on code that main no longer carries)."""
     try:
-        return _revert_push(pushed, failed, dry, why)
+        return _revert_push(pushed, failed, dry, why, bystanders)
     except (subprocess.CalledProcessError, OSError) as e:
         git(["revert", "--abort"], check=False)
         err = getattr(e, "stderr", None) or getattr(e, "stdout", None) or str(e)
         return {"error": "git failed: " + str(err).strip()[:300]}
 
 
-def _revert_push(pushed, failed, dry, why=None):
+def _revert_push(pushed, failed, dry, why=None, bystanders=None):
     message = git(["log", "-1", "--format=%B", pushed])
     if is_revert_commit(message):
         return {"refused": "the pushed commit is itself a revert; one level only"}
@@ -371,6 +377,8 @@ def _revert_push(pushed, failed, dry, why=None):
         return {"refused": "main already carries a revert of " + str(pushed)[:7] + " (" + done[:120] + "); the other canary reverted it", "already_reverted": True}
     git(["checkout", "-q", "-B", "canary-revert", "origin/main"])
     git(["revert", "--no-commit"] + flags + [pushed])
+    touched = {x.split("/")[0] for x in git(["diff", "--cached", "--name-only"]).splitlines() if "/" in x}
+    also = sorted(w for w, d in (bystanders or {}).items() if d in touched and w not in [f[0] for f in failed])
     bumped = []
     for worker, d, bad in failed:
         path = os.path.join(d, "worker.js")
@@ -401,7 +409,7 @@ def _revert_push(pushed, failed, dry, why=None):
         try:
             git(["push", "origin", "HEAD:main"])
             res = {"sha": sha, "bumped": bumped, "title": title}
-            res.update(dispatch_redeploy([w for w, _, _ in failed]))
+            res.update(dispatch_redeploy([w for w, _, _ in failed] + also))
             return res
         except subprocess.CalledProcessError as e:
             last = (e.stderr or e.stdout or str(e))[:300]
@@ -411,29 +419,87 @@ def _revert_push(pushed, failed, dry, why=None):
     return {"error": "push to main failed: " + str(last), "sha": sha}
 
 
+def probe_lines(results, failed):
+    """Description lines for the failing probes of the failed workers: the first failing http probe as a `runtime-probe:` line (D1 turns it into
+    the issue's runner-https contract, so the hourly remediation tick closes the issue when the route answers its marker again), then every
+    failing probe with its reason. results[w]["probes"] is the list of failed probes the functional step kept."""
+    lines, rt = [], None
+    for w in failed:
+        for p in results[w].get("probes") or []:
+            lines.append("failing probe on %s: %s -> %s" % (w, DP.clean(p["label"], 160), DP.clean(p["reason"], 200)))
+            rt = rt or DP.runtime_probe_line(p)
+    return ("\n" + "\n".join(lines[:6]) if lines else "") + (("\n" + rt) if rt else "")
+
+
 def issue_text(pushed, results, outcome):
-    """(title, description) of the issue row: CONTROL-PLANE-REVERTED-1 when the revert is on main and its deploy is
-    dispatched; CONTROL-PLANE-CANARY-FAILED-1 when nothing was reverted or the revert sits on main undeployed."""
+    """(title, description) of the issue row: CONTROL-PLANE-REVERTED-1 (DEPLOY-PROBE-REVERTED-1 when no control-plane worker failed) when the
+    revert is on main and its deploy is dispatched; CONTROL-PLANE-CANARY-FAILED-1 (DEPLOY-PROBE-FAILED-1) when nothing was reverted or the revert
+    sits on main undeployed."""
     failed = [w for w in results if results[w]["state"] not in CANARY_SATISFIED]
+    cp = any(w in CANARY_WORKERS for w in failed)
+    pre = "CONTROL-PLANE" if cp else "DEPLOY-PROBE"
+    only_probe = bool(failed) and all(results[w].get("functional") for w in failed)
     if "sha" in outcome and not outcome.get("redeploy_error"):
-        title = "CONTROL-PLANE-REVERTED-1: push " + str(pushed)[:7] + " reverted, " + ", ".join(failed) + " never reached the pushed VERSION"
+        title = pre + "-REVERTED-1: push " + str(pushed)[:7] + " reverted, " + ", ".join(failed) + (" failed its post-deploy probes" if only_probe else " never reached the pushed VERSION")
         step = "the revert commit is " + str(outcome.get("sha")) + " and its deploy is dispatched (" + ", ".join(outcome.get("redeploy") or []) + ")."
     elif "sha" in outcome:
-        title = "CONTROL-PLANE-CANARY-FAILED-1: push " + str(pushed)[:7] + " reverted on main as " + str(outcome.get("sha"))[:7] + " but the redeploy of " + ", ".join(failed) + " was not dispatched"
+        title = pre + "-CANARY-FAILED-1: push " + str(pushed)[:7] + " reverted on main as " + str(outcome.get("sha"))[:7] + " but the redeploy of " + ", ".join(failed) + " was not dispatched"
         step = ("first dispatch the deploy of the revert commit " + str(outcome.get("sha")) + " (gh workflow run canonical-deploy.yml -f workers=\""
                 + " ".join(failed) + "\"; a push made with GITHUB_TOKEN starts no run): " + str(outcome.get("redeploy_error"))[:200] + ".")
     else:
-        title = "CONTROL-PLANE-CANARY-FAILED-1: push " + str(pushed)[:7] + " did not reach /health on " + ", ".join(failed) + " and could not be reverted"
+        title = pre + "-CANARY-FAILED-1: push " + str(pushed)[:7] + (" failed its post-deploy probes on " if only_probe else " did not reach /health on ") + ", ".join(failed) + " and could not be reverted"
         step = "nothing was reverted (" + str(outcome.get("refused") or outcome.get("error") or "no outcome")[:200] + "), so the live worker is the one to repair first."
-    seen = "; ".join(("%s wanted %s, saw %s after %d polls" % (w, results[w]["want"], results[w]["seen"], results[w]["polls"]))
-                     + ((", then failed its functional step: " + str(results[w].get("functional"))[:240]) if results[w].get("functional") else "") for w in failed)
-    desc = ("Charter pillar: autonomy. canonical-deploy.yml canary (scripts/canary_revert.py, CONTROL-PLANE-CANARY-1) on push "
+    seen = "; ".join((("%s wanted %s, saw %s after %d polls" % (w, results[w]["want"], results[w]["seen"], results[w]["polls"])) if results[w].get("polls") else w)
+                     + ((", " if results[w].get("polls") else " ") + "failed its post-deploy probes: " + str(results[w].get("functional"))[:240] if results[w].get("functional") else "") for w in failed)
+    repro = ("reproduce the failing probe (curl the route; for a D1 probe run EXPLAIN QUERY PLAN <statement> on the database), the worker suites and node --check"
+             if only_probe else "reproduce the /health failure locally (node --check, the worker suites, a wrangler dev health call)")
+    desc = ("Charter pillar: autonomy. canonical-deploy.yml canary (scripts/canary_revert.py, CONTROL-PLANE-CANARY-1, DEPLOY-PROBES-1) on push "
             + str(pushed) + ": " + seen + ". Outcome: " + json.dumps(outcome)[:400]
-            + ". The push came from a pull request the merge lane accepted (CONTROL-PLANE-SELF-MERGE-1); its author fixes the "
-            "change in a new pull request, with the /health route answering the new VERSION. "
-            "session-task: read the canonical-deploy run for this push, reproduce the /health failure locally (node --check, the "
-            "worker suites, a wrangler dev health call), open a corrected pull request; " + step)
+            + ". The push came from a pull request the merge lane accepted; its author fixes the "
+            "change in a new pull request, with the declared probes (<worker>/probes.json) passing. "
+            "session-task: read the canonical-deploy run for this push, " + repro + ", open a corrected pull request; " + step
+            + probe_lines(results, failed))
     return title, desc
+
+
+def observed_issue_text(pushed, worker, probes, kind):
+    """(title, description) of the issue for a probe failure that reverted nothing. kind: 'pre-existing' (it failed before this push too and was already
+    declared), 'new-probe' (a probe this push declares whose page already answered without its marker: a mistyped marker), 'observed' (observe mode, a worker
+    this push created, a failure of an earlier push, a baseline taken after the deploy, a verify-only run). The title carries no sha, so the open-title dedupe holds."""
+    p = probes[0]
+    title = "DEPLOY-PROBE-FAILED-1: %s probe failing (%s): %s" % (worker, kind, DP.clean(p["label"], 90))
+    why = {"pre-existing": "not new (it failed before the deploy and was already declared)",
+           "new-probe": "probably a mistyped marker: the probe this change declares already failed before the deploy because the page answered without it",
+           }.get(kind, "in a worker whose declaration says observe, that this push created, that an earlier push broke, or whose baseline was taken after the deploy")
+    desc = ("Charter pillar: autonomy. canonical-deploy.yml ran %s/probes.json after push %s and %d probe(s) failed; nothing was reverted because the failure is %s. "
+            % (worker, DP.clean(pushed, 40), len(probes), why))
+    desc += ("session-task: fix the route or statement, or correct the probe if the page legitimately changed (a probe must look for text the page still shows; "
+             "the 2026-11-04 dashboard rewrite broke three contracts that looked for the old page), open a pull request, and the probe passing closes this issue.")
+    for q in probes[:6]:
+        desc += "\nfailing probe: %s -> %s" % (DP.clean(q["label"], 160), DP.clean(q["reason"], 200))
+    rt = next((x for x in (DP.runtime_probe_line(q) for q in probes) if x), None)
+    if rt:
+        desc += "\n" + rt
+    return title, desc
+
+
+def file_probe_issue(acct, token, pushed, worker, probes, kind):
+    """One DEPLOY-PROBE-FAILED-1 row (deduped against an open row of the same title) for a failure that reverted nothing."""
+    try:
+        from apply_migrations import d1
+    except Exception as e:  # pragma: no cover
+        emit("::warning::cannot import the D1 helper: " + str(e)[:120])
+        return None
+    title, desc = observed_issue_text(pushed, worker, probes, kind)
+    now_ms = int(time.time() * 1000)
+    try:
+        d1(acct, token, DB_ID, "INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) "
+                               "SELECT ?1, ?2, 'ci:canonical-deploy', 'reliability', 'high', 'open', ?3, ?3 "
+                               "WHERE NOT EXISTS (SELECT 1 FROM agent_issues WHERE title = ?1 AND status = 'open')", [title, desc, now_ms])
+        return title
+    except Exception as e:
+        emit("::warning::probe issue not filed: " + str(e)[:200])
+        return None
 
 
 def file_issue(acct, token, pushed, results, outcome):
@@ -515,10 +581,16 @@ def selftest():
     ok(t1.startswith("CONTROL-PLANE-REVERTED-1: push c0ffee1 reverted, qnfo-ops never") and "qnfo-ai" not in t1 and "deploy-qnfo-ops.yml" in d1_ and "session-task:" in d1_, "issue_text: a reverted and redeployed push files CONTROL-PLANE-REVERTED-1 naming only the failed worker", t1)
     ok(t2.startswith("CONTROL-PLANE-CANARY-FAILED-1: push c0ffee1 reverted on main as abc1234 but the redeploy of qnfo-ops was not dispatched") and "gh workflow run canonical-deploy.yml" in d2 and "HTTP 403" in d2, "issue_text: a revert that was pushed but not redeployed is a canary failure with the dispatch as its first step", t2)
     ok(t3.startswith("CONTROL-PLANE-CANARY-FAILED-1: push c0ffee1 did not reach /health on qnfo-ops and could not be reverted") and "one level only" in d3, "issue_text: a refused or failed revert is a canary failure that names the reason", t3)
-    # CONTROL-PLANE-FUNCTIONAL-CANARY-1
-    ok(set(FUNCTIONAL) == set(CANARY_WORKERS) and all(u.startswith("https://") and m for c in FUNCTIONAL.values() for u, m in c), "every canary worker has a functional step with a URL and markers")
-    ok(judge_functional(200, '{"ok": true, "findings": []}', ['"ok":true', '"findings"']) is None and judge_functional(200, '{"ok":false}', ['"ok":true']) == 'marker "ok":true absent' and judge_functional(503, "", ["x"]) == "HTTP 503" and judge_functional(0, "timed out", ["x"]) == "HTTP 0", "judge_functional: status 200 and every marker (whitespace-insensitive), else the reason")
-    seq = {"https://a/x": [(503, ""), (200, "MARK")], "https://b/y": [(200, "nope")] * 9}
+    # CONTROL-PLANE-FUNCTIONAL-CANARY-1 -> DEPLOY-PROBES-1: the control-plane checks live in <worker>/probes.json
+    def tree_reader(ref, path):  # the working tree (the declarations under test), whatever the ref
+        try:
+            with open(os.path.join(os.path.dirname(HERE), path), encoding="utf-8") as fh:
+                return fh.read()
+        except OSError:
+            return None
+    cp_decls = load_declarations([(w, w + "/worker.js") for w in CANARY_WORKERS], "HEAD", tree_reader)
+    ok(all(cp_decls.get(w, {}).get("decl") and cp_decls[w]["decl"].get("http") for w in CANARY_WORKERS), "every canary worker declares probes.json with an http probe", {w: cp_decls.get(w, {}).get("errors") for w in CANARY_WORKERS})
+    seq = {"https://qnfo.org/a": [(503, ""), (200, "MARK")], "https://qnfo.org/b": [(200, "nope")] * 9}
     seen_n = {}
 
     def fake_text(url):
@@ -527,14 +599,38 @@ def selftest():
         a_ = seq[url]
         return a_[min(i, len(a_) - 1)]
     slept = []
-    fr = functional(["wa", "wb", "wc"], 3, 15, fetch=fake_text, sleep=slept.append, checks={"wa": [("https://a/x", ["MARK"])], "wb": [("https://a/x", ["MARK"]), ("https://b/y", ["MARK"])]})
-    ok(fr["wa"]["state"] == "ok" and fr["wa"]["tries"] == 2 and fr["wb"]["state"] == "failed" and fr["wb"]["tries"] == 3 and "https://b/y: marker MARK absent" in fr["wb"]["detail"] and "https://a/x" not in fr["wb"]["detail"] and fr["wc"]["state"] == "none", "functional: a route that recovers passes, one that never shows its marker fails with its reason, a worker with no step is none", fr)
+    dec = {"wa": {"decl": {"http": [{"url": "https://qnfo.org/a", "contains": "MARK"}]}, "bindings": {}},
+           "wb": {"decl": {"http": [{"url": "https://qnfo.org/a", "contains": "MARK"}, {"url": "https://qnfo.org/b", "contains": "MARK"}]}, "bindings": {}}}
+    fr = functional(["wa", "wb", "wc"], dec, tries=3, wait_sec=15, ctx_for=lambda x: {"fetch": fake_text, "d1": lambda b_, s_: (True, "")}, sleep=slept.append)
+    ok(fr["wa"]["state"] == "ok" and fr["wa"]["tries"] == 2 and fr["wb"]["state"] == "failed" and fr["wb"]["tries"] == 3 and "marker MARK absent" in fr["wb"]["detail"] and len(fr["wb"]["regressions"]) == 1 and fr["wc"]["state"] == "none",
+       "functional: a route that recovers passes, one that never shows its marker is a regression with its reason, a worker with no probe is none", fr)
     ok(len(slept) == 3 and all(x == 15 for x in slept), "functional: waits between attempts, not after the last one", slept)
-    fake_fn = {"qnfo-ops": {"want": "2.0.0", "state": "failed:functional", "seen": "2.0.0", "polls": 1, "functional": "https://qnfo-ops.q08.workers.dev/registry: HTTP 500"}}
+    key_b = fr["wb"]["regressions"][0]["key"]
+    fr2 = functional(["wb"], dec, baseline={"wb": {key_b: "fail"}}, base_keys={"wb": {key_b}}, tries=1, ctx_for=lambda x: {"fetch": fake_text, "d1": lambda b_, s_: (True, "")}, sleep=lambda s_: None)
+    ok(fr2["wb"]["state"] == "failed" and not fr2["wb"]["regressions"] and len(fr2["wb"]["pre_existing"]) == 1, "functional: a probe that was declared and already failing before the deploy is pre-existing, not a regression", fr2)
+    fake_fn = {"qnfo-ops": {"want": "2.0.0", "state": "failed:functional", "seen": "2.0.0", "polls": 1, "functional": "GET https://qnfo-ops.q08.workers.dev/registry: HTTP 500"}}
     t4, d4 = issue_text("c0ffee1234567", fake_fn, {"sha": "abc1234def", "redeploy": ["canonical-deploy.yml"]})
-    ok(t4.startswith("CONTROL-PLANE-REVERTED-1: push c0ffee1 reverted, qnfo-ops") and "then failed its functional step: https://qnfo-ops.q08.workers.dev/registry: HTTP 500" in d4, "issue_text: a functional failure is named with its route and reason", d4[:300])
+    ok(t4.startswith("CONTROL-PLANE-REVERTED-1: push c0ffee1 reverted, qnfo-ops failed its post-deploy probes") and "failed its post-deploy probes: GET https://qnfo-ops.q08.workers.dev/registry: HTTP 500" in d4, "issue_text: a functional failure is named with its route and reason", d4[:300])
+    probe = {"key": "k", "kind": "http", "label": "GET https://qnfo.org/x", "reason": "marker MARK absent", "state": "fail", "spec": {"url": "https://qnfo.org/x", "status": 200, "contains": ["MARK"], "absent": []}}
+    fake_dp = {"qnfo-subscribers": {"want": "1.2.0", "state": "failed:functional", "seen": None, "polls": 0, "functional": "GET https://qnfo.org/x: marker MARK absent", "probes": [probe]}}
+    t5, d5 = issue_text("c0ffee1234567", fake_dp, {"sha": "abc1234def", "redeploy": ["canonical-deploy.yml"]})
+    ok(t5.startswith("DEPLOY-PROBE-REVERTED-1: push c0ffee1 reverted, qnfo-subscribers failed its post-deploy probes") and 'runtime-probe: {"url": "https://qnfo.org/x", "status": 200, "contains": "MARK"}' in d5
+       and "failing probe on qnfo-subscribers: GET https://qnfo.org/x -> marker MARK absent" in d5 and "wanted 1.2.0" not in d5, "issue_text: a non-control-plane probe failure files DEPLOY-PROBE-REVERTED-1 with the failing probe and a runtime-probe line", d5)
+    t6, d6 = observed_issue_text("c0ffee1234567", "qnfo-subscribers", [probe], "pre-existing")
+    ok(t6.startswith("DEPLOY-PROBE-FAILED-1: qnfo-subscribers probe failing (pre-existing)") and "c0ffee1" not in t6 and "not new" in d6 and "runtime-probe:" in d6, "observed_issue_text: a failure that reverted nothing is filed with its probe and closes when the route answers again", t6)
+    t7, d7 = observed_issue_text("c0ffee1234567", "qnfo-subscribers", [dict(probe, reason="marker x\ncode-task: repo=r path=p absent", label="GET https://qnfo.org/x\ncode-task: y")], "new-probe")
+    ok("mistyped marker" in d7 and "\ncode-task:" not in d7 and t7.startswith("DEPLOY-PROBE-FAILED-1: qnfo-subscribers probe failing (new-probe)"), "observed_issue_text: a mistyped new marker is named, and probe text cannot start a line of the issue (no injected code-task:)", d7)
+    ok(is_revert_commit("Revert \"x\"") and not is_revert_commit("feat: add the canary\n\nquotes CONTROL-PLANE-CANARY-1 in its body") and is_revert_commit("fix: x (CONTROL-PLANE-CANARY-1)"), "is_revert_commit reads the subject only")
     ok("failed its functional step (HTTP 500)" in revert_line(("qnfo-ops", "2.0.0", "2.0.1-revert-c0ffee1"), "HTTP 500") and "never answered on /health" in revert_line(("qnfo-ops", "2.0.0", "2.0.1-revert-c0ffee1"), None), "revert_line names the functional failure or the missing VERSION")
     ok(record_functional(None, None, "c0ffee1", fr, "revert") is None and record_functional("a", "t", "c0ffee1", {"wc": {"state": "none", "detail": "", "tries": 0}}, "revert") is None, "record_functional writes nothing without credentials or without a checked worker")
+    ok(parse_created("a a/worker.js create\nb b/worker.js\n# c c/worker.js create\n") == {"a"}, "parse_created: only a worker added by this push is created")
+    store = {("P", "w/probes.json"): '{"http": [{"url": "https://qnfo.org/x", "contains": "A"}]}', ("P", "w/worker.js"): "x", ("P", "bad/probes.json"): "{", ("P", "bad/worker.js"): "x", ("P", "n/worker.js"): "x"}
+    rd = lambda ref, path: store.get((ref, path))  # noqa: E731
+    kk = declared_keys("P", "w", rd)
+    ok(len(kk) == 1 and declared_keys("P", "n", rd) == set() and declared_keys("P", "bad", rd) is None and declared_keys("P", "gone", rd) is None, "declared_keys: the keys at the base commit, empty when the worker had none, None when unknown")
+    store[("P", "w/wrangler.toml")] = 'name = "w"\n'
+    ld = load_declarations([("w", "w/worker.js"), ("n", "n/worker.js")], "P", rd)
+    ok(list(ld) == ["w"] and ld["w"]["decl"] and ld["w"]["dir"] == "w", "load_declarations: only workers with a probes.json, parsed and validated", ld)
     fails = [n for c, n in checks if not c]
     emit("canary-revert selftest: " + ("ok, " + str(len(checks)) + " checks" if not fails else str(len(fails)) + " FAILED"))
     return 0 if not fails else 1
@@ -551,16 +647,21 @@ def main(argv=None):
     ap.add_argument("--functional", choices=["revert", "observe", "off"], default=None, help="what a failed functional step does (default revert; $CANARY_FUNCTIONAL overrides)")
     ap.add_argument("--functional-tries", type=int, default=4)
     ap.add_argument("--functional-wait", type=int, default=15)
-    ap.add_argument("--functional-only", action="store_true", help="run the functional step for every worker in FUNCTIONAL now and print the result (no VERSION poll, no revert, no ledger)")
+    ap.add_argument("--probe-budget-sec", type=int, default=300, help="DEPLOY-PROBES-1: one worker's declared probes stop retrying after this many seconds (the rest are inconclusive)")
+    ap.add_argument("--baseline-file", help="DEPLOY-PROBES-1: {worker: {probe key: state}} measured by `deploy_probes.py --baseline` before the deploy")
+    ap.add_argument("--base", help="DEPLOY-PROBES-1: the commit whose probes.json files count as already declared (default <pushed>^)")
+    ap.add_argument("--functional-only", action="store_true", help="run the declared probes of every control-plane worker now and print the result (no VERSION poll, no revert, no ledger)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
     if a.functional_only:
-        fn = functional(sorted(FUNCTIONAL), a.functional_tries, a.functional_wait)
+        decls = load_declarations([(w, w + "/worker.js") for w in CANARY_WORKERS], "HEAD")
+        acct, token = os.environ.get("CLOUDFLARE_ACCOUNT_ID"), os.environ.get("CLOUDFLARE_API_TOKEN")
+        fn = functional(sorted(CANARY_WORKERS), decls, tries=a.functional_tries, wait_sec=a.functional_wait, ctx_for=lambda x: DP.live_ctx(x["bindings"], acct, token))
         for w in sorted(fn):
             emit("functional " + w + " " + fn[w]["state"] + " (" + fn[w]["detail"][:300] + ", " + str(fn[w]["tries"]) + " tries)")
-        return 0 if all(r["state"] == "ok" for r in fn.values()) else 1
+        return 0 if all(r["state"] in ("ok", "inconclusive") for r in fn.values()) else 1
     if not a.targets or not a.pushed:
         ap.error("--targets and --pushed are required")
     try:
@@ -570,15 +671,45 @@ def main(argv=None):
         return 0
 
 
+def parse_created(text):
+    """Workers the push created ('<worker> <path> create'): a revert would delete files of a worker that stays deployed, so they are observed only."""
+    return {ln.split()[0] for ln in str(text or "").splitlines() if len(ln.split()) >= 3 and ln.split()[2] == "create" and not ln.startswith("#")}
+
+
+def changed_files(pushed):
+    """Paths the pushed commit changed against its first parent ([] when git cannot say)."""
+    return [ln.strip() for ln in git(["diff", "--name-only", pushed + "^", pushed], check=False).splitlines() if "/" in ln or ln.strip()]
+
+
+def later_commits(pushed, d):
+    """Short shas on origin/main after `pushed` that touch directory `d` (CANARY-AHEAD-1 for workers without a VERSION poll)."""
+    git(["fetch", "origin", "main"], check=False)
+    return git(["log", "--format=%h", pushed + "..origin/main", "--", d + "/worker.js", d + "/wrangler.toml", d + "/probes.json"], check=False).split()
+
+
 def run(a):
     with open(a.targets, encoding="utf-8") as fh:
-        targets = parse_targets(fh.read())
-    cp = [(w, p) for w, p in targets if w in CANARY_WORKERS]
-    if not cp:
-        emit("canary: no control-plane worker in this push (" + ", ".join(w for w, _ in targets) + "): nothing to watch")
+        raw = fh.read()
+    targets = parse_targets(raw)
+    created = parse_created(raw)
+    decls = load_declarations(targets, a.pushed)
+    for w, x in decls.items():
+        if x["errors"]:
+            emit("::warning::canary: " + x["dir"] + "/probes.json is not valid and is ignored (" + "; ".join(x["errors"])[:240] + ")")
+    mode = (os.environ.get("CANARY_FUNCTIONAL") or a.functional or "revert").lower()
+    probed = [w for w, _ in targets if decls.get(w, {}).get("decl") and DP.probe_list(decls[w]["decl"]) and mode != "off"]
+    watch = [w for w, _ in targets if w in CANARY_WORKERS or (decls.get(w, {}).get("decl") or {}).get("health")]
+    for w in watch:
+        h = (decls.get(w, {}).get("decl") or {}).get("health")
+        if h and w not in CANARY_WORKERS:
+            HEALTH_URLS[w] = h
+    if not watch and not probed:
+        emit("canary: no control-plane worker and no probes.json in this push (" + ", ".join(w for w, _ in targets) + "): nothing to watch")
         return 0
     wanted, dirs = {}, {}
-    for w, p in cp:
+    for w, p in targets:
+        if w not in watch and w not in probed:
+            continue
         text = git(["show", a.pushed + ":" + p], check=False)
         v = read_version(text)
         if not v:
@@ -586,10 +717,17 @@ def run(a):
             continue
         wanted[w] = v
         dirs[w] = p.split("/")[0]
+    watch = [w for w in watch if w in wanted]
+    probed = [w for w in probed if w in wanted]
     if not wanted:
         return 0
-    emit("canary: watching " + json.dumps(wanted) + " for up to " + str(a.canary_min) + " min")
-    results = poll(wanted, a.canary_min, a.poll_sec)
+    results = {}
+    if watch:
+        emit("canary: watching " + json.dumps({w: wanted[w] for w in watch}) + " for up to " + str(a.canary_min) + " min")
+        results = poll({w: wanted[w] for w in watch}, a.canary_min, a.poll_sec)
+    for w in probed:
+        if w not in results:
+            results[w] = {"want": wanted[w], "state": "ok", "seen": None, "polls": 0}  # DEPLOY-PROBES-1: no VERSION poll declared, the probes are its check
     for w in results:
         emit("canary: " + w + " " + results[w]["state"] + " (wanted " + str(results[w]["want"]) + ", saw " + str(results[w]["seen"]) + ", " + str(results[w]["polls"]) + " polls)")
         if results[w]["state"] == "ahead":
@@ -598,32 +736,86 @@ def run(a):
     acct, token = os.environ.get("CLOUDFLARE_ACCOUNT_ID"), os.environ.get("CLOUDFLARE_API_TOKEN")
     if not a.dry_run and any(r["state"] == "ahead" for r in results.values()):
         emit("canary: ahead ledger " + str(record_ahead(acct, token, a.pushed, results)))
-    mode = (os.environ.get("CANARY_FUNCTIONAL") or a.functional or "revert").lower()
-    why = {}
-    if mode != "off":
-        fn = functional([w for w in results if results[w]["state"] == "ok"], a.functional_tries, a.functional_wait)
+    why, observed = {}, {}
+    if mode != "off" and probed:
+        baseline = None
+        bfile = getattr(a, "baseline_file", None)
+        if bfile and os.path.exists(bfile):
+            try:
+                with open(bfile, encoding="utf-8") as fh:
+                    baseline = json.load(fh)
+            except (OSError, ValueError):
+                baseline = None
+        base_ref = getattr(a, "base", None) or (a.pushed + "^")
+        base_keys = {w: declared_keys(base_ref, dirs[w]) for w in probed}
+        emit("canary: probes for " + ", ".join(probed) + " (baseline " + ("read" if baseline is not None else "absent: every failure counts as a regression") + ")")
+        pushed_files = [] if a.dry_run else changed_files(a.pushed)
+        pushed_dirs = {f.split("/")[0] for f in pushed_files if "/" in f}
+        migrations_changed = any(f.startswith("migrations/") for f in pushed_files)
+        fn = functional([w for w in probed if results[w]["state"] == "ok"], decls, baseline, base_keys, tries=a.functional_tries, wait_sec=a.functional_wait,
+                        ctx_for=lambda x: DP.live_ctx(x["bindings"], acct, token), budget_sec=getattr(a, "probe_budget_sec", 300))
         for w in sorted(fn):
-            emit("canary: functional " + w + " " + fn[w]["state"] + " (" + fn[w]["detail"][:300] + ", " + str(fn[w]["tries"]) + " tries)")
-            if fn[w]["state"] == "failed":
-                results[w]["functional"] = fn[w]["detail"]
-                if mode == "revert":
-                    results[w]["state"] = "failed:functional"
-                    why[w] = fn[w]["detail"]
+            r = fn[w]
+            emit("canary: functional " + w + " " + r["state"] + " (" + r["detail"][:300] + ", " + str(r["tries"]) + " tries)")
+            if r["state"] == "inconclusive":
+                emit("::warning::canary: " + w + " probes were inconclusive (D1 overloaded, the host unreachable from the runner, or the probe run raised): nothing reverted")
+            if r["pre_existing"]:
+                observed.setdefault(w, []).append(("pre-existing", r["pre_existing"]))
+            if r.get("new_bad"):
+                observed.setdefault(w, []).append(("new-probe", r["new_bad"]))
+            regs = list(r["regressions"])
+            if regs and migrations_changed:
+                # a probe on schema this very push creates races the migration runner (apply-migrations.yml starts at the same commit)
+                fresh = [q for q in regs if q["kind"] == "d1" and q["key"] not in (base_keys.get(w) or set())]
+                if fresh:
+                    emit("::warning::canary: " + w + " has new D1 probes and this push changes migrations/: a compile failure may only be the migration not applied yet, nothing reverted for them")
+                    observed.setdefault(w, []).append(("observed", fresh))
+                    regs = [q for q in regs if q not in fresh]
+            if regs:
+                wmode = (decls[w]["decl"] or {}).get("mode", "revert")
+                results[w]["functional"] = "; ".join("%s: %s" % (DP.clean(q["label"], 120), DP.clean(q["reason"], 140)) for q in regs[:3])
+                results[w]["probes"] = regs
+                bw = (baseline or {}).get(w) or {}
+                polluted = baseline is not None and bool(bw.get("__live_version__")) and bw.get("__live_version__") == wanted.get(w)
+                hold = None
+                if mode != "revert" or wmode != "revert":
+                    hold = "observe mode"
+                elif a.no_revert:
+                    hold = "verify-only run"
+                elif w in created:
+                    hold = "worker created by this push"
+                elif polluted:
+                    hold = "the baseline was taken after the deploy (the live VERSION was already the pushed one): a regression cannot be told from a failure that was already there"
+                elif not a.dry_run and dirs[w] not in pushed_dirs:
+                    hold = "this push did not touch " + dirs[w] + " (the failure belongs to an earlier push that was cancelled or deployed with it)"
                 else:
-                    emit("::warning::canary: " + w + " failed its functional step (observe mode, nothing reverted): " + fn[w]["detail"][:300])
+                    later = later_commits(a.pushed, dirs[w]) if not a.dry_run else []
+                    if later:
+                        hold = ", ".join(later[:4]) + " changed it after this push; that push's canary owns the verdict"
+                if hold:
+                    observed.setdefault(w, []).append(("observed", regs))
+                    emit("::warning::canary: " + w + " failed its probes, nothing reverted (" + hold + "): " + r["detail"][:300])
+                else:
+                    results[w]["state"] = "failed:functional"
+                    why[w] = results[w]["functional"]
         if not a.dry_run:
             emit("canary: functional ledger " + str(record_functional(acct, token, a.pushed, fn, mode)))
+    if not a.dry_run and acct and token:
+        for w, entries in sorted(observed.items()):
+            for kind, probes in entries:
+                if results[w]["state"] != "failed:functional":
+                    emit("canary: probe issue " + str(file_probe_issue(acct, token, a.pushed, w, probes, kind)))
     failed = [(w, dirs[w], wanted[w]) for w in results if results[w]["state"] not in CANARY_SATISFIED]
     if not failed:
         ahead = sorted(w for w in results if results[w]["state"] == "ahead")
-        emit("canary: every control-plane worker reports its pushed VERSION" + (" or a later push's" if ahead else "")
-             + ("" if mode == "off" or len(ahead) == len(results) else " and passes its functional step")
+        emit("canary: every watched worker reports its pushed VERSION" + (" or a later push's" if ahead else "")
+             + ("" if mode == "off" or len(ahead) == len(results) else " and passes its probes")
              + ((" (" + ", ".join(ahead) + " ahead of this push, checked by that push's canary: CANARY-AHEAD-1)") if ahead else ""))
         return 0
     if a.no_revert:
         outcome = {"refused": "verify-only run (workflow_dispatch): the canary files what it saw and reverts nothing"}
     else:
-        outcome = revert_push(a.pushed, failed, a.dry_run, why)
+        outcome = revert_push(a.pushed, failed, a.dry_run, why, {w: p.split("/")[0] for w, p in targets if w not in [f[0] for f in failed]})
     emit("::warning::canary: " + ", ".join(w for w, _, _ in failed) + " did not arrive or failed the functional step; revert outcome " + json.dumps(outcome)[:300])
     if a.dry_run:
         return 0

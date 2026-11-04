@@ -517,6 +517,7 @@ jobs:
           if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/adversarial-workers-guard\.py$|^\.github/workflows/adversarial-workers-guard\.yml$' files.txt; then echo 'adversarial_workers_guard=true' >> "$GITHUB_OUTPUT"; else echo 'adversarial_workers_guard=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^scripts/(canary_revert|canary_revert_test|deploy_probes|review_gate)\.py$|^scripts/review-gate/|^[^/]+/probes\.json$|^\.github/workflows/(canonical-deploy|pr-lane|review-gate)\.yml$' files.txt; then echo 'deploy_proof_tests=true' >> "$GITHUB_OUTPUT"; else echo 'deploy_proof_tests=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^docs/|^CLAUDE\.md$|^AGENTS\.md$|^llms\.txt$|^\.github/(copilot-instructions\.md|agents/)|^[^/]+/README\.md$|^scripts/build-agent-catalog\.mjs$' files.txt; then echo 'docs_catalog=true' >> "$GITHUB_OUTPUT"; else echo 'docs_catalog=false' >> "$GITHUB_OUTPUT"; fi
 
       # ---- identity-guard: steps of .github/workflows/identity-guard.yml ----
@@ -613,6 +614,25 @@ jobs:
       - name: Agent documentation catalog is current (run node scripts/build-agent-catalog.mjs when this fails)
         if: ${{ !cancelled() && steps.f.outputs.docs_catalog == 'true' }}
         run: node scripts/build-agent-catalog.mjs --check
+
+      # ---- DEPLOY-PROBES-1 and REVIEW-GATE-1 (2026-11-04): the scripts that can revert main or hold a pull request are tested before they merge (about 15 s) ----
+      - name: Deploy probe and review gate offline suites (the code that can revert main)
+        if: ${{ !cancelled() && steps.f.outputs.deploy_proof_tests == 'true' }}
+        run: |
+          set -e
+          python3 scripts/deploy_probes.py --selftest > /dev/null
+          python3 scripts/review_gate.py --selftest > /dev/null
+          python3 scripts/canary_revert.py --selftest > /dev/null
+          python3 scripts/canary_revert_test.py
+
+      # ---- DEPLOY-PROBES-1 (scripts/deploy_probes.py): every <worker>/probes.json is valid and a changed worker declares what must keep working (about 2 s) ----
+      - name: Deploy probe declarations (a changed worker declares its probes or says none)
+        if: ${{ !cancelled() }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > pr-body.txt
+          python3 scripts/deploy_probes.py --check-pr --changed files.txt --body pr-body.txt --base-ref HEAD^1
 
       # ---- PR-FAST-GUARDS-1 (2026-11-04): the cheap checks that turned main red after a merge, run before it ----
       # deploy-gate left the PR path (PR-CHECK-CAP-5-1) and its push run is cancelled by the next merge, so a narrative-prompt-guard phrase, a worker entry that no longer loads, a metric without a

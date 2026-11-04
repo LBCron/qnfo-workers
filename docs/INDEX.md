@@ -64,6 +64,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [D1 split design: hot write paths off qnfo-audit (D1-SPLIT-1, pillar core)](D1-SPLIT-DESIGN-2026-11.md) - `docs/D1-SPLIT-DESIGN-2026-11.md`
 - [Data plane dispositions (2026-10-01)](DATA-PLANE-DISPOSITIONS-2026-10-01.md) - `docs/DATA-PLANE-DISPOSITIONS-2026-10-01.md`
 - [DEGENERATE-TEXT-1: a model loop never stays on a paper page](DEGENERATE-TEXT.md) - `docs/DEGENERATE-TEXT.md`
+- [Every deploy proves itself (DEPLOY-PROBES-1, REVIEW-GATE-1; 2026-11-04)](DEPLOY-PROOF-2026-11.md) - `docs/DEPLOY-PROOF-2026-11.md`
 - [DEPLOY RUNBOOK — 2026-09-07 (audit + machine-readability + CF capability integration)](DEPLOY-RUNBOOK-2026-09-07.md) - `docs/DEPLOY-RUNBOOK-2026-09-07.md`
 - [Deterministic gate audit (RM-DETERMINISTIC-GATE-AUDIT-1)](DETERMINISTIC-GATE-AUDIT.md) - `docs/DETERMINISTIC-GATE-AUDIT.md`
 - [Dissemination and open-data audit (OPEN-DATA-1)](DISSEMINATION-AUDIT.md) - `docs/DISSEMINATION-AUDIT.md`

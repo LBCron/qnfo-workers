@@ -1,0 +1,24 @@
+{
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving.",
+  "mode": "revert",
+  "http": [
+    {
+      "url": "https://qnfo-fleet-control.q08.workers.dev/loops",
+      "contains": [
+        "\"ok\":true",
+        "\"findings\""
+      ]
+    }
+  ],
+  "d1": [
+    {
+      "binding": "AUDIT",
+      "explain": [
+        "SELECT 1 FROM v_issue_queue LIMIT 1",
+        "SELECT 1 FROM v_metric_trigger_state LIMIT 1",
+        "INSERT INTO fleet_tick (source) SELECT 'probe'",
+        "INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) SELECT 'probe', 'probe', 'probe', 'reliability', 'low', 'open', 0, 0"
+      ]
+    }
+  ]
+}

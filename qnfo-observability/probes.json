@@ -1,0 +1,13 @@
+{
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving.",
+  "mode": "revert",
+  "http": [
+    {
+      "url": "https://qnfo-observability.q08.workers.dev/integration",
+      "contains": [
+        "\"ok\":true",
+        "\"chains\":["
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving. Routes backed by D1 are left out of a revert probe on purpose: under a D1 overload they answer errors that say nothing about the deployed code.",
+  "mode": "revert",
+  "health": "https://ideas.qnfo.org/health",
+  "http": [
+    {
+      "url": "https://ideas.qnfo.org/health",
+      "contains": [
+        "\"worker\":\"idea-hub\""
+      ]
+    },
+    {
+      "url": "https://ideas.qnfo.org/rss.xml",
+      "contains": [
+        "<rss",
+        "<channel>"
+      ]
+    },
+    {
+      "url": "https://ideas.qnfo.org/sitemap.xml",
+      "contains": [
+        "<urlset"
+      ]
+    }
+  ]
+}

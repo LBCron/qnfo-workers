@@ -45,8 +45,9 @@ jobs:
       DO_MERGE: ${{ (github.event_name == 'pull_request_target' && github.event.action == 'ready_for_review' && github.event.pull_request.base.ref == 'main' && 'true') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0].number != null && 'true') || 'false' }}
       DO_RETRY: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.pull_requests[0].number != null && !startsWith(github.event.workflow_run.head_branch, 'copilot/') && 'true' || 'false' }}
     steps:
+      # REVIEW-GATE-1: the merge event also needs the repository (main, never the pull request) for scripts/review_gate.py.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ env.DO_LIFECYCLE == 'true' }}
+        if: ${{ env.DO_LIFECYCLE == 'true' || env.DO_MERGE == 'true' }}
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ env.DO_LIFECYCLE == 'true' }}
@@ -133,6 +134,22 @@ jobs:
           else
             gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY" --failed || echo "::notice::rerun refused"
           fi
+
+      # REVIEW-GATE-1 (2026-11-04, pillar autonomy): on the event that is about to merge (checks green), a pull request that touches auth, a route, the cache, a trigger, a
+      # migration or a workflow is read by two independent models (glm and llama, scripts/review_gate.py) before the merge step below. A verified High finding posts a
+      # comment that starts HOLD: and the merge step sees it; a new push releases it. It adds no check entry, runs from main (never pull request code), is capped at
+      # 4 minutes and fails open (continue-on-error: no credential, a model outage or a bad answer ends in a log line and the merge goes on). REVIEW_GATE_MODE (repository
+      # variable) is observe by default: the comment then starts review-gate (observe) and holds nothing. Revert: delete this step, or set REVIEW_GATE_MODE to off.
+      - name: Review the risky parts of the pull request with two independent models
+        if: ${{ env.DO_MERGE == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REVIEW_GATE_MODE: ${{ vars.REVIEW_GATE_MODE }}
+        run: python3 scripts/review_gate.py --pr "$PR_NUMBER"
 
       - name: Merge the pull request when every fast check is green
         if: ${{ env.DO_MERGE == 'true' }}

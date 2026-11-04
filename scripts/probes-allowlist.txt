@@ -1,0 +1,10 @@
+# DEPLOY-PROBES-1 (scripts/deploy_probes.py): live worker directories that declare no <worker>/probes.json yet.
+# SHRINK-ONLY: `deploy_probes.py --check-pr` fails a pull request that changes a worker.js whose directory has no probes.json and is not
+# listed here (every new worker declares its probes), and fails when this file lists a directory that now has one or no longer exists.
+# A change to a listed worker passes with a notice asking for a declaration; declare what must keep working and delete the line.
+personal-companion
+q08-mind
+qnfo-agents
+qnfo-containers-pilot
+qnfo-memory-mcp
+qnfo-youtube-shorts

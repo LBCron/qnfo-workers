@@ -1,0 +1,23 @@
+{
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving.",
+  "mode": "revert",
+  "http": [
+    {
+      "url": "https://qnfo-ops.q08.workers.dev/registry",
+      "contains": [
+        "\"ok\":true",
+        "\"registry\":["
+      ]
+    }
+  ],
+  "d1": [
+    {
+      "binding": "QNFO_AUDIT",
+      "explain": [
+        "INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) SELECT 'probe', 'probe', 'probe', 'reliability', 'low', 'open', 0, 0",
+        "INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) SELECT 'probe', 't', 'probe', 'probe', '{}', 'probe', 'ok'",
+        "INSERT INTO fleet_deploys (worker, actor, ok, note, ts) SELECT 'probe', 'probe', 1, 'probe', 't'"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving.",
+  "mode": "revert",
+  "http": [
+    {
+      "url": "https://qnfo-code-orchestrator.q08.workers.dev/fleet-exec/health",
+      "contains": [
+        "\"ok\":true",
+        "\"worker\":\"fleet-exec\""
+      ]
+    }
+  ],
+  "d1": [
+    {
+      "binding": "AUDIT_DB",
+      "explain": [
+        "INSERT INTO code_tasks (repo, path, goal, status, created_at, updated_at) SELECT 'probe', 'probe', 'probe', 'queued', 0, 0"
+      ]
+    }
+  ]
+}

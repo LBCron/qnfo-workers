@@ -203,6 +203,20 @@ because each one was broken at least once; the linked issue holds the evidence.
   same rule (qnfo-fleet-control 0.4.130 -> 0.5.0 for its next feature). The owner's changelog (fleet.qnfo.org/changelog)
   lists only minor and major releases, so a feature shipped as a patch never reaches the owner.
 
+
+## Every deploy proves itself, every risky diff gets a second reader (DEPLOY-PROBES-1, REVIEW-GATE-1)
+- Owner brief 2026-11-04 (output quality). A worker declares what must still work after its deploy in `<worker>/probes.json` (HTTP routes with a marker the page really shows,
+  a `/health` VERSION poll, D1 statements compiled with `EXPLAIN QUERY PLAN`, never executed). canonical-deploy.yml baselines the probes before the deploy and `scripts/canary_revert.py`
+  runs them after it: a probe that passed before and fails after reverts the push through the existing path and files `DEPLOY-PROBE-REVERTED-1`; a failure that was already there, a
+  mistyped new marker, an inconclusive answer (D1 overload, runner offline), a worker the push created or did not touch is filed as `DEPLOY-PROBE-FAILED-1` and never reverted.
+  A new worker, or a change to a worker not on `scripts/probes-allowlist.txt` (shrink-only), declares probes or puts `probes: none (<reason>)` in the PR description
+  (`deploy_probes.py --check-pr` in the `scans` job). Detail, limits and the first live finding: `docs/DEPLOY-PROOF-2026-11.md`. Before a probe you add can revert anything, run
+  `python scripts/deploy_probes.py --live <worker>` against production.
+- `scripts/review_gate.py` runs in the `lane` job of pr-lane.yml on the event that is about to merge: a pull request that touches auth, a route, the cache, a trigger, a migration or a
+  workflow is read by two models of disjoint families (glm-5.3-flash and llama-3.3-70b). A High finding with a concrete trigger and an evidence line that is an added line of the diff
+  posts a comment starting `HOLD:` (a new push, or a collaborator's `override review-gate: <reason>`, releases it). `REVIEW_GATE_MODE` (repository variable) is `observe` by default, `hold`
+  after the replay and false-positive run in the doc, `off` to stop. It fails open and costs about $0.012 a run.
+
 ## Domains (DOMAIN-PLANE-1)
 - Owner directive 2026-10-19: personal surfaces on `q08.org`, research and the fleet on `qnfo.org`, quantum computing on `qwav.org`
   (the owner wrote "qwave.org"; the account's zone is qwav.org), each on a short name a person can remember. A `*.workers.dev` host is
@@ -425,8 +439,8 @@ because each one was broken at least once; the linked issue holds the evidence.
   (`CP_CANARY_WORKERS`) and the PR carries `worker.js` with its mirror. canonical-deploy.yml (deploy-code-orchestrator.yml for
   the container worker the canonical path skips, CONTROL-PLANE-CANARY-2) then canaries `/health` for the new VERSION and, when
   it does not arrive, reverts the push on main (`scripts/canary_revert.py`, one level, never a revert of a revert), dispatches
-  the deploy of the revert through the workflow that owns the worker and files `CONTROL-PLANE-REVERTED-1`. The canary proves the VERSION arrived, not
-  that the worker works: LOOP-WATCH-1 and the metric triggers are the next line. `off` restores CONTROL-PLANE-MANUAL-1 without a
+  the deploy of the revert through the workflow that owns the worker and files `CONTROL-PLANE-REVERTED-1`. The VERSION poll proves the VERSION arrived; DEPLOY-PROBES-1
+  (Deploys, above) adds the declared routes and D1 statements, and LOOP-WATCH-1 and the metric triggers are the next line. `off` restores CONTROL-PLANE-MANUAL-1 without a
   deploy. Workflows under `.github/`: the lane merges them since qnfo-fleet-control 0.50.0 (OWNER-AUTO-APPROVE-ALL-1, owner 2026-10-26: "Yes, auto-approve all"; `ops_config stale_pr_merge_workflows = off`
   restores the refusal); the code loop's own merge scope (`cmScope`) still denies `.github/workflows/**`.
   CODE-LOOP-CONTROL-PLANE-1 (lever T1.23; owner directive 2026-10-19, verbatim: "The code loop SHALL ALWAYS BE ABLE TO change

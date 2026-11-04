@@ -1,0 +1,76 @@
+name: review-gate
+
+# REVIEW-GATE-1 (2026-11-04, pillar autonomy): the measurement half of scripts/review_gate.py. The gate itself runs as a step of the `lane` job in pr-lane.yml (it adds no
+# check to a pull request); this workflow is dispatch-only and answers two questions with the live models and the repository token:
+#   recall           - replay a diff with known defects (default: the three-screen dashboard block as it stood before the 2026-11-04 independent review, 9 defects) and
+#                      print which of them the gate finds (scripts/review-gate/v3-dash-pre-review.json);
+#   false positives  - run the gate on merged commits that no fix followed (`commits`) and count the High findings it would have held.
+# Cost: two model calls per replay, about $0.01 each. Step names are colon-free (WORKFLOW-YAML-LINT-1); inputs travel through env.
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: "diff file to replay"
+        required: false
+        default: "scripts/review-gate/v3-dash-pre-review.diff"
+      expected:
+        description: "JSON file with the known defects of the fixture (empty for none)"
+        required: false
+        default: "scripts/review-gate/v3-dash-pre-review.json"
+      commits:
+        description: "space separated commit shas for the false-positive run (empty to skip)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-gate-replay
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Replay the known-defect diff
+        if: ${{ github.event.inputs.fixture != '' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          IN_FIXTURE: ${{ github.event.inputs.fixture }}
+          IN_EXPECTED: ${{ github.event.inputs.expected }}
+        run: |
+          set -uo pipefail
+          EXP=""
+          if [ -n "${IN_EXPECTED:-}" ]; then EXP="--expected $IN_EXPECTED"; fi
+          python3 scripts/review_gate.py --replay "$IN_FIXTURE" $EXP | tee replay.txt
+          { echo '### review-gate replay'; echo '```'; head -c 20000 replay.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the gate on merged commits that no fix followed
+        if: ${{ github.event.inputs.commits != '' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          IN_COMMITS: ${{ github.event.inputs.commits }}
+        run: |
+          set -uo pipefail
+          python3 scripts/review_gate.py --commits "$IN_COMMITS" | tee commits.txt
+          { echo '### review-gate false-positive run'; echo '```'; head -c 20000 commits.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: review-gate-replay
+          path: |
+            replay.txt
+            commits.txt
+          if-no-files-found: ignore
+          retention-days: 30

@@ -1031,6 +1031,14 @@ jobs:
         run: |
           python3 scripts/canary_revert_test.py
           python3 scripts/canary_revert.py --selftest
+      # DEPLOY-PROBES-1 + REVIEW-GATE-1 (2026-11-04): the post-deploy probe declarations (every <worker>/probes.json is valid against its wrangler.toml),
+      # the probe runner's classification (regression, pre-existing, inconclusive) and the AI review gate's filters, comment and release logic, offline.
+      - name: DEPLOY-PROBES-1 and REVIEW-GATE-1 offline suites (probe runner, declarations, review gate)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() }}
+        run: |
+          python3 scripts/deploy_probes.py --selftest
+          python3 scripts/review_gate.py --selftest
       - name: SPARE-DOMAIN-CANON-1 offline suite (cf_ops_actions spare-domain-canon, #2361)
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         if: ${{ !cancelled() }}
