@@ -110,10 +110,9 @@ on:
     # Retained as a bonus only. SCHEDULE-EVENT-NEVER-FIRES-1: this event has never fired
     # on this repository, so it MUST NOT be the only driver (see DEFECT 1 above).
     - cron: '13 1 * * *'
-  workflow_run:
-    # The drivers that provably fire here.
-    workflows: [fleet-autodeploy, mirror-sync, deploy-qnfo-ops]
-    types: [completed]
+  # AUTODEPLOY-FANOUT-1 (2026-11-04): no workflow_run. mirror-sync, deploy-qnfo-ops and canonical-deploy each start fleet-autodeploy, which calls this file as a job,
+  # so one run replaces a separate run per event (418 of 600 sampled runs in 3 hours were cancelled fan-out). Revert: restore the workflow_run block and delete the job in fleet-autodeploy.yml.
+  workflow_call:
   push:
     branches: [main]
     paths:

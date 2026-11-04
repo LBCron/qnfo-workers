@@ -34,8 +34,11 @@ on:
       - 'scripts/remediation_probe_map.json'
       - '.github/workflows/remediation-bridge.yml'
   workflow_run:
-    workflows: ["apply-pending-patches", "fleet-autodeploy"]
+    workflows: ["apply-pending-patches"]
     types: [completed]
+  # AUTODEPLOY-FANOUT-1 (2026-11-04): no workflow_run on fleet-autodeploy. fleet-autodeploy calls this file as a job after its audit, so one run replaces
+  # a separate run per deploy event (418 of 600 sampled runs in 3 hours were cancelled fan-out). Revert: restore the workflow_run block and delete the job in fleet-autodeploy.yml.
+  workflow_call:
   schedule:
     - cron: '41 9 * * *'
   workflow_dispatch:

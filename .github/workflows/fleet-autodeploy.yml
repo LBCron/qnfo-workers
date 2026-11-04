@@ -291,3 +291,29 @@ jobs:
           done
           echo "::error::audit artifact push failed after 6 attempts (concurrent writers)"
           exit 1
+
+  # AUTODEPLOY-FANOUT-1: the three follow-ups that used to start from workflow_run of this workflow run as jobs of the same run.
+  code-task-publish:
+    needs: fleet
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/code-task-publish.yml
+    secrets: inherit
+
+  remediation-bridge:
+    needs: fleet
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/remediation-bridge.yml
+    secrets: inherit
+
+  container-config-selfheal:
+    needs: fleet
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/container-config-selfheal-cron.yml
+    secrets: inherit

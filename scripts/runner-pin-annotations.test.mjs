@@ -179,7 +179,7 @@ ok(!/cancel-in-progress: true/.test(sh) && !/`cancel-in-progress: true` on its O
 // merge lane was fully blocked by one stale integer. Keep the assertion as strict as it was: the schedule, the three
 // provably-firing workflow_run drivers, workflow_dispatch and contents: write must all stay, and a future cadence change
 // updates this line in the same commit.
-ok(/on:\n  schedule:[\s\S]*cron: '13 1 \* \* \*'[\s\S]*workflow_run:[\s\S]*workflows: \[fleet-autodeploy, mirror-sync, deploy-qnfo-ops\][\s\S]*workflow_dispatch:/.test(sh) && /^permissions:\n  contents: write$/m.test(sh), "its triggers, schedule and permissions are unchanged");
+ok(/on:\n  schedule:[\s\S]*cron: '13 1 \* \* \*'[\s\S]*workflow_call:[\s\S]*workflow_dispatch:/.test(sh) && /^permissions:\n  contents: write$/m.test(sh), "its triggers, schedule and permissions are unchanged");
 const probe = step(sh, /Functional probe/), verdict = step(sh, /Verdict - honest red/);
 ok(probe && verdict, "the probe and verdict steps were found");
 ok(probe && /cat \/tmp\/health\.json 2>\/dev\/null \|\| true\n\s*echo\n/.test(probe.script) && /cat \/tmp\/status\.json 2>\/dev\/null \|\| true\n\s*echo\n/.test(probe.script), "the probe ends the file it prints with a newline, so the line after it starts a line");
