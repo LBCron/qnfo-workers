@@ -1,0 +1,1 @@
+{"model":"deepseek-v4-flash-wa","request":{"model":"deepseek-v4-flash-wa","messages":[{"role":"user","content":"What is the capital of France?"}],"temperature":0},"response":{"choices":[{"message":{"role":"assistant","content":"Paris."}}]}}
