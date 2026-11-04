@@ -37,7 +37,7 @@
 // Q08-ASCII-SOURCE-1 (2026-10-01): this file is ASCII-only; every typographic character is a \uXXXX escape. The deploy path
 // double-encoded raw UTF-8, so live pages read "... \u00e2 q08" and posts "\u00e2\u0080\u0094". Keep new literals escaped.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "0.42.0-codeagent";
+var VERSION = "0.42.1-codeagent";
 /* 0.42.0 RM-FORECAST-UPDATE-SCORING-1 (#5578; research): score the last valid update before the horizon with the resolved outcome. */
 /* 0.41.6 FORECAST-CALIBRATION-BUCKET-COVERAGE-1 (#5576, charter pillar research; patch): calibration buckets include probabilities across the full [0,1] range, including the tails, rather than silently omitting forecasts below 5% or above 96%. */
 // Q08-FORECAST-RESEARCH-1 (#4291, agent_issues 1000268, pillar reach): researched forecasts and dated secondary claims.
@@ -2272,7 +2272,8 @@ async function runLevels(env, a) {
   if (!p1) { rows.push({ round: 1, role: "panel_unavailable", model: "", family: "", pass: 1 }); return { piece: piece, gateResult: gateResult, rows: rows }; }
   rows = rows.concat(panelRows(p1, 1));
   if (p1.pass) return { piece: piece, gateResult: gateResult, rows: rows };
-  var editOrder = COMPOSE_MODELS.filter(function (m) { return familyOf(m) !== writerFam; }).concat(COMPOSE_MODELS.filter(function (m) { return familyOf(m) === writerFam; }));
+  // LEVER-538: cap the editor fallback panel so a failed edit does not burn the whole model roster per retry.
+  var editOrder = COMPOSE_MODELS.filter(function (m) { return familyOf(m) !== writerFam; }).concat(COMPOSE_MODELS.filter(function (m) { return familyOf(m) === writerFam; })).slice(0, 2);
   var edPrompt = a.prompt + "\n\n--- EDITOR PASS: below is a draft by another writer. Two independent readers from different model families would not read it to the end (mean score " + p1.mean + " of 5). What they said to fix: " + p1.fix + (p1.tells.length ? " Phrases they flagged as generic machine prose: " + p1.tells.join(" | ") + "." : "") + " Edit it, do not start over: keep every fact and the same case, keep the title line first and the verdict line last, keep the first paragraph as the news lede (who did what, where it appeared, why it matters; at most 70 words), keep the line <!-- analysis --> on its own line where the analysis starts, replace abstractions with people doing things, vary sentence length, cut anything that only restates. Use only facts already in the draft or in the source material above: delete instead of adding, and never introduce a new name, date, figure, quotation or example to make a paragraph more concrete. Cut what the readers asked you to cut, even when the essay gets shorter: keep it at least " + (a.forecast ? 2800 : EDIT_FLOOR) + " characters and never pad it back. Return the full edited essay. " + (a.forecast ? "This is a forecast: keep every probability, the horizon, and the whole FORECAST-JSON line exactly as in the draft, and keep the verdict line last. " : "") + FRAMING_RULE + " ---\n\n--- DRAFT ---\n" + (a.forecast ? piece.text + "\nFORECAST-JSON: " + JSON.stringify(piece.extra || {}) : piece.text);
   var ed = null;
   var rc1 = a.forecast ? null : applyReaderCuts(piece.text, p1.fix);
@@ -2294,13 +2295,8 @@ async function runLevels(env, a) {
     if (edProblems.length && phraseLevelOnly(edProblems) && ed.text.length >= EDIT_FLOOR) {
       var edFr = framingRepair(ed.text, edProblems, function (t) { return editGateProblems(t, banned, a.forecast); });
       if (edFr) rows.push(framingRepairRow(edFr, "editor"));
+      // LEVER-538: the paid model revision retry is dropped; only the free deterministic framing repair is kept.
       if (edFr && edFr.accepted) ed = { text: edFr.text, model: ed.model, extra: ed.extra, repaired: edFr.removed.length };
-      else if (edFr) {
-        var ed2 = null;
-        try { ed2 = await compose(env, retryPromptFor(a.prompt, ed.text, edProblems, EDIT_FLOOR), banned, editOrder, a.xform); } catch (e) { ed2 = null; }
-        if (ed2 && ed2.text) ed2.text = carryFormat(ed2.text, piece.text);
-      if (ed2 && ed2.text && !editGateProblems(ed2.text, banned, a.forecast).length) ed = ed2;
-      }
     }
   }
   var edOk = !!(ed && ed.text && !editGateProblems(ed.text, banned, a.forecast).length && (!a.forecast || validateForecast(ed.extra, ed.text, Date.now()).length === 0));
