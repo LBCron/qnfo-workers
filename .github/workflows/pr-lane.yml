@@ -4,6 +4,10 @@ name: pr-lane
 # QNFO_GH_PAT only to merge-when-ready, which merges after pr-checks concludes green. Before this file, lane-poke, request-copilot-review, copilot-pr-lifecycle and
 # merge-when-ready were four separate workflows started by each PR event, and merge-when-ready ran once per guard that finished.
 # Revert: restore the trigger blocks in those four files and delete this file.
+# PR-RETRY-1 (2026-11-04, pillar autonomy; owner directive: "PRs need to be closed at max 2 hours"): the `retry` job answers a red pr-checks run once. Five pull requests (7056, 7059, 7062, 7063, 7064)
+# opened 17:08-17:12Z went red at 17:13Z on a transient state of main (version-bump-guard, step "Lint the workflow YAML class repo-wide"), and nothing re-ran them until 18:55Z (104 minutes);
+# merge-when-ready fires only on a green run. docs/PR-CYCLE-TIME-2026-11.md has the measurement. A rerun of a pull_request run reuses the same merge commit, so a PR that is behind main
+# gets update-branch (a new merge commit, fresh checks); an up-to-date one gets `gh run rerun --failed`. Only attempt 1 of a run is answered, so a real defect stays red after one retry.
 
 on:
   pull_request_target:
@@ -45,3 +49,39 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/merge-when-ready.yml
     secrets: inherit
+
+  retry:
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.pull_requests[0].number != null && !startsWith(github.event.workflow_run.head_branch, 'copilot/') }}
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Update the branch when behind main, else rerun the failed jobs once
+        run: |
+          set -u
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          state="$(printf '%s' "$pr" | jq -r '.state')"
+          draft="$(printf '%s' "$pr" | jq -r '.draft')"
+          head="$(printf '%s' "$pr" | jq -r '.head.sha')"
+          held="$(printf '%s' "$pr" | jq -r '[.labels[].name] | index("hold") != null')"
+          if [ "$state" != "open" ] || [ "$draft" != "false" ] || [ "$held" != "false" ] || [ "$head" != "$RUN_SHA" ]; then
+            echo "nothing to retry: state=$state draft=$draft held=$held head=$head run=$RUN_SHA"
+            exit 0
+          fi
+          holds="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '[.[] | select(.body | startswith("HOLD:"))] | length')"
+          if [ "$holds" != "0" ]; then
+            echo "a HOLD comment is on the pull request"
+            exit 0
+          fi
+          behind="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${head}...main" --jq '.ahead_by' 2>/dev/null || echo 0)"
+          echo "main is ${behind} commits ahead of the head"
+          if [ "$behind" != "0" ]; then
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/update-branch" -f expected_head_sha="$head" || echo "::notice::update-branch refused (conflict or race), the lane keeps the pull request"
+          else
+            gh run rerun "$RUN_ID" --repo "$GITHUB_REPOSITORY" --failed || echo "::notice::rerun refused"
+          fi
