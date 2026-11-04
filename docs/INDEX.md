@@ -160,6 +160,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [docs/breach-doctor/LOOP-MAP.md](breach-doctor/LOOP-MAP.md) - `docs/breach-doctor/LOOP-MAP.md`
 - [docs/breach-doctor/PROBE-AUTHOR-HARDENING.md](breach-doctor/PROBE-AUTHOR-HARDENING.md) - `docs/breach-doctor/PROBE-AUTHOR-HARDENING.md`
 - [BREACH-DOCTOR-1: the fleet diagnoses and remediates its own breaches](breach-doctor/README.md) - `docs/breach-doctor/README.md`
+- [Case study 1 (draft for owner approval): a research system that asks the right questions and maintains itself](case-studies/2026-11-research-system-that-maintains-itself.md) - `docs/case-studies/2026-11-research-system-that-maintains-itself.md`
 - [docs/client-instructions/PROACTIVE-PROGRAMS-1.md](client-instructions/PROACTIVE-PROGRAMS-1.md) - `docs/client-instructions/PROACTIVE-PROGRAMS-1.md`
 - [Client instruction suite (2026-10-28)](client-instructions/README.md) - `docs/client-instructions/README.md`
 - [PROMPT — Resume: unblock research publication (QNFO fleet)](closeouts/2026-10-17-RESUME-publication.md) - `docs/closeouts/2026-10-17-RESUME-publication.md`
