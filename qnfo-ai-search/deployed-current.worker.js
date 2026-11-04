@@ -29,7 +29,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.12.16-codeagent";
+var VERSION = "2.12.17-codeagent";
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
 async function callModelWithRetry(url, payload, timeoutMs = 20000) {
@@ -310,15 +310,19 @@ var worker_default = {
   },
   async scheduled(event, env, ctx) {
     env = __aiAttrEnv(env, "qnfo-ai-search", "AI", "QNFO_AUDIT");
-    ctx.waitUntil((async function () {
-      var ok = 1;
-      try { await loopTick(env, new Date(event.scheduledTime || Date.now())); }
-      catch (e) { ok = 0; console.error(JSON.stringify({ worker: "qnfo-ai-search", tick: "failed", error: String((e && e.message) || e).slice(0, 300) })); }
-      // CRON-ONLY-HEARTBEAT-1 (agent_issues 2397): the row means the scheduled run finished; it never throws or delays the work above.
-      try {
-        await env.QNFO_AUDIT.prepare("INSERT INTO fleet_heartbeat (worker, version, ts, ok) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(worker) DO UPDATE SET version=excluded.version, ts=excluded.ts, ok=excluded.ok").bind("qnfo-ai-search", VERSION, new Date().toISOString(), ok).run();
-      } catch (e) { console.error(JSON.stringify({ worker: "qnfo-ai-search", heartbeat: "write_failed", error: String((e && e.message) || e).slice(0, 300) })); }
-    })());
+    var ok = 1;
+    try {
+      await loopTick(env, new Date(event.scheduledTime || Date.now()));
+    } catch (e) {
+      ok = 0;
+      console.error(JSON.stringify({ worker: "qnfo-ai-search", tick: "failed", error: String((e && e.message) || e).slice(0, 300) }));
+    }
+    // CRON-ONLY-HEARTBEAT-1 (agent_issues 2397): the row means the scheduled run finished; it never throws or delays the work above.
+    try {
+      await env.QNFO_AUDIT.prepare("INSERT INTO fleet_heartbeat (worker, version, ts, ok) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(worker) DO UPDATE SET version=excluded.version, ts=excluded.ts, ok=excluded.ok").bind("qnfo-ai-search", VERSION, new Date().toISOString(), ok).run();
+    } catch (e) {
+      console.error(JSON.stringify({ worker: "qnfo-ai-search", heartbeat: "write_failed", error: String((e && e.message) || e).slice(0, 300) }));
+    }
   },
 };
 export { worker_default as default };
