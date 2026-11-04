@@ -50,11 +50,14 @@ bindings) or has no route. The graph reads routes and custom domains only; a nam
 | `ipatent.qnfo.org`, `qnfo.org/ipatent*` | research | qnfo-ipatent | yes |
 | `qnfo.org/email/*` | fleet | qnfo-email | yes |
 | `analytics.`, `lifecycle.`, `scorecard.`, `fleet-executor.`, `fleet-scheduler.`, `agent-orchestrator.`, `qnfo-arxiv-radar.`, `qnfo-paper-reviser.`, `qnfo-secrets-audit.`, `qnfo-system-health.`, `qnfo-citation-watch.`, `qnfo-research-radar.`, `qnfo-calibration-audit.` `.qnfo.org` | research / fleet | qnfo-lifecycle (members) | yes |
-| `qwav.org`, `www.qwav.org` | quantum | Pages project (301 to `/papers/`) | yes; canonical quantum host |
+| `qwav.org` | quantum | qnfo-gateway (route `qwav.org/*`, QWAV page, QWAV-DEMOS-1) | yes; canonical quantum host |
+| `www.qwav.org`, `qwav.net`, `qwav.uk`, `www.qwav.uk`, `www.qwav.net` | quantum | qnfo-gateway or qnfo-lifecycle route, 301 to `https://qwav.org` | yes, a redirect |
+| `score.qwav.tech` | quantum | zone redirect rule, 301 to `https://qwav.org/` | yes, a redirect |
+| `deep.qwav.tech`, `primer.qwav.tech` | quantum | Pages project `qwav` (about 500 static research pages under `/papers/`, no other host serves them) | kept; do not detach without migrating those pages |
+| `ask.qwav.org` | quantum | qnfo-ai-search | yes |
 | `ask.qwav.tech` | quantum | qnfo-ai-search | no, quantum surface on `qwav.tech`, not `qwav.org`: DOMAIN-PLANE-1:ask.qwav.tech |
-| `qwav.tech` | quantum | qnfo-gateway | no, quantum apex answering 200 on `qwav.tech`: DOMAIN-PLANE-1:qwav.tech |
-| `qwav.net`, `www.qwav.net` | quantum | qnfo-lifecycle | spare name; the lifecycle worker answers it (SPARE-DOMAIN-CANON-1 covers `qwav.uk`, `qwave.tech`, `q-wave.tech`) |
-| `qwav.uk`, `qwave.tech`, `q-wave.tech` (and `www.`) | quantum | spare zone, 301 to `https://qwav.org` | yes, a redirect (SPARE-DOMAIN-CANON-1) |
+| `qwav.tech` | quantum | zone redirect rule, 301 to `https://qwav.org` | yes, a redirect |
+| `qwave.tech`, `q-wave.tech` | quantum | zones active in the account, public DNS answers NXDOMAIN (registrar delegation lost, 2026-11-04); owner action at the registrar | no |
 | `ipatent.me`, `www.ipatent.me` | research | spare zone, 301 to `https://ipatent.qnfo.org` | yes, a redirect |
 | `www.empoweringchange.today` | research | spare zone, 301 to `https://qnfo.org` | yes, a redirect |
 
