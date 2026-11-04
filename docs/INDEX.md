@@ -37,6 +37,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [BP26 security cluster](BP26-SECURITY-CLUSTER.md) - `docs/BP26-SECURITY-CLUSTER.md`
 - [QNFO / QUNIVERSE — BUSINESS PLAN v1.1 (2026-09-26, aligned 2026-10-01)](BUSINESS-PLAN.md) - `docs/BUSINESS-PLAN.md`
 - [CAPABILITY-ADVERTISING-CONTRACT-1 (v1.0, 2026-09-19)](CAPABILITY-ADVERTISING-CONTRACT.md) - `docs/CAPABILITY-ADVERTISING-CONTRACT.md`
+- [Career visibility: being found and taken seriously by employers (REACH-FOCUS-3)](CAREER-VISIBILITY.md) - `docs/CAREER-VISIBILITY.md`
 - [CF-ACCESS-ROLLOUT-1277: putting Cloudflare Access in front of the admin surface](CF-ACCESS-ROLLOUT-1277.md) - `docs/CF-ACCESS-ROLLOUT-1277.md`
 - [CI velocity, 2026-11 (CI-VELOCITY-1)](CI-VELOCITY-2026-11.md) - `docs/CI-VELOCITY-2026-11.md`
 - [Claude Code cloud execution vs the Quniverse (2026-10-01)](CLAUDE-CODE-CLOUD-VS-QUNIVERSE.md) - `docs/CLAUDE-CODE-CLOUD-VS-QUNIVERSE.md`

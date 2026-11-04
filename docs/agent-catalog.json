@@ -206,6 +206,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CAPABILITY-ADVERTISING-CONTRACT.md"
     },
     {
+      "path": "docs/CAREER-VISIBILITY.md",
+      "title": "Career visibility: being found and taken seriously by employers (REACH-FOCUS-3)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CAREER-VISIBILITY.md"
+    },
+    {
       "path": "docs/CF-ACCESS-ROLLOUT-1277.md",
       "title": "CF-ACCESS-ROLLOUT-1277: putting Cloudflare Access in front of the admin surface",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CF-ACCESS-ROLLOUT-1277.md"
