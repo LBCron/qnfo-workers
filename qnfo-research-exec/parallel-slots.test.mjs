@@ -7,9 +7,10 @@ import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
-const leased = src.slice(src.indexOf("async function runLeased("), src.indexOf("async function runLeased(") + 2500);
+const leased = src.slice(src.indexOf("async function runLeased("), src.indexOf("async function runLeased(") + 7000);
+// 0.49.0 RESEARCH-TICK-ALLOWANCE-1: the round's width is roundWidth (the configured width, or what the tick allowance still buys).
 // 0.16.0 AI-STAGE-ATTRIBUTION-2: every slot runs with its own attribution env (__attrSlotEnv), the same snapshot for all.
-ok(/const inflight = \(await env\.QNFO_AUDIT\.prepare\(INFLIGHT_SQL\)\.bind\(width\)\.all\(\)\)\.results \|\| \[\];\s*round = await Promise\.all\(Array\.from\(\{ length: width \}, function\(_, k\) \{ return runSlot\(__attrSlotEnv\(env\), k, width, inflight\); \}\)\);/.test(leased), "one snapshot per round is passed to every slot");
+ok(/const inflight = \(await env\.QNFO_AUDIT\.prepare\(INFLIGHT_SQL\)\.bind\(roundWidth\)\.all\(\)\)\.results \|\| \[\];\s*round = await Promise\.all\(Array\.from\(\{ length: roundWidth \}, function\(_, k\) \{ return runSlot\(__attrSlotEnv\(env\), k, roundWidth, inflight\); \}\)\);/.test(leased), "one snapshot per round is passed to every slot");
 ok(/round = \[await run\(env\)\];/.test(leased), "width 1 keeps the single-flight run()");
 const slot = src.slice(src.indexOf("async function runSlot("), src.indexOf("async function claimNew("));
 ok(/const row = inflight\[slot\];/.test(slot) && !/prepare\(INFLIGHT_SQL\)/.test(slot), "a slot reads its row from the shared snapshot, not its own query");

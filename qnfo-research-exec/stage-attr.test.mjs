@@ -76,8 +76,8 @@ ok(!rows2["binding:ground"], "nothing is counted under ground, a stage that make
 ok(W.get(base) === "", "the slots never wrote the shared env's label (no module-level or shared state)");
 ok(W.slot({}) !== undefined && W.get(W.slot({})) === "", "an unwrapped env passes through __attrSlotEnv unchanged");
 
-const runLeasedSrc = src.slice(src.indexOf("async function runLeased("), src.indexOf("async function runLeased(") + 3000);
-ok(/runSlot\(__attrSlotEnv\(env\), k, width, inflight\)/.test(runLeasedSrc), "runLeased gives every slot its own attribution env");
+const runLeasedSrc = src.slice(src.indexOf("async function runLeased("), src.indexOf("async function runLeased(") + 7000);
+ok(/runSlot\(__attrSlotEnv\(env\), k, roundWidth, inflight\)/.test(runLeasedSrc), "runLeased gives every slot its own attribution env");
 ok(!/^var __AI_ATTR_STAGE\b/m.test(src) && !/__attrSlotRun\(/.test(src), "no module-level stage label and no AsyncLocalStorage slot runner remain");
 ok(!/from "node:async_hooks"/.test(src), "the worker no longer imports AsyncLocalStorage");
 ok(/attrCtx && attrCtx\.stage \? "binding:" \+ attrCtx\.stage : "binding"/.test(body), "the counter row reads the stage from the binding's own context object");
