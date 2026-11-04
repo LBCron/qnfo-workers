@@ -10,7 +10,8 @@
 // released best score first, with no model call, only when the share allows (an ai_spend cap no longer matters, 1.6.0), with the hold
 // note stripped; a held row that left the 30-day window becomes a terminal HOLD and is never released; the run publishes
 // the held count and the share, and that share equals the metric's reading of the same rows; a missing cache is re-derived
-// from the accepted ideas and written back; with no derived clusters nothing is held.
+// from the accepted ideas and written back; with no derived clusters nothing is held. Section 14 (DIVERSITY-GENERATED-CAP-1, 1.17.1): a generated
+// proposal is also held when its cluster would exceed half of the 30-day GENERATED accepts (owner producers and "other" are not), released when that share allows.
 // Run: node --no-warnings idea-hub/diversity-cap.test.mjs   -> prints "N passed, 0 failed"
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -178,6 +179,38 @@ out = await api.triageProposals(env);
 ok(row(deferredCorpus).status === "triaged_accepted" && queued(deferredCorpus) === 1, "a lower-scored owner-corpus row wins release over the scan", row(deferredCorpus));
 ok(row(deferredScan).status === "deferred_diversity" && queued(deferredScan) === 0, "the higher-scored scan remains held after the corpus uses the available share", row(deferredScan));
 ok(out.diversity.share === 0.5 && metricNow().share === 0.5, "releasing owner-corpus first preserves the same 50% metric cap", { out: out.diversity, metric: metricNow() });
+
+// 14. DIVERSITY-GENERATED-CAP-1 (1.17.1, agent_issues 2047, trigger 1238): the cap also binds the population the metric measures. 40 owner-corpus notes in one cluster (energy)
+// leave the all-sources share of quantum at 6 of 50, so the all-sources check never held a generated quantum accept while the 10 generated accepts were 6 quantum (the
+// metric: 0.6). The generated check holds the next generated quantum accept, lets other clusters and the owner's notes through, and releases when the generated share allows.
+db.prepare("DELETE FROM idea_proposals").run();
+db.prepare("DELETE FROM research_queue").run();
+db.prepare("INSERT INTO ops_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+  .run(api.TOPIC_CACHE_KEY, JSON.stringify({ version: 1, derived_at: new Date().toISOString(), docs: 0, clusters: CLUSTERS }));
+for (let i = 0; i < 40; i++) accepted("owner-corpus", "Landauer entropy bound note " + i, ago(1 + (i % 20)));
+for (let i = 0; i < 6; i++) accepted("auto-scan", "Quantum decoder threshold " + i, ago(2 + i));
+for (let i = 0; i < 4; i++) accepted("auto-reentry", "Ultrametric structure " + i, ago(8 + i));
+const mixG = { n: 50, by: { energy: 40, quantum: 6, ultrametric: 4 }, gen_n: 10, gen_by: { quantum: 6, ultrametric: 4 }, clusters: CLUSTERS };
+ok(api.diversityBlocks(mixG, "quantum") === false, "control: the all-sources check alone does not hold a quantum accept (7 of 51)");
+ok(api.diversityBlocks(mixG, "quantum", "auto-scan") === true, "a generated quantum accept is held by the generated check (7 of 11 generated accepts)");
+ok(api.diversityBlocks(mixG, "quantum", "owner-corpus") === false && api.diversityBlocks(mixG, "quantum", "owner-chat") === false, "the owner's own producers are not held by the generated check");
+ok(api.diversityBlocks(mixG, "ultrametric", "auto-reentry") === false, "another generated cluster passes (5 of 11)");
+ok(api.diversityBlocks({ n: 50, by: { energy: 40, other: 10 }, gen_n: 10, gen_by: { other: 10 }, clusters: CLUSTERS }, "other", "auto-scan") === false, "'other' is never held by the generated check");
+ok(api.diversityBlocks({ n: 50, by: { energy: 41, quantum: 9 }, gen_n: 9, gen_by: { quantum: 9 }, clusters: CLUSTERS }, "quantum", "auto-scan") === false, "below DIVERSITY_MIN_N generated accepts the generated check holds nothing");
+const gHeld = add("auto-scan", "Quantum threshold for a new decoder family", ago(0.05));
+const gPass = add("auto-reentry", "Ultrametric structure of hierarchical codes", ago(0.04));
+const oPass = add("owner-corpus", "Quantum threshold from the notebook", ago(0.03), "owner");
+out = await api.triageProposals(env);
+ok(row(gHeld).status === "deferred_diversity" && row(gHeld).decision === "DEFER-DIVERSITY" && queued(gHeld) === 0 && /^\[diversity hold [^\]]*quantum would be 64% of 30-day generated accepts, cap 50%\] solid$/.test(row(gHeld).rationale), "the generated quantum accept waits, and the note names the generated population", row(gHeld));
+ok(row(gPass).status === "triaged_accepted" && queued(gPass) === 1, "a generated ultrametric accept passes", row(gPass));
+ok(row(oPass).status === "triaged_accepted" && queued(oPass) === 1, "an owner-corpus quantum note passes: only the all-sources check applies to it", row(oPass));
+ok(out.diversity.generated && out.diversity.generated.n === 11 && out.diversity.generated.top === "quantum" && out.diversity.generated.by_cluster.quantum === 6 && out.diversity.generated.by_cluster.ultrametric === 5 && out.diversity.n === 52, "the run publishes the generated mix next to the all-sources mix (the owner note is not in the generated count)", out.diversity);
+// Four more generated accepts in the energy cluster: quantum is 6 of 15, so one more is 7 of 16 and the held row is released with no model call.
+for (let i = 0; i < 4; i++) accepted("auto-reentry", "Landauer entropy bound variant " + i, ago(1));
+calls.length = 0;
+out = await api.triageProposals(env);
+ok(row(gHeld).status === "triaged_accepted" && queued(gHeld) === 1 && row(gHeld).rationale === "solid" && out.diversity_released === 1 && calls.length === 0, "when the generated share allows, the held row is released with its note stripped and no model call", { r: row(gHeld), out });
+ok(out.diversity.generated.n === 16 && out.diversity.generated.top === "quantum" && out.diversity.generated.share === 0.438, "after the release the generated share is 7 of 16", out.diversity.generated);
 
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

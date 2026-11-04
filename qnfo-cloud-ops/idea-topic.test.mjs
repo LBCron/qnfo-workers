@@ -90,12 +90,12 @@ db.prepare("INSERT INTO ops_config (key, value) VALUES (?, ?)").run(mod.__key, J
 const env = { AUDIT: { prepare: (sql) => stmtOn(db, sql) } };
 const r = await mod.__job(env);
 const row = db.prepare("SELECT last_value, last_refreshed FROM metric_registry WHERE metric='idea_topic_concentration_30d'").get();
-ok(r.status === "ok" && r.notes.accepted_30d === 10 && r.notes.owner_sourced_30d === 3 && r.notes.share === 0.4 && r.notes.derived_docs === 14, "job derives over 90 days (14 accepts: HOLD and 120-day-old excluded) and measures the 10 generated accepts of 30 days at share 0.4, the 3 owner rows counted apart (OWNER-EXEMPT-METRIC-1)", r.notes);
+ok(r.status === "ok" && r.notes.accepted_30d === 10 && r.notes.owner_sourced_30d === 3 && r.notes.share === 0.4 && r.notes.derived_docs === 11, "job derives over 90 days from the generated accepts only (11: the 3 owner rows, the HOLD and the 120-day-old row excluded, TOPIC-DERIVE-GENERATED-1) and measures the 10 generated accepts of 30 days at share 0.4, the 3 owner rows counted apart (OWNER-EXEMPT-METRIC-1)", r.notes);
 ok(r.notes.all_sources.accepted_30d === 13 && r.notes.all_sources.top === "braid" && r.notes.all_sources.share === 0.538, "the all-sources share (owner rows included) rides in the notes, nothing is hidden", r.notes.all_sources);
 ok(!r.notes.clusters.includes("stale") && r.notes.clusters.length >= 2, "the daily job re-derives even when the cache is fresh", r.notes.clusters);
 ok(r.notes.by_cluster.glacier === 3, "the rationale does not move a row (glacier rows whose rationale says braid stay glacier)", r.notes.by_cluster);
 const cached = JSON.parse(db.prepare("SELECT value FROM ops_config WHERE key = ?").get(mod.__key).value);
-ok(cached.docs === 14 && JSON.stringify(cached.clusters) === JSON.stringify(r.notes.cluster_terms) && typeof cached.derived_at === "string", "the derived clusters are cached in ops_config for idea-hub", cached);
+ok(cached.docs === 11 && JSON.stringify(cached.clusters) === JSON.stringify(r.notes.cluster_terms) && typeof cached.derived_at === "string", "the derived clusters are cached in ops_config for idea-hub", cached);
 ok(row.last_value === "0.4" && row.last_refreshed !== "2026-10-04T09:14:00Z", "registry row updated", row);
 ok(db.prepare("SELECT last_value FROM metric_registry WHERE metric='other_metric'").get().last_value === "7", "no other registry row touched");
 
@@ -144,8 +144,37 @@ const r4 = await mod.__job({ AUDIT: { prepare: (sql) => stmtOn(db4, sql) } });
 ok(r4.status === "ok" && /fewer than 10 generated/.test(r4.notes.skipped || "") && db4.prepare("SELECT last_value FROM metric_registry").get().last_value === "0.9" && r4.notes.owner_sourced_30d === 40, "9 generated accepts: skipped with the reason, registry untouched, the 40 owner rows counted apart", r4.notes);
 ins4.run("auto-scan", "Alpine lichen growth 4", iso(1));
 const r5 = await mod.__job({ AUDIT: { prepare: (sql) => stmtOn(db4, sql) } });
-ok(r5.notes.accepted_30d === 10 && r5.notes.top === "glacier" && r5.notes.share === 0.5 && r5.notes.all_sources.accepted_30d === 50 && r5.notes.all_sources.top === "braid" && r5.notes.all_sources.share === 0.64 && db4.prepare("SELECT last_value FROM metric_registry").get().last_value === "0.5", "10 generated accepts: the metric is the generated share (0.5) while the all-sources share (0.64, 32 owner notes in the braid cluster of 50) stays visible", r5.notes);
+ok(r5.notes.accepted_30d === 10 && r5.notes.top === "glacier" && r5.notes.share === 0.5 && r5.notes.all_sources.accepted_30d === 50 && r5.notes.all_sources.top === "other" && r5.notes.all_sources.share === 0.8 && db4.prepare("SELECT last_value FROM metric_registry").get().last_value === "0.5", "10 generated accepts: the metric is the generated share (0.5) while the all-sources share (0.8: the 40 owner notes fall in no cluster derived from the generated accepts) stays visible", r5.notes);
 ok(db4.prepare("SELECT COUNT(*) n FROM idea_proposals WHERE lower(name) LIKE '%owner%'").get().n === 40, "fixture control: 40 owner rows");
+
+// 9c. TOPIC-DERIVE-GENERATED-1 (agent_issues 2047, trigger 1238, 2026-11-04): the clusters are derived from the generated accepts, not from the owner's notebook.
+// The failure: 1,211 of 1,333 derivation documents were owner-corpus rows, the first cluster took the notebook's generic vocabulary (model, matter, derive, state ...)
+// and 21 of the 29 generated accepts fell in it (0.724) although 12 were about quantum physics (0.414). Fixture: 60 notebook rows in one generic vocabulary, 12 generated
+// accepts in two topics, ten of which carry a generic word of the notebook. Derived from everything the first cluster is the notebook's and holds those ten (share 0.833);
+// derived from the generated rows the clusters are the two topics and the share is 0.5.
+const db5 = new DatabaseSync(":memory:");
+db5.exec(`CREATE TABLE idea_proposals (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, idea TEXT NOT NULL, decision TEXT, rationale TEXT, created_at TEXT);
+  CREATE TABLE metric_registry (metric TEXT PRIMARY KEY, last_value TEXT, last_refreshed TEXT);
+  CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT);
+  INSERT INTO metric_registry VALUES ('idea_topic_concentration_30d', '0.724', 'then');`);
+const ins5 = db5.prepare("INSERT INTO idea_proposals (name, idea, decision, created_at) VALUES (?, ?, 'ACCEPT', ?)");
+// The notebook's words rotate (no word is in 90% of its rows, so none is dropped as the producer's boilerplate), as the real notebook's did.
+for (let i = 0; i < 60; i++) ins5.run(i % 4 < 2 ? "owner-corpus" : "owner-chat", "Item: " + [i % 5 ? "model" : "", i % 2 === 0 ? "matter" : "", i % 3 === 0 ? "state" : "", i % 7 < 4 ? "derive" : ""].filter(Boolean).join(" "), iso(2));
+// Twelve generated accepts in two topics; ten of them also carry a generic word the notebook uses (state, matter).
+for (let i = 0; i < 6; i++) ins5.run("auto-scan", "Quantum error correction decoder variant " + i + (i < 5 ? " in the state space" : ""), iso(3));
+for (let i = 0; i < 6; i++) ins5.run("intake:arxiv-x", "Glacier moraine dating survey " + i + (i < 5 ? " of matter transport" : ""), iso(3));
+const ownerBlind = await mod.__job({ AUDIT: { prepare: (sql) => stmtOn(db5, sql) } });
+const terms5 = ownerBlind.notes.cluster_terms.flatMap((c) => c.terms);
+ok(ownerBlind.notes.derived_docs === 12, "the derivation reads the 12 generated accepts and none of the 60 owner rows", ownerBlind.notes);
+const clusterOf5 = (w) => ownerBlind.notes.cluster_terms.findIndex((c) => c.terms.includes(w));
+ok(!terms5.includes("model") && !terms5.includes("derive") && clusterOf5("quantum") >= 0 && clusterOf5("glacier") >= 0 && clusterOf5("quantum") !== clusterOf5("glacier") && clusterOf5("state") === clusterOf5("quantum") && clusterOf5("matter") === clusterOf5("glacier"), "no cluster is the notebook's: the two generated topics are the clusters and the generic words join the topic they occur in", ownerBlind.notes.cluster_terms);
+ok(ownerBlind.notes.share === 0.5 && ownerBlind.notes.accepted_30d === 12 && ownerBlind.notes.owner_sourced_30d === 60 && db5.prepare("SELECT last_value FROM metric_registry").get().last_value === "0.5", "the metric reads 0.5 (6 of 12), not the 1.0 of an owner-derived cluster set", ownerBlind.notes);
+ok(mod.__cluster("Item: model derive", ownerBlind.notes.cluster_terms) === "other", "an owner note in the notebook's vocabulary is not placed in a generated topic");
+const pooled = mod.__derive(db5.prepare("SELECT name, idea FROM idea_proposals ORDER BY id").all());
+const pooledConc = mod.__conc(db5.prepare("SELECT idea FROM idea_proposals WHERE name NOT LIKE '%owner%'").all(), pooled.clusters);
+ok(pooled.clusters[0].terms.includes("model") && pooled.clusters[0].terms.includes("state") && pooledConc.top === pooled.clusters[0].label && pooledConc.share > 0.8, "control: derived from everything (the old rule) the first cluster is the notebook's and 10 of the 12 generated accepts fall in it (share 0.833)", [pooled.clusters, pooledConc]);
+const hubSrc5 = readFileSync(new URL("../idea-hub/worker.js", import.meta.url), "utf8");
+ok(src.includes("lower(COALESCE(name, '')) NOT LIKE '%owner%'") && hubSrc5.includes("lower(COALESCE(name, '')) NOT LIKE '%owner%'"), "both workers derive over the non-owner producers (the shared block's TOPIC_GENERATED_SQL)");
 
 // 10. Wiring: the metric keeps its own daily schedule slot.
 ok(typeof mod.__jobs["idea-topic-metric"] === "function", "job is in the dispatch map");
