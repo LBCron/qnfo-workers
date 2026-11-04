@@ -50,6 +50,11 @@ binding = "AUDIT"
 database_name = "qnfo-audit"
 database_id = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
 
+# EXUVIA-ENGAGE-1 (2.8.0): one hourly tick (CRON-HOURLY-FLOOR-1) that drafts evidence-backed replies to Exuvia posts that need a response
+# (ops_config exuvia_engage) and, only when ops_config exuvia_engage_post is on, posts them. Both switches ship off or absent.
+[triggers]
+crons = ["37 * * * *"]
+
 # Secrets:
 #   MCP_TOKEN      - full read+write bearer/?token= credential (required; without it the worker fails closed, 503)
 #   MCP_READ_TOKEN - optional read-only credential: every tool except remember_fact and exuvia_publish_paper

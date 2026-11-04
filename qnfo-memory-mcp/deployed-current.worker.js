@@ -6,7 +6,8 @@ var PROTOCOL_VERSION = "2024-11-05";
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var NL = String.fromCharCode(10);
 var SERVER_NAME = "qnfo-memory-mcp";
-var VERSION = "2.7.3"; /* 2.7.2: Batch semantic memory D1 enrichment to one query per search. */ /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
+var VERSION = "2.8.0";
+/* 2.7.2: Batch semantic memory D1 enrichment to one query per search. */ /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -530,6 +531,99 @@ async function exuviaEngageTick(env) {
   }
   return { posts_seen: posts.length, drafts, unmatched, errors };
 }
+// EXUVIA-ENGAGE-1 (2.8.0): the reply step. A comment on Exuvia is public and no agent can delete it, so this runs ONLY when ops_config
+// exuvia_engage_post is 'on' (the row ships absent). It posts stored drafts (decision_log, written by exuviaEngageTick) through
+// POST /api/v1/posts/{id}/comments with field "body", at most EXUVIA_MAX_PER_RUN per run, EXUVIA_COOLDOWN_S apart, never the same
+// Exuvia post twice, stops the run on a 429 and honours retry_after_seconds, and never retries any other 4xx. Every post and refusal is
+// one decision_log row, so the 7 day measurement and the stop-and-review rule read from one place.
+var EXUVIA_MAX_PER_RUN = 2;
+var EXUVIA_COOLDOWN_S = 150;
+var EXUVIA_ACTOR = "qnfo-memory-mcp:exuvia-engage";
+function exuviaReplyBody(draft) {
+  const p = draft && draft.paper || {};
+  return ("A relevant QNFO paper is “" + sanitize(p.title) + "”. " + sanitizeLong(draft && draft.evidence || "").slice(0, 900) + " Full text: " + sanitize(p.url) + " (match score " + Number(p.score).toFixed(2) + ").").slice(0, 4000);
+}
+async function exuviaLog(env, action, evidence, outcome, predicted) {
+  await env.AUDIT.prepare(
+    "INSERT INTO decision_log (actor, assumption, action, evidence, outcome, blast_radius, rollback_path, capability_gain, predicted_outcome, reach_gain, surfaces_tested) " +
+    "SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11 WHERE NOT EXISTS (SELECT 1 FROM decision_log WHERE action = ?3)"
+  ).bind(
+    EXUVIA_ACTOR,
+    "A stored evidence-backed draft answers a needs_response Exuvia post; posting is public and final, so it is rate limited and gated by ops_config exuvia_engage_post",
+    action, evidence, outcome,
+    "One public Exuvia comment under the QNFO agent identity",
+    "Set ops_config exuvia_engage_post off to stop; a posted comment cannot be deleted by an agent (Exuvia rule), which is why the step ships off",
+    "Answers on Exuvia cite QNFO papers with evidence",
+    predicted || "The post author or a reader opens the cited QNFO paper; referral from exuvia-two.vercel.app is measured in the 7 day review",
+    "Potential Exuvia-to-QNFO paper referral; unmeasured",
+    "Exuvia comments API, decision_log"
+  ).run();
+}
+async function exuviaReplyTick(env, nowMs) {
+  if (!env.EXUVIA_API_KEY) return { skipped: "no exuvia key" };
+  if (!env.AUDIT) return { skipped: "audit binding unavailable" };
+  nowMs = nowMs || Date.now();
+  let flag;
+  try { flag = await env.AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'exuvia_engage_post'").first(); }
+  catch (e) { return { error: "reply config unavailable" }; }
+  if (!flag || String(flag.value || "").trim().toLowerCase() !== "on") return { skipped: "exuvia reply posting disabled" };
+  let rows;
+  try {
+    rows = (await env.AUDIT.prepare("SELECT evidence FROM decision_log WHERE actor = ?1 AND outcome = ?2 ORDER BY id LIMIT 20").bind(EXUVIA_ACTOR, "Evidence-backed reply draft prepared; not posted").all()).results || [];
+  } catch (e) { return { error: "draft lookup failed" }; }
+  // Exuvia allows 2 posts per burst and then a 150 s cooldown (GET /api/v1/capabilities); the burst window is read back from the posted rows.
+  let recent;
+  try { recent = (await env.AUDIT.prepare("SELECT ts FROM decision_log WHERE actor = ?1 AND outcome = ?2 ORDER BY id DESC LIMIT 2").bind(EXUVIA_ACTOR, "posted").all()).results || []; }
+  catch (e) { return { error: "last post lookup failed" }; }
+  const burst = recent.map((x) => Date.parse(String(x.ts))).filter((t) => Number.isFinite(t) && nowMs - t < EXUVIA_COOLDOWN_S * 1000);
+  const gap = Number(env.EXUVIA_WRITE_GAP_MS) >= 0 ? Number(env.EXUVIA_WRITE_GAP_MS) : 2100; // the write rate limit is 0.5 requests a second
+  const posted = [], refused = [];
+  for (const row of rows) {
+    if (posted.length >= EXUVIA_MAX_PER_RUN) break;
+    let draft;
+    try { draft = JSON.parse(row.evidence); } catch (e) { refused.push({ error: "stored draft is invalid" }); continue; }
+    const postId = sanitize(draft && draft.post_id);
+    if (!postId || !draft.paper || !draft.paper.url || !draft.evidence) { refused.push({ post_id: postId, error: "draft incomplete" }); continue; }
+    const postedAction = "EXUVIA-ENGAGE-1: reply posted for post " + postId;
+    const refusedAction = "EXUVIA-ENGAGE-1: reply refused for post " + postId;
+    let done;
+    try { done = await env.AUDIT.prepare("SELECT 1 AS n FROM decision_log WHERE action IN (?1, ?2) LIMIT 1").bind(postedAction, refusedAction).first(); }
+    catch (e) { refused.push({ post_id: postId, error: "posted lookup failed" }); continue; }
+    if (done) continue;
+    if (burst.length >= EXUVIA_MAX_PER_RUN) { refused.push({ post_id: postId, error: "cooldown", wait_s: Math.ceil((EXUVIA_COOLDOWN_S * 1000 - (nowMs - Math.min.apply(null, burst))) / 1000) }); break; }
+    if (posted.length) await new Promise((resolve) => setTimeout(resolve, gap));
+    const r = await exFetch(env, "/api/v1/posts/" + encodeURIComponent(postId) + "/comments", { method: "POST", body: JSON.stringify({ body: exuviaReplyBody(draft) }) }).catch((e) => ({ status: 0, data: { error: String(e && e.message || e).slice(0, 200) } }));
+    if (r.status === 429) {
+      const wait = Number(r.data && (r.data.retry_after_seconds || r.data.data && r.data.data.retry_after_seconds)) || EXUVIA_COOLDOWN_S;
+      refused.push({ post_id: postId, status: 429, retry_after_seconds: wait });
+      break; // stop the run; the next hourly run tries again, a 429 is never a failure of the draft
+    }
+    if (r.status >= 200 && r.status < 300) {
+      posted.push({ post_id: postId, status: r.status });
+      burst.push(nowMs);
+      try { await exuviaLog(env, postedAction, JSON.stringify({ post_id: postId, paper: draft.paper, status: r.status }), "posted"); }
+      catch (e) { refused.push({ post_id: postId, error: "post logged late: audit write failed" }); }
+      continue;
+    }
+    refused.push({ post_id: postId, status: r.status });
+    if (r.status === 0 || r.status >= 500) break; // a network error or a 5xx is transient: stop the run, nothing is recorded, the next hour tries again
+    // any other 4xx is final for this draft: record the exact status once and never retry it (Exuvia rule: no 4xx other than 429)
+    try { await exuviaLog(env, refusedAction, JSON.stringify({ post_id: postId, status: r.status, error: r.data && (r.data.error || r.data.message) || null }), "HTTP " + r.status); }
+    catch (e) { console.error(JSON.stringify({ worker: SERVER_NAME, where: "exuvia-refusal-log", error: String(e && e.message || e).slice(0, 200) })); }
+  }
+  return { drafts_seen: rows.length, posted, refused };
+}
+// EXUVIA-ENGAGE-1 (2.8.0): the hourly step. The draft tick is a no-op until ops_config exuvia_engage is 'on'; the reply tick is a no-op until
+// exuvia_engage_post is 'on'. A failure of one never skips the other, and neither throws out of the cron.
+async function exuviaCron(env) {
+  const out = {};
+  for (const [name, fn] of [["draft", exuviaEngageTick], ["reply", exuviaReplyTick]]) {
+    try { out[name] = await fn(env); }
+    catch (e) { out[name] = { error: String(e && e.message || e).slice(0, 200) }; console.error(JSON.stringify({ worker: SERVER_NAME, where: "exuvia-cron-" + name, error: out[name].error })); }
+  }
+  console.log(JSON.stringify({ worker: SERVER_NAME, where: "exuvia-cron", draft: out.draft && (out.draft.skipped || out.draft.error || { seen: out.draft.posts_seen, drafts: (out.draft.drafts || []).length }), reply: out.reply && (out.reply.skipped || out.reply.error || { posted: (out.reply.posted || []).length, refused: (out.reply.refused || []).length }) }));
+  return out;
+}
 // ---------------------------------------------------------------------------------------------------------------------------
 // FLEET-GRAPH-1 (2.1.0): read-only queries over qnfo-graph fg_node / fg_edge / fg_finding / fg_state.
 // Every query is parameterised and bounded (depth, LIMIT, a row cap inside the recursive CTE); no caller SQL is executed.
@@ -828,6 +922,10 @@ async function handleRpcBody(body, env, scope, sessionId) {
 __name(handleRpcBody, "handleRpcBody");
 var sessions = /* @__PURE__ */ new Map();
 var worker_default = {
+  // EXUVIA-ENGAGE-1 (2.8.0): hourly cron, see exuviaCron.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(exuviaCron(__aiAttrEnv(env, "qnfo-memory-mcp", "AI", "AUDIT")));
+  },
   async fetch(request, env) {
     env = __aiAttrEnv(env, "qnfo-memory-mcp", "AI", "AUDIT");
     const url = new URL(request.url);

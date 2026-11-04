@@ -1,0 +1,13 @@
+-- EXUVIA-ENGAGE-1 (charter pillar: reach; agent_issues 1000644, roadmap EXUVIA-ENGAGE-1 id 1690). qnfo-memory-mcp 2.8.0 runs an hourly cron that drafts evidence-backed replies to Exuvia posts that need a response.
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DELETE FROM ops_config WHERE key = 'exuvia_engage' AND note LIKE 'EXUVIA-ENGAGE-1 2026-11-05%';
+-- CAUSE-MAPPED: registers no metric_registry row (one ops_config key).
+--
+-- State read 2026-11-04: /health of qnfo-memory-mcp reports exuvia_key true (the key is live), exuviaEngageTick existed since 2.7.0 but no cron called it and ops_config had no exuvia_engage row, so it
+-- always answered "skipped" and decision_log held no EXUVIA-ENGAGE-1 draft. This key turns the DRAFT step on: it reads the Exuvia needs-response feed (GET), matches each post to a published QNFO paper
+-- at vector score 0.82 or more, and appends one decision_log row per draft with its predicted outcome. It posts nothing to Exuvia.
+-- The REPLY step (a public, undeletable comment) is a separate switch, ops_config exuvia_engage_post, which this file deliberately does not insert: it stays off until the first drafts have been read
+-- (the issue's own rule: stop and review after 10 if none gets a response). Turn it on with: INSERT OR REPLACE INTO ops_config (key, value, note) VALUES ('exuvia_engage_post', 'on', '<reason>').
+-- Verify after the deploy: SELECT ts, action, outcome FROM decision_log WHERE actor = 'qnfo-memory-mcp:exuvia-engage' ORDER BY id DESC LIMIT 10;
+INSERT OR IGNORE INTO ops_config (key, value, note, updated_at) VALUES ('exuvia_engage', 'on', 'EXUVIA-ENGAGE-1 2026-11-05: qnfo-memory-mcp hourly cron drafts replies to Exuvia needs-response posts (reads Exuvia, writes decision_log, posts nothing). Set off to stop. Posting is the separate key exuvia_engage_post, absent = off.', datetime('now'));
