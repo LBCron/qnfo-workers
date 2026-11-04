@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# push_artifact.sh - ARTIFACT-PUSH-CONFLICT-1 (2026-09-30): commit + push CI status/audit artifacts to main
-# without ever entering a merge/rebase conflict.
+# push_artifact.sh - ARTIFACT-PUSH-CONFLICT-1 (2026-09-30): commit + publish CI status/audit artifacts (to branch fleet-artifacts since
+# MAIN-PUSH-POLICY-1; main refuses direct pushes) without ever entering a merge/rebase conflict.
 #
 # The common pattern `git pull --rebase --autostash origin main && git push` CONFLICTS whenever a concurrent
 # run already pushed a newer copy of the same artifact file (measured: fleet-autodeploy run 36752410754,
@@ -9,7 +9,7 @@
 # copies, recommit. A content conflict is impossible in that sequence.
 #
 # usage: scripts/push_artifact.sh "<commit message>" <path> [<path> ...]
-# exit:  0 pushed / nothing to push; 1 push still rejected after all attempts.
+# exit:  0 published / nothing to publish / publish failed (warning); never red for an artifact.
 set -uo pipefail
 msg="$1"; shift
 [ "$#" -ge 1 ] || { echo "usage: push_artifact.sh <message> <path>..."; exit 2; }
@@ -32,13 +32,7 @@ restore_and_commit() {
 git add -- "$@" 2>/dev/null || true
 if git diff --cached --quiet; then echo "artifact unchanged - nothing to push"; exit 0; fi
 git commit -q -m "$msg"
-for i in 1 2 3 4 5 6; do
-  if git push -q origin HEAD:main; then echo "artifact pushed on attempt $i"; exit 0; fi
-  echo "push rejected on attempt $i; re-applying the snapshot onto origin/main"
-  sleep $((i * 3))
-  git rebase --abort >/dev/null 2>&1 || true
-  git fetch -q origin main && git reset -q --hard origin/main
-  if ! restore_and_commit "$@"; then echo "origin/main already carries an identical artifact - nothing to push"; exit 0; fi
-done
-echo "::warning::artifact push still rejected after 6 attempts (concurrent writers)"
-exit 1
+# MAIN-PUSH-POLICY-1 (2026-11-04): ruleset require-build refuses direct pushes to main from the workflow token (GH013), so a
+# status artifact is published to the branch fleet-artifacts instead (see scripts/push_head.sh, docs/MAIN-PUSH-POLICY.md).
+# Best effort: exits 0 with a warning when the branch cannot be updated, so the workflow's verdict is its own step's, not the artifact's.
+exec bash "$(dirname "$0")/push_head.sh" artifact

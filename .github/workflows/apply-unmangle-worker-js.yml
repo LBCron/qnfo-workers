@@ -52,6 +52,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   unmangle:
@@ -139,7 +140,7 @@ jobs:
           git commit -m "fix(fleet): UNMANGLE-WORKER-JS-1 extract MIME payload from worker.js [skip ci]"
           for i in 1 2 3 4 5; do
             git pull --rebase --autostash origin main >/dev/null 2>&1 || true
-            if git push origin HEAD:main; then
+            if bash scripts/push_head.sh code fleet-bot/unmangle-worker-js "fix(fleet): UNMANGLE-WORKER-JS-1 extract MIME payload from worker.js"; then
               echo "pushed on attempt $i"
               exit 0
             fi

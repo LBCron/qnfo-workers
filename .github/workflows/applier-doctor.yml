@@ -52,6 +52,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: applier-doctor
@@ -156,7 +157,7 @@ jobs:
           fi
           git commit -m "chore(applier): retire superseded appliers [skip ci]"
           for i in 1 2 3 4 5; do
-            if git pull --rebase --autostash origin main && git push origin HEAD:main; then
+            if bash scripts/push_head.sh code fleet-bot/applier-retire "chore(applier): retire superseded appliers"; then
               echo "DISPOSITION_PUSH_OK attempt $i"
               exit 0
             fi
@@ -178,7 +179,7 @@ jobs:
           fi
           git commit -m "ci(status): applier-doctor report [skip ci]"
           for i in 1 2 3 4 5; do
-            if git pull --rebase --autostash origin main && git push origin HEAD:main; then
+            if bash scripts/push_head.sh artifact; then
               echo "PUSH_OK attempt $i"
               exit 0
             fi

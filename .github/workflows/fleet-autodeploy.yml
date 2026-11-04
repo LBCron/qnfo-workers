@@ -263,34 +263,12 @@ jobs:
             exit 0
           fi
           git commit -m "chore(fleet-autoaudit): scheduled self-audit artifact [skip ci]"
-          # ARTIFACT-PUSH-CONFLICT-1 (2026-09-30, GitHub issue #145): `git pull --rebase` CONFLICTED on
-          # audits/fleet-autoaudit-<date>.json (run 36752410754) because a concurrent run -- a workflow_run
-          # run checks out the SHA of its triggering event, i.e. a stale base -- had already committed a
-          # newer copy of the same file; `set -e` then killed the step mid-rebase. The artifact is a
-          # SNAPSHOT (latest wins), never a merge, so on rejection re-base by construction: stash this
-          # run's audits/, hard-reset to origin/main, restore the files, recommit. A content conflict is
-          # impossible in that sequence.
-          snap="$(mktemp -d)"
-          cp -a audits/. "$snap/"
-          for i in 1 2 3 4 5 6; do
-            if git push origin HEAD:main; then
-              echo "artifact pushed on attempt $i"
-              exit 0
-            fi
-            echo "push rejected on attempt $i; re-applying the snapshot onto origin/main"
-            sleep $((i * 3))
-            git fetch origin main
-            git reset --hard origin/main
-            cp -a "$snap/." audits/
-            git add audits/
-            if git diff --cached --quiet; then
-              echo "origin/main already carries an identical artifact - nothing to push"
-              exit 0
-            fi
-            git commit -m "chore(fleet-autoaudit): scheduled self-audit artifact [skip ci]"
-          done
-          echo "::error::audit artifact push failed after 6 attempts (concurrent writers)"
-          exit 1
+          # MAIN-PUSH-POLICY-1 (2026-11-04): ruleset require-build refuses a direct push to main from the workflow token
+          # (GH013, run 41894680201 failed after 6 attempts), and nothing reads audits/ from main: the snapshot goes to branch
+          # fleet-artifacts. Best effort -- an audit whose steps passed must not go red because its artifact could not be committed
+          # (the D1 worker_live_audit rows and the uploaded run artifact stay the record). docs/MAIN-PUSH-POLICY.md.
+          bash scripts/push_head.sh artifact
+          exit 0
 
   # AUTODEPLOY-FANOUT-1: the three follow-ups that used to start from workflow_run of this workflow run as jobs of the same run.
   code-task-publish:

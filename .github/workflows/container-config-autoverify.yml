@@ -173,7 +173,7 @@ jobs:
           git commit -m "ci(container-config): autoverify result [skip ci]"
           for i in 1 2 3 4 5; do
             git pull --rebase --autostash origin main || true
-            if git push origin HEAD:main; then echo "PUSH OK attempt $i"; exit 0; fi
+            if bash scripts/push_head.sh artifact; then echo "PUSH OK attempt $i"; exit 0; fi
             sleep $((i * 3))
           done
           echo "::warning::artifact not pushed after retries"

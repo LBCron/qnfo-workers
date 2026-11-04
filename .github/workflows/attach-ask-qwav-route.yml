@@ -75,7 +75,7 @@ jobs:
           git commit -m "ci(attach-domain): record ASK-QWAV-ROUTE-1 result [skip ci]"
           for i in 1 2 3 4 5; do
             echo "commit-back attempt $i"
-            if git pull --rebase --autostash origin main && git push origin HEAD:main; then
+            if bash scripts/push_head.sh artifact; then
               echo "PUSH_OK attempt $i"
               exit 0
             fi

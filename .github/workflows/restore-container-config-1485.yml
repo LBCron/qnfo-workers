@@ -202,7 +202,7 @@ jobs:
           git commit -m "chore(ci): restore-container-config-1485 outcome [skip ci]"
           for i in 1 2 3 4 5; do
             git pull --rebase --autostash origin main >/dev/null 2>&1 || true
-            if git push origin HEAD:main; then
+            if bash scripts/push_head.sh artifact; then
               echo "artifact pushed on attempt $i"
               exit 0
             fi

@@ -71,6 +71,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: mirror-sync-main
@@ -132,7 +133,7 @@ jobs:
           FOOT="Co-authored-by: qnfo-mirror-bot <ops@qnfo.org>"
           git commit -m "$SUBJECT" -m "$BODY" -m "$FOOT"
           for i in 1 2 3; do
-            if git push origin HEAD:main; then
+            if bash scripts/push_head.sh code fleet-bot/mirror-sync "chore(mirror-guard): auto-sync lagging deployed-current mirrors"; then
               echo "PUSHED mirror sync"
               exit 0
             fi
