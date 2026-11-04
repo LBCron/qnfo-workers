@@ -7,7 +7,12 @@ measure returns None and writes nothing. No address, post text or message is sto
   collect_dmarc          dmarc_aligned_pass_rate
         The DMARC aggregate reports that arrive daily at the fleet's rua mailbox (google.com, lolipop.jp, ...) are stored as raw MIME in qnfo-audit.email_raw_archive. This parses the
         zip or gzip XML attachment of every report whose date range ended in the last 7 days; a message passes DMARC when its dkim OR spf result in policy_evaluated is pass (those
-        fields are the ALIGNED results). value = passing messages / all messages across every reporting domain, weighted by the report's count. Rows: one per (domain, reporter) with counts.
+        fields are the ALIGNED results). value = passing messages / messages from the fleet's own senders across every reporting domain, weighted by the report's count. BP26-DMARC-FOREIGN-1
+        (2026-11-05): a record leaves the denominator only when it is provably a stranger forging the domain AND the published policy stopped it (is_foreign_source: failed both
+        aligned checks, rejected or quarantined by the receiver, no DKIM signature at all, SPF of the header_from domain itself negative). On 2026-11-04 the 7-day window held 9 messages:
+        the fleet's Cloudflare sender passed DKIM and SPF 6 of 6, and 3 from one foreign address were rejected under p=reject, which read 0.667 and could never recover while any forger
+        exists. A forgery that was delivered, a signed message that fails, and an SPF pass for a foreign bounce domain stay counted as failures; the raw rate stays in the note.
+        Rows: one per (domain, reporter) with counts.
         The same run reads the sending domains' SPF, the Cloudflare DKIM selector and the DMARC policy through DNS-over-HTTPS and keeps them in bp26_dns_email_auth (a collector
         reads DNS, it never writes it). Limits: a domain without a rua tag (q08.org on 2026-10-26) sends no reports, so its mail is unmeasured and the note names it.
   collect_rfc8058        rfc8058_headers_present
@@ -120,6 +125,20 @@ def _decode_attachment(data):
     return data if len(data) <= MAX_XML else None
 
 
+SPOOF_SPF_RESULTS = frozenset(["softfail", "fail", "none", "neutral"])
+
+
+def is_foreign_source(dkim, spf, disposition, header_from, n_dkim_sigs, spf_auth):
+    """BP26-DMARC-FOREIGN-1: True for a record that is a stranger forging the domain, not one of the fleet's senders. A record is foreign only when ALL hold:
+    it failed both aligned checks, the receiver rejected or quarantined it under the published policy, it carries no DKIM signature at all, and the only SPF
+    evaluation is of the header_from domain itself (MAIL FROM forged too) with a negative result, i.e. the source IP is not in the domain's published SPF.
+    A legitimate third-party sender that is misconfigured always shows something else (a DKIM signature that fails, or an SPF pass for its own bounce domain,
+    which is unaligned) and stays counted as a failure; so does a forged message the receiver DELIVERED, because that is the one that needs review."""
+    if dkim == "pass" or spf == "pass" or disposition not in ("reject", "quarantine") or n_dkim_sigs or not header_from or not spf_auth:
+        return False
+    return all((d == header_from or d.endswith("." + header_from)) and res in SPOOF_SPF_RESULTS for d, res in spf_auth)
+
+
 def parse_dmarc_report(raw_text):
     """Raw MIME text of a DMARC aggregate report mail -> {domain, org, end, p, records: [(count, dkim, spf, disposition)]} or None. Rejects any XML with a DTD or entity."""
     msg = email.message_from_string(raw_text, policy=email.policy.default)
@@ -145,7 +164,7 @@ def parse_dmarc_report(raw_text):
         if _local(root.tag) != "feedback":
             continue
         end = _child_text(root, "report_metadata", "date_range", "end")
-        recs = []
+        recs, foreign, foreign_ips = [], [], set()
         for rec in list(root):
             if _local(rec.tag) != "record":
                 continue
@@ -157,12 +176,25 @@ def parse_dmarc_report(raw_text):
                 recs.append((int(cnt), dk, sp, disp))
             except (TypeError, ValueError):
                 continue
+            n_sigs, spf_auth = 0, []
+            for ar in list(rec):
+                if _local(ar.tag) != "auth_results":
+                    continue
+                for a in list(ar):
+                    if _local(a.tag) == "dkim":
+                        n_sigs += 1
+                    elif _local(a.tag) == "spf":
+                        spf_auth.append(((_child_text(a, "domain") or "").lower(), (_child_text(a, "result") or "").lower()))
+            is_foreign = is_foreign_source(dk, sp, disp, (_child_text(rec, "identifiers", "header_from") or "").lower(), n_sigs, spf_auth)
+            foreign.append(is_foreign)
+            if is_foreign:
+                foreign_ips.add(_child_text(rec, "row", "source_ip") or "?")  # counted in memory only, never stored or printed
         try:
             end_i = int(end)
         except (TypeError, ValueError):
             end_i = None
         return {"domain": (_child_text(root, "policy_published", "domain") or "").lower(), "org": (_child_text(root, "report_metadata", "org_name") or "?").lower(),
-                "end": end_i, "p": (_child_text(root, "policy_published", "p") or "").lower(), "records": recs}
+                "end": end_i, "p": (_child_text(root, "policy_published", "p") or "").lower(), "records": recs, "foreign": foreign, "foreign_ips": foreign_ips}
     return None
 
 
@@ -173,11 +205,14 @@ def aggregate_dmarc(reports, since_epoch):
         if r["end"] is None or r["end"] < since_epoch:
             continue
         key = (r["domain"], r["org"])
-        b = per.setdefault(key, {"total": 0, "aligned": 0, "dkim": 0, "spf": 0, "reports": 0, "enforced": 0})
+        b = per.setdefault(key, {"total": 0, "aligned": 0, "dkim": 0, "spf": 0, "reports": 0, "enforced": 0, "foreign": 0})
         b["reports"] += 1
-        for cnt, dk, sp, disp in r["records"]:
+        flags = r.get("foreign") or []
+        for i, (cnt, dk, sp, disp) in enumerate(r["records"]):
             b["total"] += cnt
             total += cnt
+            if i < len(flags) and flags[i]:
+                b["foreign"] += cnt
             if dk == "pass":
                 b["dkim"] += cnt
             if sp == "pass":
@@ -257,9 +292,10 @@ def collect_dmarc(ctx):
     aligned, total, per = aggregate_dmarc(reports, since)
     rows = []
     for (dom, org), b in sorted(per.items()):
-        rows.append(("dmarc:%s via %s" % (dom, org), 1 if b["aligned"] == b["total"] else 0,
-                     "messages=%d aligned_pass=%d dkim_pass=%d spf_pass=%d unaligned=%d of which rejected_or_quarantined_by_receiver=%d reports=%d"
-                     % (b["total"], b["aligned"], b["dkim"], b["spf"], b["total"] - b["aligned"], b["enforced"], b["reports"])))
+        legit_b = b["total"] - b["foreign"]
+        rows.append(("dmarc:%s via %s" % (dom, org), 1 if b["aligned"] == legit_b else 0,
+                     "messages=%d aligned_pass=%d dkim_pass=%d spf_pass=%d unaligned=%d of which rejected_or_quarantined_by_receiver=%d foreign_forgeries_blocked=%d reports=%d"
+                     % (b["total"], b["aligned"], b["dkim"], b["spf"], b["total"] - b["aligned"], b["enforced"], b["foreign"], b["reports"])))
     dns = []
     for d in DMARC_DOMAINS:
         try:
@@ -292,17 +328,29 @@ def collect_dmarc(ctx):
     if total == 0:
         return [Result("dmarc_aligned_pass_rate", None, "no parseable DMARC aggregate report ended in the last %d days (%d archived report mails, %d unparsed)" % (DMARC_WINDOW_DAYS, len(rows_sql), unparsed), rows)]
     enforced = sum(b["enforced"] for b in per.values())
-    unaligned = total - aligned
+    foreign = sum(b["foreign"] for b in per.values())
+    foreign_ips = set()
+    for r in reports:
+        if r["end"] is not None and r["end"] >= since:
+            foreign_ips |= set(r.get("foreign_ips") or ())
+    legit = total - foreign
+    unaligned = legit - aligned  # failures of senders that are not provably a stranger forging the domain
     # The reading of the failures is computed, never asserted: only a message the receiver rejected or quarantined is called stopped by the policy; any other unaligned message was
     # delivered despite failing both aligned checks and is named as such, because that is the one a sender fix would change.
-    reading = ("all %d unaligned messages were rejected or quarantined by the receiver under the published policy" % unaligned if unaligned and enforced == unaligned else
-               "%d of the %d unaligned messages were rejected or quarantined by the receiver under the published policy and %d were delivered despite failing both aligned checks (review those senders)" % (enforced, unaligned, unaligned - enforced) if unaligned else
-               "no unaligned message")
-    note = ("aligned pass (dkim or spf pass in policy_evaluated) %d of %d messages in %d reports of the last %d days; %s; "
+    enforced_legit = enforced - foreign
+    reading = ("no unaligned message from a sender that is not a forgery" if not unaligned else
+               "all %d unaligned messages were rejected or quarantined by the receiver under the published policy" % unaligned if enforced_legit == unaligned else
+               "%d of the %d unaligned messages were rejected or quarantined by the receiver under the published policy and %d were delivered despite failing both aligned checks (review those senders)" % (enforced_legit, unaligned, unaligned - enforced_legit))
+    note = ("aligned pass (dkim or spf pass in policy_evaluated) %d of %d messages from the fleet's senders in %d reports of the last %d days; %s; "
+            "%d further message(s) from %d source address(es) are excluded as forgeries of the domain stopped by the published policy (no DKIM signature, SPF of the domain itself negative, rejected or quarantined by the receiver; "
+            "raw rate including them %d of %d = %s; a forgery the receiver DELIVERED is never excluded); "
             "domains reporting: %s; domains with no rua tag (unmeasured): %s; domains with a rua tag and no report in the window: %s; published policies: %s; %d archived report mails unparsed"
-            % (aligned, total, sum(b["reports"] for b in per.values()), DMARC_WINDOW_DAYS, reading, ",".join(reporting) or "-", ",".join(no_rua) or "none", ",".join(silent) or "none",
+            % (aligned, legit, sum(b["reports"] for b in per.values()), DMARC_WINDOW_DAYS, reading, foreign, len(foreign_ips), aligned, total, round(aligned / float(total), 4),
+               ",".join(reporting) or "-", ",".join(no_rua) or "none", ",".join(silent) or "none",
                ",".join("%s=%s" % (s["domain"], s.get("dmarc_p")) for s in dns if s.get("answered")) or "unread", unparsed))
-    return [Result("dmarc_aligned_pass_rate", aligned / float(total), note, rows)]
+    if legit <= 0:
+        return [Result("dmarc_aligned_pass_rate", None, "no message from the fleet's own senders in the reports of the last %d days (all %d message(s) are forgeries stopped by the policy); the last value is kept; %s" % (DMARC_WINDOW_DAYS, total, note), rows)]
+    return [Result("dmarc_aligned_pass_rate", aligned / float(legit), note, rows)]
 
 
 # ---------------------------------------------------------------- RFC 8058 static scan
@@ -536,7 +584,8 @@ def selftest():
             print("FAIL " + m)
 
     def xml_report(domain, org, end, recs, extra=""):
-        rs = "".join("<record><row><source_ip>192.0.2.1</source_ip><count>%d</count><policy_evaluated><disposition>%s</disposition><dkim>%s</dkim><spf>%s</spf></policy_evaluated></row></record>" % (r[0], r[3] if len(r) > 3 else "none", r[1], r[2]) for r in recs)
+        rs = "".join("<record><row><source_ip>%s</source_ip><count>%d</count><policy_evaluated><disposition>%s</disposition><dkim>%s</dkim><spf>%s</spf></policy_evaluated></row>"
+                     "<identifiers><header_from>%s</header_from></identifiers>%s</record>" % (r[5] if len(r) > 5 else "192.0.2.1", r[0], r[3] if len(r) > 3 else "none", r[1], r[2], domain, r[4] if len(r) > 4 else "") for r in recs)
         return ("<?xml version='1.0'?>%s<feedback><report_metadata><org_name>%s</org_name><date_range><begin>%d</begin><end>%d</end></date_range></report_metadata>"
                 "<policy_published><domain>%s</domain><p>reject</p></policy_published>%s</feedback>" % (extra, org, end - 86400, end, domain, rs)).encode()
 
@@ -619,6 +668,30 @@ CREATE TABLE bp26_dns_email_auth (domain TEXT PRIMARY KEY, spf TEXT, spf_ok INTE
     ok("q08.org" in res.note and "no rua" in res.note, "the note names the domain without a rua tag: " + res.note)
     ok("all 2 unaligned messages were rejected or quarantined" in res.note, "the reading of the failures is computed: " + res.note)
     ok(c.execute("SELECT dmarc_policy, dmarc_rua, dkim_cf_selector FROM bp26_dns_email_auth WHERE domain = 'qnfo.org'").fetchone() == ("reject", 1, 1), "the DNS state is kept in bp26_dns_email_auth")
+    # BP26-DMARC-FOREIGN-1: forgeries of the domain that the policy stopped are not the fleet's senders
+    forged = "<auth_results><spf><domain>qnfo.org</domain><result>softfail</result></spf></auth_results>"
+    other_bounce = "<auth_results><spf><domain>mail.third-party.example</domain><result>pass</result></spf></auth_results>"
+    signed_bad = "<auth_results><dkim><domain>qnfo.org</domain><result>fail</result><selector>s1</selector></dkim><spf><domain>qnfo.org</domain><result>softfail</result></spf></auth_results>"
+    fr = parse_dmarc_report(mime(xml_report("qnfo.org", "google.com", now - 3600, [
+        (6, "pass", "pass", "none", ""),
+        (3, "fail", "fail", "reject", forged, "198.51.100.7"),
+        (1, "fail", "fail", "none", forged, "198.51.100.8"),
+        (1, "fail", "fail", "reject", other_bounce, "198.51.100.9"),
+        (1, "fail", "fail", "reject", signed_bad, "198.51.100.10")]), "text/xml", "f.xml"))
+    ok(fr["foreign"] == [False, True, False, False, False] and fr["foreign_ips"] == {"198.51.100.7"}, "only the unsigned, SPF-negative, receiver-rejected forgery is foreign: %r" % (fr["foreign"],))
+    ok(is_foreign_source("fail", "fail", "reject", "qnfo.org", 0, [("bounce.qnfo.org", "fail")]) and not is_foreign_source("fail", "fail", "reject", "qnfo.org", 0, []), "a subdomain SPF fail counts, no SPF evidence does not")
+    c.execute("DELETE FROM email_raw_archive")
+    c.execute("INSERT INTO email_raw_archive VALUES (1, ?)", [mime(xml_report("qnfo.org", "google.com", now - 3600, [
+        (6, "pass", "pass", "none", ""), (3, "fail", "fail", "reject", forged, "198.51.100.7"), (1, "fail", "fail", "none", forged, "198.51.100.8"),
+        (1, "fail", "fail", "reject", other_bounce, "198.51.100.9")]), "text/xml", "f.xml")])
+    ff = collect_dmarc(cx)[0]
+    ok(abs(ff.value - 6 / 8.0) < 1e-9 and "3 further message(s) from 1 source address(es)" in ff.note and "raw rate including them 6 of 11" in ff.note, "stopped forgeries leave the denominator, a delivered forgery and a misconfigured sender stay in it: %r %s" % (ff.value, ff.note))
+    ok("198.51.100" not in ff.note and all("198.51.100" not in str(x) for x in ff.rows), "no source address in the note or the rows")
+    ok("foreign_forgeries_blocked=3" in ff.rows[0][2], "the evidence row counts the blocked forgeries: %r" % (ff.rows[0],))
+    c.execute("DELETE FROM email_raw_archive")
+    c.execute("INSERT INTO email_raw_archive VALUES (1, ?)", [mime(xml_report("qnfo.org", "google.com", now - 3600, [(2, "fail", "fail", "reject", forged)]), "text/xml", "g.xml")])
+    only = collect_dmarc(cx)[0]
+    ok(only.value is None and "forgeries stopped by the policy" in only.note, "a window with only forgeries is unknown, never 1.0: %r" % (only.value,))
     c.execute("DELETE FROM email_raw_archive")
     ok(collect_dmarc(cx)[0].value is None, "no report in the archive: None, not zero")
     c.execute("INSERT INTO email_raw_archive VALUES (1, ?)", [mime(xml_report("qnfo.org", "google.com", now - 3600, [(4, "pass", "pass"), (1, "fail", "fail")]), "text/xml", "d.xml")])
