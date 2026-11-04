@@ -2,9 +2,4 @@
 # SHRINK-ONLY: `deploy_probes.py --check-pr` fails a pull request that changes a worker.js whose directory has no probes.json and is not
 # listed here (every new worker declares its probes), and fails when this file lists a directory that now has one or no longer exists.
 # A change to a listed worker passes with a notice asking for a declaration; declare what must keep working and delete the line.
-personal-companion
-q08-mind
-qnfo-agents
-qnfo-containers-pilot
-qnfo-memory-mcp
-qnfo-youtube-shorts
+# Empty since RM-PROBE-VERIFIED-COVERAGE-1 (2026-11-05): all 36 live worker directories declare a content-asserting probes.json.

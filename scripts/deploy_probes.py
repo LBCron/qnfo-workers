@@ -496,6 +496,32 @@ def validate_repo(root=ROOT, only=None):
     return bad
 
 
+def coverage(root=ROOT):
+    """RM-PROBE-VERIFIED-COVERAGE-1: which live worker directories declare a content-asserting probes.json.
+    -> {"live": [...], "declared": [...], "allowlisted": [...], "missing": [...], "no_marker": [...]}. `missing` is a live directory with neither a
+    probes.json nor an allowlist line; `no_marker` is a declared one with no http probe carrying a `contains` marker (validate() already refuses a
+    bare 200, so this stays empty unless the declaration only has D1 statements: those prove the schema compiles, not that a page answers)."""
+    allow = read_allowlist(root)
+    out = {"live": [], "declared": [], "allowlisted": [], "missing": [], "no_marker": []}
+    for d in worker_dirs(root):
+        if retired(root, d):
+            continue
+        out["live"].append(d)
+        text = read_file(os.path.join(root, d, "probes.json"))
+        if text is None:
+            out["allowlisted" if d in allow else "missing"].append(d)
+            continue
+        out["declared"].append(d)
+        try:
+            decl = json.loads(text)
+        except ValueError:
+            out["no_marker"].append(d)
+            continue
+        if not any(as_list(p.get("contains")) for p in (decl.get("http") or []) if isinstance(p, dict)):
+            out["no_marker"].append(d)
+    return out
+
+
 WAIVER = re.compile(r"(?im)^\s*probes:\s*none\s*\(([^)\n]{12,})\)")
 
 
@@ -522,6 +548,15 @@ def check_pr(changed, body, root=ROOT, base_allow=None):
             elif not os.path.isdir(os.path.join(root, d)) or retired(root, d):
                 errs.append("scripts/probes-allowlist.txt lists %s, which is not a live worker directory: delete the line" % d)
     for c in changed:
+        # RM-PROBE-VERIFIED-COVERAGE-1: coverage only ratchets up. Deleting the declaration of a live worker would reopen the gap the allowlist
+        # closed, so it is refused unless the worker is retired or folded in the same change (a RETIRED or FOLDED marker) or is on the allowlist.
+        g = re.match(r"^([^/]+)/probes\.json$", c)
+        if g and not os.path.isfile(os.path.join(root, c)):
+            gd = g.group(1)
+            if os.path.isfile(os.path.join(root, gd, "worker.js")) and os.path.isfile(os.path.join(root, gd, "wrangler.toml")) \
+                    and not retired(root, gd) and gd not in allow:
+                errs.append("%s/probes.json is deleted but %s is a live worker: coverage only ratchets up (retire or fold the worker, or keep the declaration)" % (gd, gd))
+            continue
         m = re.match(r"^([^/]+)/worker\.js$", c)
         if not m:
             continue
@@ -711,9 +746,30 @@ def selftest():
         put("scripts/probes-allowlist.txt", "w-old\nw-new\n")
         e, n = check_pr(["scripts/probes-allowlist.txt"], "", t, base_allow={"w-old"})
         ok(len(e) == 1 and "gains w-new" in e[0], "check_pr: the allowlist only shrinks against the base commit's list (a probe-less live worker cannot be added to it)", e)
+        # coverage ratchet (RM-PROBE-VERIFIED-COVERAGE-1): deleting a live worker's declaration is refused; a retired worker's is not
+        put("scripts/probes-allowlist.txt", "")
+        os.remove(os.path.join(t, "w-done", "probes.json"))
+        e, n = check_pr(["w-done/probes.json"], "", t)
+        ok(len(e) == 1 and "coverage only ratchets up" in e[0], "check_pr: deleting the probes.json of a live worker is refused", e)
+        put("w-gone/probes.json", json.dumps({"http": [{"url": "https://qnfo.org/x", "contains": "a"}]}))
+        os.remove(os.path.join(t, "w-gone", "probes.json"))
+        e, n = check_pr(["w-gone/probes.json"], "", t)
+        ok(not e, "check_pr: deleting the probes.json of a retired worker is allowed", e)
+        put("w-done/probes.json", json.dumps({"http": [{"url": "https://qnfo.org/x", "contains": "a"}]}))
+        put("w-new/probes.json", json.dumps({"d1": [{"binding": "DB", "explain": ["SELECT 1 FROM t LIMIT 1"]}]}))
+        put("w-old/probes.json", json.dumps({"http": [{"url": "https://qnfo.org/y", "contains": "b"}]}))
+        cv = coverage(t)
+        ok(cv["live"] == ["w-done", "w-new", "w-old"] and cv["declared"] == ["w-done", "w-new", "w-old"] and cv["missing"] == [] and cv["no_marker"] == ["w-new"],
+           "coverage: a retired directory is not live; a declaration with no http marker is listed as no_marker", cv)
+        os.remove(os.path.join(t, "w-old", "probes.json"))
+        cv = coverage(t)
+        ok(cv["missing"] == ["w-old"], "coverage: a live directory with no declaration and no allowlist line is missing", cv)
     # the repository's own declarations
     bad = validate_repo()
     ok(not bad, "every probes.json in the repository validates against its wrangler.toml", bad[:3])
+    cv = coverage()
+    ok(not cv["missing"], "every live worker directory declares a probes.json or is on the allowlist (RM-PROBE-VERIFIED-COVERAGE-1)", cv["missing"])
+    ok(not cv["no_marker"], "every declared probes.json carries at least one http probe with a content marker (RM-PROBE-VERIFIED-COVERAGE-1)", cv["no_marker"])
     fails = [n for c, n in checks if not c]
     emit("deploy-probes selftest: " + ("ok, " + str(len(checks)) + " checks" if not fails else str(len(fails)) + " FAILED"))
     return 0 if not fails else 1
@@ -722,6 +778,7 @@ def selftest():
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--coverage", action="store_true", help="print how many live worker directories declare a content-asserting probes.json (exit 1 when one has none)")
     ap.add_argument("--validate", nargs="*", metavar="DIR", help="validate probes.json files (default all workers)")
     ap.add_argument("--check-pr", action="store_true")
     ap.add_argument("--changed", help="file with the pull request's changed paths, one per line")
@@ -738,6 +795,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
+    if a.coverage:
+        cv = coverage(a.root)
+        emit("probe coverage: %d of %d live worker directories declare a probes.json; %d allowlisted, missing %s, no content marker %s" % (
+            len(cv["declared"]), len(cv["live"]), len(cv["allowlisted"]), cv["missing"] or "none", cv["no_marker"] or "none"))
+        return 1 if (cv["missing"] or cv["no_marker"]) else 0
     if a.validate is not None:
         bad = validate_repo(a.root, a.validate or None)
         for d, e in bad:
