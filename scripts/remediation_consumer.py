@@ -1278,6 +1278,19 @@ def next_due_offset(cadence_h, steady_state=False):
 
 STEADY_RUN = 6  # FM-5: identical passing verifications in a row before a contract backs off
 STEADY_CADENCE_H = 2  # SLA-120M-1: never beyond 120 minutes
+# FM-CADENCE-1 (RM 2026-11-04, cluster C9-FAILURE-MODES; metric failure_modes_recurring 208 = 80 recurring + 132 unprobed):
+# a standing detector is an audit, not an issue fix, and never backs off. v_failure_mode_status calls a detector 'unprobed'
+# when its newest verification is older than 60 minutes (FAILURE-MODE-PROBES-1, DETECTOR-CADENCE-1); FM-5 parked every
+# fm-* contract whose last six passes read the same value (which is every healthy detector: it reads 1) at +105 minutes, so
+# 117 of the 132 unprobed rows had last been probed 90-120 minutes ago while the in-Cloudflare tick, which would have
+# re-probed them every 18 minutes, found them not due. Measured before FM-5 (2026-10-19): 2 unprobed. FM-5 was written for
+# issue contracts (issue 1000473 re-verified with observed=0); the cost it saved on detectors is bought back by trimming
+# the redundant index of remediation_verifications (fm-redundant-indexes).
+STANDING_DETECTOR_PREFIXES = ("fm-", "belief-")
+
+
+def standing_detector(cls):
+    return str(cls or "").startswith(STANDING_DETECTOR_PREFIXES)
 
 
 def steady_state_cadence(cls, verdict, cadence_h, transport=None):
@@ -1286,7 +1299,7 @@ def steady_state_cadence(cls, verdict, cadence_h, transport=None):
     STEADY_RUN verifications all passed with the same observed value is re-probed every STEADY_CADENCE_H hours instead of at its
     own cadence (never beyond 2 hours, SLA-120M-1). Only a pass backs off: a failing, deferred or changing contract keeps its
     cadence, so recovery and relapse are seen as fast as before. Runtime probes keep their hourly cadence."""
-    if transport == HTTPS_TRANSPORT:
+    if transport == HTTPS_TRANSPORT or standing_detector(cls):
         return cadence_h
     if verdict != "pass" or float(cadence_h) >= STEADY_CADENCE_H:
         return cadence_h

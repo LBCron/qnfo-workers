@@ -33,6 +33,14 @@ same = [{"pass": 1, "observed": "0"}] * rc.STEADY_RUN
 with_rows(same)
 check(rc.steady_state_cadence("issue-1", "pass", 1) == rc.STEADY_CADENCE_H, "six identical passes back off")
 check(rc.steady_state_cadence("issue-1", "pass", 1, "runner-https") == 1, "runtime checks retain their hourly cadence")
+check(rc.steady_state_cadence("fm-some-detector", "pass", 1) == 1,
+      "FM-CADENCE-1: a failure-mode detector never backs off (v_failure_mode_status calls it unprobed after 60 minutes)")
+check(rc.steady_state_cadence("belief-some-probe", "pass", 1) == 1, "FM-CADENCE-1: a belief probe never backs off")
+check(rc.standing_detector("fm-x") and rc.standing_detector("belief-x") and not rc.standing_detector("issue-1")
+      and not rc.standing_detector("goal-x") and not rc.standing_detector(None),
+      "FM-CADENCE-1: only the fm- and belief- prefixes are standing detectors")
+check(rc.next_due_offset(1) == "+22 minutes", "FM-CADENCE-1: an un-backed-off hourly detector is due again in 22 minutes, inside the 60-minute window",
+      rc.next_due_offset(1))
 check(rc.steady_state_cadence("issue-1", "fail", 1) == 1, "a failing verdict keeps its cadence")
 check(rc.steady_state_cadence("issue-1", "deferred", 1) == 1, "a deferred verdict keeps its cadence")
 with_rows(same[:-1])
