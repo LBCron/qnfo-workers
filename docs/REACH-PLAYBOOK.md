@@ -3,6 +3,16 @@
 Charter pillar **reach**, program QNFO.REACH. Migration `migrations/2026-11-04-reach-focus-1.sql`. Owner brief 2026-11-04: not enough people see the QNFO products; reach employers, academics and
 industry leaders; be seen as a pioneer; right message on the right channel for the right people; a focused net, not a wide one; a channel nobody looks at is the wrong channel.
 
+## 0. Positioning (owner, 2026-11-04)
+
+The selling point is one ecosystem, in three parts that prove each other:
+1. **AI systems that do research**, the slow and tedious part: finding, reading, drafting, checking.
+2. **Asking the right questions**: the Universal Ignorance Audit and its `ignorance-audit` library turn "what do we not know here" into a method others can run.
+3. **Deploy and maintain themselves**: the fleet monitors itself, files its own defects and fixes its own code through tested, reviewed, canaried pull requests, and reports what that costs and where it fails.
+
+Every message below leads with this and shows a proof a stranger can open (paper, library, live dashboard), never an adjective. Today `qnfo.org/work-with-me` leads with energy per correct answer (JPCUB); the system-building pitch is not
+on it. `REACH-FOCUS-1.4` moves it to the top. Honest limit (ORG-LABEL-1): one researcher with an AI-assisted pipeline, not a lab, and the copy says so.
+
 ## 1. What the numbers say (GA4 `/api/ga4/overview`, 28 days to 2026-11-03, and `v_channel_impact_7d`)
 
 | Channel | Posts a week | GA4 sessions : engaged (10 days) | Reading |
@@ -37,7 +47,7 @@ One message does not fit every channel. Each audience gets one lead channel, one
 |---|---|---|---|---|
 | Quantum and mathematical-physics academics | Search, X, Mastodon (scholar.social) | The claim in one sentence, the check a reader can run, the limits. No hype words. | Paper page with citation tags; Zenodo DOI; `research-code` companion | fleet |
 | AI, ML and AI-safety researchers | LessWrong / Alignment Forum, Hacker News, X | A falsifiable finding. Lead story: "we ran our own most-downloaded paper's code and found its trajectory does not follow from its equations" (`docs/CODE-REACH-PROGRAM.md` 3.1). | `agentic-collapse`, `ignorance-audit` libraries | owner posts, fleet drafts |
-| Employers and industry leaders | LinkedIn, `qnfo.org/work-with-me` | Applied capability, not physics: an autonomous research-and-operations system on Cloudflare that reports its own failures and costs. One case study a month, first person. | The fleet itself, live dashboards, code | fleet drafts, 3 a week via Buffer |
+| Employers and industry leaders | LinkedIn, `qnfo.org/work-with-me` | The section 0 pitch in first person: I build AI systems that research, ask the right questions and maintain themselves. One case study a month with live numbers, including what failed. | The fleet itself, live dashboards, code | fleet drafts, 3 a week via Buffer |
 | Developers and formal-methods people | GitHub topics, Show HN, Lean Zulip | Something that runs: `lake build` passes, `pip install`, tests. | `ultrametric-lean`, libraries | owner posts |
 | Anyone asking a question | Search | Page title and first paragraph answer the question in plain words. | Existing paper pages | fleet |
 | Subscribers | Substack, email | A weekly digest of three papers, not 38 notes. | Digest | fleet |

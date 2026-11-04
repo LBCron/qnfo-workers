@@ -636,6 +636,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/RADAR-TITLE-CLEANUP-2026-10-05.md"
     },
     {
+      "path": "docs/REACH-PLAYBOOK.md",
+      "title": "Reach playbook (REACH-FOCUS-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/REACH-PLAYBOOK.md"
+    },
+    {
       "path": "docs/READER-YIELD.md",
       "title": "Reader yield (READER-YIELD-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/READER-YIELD.md"
@@ -760,7 +765,7 @@
       "path": "docs/agent-library/README.md",
       "title": "Shared fleet operating library",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/agent-library/README.md",
-      "sha256": "18eaedceac9734eeb0ab92360b97cdec6fb7d03f6fb4e408eb32732987abbfb5"
+      "sha256": "a13b332abc78483eb121e9be673526fc9c400eea754029344a9e96d3e9ff38f2"
     },
     {
       "path": "docs/breach-doctor/ENGINE-DESIGN.md",
@@ -1556,7 +1561,7 @@
       "path": "llms.txt",
       "title": "Quniverse",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/llms.txt",
-      "sha256": "03e3cafddface122615e77ec01af947f6a7814cc8f5e2bf0bb2aa54880e32acf"
+      "sha256": "298349dec848f34c3034219030fc026b49dc88260bd07cc2055fff2400f0a514"
     },
     {
       "path": "machine-readability/README.md",
