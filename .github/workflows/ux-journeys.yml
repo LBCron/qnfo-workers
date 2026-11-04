@@ -14,12 +14,8 @@ name: ux-journeys
 #   workflow_dispatch  the same as workflow_run, ungated.
 # GitHub `schedule` does not fire reliably on this repository (CLAUDE.md), so the deploy chain is the cadence, as for fleet-telemetry-probe.
 on:
-  pull_request:
-    paths:
-      - "scripts/ux-journeys/**"
-      - "scripts/ux-journeys.test.mjs"
-      - "personal-api/companion.js"
-      - ".github/workflows/ux-journeys.yml"
+  # TWO-PR-WORKFLOWS-1: no pull_request trigger; pr-checks calls this file when the paths it used to filter on change.
+  workflow_call:
   workflow_run:
     workflows: ["canonical-deploy"]
     types: [completed]

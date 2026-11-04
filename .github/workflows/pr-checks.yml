@@ -36,6 +36,7 @@ jobs:
       model_floor_guard: ${{ steps.f.outputs.model_floor_guard }}
       research_code: ${{ steps.f.outputs.research_code }}
       steward_test: ${{ steps.f.outputs.steward_test }}
+      ux_journeys: ${{ steps.f.outputs.ux_journeys }}
       workflow_lint: ${{ steps.f.outputs.workflow_lint }}
     steps:
       - name: Match changed files to guards
@@ -57,6 +58,7 @@ jobs:
           if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^research-code/|^\.github/workflows/research-code\.yml$' files.txt; then echo 'research_code=true' >> "$GITHUB_OUTPUT"; else echo 'research_code=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^qnfo-github-steward/|^migrations/2026-10-18-(tracker|portfolio)-sync\.sql$|^\.github/workflows/steward-test\.yml$' files.txt; then echo 'steward_test=true' >> "$GITHUB_OUTPUT"; else echo 'steward_test=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^scripts/ux-journeys/|^scripts/ux-journeys\.test\.mjs$|^personal-api/companion\.js$|^\.github/workflows/ux-journeys\.yml$' files.txt; then echo 'ux_journeys=true' >> "$GITHUB_OUTPUT"; else echo 'ux_journeys=false' >> "$GITHUB_OUTPUT"; fi
           if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
 
   deploy-gate:
@@ -141,6 +143,14 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.steward_test == 'true' }}
     uses: ./.github/workflows/steward-test.yml
+    secrets: inherit
+
+  ux-journeys:
+    needs: changes
+    if: ${{ needs.changes.outputs.ux_journeys == 'true' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/ux-journeys.yml
     secrets: inherit
 
   workflow-lint:
