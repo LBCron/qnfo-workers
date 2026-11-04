@@ -15,6 +15,9 @@ on:
   workflow_run:
     workflows: [version-bump-guard, mirror-guard, identity-guard, version-compare, migration-guard, model-floor-guard, adversarial-workers-guard, charter-guard]
     types: [completed]
+  # 2026-11-04: a check outside that list (workflow-lint's lint job) can be the last to conclude, and then no workflow_run fires; a concluded check suite is the catch-all.
+  check_suite:
+    types: [completed]
   pull_request_target:
     types: [ready_for_review]
     branches: [main]
@@ -25,14 +28,14 @@ permissions:
 
 jobs:
   merge:
-    if: ${{ github.event_name == 'pull_request_target' || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0].number != null) }}
+    if: ${{ github.event_name == 'pull_request_target' || (github.event_name == 'check_suite' && github.event.check_suite.conclusion == 'success' && github.event.check_suite.pull_requests[0].number != null) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0].number != null) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     concurrency:
-      group: merge-when-ready-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      group: merge-when-ready-${{ github.event.pull_request.number || github.event.check_suite.pull_requests[0].number || github.event.workflow_run.pull_requests[0].number }}
       cancel-in-progress: false
     env:
-      PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.check_suite.pull_requests[0].number || github.event.workflow_run.pull_requests[0].number }}
       GH_TOKEN: ${{ secrets.QNFO_GH_PAT }}
     steps:
       - name: Merge the pull request when every fast check is green
