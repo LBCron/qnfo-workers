@@ -37,7 +37,8 @@
 // Q08-ASCII-SOURCE-1 (2026-10-01): this file is ASCII-only; every typographic character is a \uXXXX escape. The deploy path
 // double-encoded raw UTF-8, so live pages read "... \u00e2 q08" and posts "\u00e2\u0080\u0094". Keep new literals escaped.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "0.42.1-codeagent";
+var VERSION = "0.43.0";
+/* 0.43.0 Q08-TICK-ALLOWANCE-1 (2026-11-04, pillar cost; minor: the engine now decides on its own whether a tick starts an attempt; BUDGET-SOFT-ROUTE-1, attempts slow down and never stop): ai_call_counters showed 119,552, 129,547 and 110,450 neurons on 2026-11-01..03 against the 50,000 target (ops_config q08_daily_neurons) because q08Budget() only steered the first writer model and nothing bounded the attempts a tick starts (40 a day, the attempt cap, at about 2,760 neurons each). Now the :00 cron and the :30 stall retry go through governedGenerate: tick k of 48 starts an attempt only while the day is under the pace line budget x (k + 1) / 48, an essay after a forecast attempt that spent model calls starts only while the day is still under it, and 150 minutes without an attempt starts one whatever the line says (8 a day at least). No row is written for a tick that waits. The writer gate, reader panels, fact-check, final read and accuracy audit are unchanged, and an attempt already started runs all its rounds. ops_config q08_tick_governor = off restores the old behaviour. tick-allowance.test.mjs replays a UTC day. */
 /* 0.42.0 RM-FORECAST-UPDATE-SCORING-1 (#5578; research): score the last valid update before the horizon with the resolved outcome. */
 /* 0.41.6 FORECAST-CALIBRATION-BUCKET-COVERAGE-1 (#5576, charter pillar research; patch): calibration buckets include probabilities across the full [0,1] range, including the tails, rather than silently omitting forecasts below 5% or above 96%. */
 // Q08-FORECAST-RESEARCH-1 (#4291, agent_issues 1000268, pillar reach): researched forecasts and dated secondary claims.
@@ -418,6 +419,100 @@ async function q08Budget(env, nowMs) {
     console.error(JSON.stringify({ worker: "q08-signal-engine", where: "q08-budget-read", error: String(e && e.message || e).slice(0, 200) }));
     return { ok: true, spent: null, budget: budget, pace: pace, unreadable: true };
   }
+}
+// Q08-TICK-ALLOWANCE-1 (0.43.0, 2026-11-04, pillar cost; BUDGET-SOFT-ROUTE-1: attempts slow down, they never stop).
+// WHY. q08Budget() above only steers the first writer attempt to a cheaper model. Nothing bounded how many attempts a tick starts, so
+// the daily target (ops_config q08_daily_neurons, 50,000) was not a bound: ai_call_counters showed 119,552, 129,547 and 110,450 neurons
+// on 2026-11-01..03 (2.2 to 2.6 times the target), every day at the attempt cap of 40 (cap 10 times 4).
+// UNIT OF WORK = one generate() attempt (an engine_runs row of status ok or gate_failed). A tick starts one: the :00 cron, and the :30 stall
+// retry. On 2026-11-03 all 379 model calls (109 compose, 134 reader panel, 136 fact-check) sat inside the 40 attempts, about 2,760 neurons
+// each; the published-piece audit and the forecast settlement made no call that day. A model call is too fine a unit (stopping between
+// calls throws away a half-built draft, and the editor rounds rescue 26 percent of drafts the first panel refused: q08_reader_tests,
+// 2026-10-31..11-04); an audit batch is too coarse and is not where the money goes.
+// RULE. The day has 48 ticks (:00 and :30). Tick k (0 to 47) may start an attempt while the day's spend is under the pace line
+// budget * (k + 1) / 48, so attempts are spaced by what they actually cost (the budget buys about 18 attempts a day at 2,760 neurons,
+// one every 2.7 ticks) and no cost estimate is needed. A tick that has already spent model calls on a failed forecast starts the essay
+// only while the day is still under the line. FLOOR: once 150 minutes have passed since the last attempt was written (the tick 3 hours after the
+// previous start), that tick starts one whatever the line says, so a day whose target is spent keeps 8 attempts and never goes quiet. Nothing is
+// queued and no row is written: a tick that does not start an attempt only logs q08-tick-allowance.
+// BOUNDED: the :00 and :30 generate() calls (every compose, title-repair, panel, final-read, fact-check and revision call of an essay or
+// forecast attempt, and the criteria-sweep forecast regeneration inside it). NOT BOUNDED, on purpose: auditPublished() (the accuracy audit
+// of pieces already live, a quality gate; once per piece, so its volume is the publication rate, which this bound lowers),
+// resolveForecasts() (judge panels; at most 2 items a tick, a forecast is checked 4 times at 7-day intervals), /run and /regen (an
+// operator's explicit kick behind x-loop-token), and the rounds inside an attempt already started: the editor and repair rounds are what
+// turn a refused draft into a piece, and a piece past its gates still publishes. Every gate, panel bar and threshold is unchanged.
+// ops_config q08_tick_governor = off restores the old behaviour without a deploy.
+var Q08_TICK_MS = 18e5;
+var Q08_TICKS_PER_DAY = 48;
+var Q08_FLOOR_EVERY_TICKS = 6;
+async function q08TickConfig(env) {
+  var cfg = { off: false };
+  if (!env || !env.AUDIT) return cfg;
+  try {
+    var r = await env.AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'q08_tick_governor'").first();
+    cfg.off = !!r && String(r.value == null ? "" : r.value).trim().toLowerCase() === "off";
+  } catch (e) { console.error(JSON.stringify({ worker: "q08-signal-engine", where: "q08-tick-config", error: String(e && e.message || e).slice(0, 200) })); }
+  return cfg;
+}
+// PRECONDITION: env.DB is q08-signal. POSTCONDITION: the ms at which the newest finished attempt (engine_runs status ok or gate_failed,
+// the rows that spent model calls) was written, or null when there is none or the table cannot be read (the floor then reads as due).
+async function q08LastAttemptMs(env) {
+  try {
+    var r = await env.DB.prepare("SELECT MAX(ran_at) AS t FROM engine_runs WHERE status IN ('ok','gate_failed')").first();
+    var s = r && r.t ? String(r.t) : "";
+    var t = s ? Date.parse(s.replace(" ", "T") + (/Z$/.test(s) ? "" : "Z")) : NaN;
+    return Number.isFinite(t) ? t : null;
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "q08-signal-engine", where: "q08-last-attempt", error: String(e && e.message || e).slice(0, 200) }));
+    return null;
+  }
+}
+function q08PaceLine(budget, nowMs) {
+  var dayStart = Math.floor(nowMs / 864e5) * 864e5;
+  var slot = Math.min(Q08_TICKS_PER_DAY - 1, Math.max(0, Math.floor((nowMs - dayStart) / Q08_TICK_MS)));
+  return { slot: slot, line: Math.round(budget * (slot + 1) / Q08_TICKS_PER_DAY) };
+}
+// PRECONDITION: bud is the q08Budget() result, lastMs the q08LastAttemptMs() result, tickSpent the neurons this tick has already spent (0 or
+// absent for the first attempt of a tick). POSTCONDITION: { limited, run, behind, floor, slot, line, spent, budget, gapMin, why }; limited
+// false means no bound (governor off, budget 0, counters unreadable: a D1 fault never throttles verified work); run false means this tick starts
+// no attempt. Only a first attempt can be a floor attempt.
+function q08TickAllowance(bud, nowMs, cfg, lastMs, tickSpent) {
+  cfg = cfg || {};
+  if (cfg.off) return { limited: false, run: true, why: "governor off" };
+  if (!bud || bud.disabled || bud.unreadable || bud.spent == null || !(bud.budget > 0)) return { limited: false, run: true, why: "no bound: budget off or counters unreadable" };
+  var now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  var p = q08PaceLine(bud.budget, now);
+  var behind = bud.spent < p.line;
+  var gapMs = Number.isFinite(lastMs) ? now - lastMs : Infinity;
+  var floor = !(Number(tickSpent) > 0) && !behind && gapMs >= (Q08_FLOOR_EVERY_TICKS - 1) * Q08_TICK_MS;
+  return { limited: true, run: behind || floor, behind: behind, floor: floor, slot: p.slot, line: p.line, spent: bud.spent, budget: bud.budget, gapMin: Number.isFinite(gapMs) ? Math.round(gapMs / 6e4) : null, why: behind ? "behind the pace line" : floor ? "floor: no attempt for " + Math.round(gapMs / 6e4) + " minutes" : "ahead of the pace line" };
+}
+function q08Paced(reason) { return { ok: false, paced: true, reason: String(reason) }; }
+// The scheduled entry to generate(): the :00 cron and the :30 stall retry. /run and /regen call generate() directly (an operator's kick).
+async function governedGenerate(env) {
+  var gov;
+  try {
+    var cfg = await q08TickConfig(env);
+    gov = cfg.off ? q08TickAllowance(null, Date.now(), cfg) : q08TickAllowance(await q08Budget(env), Date.now(), cfg, await q08LastAttemptMs(env), 0);
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "q08-signal-engine", where: "q08-tick-gate", error: String(e && e.message || e).slice(0, 200) }));
+    gov = { limited: false, run: true, why: "governor fault" };
+  }
+  if (gov.limited) console.error(JSON.stringify({ worker: "q08-signal-engine", event: "q08-tick-allowance", run: gov.run, why: gov.why, slot: gov.slot, spent: gov.spent, line: gov.line, budget: gov.budget, gap_min: gov.gapMin }));
+  if (!gov.run) return q08Paced("tick allowance: " + gov.why + " (spent " + gov.spent + " of " + gov.budget + ", pace line " + gov.line + "); work slows, it does not stop");
+  return await generate(gov.limited ? Object.assign({}, env, { __q08Gov: gov }) : env);
+}
+// Inside generate(): true when the tick may start one more attempt. A first attempt that never reached a model call (a forecast deferred
+// for lack of sources) has spent nothing of the tick's unit, so the essay may still start; after real spend the day must still be under the line.
+async function q08TickMore(env) {
+  var g = env && env.__q08Gov;
+  if (!g || !g.limited) return true;
+  try {
+    var bud = await q08Budget(env);
+    var tickSpent = bud.spent == null ? 0 : bud.spent - (g.spent || 0);
+    if (!(tickSpent > 0)) return true;
+    return q08TickAllowance(bud, Date.now(), {}, null, tickSpent).run;
+  } catch (e) { return true; }
 }
 async function dailyCap(env) {
   // FORECAST-CRITERIA-REPUBLISH-1: run the criteria sweep once per cron tick, before any scrape or AI call.
@@ -2417,6 +2512,8 @@ async function generate(env) {
     if (await forecastDue(env)) {
       var fout = await generateForecast(env, t0);
       if (fout) return fout;
+      // Q08-TICK-ALLOWANCE-1: a forecast attempt that spent model calls was this tick's unit; the essay starts only while the day is still under its pace line (no row: the forecast attempt wrote its own).
+      if (!(await q08TickMore(env))) return q08Paced("the essay waits: the forecast attempt used this tick's share of the daily neuron target");
       // Q08-TICK-BUDGET-1: a failed forecast used part of the tick; an essay needs up to ~650 s, so it waits for the next tick instead of
       // being killed at the scheduled-run limit with no row (run 366, 2026-10-13 06:35Z).
       if (Date.now() - t0 > ESSAY_AFTER_FORECAST_MS) return await quit("deferred", "the essay waits for the next tick: the forecast attempt used " + Math.round((Date.now() - t0) / 1000) + " s of this one");
@@ -4773,7 +4870,7 @@ function cleanNote(v) {
 }
 // Q08-QUALITY-1: pure helpers exposed for the offline suite (quality.test.mjs); no route uses this export.
 export const __forecast = { forecastResolutionGaps: forecastResolutionGaps, recordForecastUpdate: recordForecastUpdate, renderCalibration: renderCalibration, forecastPostText: forecastPostText, gatherEvidence: gatherEvidence, forecastDue: forecastDue, resolveForecasts: resolveForecasts, ensureForecastSchema: ensureForecastSchema, generateForecast: generateForecast, forecastStats: forecastStats, parseForecastBlock: parseForecastBlock, validateForecast: validateForecast, forecastXform: forecastXform, forecastProblems: forecastProblems, buildForecastPrompt: buildForecastPrompt, calibration: calibration, lastForecastUpdateScore: lastForecastUpdateScore, parseJudgeVerdict: parseJudgeVerdict, aggregateJudges: aggregateJudges, parseForecastCap: parseForecastCap, publicHttpsUrl: publicHttpsUrl, fcStatus: fcStatus, renderForecastBox: renderForecastBox, renderForecasts: renderForecasts, FORECAST_DIRECTIVE: FORECAST_DIRECTIVE, FORECAST_EVERY: FORECAST_EVERY, FORECAST_MAX_CHECKS: FORECAST_MAX_CHECKS };
-export const __gen = { thinPassedOver: thinPassedOver, parseArxivPool: parseArxivPool, arxivPoolSize: arxivPoolSize, resetArxivPool: function () { __arxivPool = { at: 0, n: ARXIV_POOL_DEFAULT }; }, scrapeArxiv: scrapeArxiv, ARXIV_POOL_DEFAULT: ARXIV_POOL_DEFAULT, parseComposeOrder: parseComposeOrder, q08Budget: q08Budget, Q08_DAILY_NEURONS_DEFAULT: Q08_DAILY_NEURONS_DEFAULT, resetRunColumns: function () { __runColsOk = false; __runColsTried = 0; }, sourceFloorFrom: sourceFloorFrom, learnedSourceFloor: learnedSourceFloor, thinSourceVerdict: thinSourceVerdict, sourceKindOf: sourceKindOf, markThinSkipped: markThinSkipped, ensureRunColumns: ensureRunColumns, insertRun: insertRun, meterCall: meterCall, claimClassesOf: claimClassesOf, get SOURCE_FLOOR_MIN_OK() { return SOURCE_FLOOR_MIN_OK; }, get THIN_MIN_ARTICLE() { return THIN_MIN_ARTICLE; }, get MIN_GROUND_CHARS() { return MIN_GROUND_CHARS; }, composeOrder: composeOrder, COMPOSE_MODELS: COMPOSE_MODELS, COMPOSE_MODELS_AT_CAP: COMPOSE_MODELS_AT_CAP, generate: generate, get TICK_BUDGET_MS() { return TICK_BUDGET_MS; }, get ESSAY_AFTER_FORECAST_MS() { return ESSAY_AFTER_FORECAST_MS; } };
+export const __gen = { thinPassedOver: thinPassedOver, parseArxivPool: parseArxivPool, arxivPoolSize: arxivPoolSize, resetArxivPool: function () { __arxivPool = { at: 0, n: ARXIV_POOL_DEFAULT }; }, scrapeArxiv: scrapeArxiv, ARXIV_POOL_DEFAULT: ARXIV_POOL_DEFAULT, parseComposeOrder: parseComposeOrder, q08Budget: q08Budget, Q08_DAILY_NEURONS_DEFAULT: Q08_DAILY_NEURONS_DEFAULT, resetRunColumns: function () { __runColsOk = false; __runColsTried = 0; }, sourceFloorFrom: sourceFloorFrom, learnedSourceFloor: learnedSourceFloor, thinSourceVerdict: thinSourceVerdict, sourceKindOf: sourceKindOf, markThinSkipped: markThinSkipped, ensureRunColumns: ensureRunColumns, insertRun: insertRun, meterCall: meterCall, claimClassesOf: claimClassesOf, get SOURCE_FLOOR_MIN_OK() { return SOURCE_FLOOR_MIN_OK; }, get THIN_MIN_ARTICLE() { return THIN_MIN_ARTICLE; }, get MIN_GROUND_CHARS() { return MIN_GROUND_CHARS; }, composeOrder: composeOrder, COMPOSE_MODELS: COMPOSE_MODELS, COMPOSE_MODELS_AT_CAP: COMPOSE_MODELS_AT_CAP, generate: generate, get TICK_BUDGET_MS() { return TICK_BUDGET_MS; }, get ESSAY_AFTER_FORECAST_MS() { return ESSAY_AFTER_FORECAST_MS; }, q08TickAllowance: q08TickAllowance, q08TickConfig: q08TickConfig, q08LastAttemptMs: q08LastAttemptMs, q08TickMore: q08TickMore, governedGenerate: governedGenerate };
 export const __stall = { stallRetryDue: stallRetryDue, stallDetector: stallDetector, stallDigest: stallDigest, stallStage: stallStage, get STALL_RETRY_H() { return STALL_RETRY_H; } };
 export const __factledger = { groundPreCheck: groundPreCheck, sourceLedger: sourceLedger, ledgerBlock: ledgerBlock, stripLedgerTags: stripLedgerTags, groundPreCheckMode: groundPreCheckMode, resetGroundPreCheck: function () { __groundPre = { at: 0, mode: "on" }; __groundPreCalls = 0; }, get groundPreCalls() { return __groundPreCalls; }, stallStage: stallStage, buildPrompt: buildPrompt, labelledGround: labelledGround, groundingProblems: groundingProblems, normalizeDraft: normalizeDraft, runLevels: runLevels, generate: generate, generateForecast: generateForecast, Q08_DIRECTIVE: Q08_DIRECTIVE, get LEDGER_MAX_LINES() { return LEDGER_MAX_LINES; }, get LEDGER_MAX_CHARS() { return LEDGER_MAX_CHARS; } };
 export const __fledger = { researchLedger: researchLedger, ledgerNames: ledgerNames, ledgerSentences: ledgerSentences, forecastLedgerOn: forecastLedgerOn, forecastLedgerFor: forecastLedgerFor, ensureForecastGroundColumn: ensureForecastGroundColumn, storedForecastLedger: storedForecastLedger, groundForPublished: groundForPublished, buildForecastPrompt: buildForecastPrompt, stripLedgerTags: stripLedgerTags, groundPreCheck: groundPreCheck, resetGroundColumn: function () { __groundColumnDone = false; }, LEDGER_MAX_LINES: RLEDGER_MAX_LINES, LEDGER_MAX_DOCS: LEDGER_MAX_DOCS, LEDGER_DOC_CHARS: LEDGER_DOC_CHARS };
@@ -5424,13 +5521,13 @@ async function q08Scheduled(controller, env, ctx) {
     if (controller.cron === "30 * * * *") {
       ctx.waitUntil(auditPublished(env, 3).catch(function (e) { console.error("q08 auditPublished failed: " + String(e && e.message || e).slice(0, 200)); })
         .then(function () { return stallRetryDue(env); })
-        .then(function (due) { if (due) return generate(env).then(function () { return stallDetector(env); }).then(function () { return writeOwnMetrics(env); }); })
+        .then(function (due) { if (due) return governedGenerate(env).then(function () { return stallDetector(env); }).then(function () { return writeOwnMetrics(env); }); })
         .then(function () { return true; }, function (e) { console.error("q08 stall retry failed: " + String(e && e.message || e).slice(0, 200)); return false; })
         .then(function (ok) { return q08Heartbeat(env, ok); }));
       return;
     }
     var hbOk = true;
-    ctx.waitUntil(ensureAccuracySchema(env).then(() => sweepStaleRuns(env)).then(() => generate(env)).catch(async (e) => {
+    ctx.waitUntil(ensureAccuracySchema(env).then(() => sweepStaleRuns(env)).then(() => governedGenerate(env)).catch(async (e) => {
       hbOk = false;
       console.error("q08 generate failed: " + String(e && e.message || e).slice(0, 200));
       await env.DB.prepare(
