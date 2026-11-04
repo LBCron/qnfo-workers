@@ -36,7 +36,7 @@ name: remediation-consumer
 #   audits   the trigger-depth sweep, the view-health pass (4-6 minutes, formerly the tail of the consumer step), the claim reaper and the daily continuity snapshot
 #            with its table sweeps: every cycle, as before;
 #   heavy    cost ledger, weekly export, restore drill: when the newest consumer-heavy-stamp artifact is 3 hours old (scripts/consumer-cadence-gate.mjs), so a
-#            run that does not need them finishes without them. The drill also holds itself for 24 hours after an attempt (scripts/d1_restore_drill.py).
+#            run that does not need them finishes without them. The drill also holds itself for 6 hours after an attempt that did not pass (scripts/d1_restore_drill.py).
 # Pinned by scripts/consumer-speed.test.mjs; measured with `node scripts/consumer-run-timing.mjs --check` (median consume minutes, timeout cancellations, heavy cadence).
 # Revert: restore the single consume job from the commit before this one (git show <sha>^:.github/workflows/remediation-consumer.yml).
 #
@@ -366,7 +366,7 @@ jobs:
   #   cost ledger     rewrites the same rows (cost_daily, the last 10 days and today), so one run in three hours loses no day, only the hourly refresh of today;
   #   weekly export   scripts/continuity_snapshot.py --only=export resumes from its R2 progress file; a database with an ok export row younger than 6 days is skipped.
   #                   The budget is 900 s here (270 s when it shared the consume job), so a full pass of the 1.4 GB qnfo-audit export needs fewer resumes;
-  #   restore drill   weekly after a pass, and once a day after an attempt that did not pass (d1_restore_drill.py DRILL_RETRY_HOURS).
+  #   restore drill   weekly after a pass, and every 6 hours after an attempt that did not pass (d1_restore_drill.py DRILL_RETRY_HOURS).
   # The stamp is uploaded last, always, so a heavy job that was killed is attempted again at the next cycle rather than skipped for three hours.
   heavy:
     needs: cadence-gate

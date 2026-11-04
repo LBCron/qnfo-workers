@@ -30,7 +30,9 @@ DRILL_EXPORTS = ["portfolio-state", "qnfo-cms", "ipatent-db"]
 AUDIT_STATE = "qnfo-audit-state"
 DRILL_ROW_CAP = int(os.environ.get("DRILL_ROW_CAP") or 500)
 DRILL_MAX_AGE_DAYS = 6
-DRILL_RETRY_HOURS = int(os.environ.get("DRILL_RETRY_HOURS") or 24)
+# Six hours, two heavy-job windows: the five attempt rows on file (2026-11-04 19:06-19:43Z) were written by code with a 270 s budget and a step killed at 8 minutes, so the
+# first attempt with the repaired budget should not wait a day; a drill that keeps failing still costs at most four attempts a day.
+DRILL_RETRY_HOURS = int(os.environ.get("DRILL_RETRY_HOURS") or 6)
 SCRATCH_PREFIX = "drill-restore-"
 BUDGET_SEC = float(os.environ.get("DRILL_BUDGET_SEC") or 840)
 _STARTED = time.time()
@@ -371,13 +373,13 @@ CREATE TABLE tag_kv (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID;
     audit.execute("DELETE FROM d1_export_restore_drills")
     main(["--force"], d1, plane, make_scratch, r2get, history=lambda: False, targets=[AUDIT_STATE])
     assert run(audit, "SELECT ok FROM d1_export_restore_drills")[0]["ok"] == 0
-    # CONSUMER-SPEED-1: that failed attempt holds the next one for DRILL_RETRY_HOURS (no 6-day ok row exists to hold it), and releases it a day later
+    # CONSUMER-SPEED-1: that failed attempt holds the next one for DRILL_RETRY_HOURS (no 6-day ok row exists to hold it), and releases it 7 hours later
     n_before = len(scratches)
     assert main([], d1, plane, make_scratch, r2get, history=lambda: True, targets=[AUDIT_STATE]) == 0
     assert len(scratches) == n_before and len(run(audit, "SELECT id FROM d1_export_restore_drills")) == 1, "a failed drill 0 hours ago must not start another"
-    audit.execute("UPDATE d1_export_restore_drills SET ts = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-25 hours')")
+    audit.execute("UPDATE d1_export_restore_drills SET ts = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 hours')")
     assert main([], d1, plane, make_scratch, r2get, history=lambda: True, targets=[AUDIT_STATE]) == 0
-    assert len(scratches) == n_before + 1 and len(run(audit, "SELECT id FROM d1_export_restore_drills")) == 2, "a failed drill 25 hours ago is retried"
+    assert len(scratches) == n_before + 1 and len(run(audit, "SELECT id FROM d1_export_restore_drills")) == 2, "a failed drill 7 hours ago is retried"
     # CONSUMER-SPEED-3: leaked scratch databases are deleted when old enough, and nothing else is
     t_now = calendar.timegm(time.strptime("2026-11-04T22:00:00", "%Y-%m-%dT%H:%M:%S"))
     listing = {"result": [
