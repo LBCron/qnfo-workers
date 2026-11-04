@@ -494,6 +494,51 @@ def bak_sweep(d1, call=cf, now=None):
     return out
 
 
+# BLOB-TRIM-1 (2026-11-04, pillar core): chatbox_conversations.messages_json holds the last 100 messages of the thread on every row, so a thread of n turns stores
+# about n squared / 2 messages: 144 MB (2,930 + 560 rows, 82 + 61 MB) of the table's 165 MB, and nothing reads it (qnfo-ai writes it at the log record and the history
+# browse reads prompt and response only; each row's prompt and response are the turn). A listed blob column is set to NULL on rows the latest R2 export holds
+# (rowid at most the export's last exported rowid, table done, mode rowid), 150 rows a run (about 6 MB of writes), so the export object keeps the original and a row added after the export
+# is never touched. ops_config blob_trim = off stops it. Never raises.
+BLOB_TRIMS = [("chatbox_conversations", "messages_json", 150)]
+
+
+def blob_trim(d1, call=cf):
+    out = {"nulled": 0, "skipped": {}}
+    try:
+        cfg = d1("SELECT value FROM ops_config WHERE key = 'blob_trim'")
+        if cfg and str(cfg[0]["value"]).strip().lower() == "off":
+            out["status"] = "off"
+            return out
+        prog = r2_get_json(BAK_PROGRESS_KEY, call)
+        if not prog or not isinstance(prog.get("tables"), dict):
+            out["status"] = "no-export-progress"
+            return out
+        for table, col, per in BLOB_TRIMS:
+            st = prog["tables"].get(table)
+            if not isinstance(st, dict) or not st.get("done") or table in (prog.get("errors") or {}) or st.get("mode") != "rowid" or not isinstance(st.get("last"), int):
+                out["skipped"][table] = "not-exported"
+                continue
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", col):
+                out["skipped"][table] = "odd-name"
+                continue
+            cnt = 'SELECT COUNT(*) AS n FROM "%s" WHERE "%s" IS NOT NULL AND rowid <= ?1' % (table, col)
+            before = int((d1(cnt, [st["last"]]) or [{"n": 0}])[0]["n"] or 0)
+            if not before:
+                out["skipped"][table] = "nothing-to-trim"
+                continue
+            d1('UPDATE "%s" SET "%s" = NULL WHERE rowid IN (SELECT rowid FROM "%s" WHERE "%s" IS NOT NULL AND rowid <= ?1 LIMIT %d)' % (table, col, table, col, int(per)), [st["last"]])
+            after = int((d1(cnt, [st["last"]]) or [{"n": 0}])[0]["n"] or 0)
+            out["nulled"] += max(0, before - after)
+            out["left_" + table] = after
+        if out["nulled"]:
+            d1("INSERT INTO cloud_ops_events (id, ts, kind, status, text, job) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), 'blob-trim', 'ok', ?2, 'continuity-snapshot')",
+               ["blob-trim-%d" % int(time.time()), "BLOB-TRIM-1: set %d blob value(s) to NULL on rows the R2 export %s holds; %s" % (out["nulled"], prog.get("stamp"), json.dumps(out))[:400]])
+    except Exception as e:  # noqa: BLE001
+        out["error"] = str(e)[:160]
+    print(json.dumps({"blob-trim": out}))
+    return out
+
+
 def main(argv=None, d1=None, plane=None, call=cf, out_dir=None, deadline=None):
     argv = argv if argv is not None else sys.argv[1:]
     d1, plane = retrying(d1 or RC.d1), retrying(plane or RC.d1_plane)
@@ -501,6 +546,7 @@ def main(argv=None, d1=None, plane=None, call=cf, out_dir=None, deadline=None):
     if "--no-export" not in argv:
         export_step(d1, plane, call, deadline)
         bak_sweep(d1, call)
+        blob_trim(d1, call)
     return 0
 
 
@@ -550,7 +596,55 @@ INSERT INTO human_actions VALUES (1, 'owner card');
     assert main(["--no-export"], d1, lambda t, s: [{"n": 0, "f": 0}], call, d) == 0 and len(d1("SELECT id FROM continuity_snapshots")) == 1  # fresh: skipped
     export_selftest(c, d1)
     bak_selftest()
+    blob_selftest()
     print("continuity_snapshot selftest ok")
+
+
+def blob_selftest():
+    import sqlite3
+    saved = list(BLOB_TRIMS)
+    BLOB_TRIMS[:] = [("chatbox_conversations", "messages_json", 50)]
+    c = sqlite3.connect(":memory:")
+    c.executescript("""
+CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, status TEXT, text TEXT, job TEXT);
+CREATE TABLE chatbox_conversations (id TEXT PRIMARY KEY, thread_id TEXT, messages_json TEXT, prompt TEXT, response TEXT);
+""")
+    for i in range(1, 121):
+        c.execute("INSERT INTO chatbox_conversations VALUES (?, 't', ?, 'p', 'r')", ["id%d" % i, "[big %d]" % i])
+
+    def d1(sql, params=None):
+        cur = c.execute(sql, params or [])
+        cols = [x[0] for x in cur.description] if cur.description else []
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    prog = {"stamp": "20261103", "errors": {}, "tables": {"chatbox_conversations": {"done": True, "mode": "rowid", "last": 100, "exported": 100, "live": 100}}}
+    call = lambda method, path, body=None, ctype=None, timeout=60: (200, prog)  # noqa: E731
+    left = lambda: d1("SELECT COUNT(*) AS n FROM chatbox_conversations WHERE messages_json IS NOT NULL")[0]["n"]  # noqa: E731
+    r = blob_trim(d1, call)
+    assert r["nulled"] == 50 and left() == 70, (r, left())          # 50 a run, only rows the export holds
+    assert d1("SELECT prompt, response FROM chatbox_conversations WHERE id = 'id1'") == [{"prompt": "p", "response": "r"}]   # the turn itself is untouched
+    assert blob_trim(d1, call)["nulled"] == 50 and left() == 20      # rows 101..120 were added after the export: never touched
+    r3 = blob_trim(d1, call)
+    assert r3["nulled"] == 0 and r3["skipped"] == {"chatbox_conversations": "nothing-to-trim"} and left() == 20, r3
+    assert d1("SELECT COUNT(*) AS n FROM chatbox_conversations WHERE messages_json IS NULL AND CAST(substr(id, 3) AS INTEGER) > 100")[0]["n"] == 0
+    assert d1("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'blob-trim'")[0]["n"] == 2
+    d1("INSERT INTO ops_config VALUES ('blob_trim', 'off')")
+    prog["tables"]["chatbox_conversations"]["last"] = 120
+    assert blob_trim(d1, call)["status"] == "off" and left() == 20
+    d1("DELETE FROM ops_config")
+    prog["tables"]["chatbox_conversations"]["done"] = False          # an export that has not finished the table: nothing is nulled
+    assert blob_trim(d1, call)["skipped"] == {"chatbox_conversations": "not-exported"} and left() == 20
+    prog["tables"]["chatbox_conversations"]["done"] = True
+    prog["errors"] = {"chatbox_conversations": "429"}
+    assert blob_trim(d1, call)["skipped"] == {"chatbox_conversations": "not-exported"} and left() == 20
+    prog["errors"] = {}
+    prog["tables"]["chatbox_conversations"]["mode"] = "offset"      # a WITHOUT ROWID style export has no rowid cursor: skipped
+    assert blob_trim(d1, call)["skipped"] == {"chatbox_conversations": "not-exported"} and left() == 20
+    prog["tables"]["chatbox_conversations"]["mode"] = "rowid"
+    assert blob_trim(d1, call)["nulled"] == 20 and left() == 0       # the export now holds all 120: the rest goes
+    assert blob_trim(d1, lambda *a, **k: (404, {})).get("status") == "no-export-progress"
+    BLOB_TRIMS[:] = saved
 
 
 def bak_selftest():
