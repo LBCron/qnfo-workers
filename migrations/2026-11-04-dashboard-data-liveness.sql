@@ -1,0 +1,22 @@
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DELETE FROM remediation_contracts WHERE class IN ('rt-data-fleet-now-needs', 'rt-data-fleet-now-spend', 'rt-data-fleet-now-health', 'rt-data-fleet-readers-reach')
+-- DASHBOARD-DATA-LIVENESS-1 (2026-11-04, charter pillars core and reach; owner request: a three-screen dashboard whose numbers are verifiably updating).
+-- Cause: the standing liveness contract for the dashboard (rt-page-fleet-queue, PAGE-LIVENESS-1) asserts "Is it running?", a heading of the static shell. The shell is
+-- served with no database read, so it passes while every number on the page is down: the Money card, the owner queue, the heartbeats and the Readers screen each load
+-- from /api/v3/now and /api/v3/readers and degrade to "unreadable" on their own. Nothing outside the page would have noticed until the owner opened it.
+-- Fix: four hourly runner-https contracts GET the two data routes and assert the section that matters is ok (`"needs":{"ok":true`, `"spend":{"ok":true`,
+-- `"health":{"ok":true`, `"reach":{"ok":true`), read live on 2026-11-04 19:24 UTC at 0.9 s (now) and 2.2 s (readers, cold), all four true. Three straight failures
+-- file RUNTIME-PROBE-FAIL-1 and the autoclose trigger closes it on the first pass. The contracts add a runtime observation, not a worker, a cron or a model call.
+-- CAUSE-MAPPED: no metric is registered here; this adds four probe rows.
+INSERT OR IGNORE INTO remediation_contracts (class, issue_id, precondition, action, verify_probe, verify_transport, max_attempts, escalate_to, expected_cadence_h, status, module, budget_ms, max_items, next_due_at) VALUES
+  ('rt-data-fleet-now-needs', NULL, 'standing liveness: fleet.qnfo.org/api/v3/now reads the owner queue (the Now screen)', 'none while it passes; 3 straight failures file RUNTIME-PROBE-FAIL-1', '{"url": "https://fleet.qnfo.org/api/v3/now", "status": 200, "contains": "\"needs\":{\"ok\":true", "max_ms": 15000}', 'runner-https', 3, 'qnfo-ops', 1, 'active', 'runtime-liveness-v1', 45000, 5, datetime('now')),
+  ('rt-data-fleet-now-spend', NULL, 'standing liveness: fleet.qnfo.org/api/v3/now reads the billing rows (the Money card)', 'none while it passes; 3 straight failures file RUNTIME-PROBE-FAIL-1', '{"url": "https://fleet.qnfo.org/api/v3/now", "status": 200, "contains": "\"spend\":{\"ok\":true", "max_ms": 15000}', 'runner-https', 3, 'qnfo-ops', 1, 'active', 'runtime-liveness-v1', 45000, 5, datetime('now')),
+  ('rt-data-fleet-now-health', NULL, 'standing liveness: fleet.qnfo.org/api/v3/now reads the worker heartbeats and the command-line log (Is it running?)', 'none while it passes; 3 straight failures file RUNTIME-PROBE-FAIL-1', '{"url": "https://fleet.qnfo.org/api/v3/now", "status": 200, "contains": "\"health\":{\"ok\":true", "max_ms": 15000}', 'runner-https', 3, 'qnfo-ops', 1, 'active', 'runtime-liveness-v1', 45000, 5, datetime('now')),
+  ('rt-data-fleet-readers-reach', NULL, 'standing liveness: fleet.qnfo.org/api/v3/readers reads the reach scorecard (the Readers screen)', 'none while it passes; 3 straight failures file RUNTIME-PROBE-FAIL-1', '{"url": "https://fleet.qnfo.org/api/v3/readers", "status": 200, "contains": "\"reach\":{\"ok\":true", "max_ms": 15000}', 'runner-https', 3, 'qnfo-ops', 1, 'active', 'runtime-liveness-v1', 45000, 5, datetime('now'));
+INSERT INTO decision_log (actor, assumption, action, evidence, outcome, blast_radius, rollback_path, capability_gain, predicted_outcome, reach_gain, surfaces_tested) VALUES
+  ('session_fleet_dashboard_redesign', 'a dashboard shell that loads is not a dashboard whose numbers are updating',
+   'DASHBOARD-DATA-LIVENESS-1: four hourly runner-https contracts on the data routes behind the Now and Readers screens',
+   'rt-page-fleet-queue asserts a static heading of the shell (no D1 read); /api/v3/now and /api/v3/readers read live 2026-11-04 19:24 UTC with every section ok, 0.9 s and 2.2 s',
+   'merged through the canonical path', 'a dashboard section that goes unreadable files RUNTIME-PROBE-FAIL-1 within 3 hours instead of waiting for the owner to open the page', 'the Rollback line of this file',
+   'outside-in liveness of the data behind the owner dashboard', 'no RUNTIME-PROBE-FAIL-1 issue from these contracts while the sections read; one within 3 hours of a section going unreadable', 'none: owner-facing page', 'https:fleet.qnfo.org/api/v3/now, https:fleet.qnfo.org/api/v3/readers; d1:remediation_contracts');
