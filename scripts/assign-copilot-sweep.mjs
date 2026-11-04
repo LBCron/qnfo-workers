@@ -40,6 +40,8 @@
 //        * Red main first: an issue labelled ci-watchdog is dispatched before every other issue (the one that fired the run still goes first).
 //        * Read budget: a run stops examining issues after --max-calls (170) reads of the PAT the whole fleet shares.
 //        * Kill switch: the repository variable ASSIGN_COPILOT_SWEEP = off stops the sweep, new-only stops the re-drive.
+//        * Yield filter (COPILOT-YIELD-1): familyDenied() skips records another loop owns and any issue whose body carries a `code-task:` line (the code
+//          loop holds it), with no extra read; ASSIGN_COPILOT_FAMILY_FILTER = off restores the unfiltered sweep. See docs/COPILOT-YIELD-2026-11.md.
 //        * Throttle: workflow_run fires about once a minute while the fleet merges, so only the first run of each --window-minutes (10) window
 //          sweeps; issues and manual runs always do. A throttled run costs one read.
 // USAGE  GH_PAT_TOKEN=... node scripts/assign-copilot-sweep.mjs [--hours 720] [--max 10] [--max-open 12] [--redrive-max 5] [--stalled-hours 2]
@@ -117,8 +119,32 @@ export function normalize(it) {
     owner: m ? m[1] : "", repo: m ? m[2] : "", number: it.number, title: it.title || "", state: it.state, pr: !!it.pull_request,
     login: (it.user && it.user.login) || "", assoc: it.author_association || "NONE",
     assignees: (it.assignees || []).map((a) => a.login), created_at: it.created_at || "",
-    labels: (it.labels || []).map((l) => (typeof l === "string" ? l : (l && l.name) || ""))
+    labels: (it.labels || []).map((l) => (typeof l === "string" ? l : (l && l.name) || "")),
+    body: String(it.body || "")
   };
+}
+
+// COPILOT-YIELD-1 (docs/COPILOT-YIELD-2026-11.md): where a Copilot session buys nothing. Measured over the 563 Copilot pull requests of 2026-10-30..11-04:
+// 72% merged overall, so no family is excluded for a low rate alone; a family is excluded when (a) it is a record another loop owns and closes
+// (it produced 0 merged pull requests, or none at all, in the window) or (b) its body already carries a `code-task:` line, so the code loop
+// (qnfo-code-orchestrator) holds the work and a Copilot session would be a second writer on the same file. Failure mirrors of the code loop itself
+// (it gave up or its merge was refused) stay assignable: they are the second path. A ci-watchdog issue and the issue that fired the run are never filtered.
+export const DENY_FAMILIES = [/^OWNER-TASK/i, /^INTENT-TASK/i, /^CLOSEOUT-HANDOFF/i, /^content_items_over_stage_sla/i, /^CITE-FULLTEXT-1/i, /^BP26-/i, /^RESEARCH-TERMINAL/i, /^STALE-PR-/i];
+export const CODE_LOOP_FAILURE_FAMILIES = [/^CODE-LOOP-EXHAUSTED-1/i, /^CODE-MERGE-REFUSED-1/i, /^CODE-TASK-NEEDS-SESSION-1/i];
+export const CODE_TASK_LINE_RE = /^[ \t>*-]*code-task:\s*repo=\S+/im;
+export function familyOf(title) {
+  const t = String(title || "").replace(/^\[#\d+\]\s*/, "").trim();
+  if (/^METRIC-TRIGGER-/i.test(t)) return "METRIC-TRIGGER-*";
+  const colon = t.indexOf(":");
+  if (colon > 0 && colon < 40) return t.slice(0, colon);
+  return t.split(/\s/)[0].slice(0, 30);
+}
+export function familyDenied(n) {
+  if (n.priority || (n.labels || []).includes(PRIORITY_LABEL)) return null;
+  const fam = familyOf(n.title);
+  if (DENY_FAMILIES.some((re) => re.test(fam))) return "family-record-owned";
+  if (CODE_TASK_LINE_RE.test(n.body || "") && !CODE_LOOP_FAILURE_FAMILIES.some((re) => re.test(fam))) return "code-loop-owns";
+  return null;
 }
 
 export const trusted = (n) => TRUSTED_ASSOCIATIONS.includes(n.assoc) || TRUSTED_BOTS.includes(n.login);
@@ -343,6 +369,7 @@ export async function run(opts, deps) {
     if (hasCopilot && !redriveOn) { skip("already-assigned", n); continue; }
     if (!trusted(n)) { skip("untrusted-author", n); continue; }
     if (refused.has(slug)) { skip("repo-refused", n); continue; }
+    if (o.familyFilter !== false) { const why = familyDenied(n); if (why) { skip(why, n); continue; } }
     const mid = mirrorId(n.title);
     if (mid && doers.ids.has(mid)) { skip("has-doer", n); continue; }
     if (hasCopilot && redrives >= o.redriveMax) { sum.deferred++; continue; }
@@ -443,7 +470,7 @@ async function main() {
     token: env.GH_PAT_TOKEN || "", sweep: env.ASSIGN_COPILOT_SWEEP || "on",
     hours: num(arg("--hours"), DEFAULTS.hours), max: num(arg("--max"), DEFAULTS.max), maxOpen: num(arg("--max-open"), DEFAULTS.maxOpen),
     redriveMax: num(arg("--redrive-max"), DEFAULTS.redriveMax), stalledHours: num(arg("--stalled-hours"), DEFAULTS.stalledHours),
-    mode: arg("--mode", "live") === "dry" ? "dry" : "live", agentSync: !argv.includes("--no-agent-sync"),
+    mode: arg("--mode", "live") === "dry" ? "dry" : "live", agentSync: !argv.includes("--no-agent-sync"), familyFilter: String(env.ASSIGN_COPILOT_FAMILY_FILTER || "on").toLowerCase() !== "off",
     gate: { event: env.GITHUB_EVENT_NAME || "", runId: env.GITHUB_RUN_ID || "", repo: env.GITHUB_REPOSITORY || "", minutes: num(arg("--window-minutes"), DEFAULTS.windowMinutes) }
   };
   if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.ISSUE_REPO || "") && /^\d+$/.test(env.ISSUE_NUMBER || "")) opts.priority = { repo: env.ISSUE_REPO, number: Number(env.ISSUE_NUMBER) };

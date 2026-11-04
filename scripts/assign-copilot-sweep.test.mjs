@@ -12,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { run, normalize, trusted, isCopilot, mirrorId, parseRefs, agentProblems, sinceIso, makeApi, syncOrgAgent, INSTRUCTIONS, AGENT, COPILOT_BOT, AGENT_SOURCE, AGENT_TARGET, LOCKS_URL, DEFAULTS, TARGET_OVERRIDES, startFailures, creditsBreaker, START_FAILED_RE, CREDITS_RE, PRIORITY_LABEL } from "./assign-copilot-sweep.mjs";
+import { familyOf, familyDenied, run, normalize, trusted, isCopilot, mirrorId, parseRefs, agentProblems, sinceIso, makeApi, syncOrgAgent, INSTRUCTIONS, AGENT, COPILOT_BOT, AGENT_SOURCE, AGENT_TARGET, LOCKS_URL, DEFAULTS, TARGET_OVERRIDES, startFailures, creditsBreaker, START_FAILED_RE, CREDITS_RE, PRIORITY_LABEL } from "./assign-copilot-sweep.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -398,6 +398,22 @@ ok(/uses: actions\/checkout@[0-9a-f]{40} # v\d/.test(live) && /uses: actions\/se
 const agentSrc = readFileSync(join(root, ".github", "agents", "quniverse.agent.md"), "utf8");
 ok(agentProblems(agentSrc).length === 0, "the profile in this repository is one the sweep will publish", agentProblems(agentSrc));
 ok(/Assign Copilot|assign Copilot|ASSIGN-COPILOT-ISSUES-1/.test(readFileSync(join(root, "CLAUDE.md"), "utf8")), "CLAUDE.md records the automation and the cloud claim fallback");
+
+// COPILOT-YIELD-1: the family / code-task filter
+ok(familyOf("[#1234] CF-OBS-ISSUE-1: qnfo-ops: boom") === "CF-OBS-ISSUE-1" && familyOf("METRIC-TRIGGER-360-DRIFT-TOTAL: Core gap") === "METRIC-TRIGGER-*" && familyOf("STALE-PR-LANE stuck 7") === "STALE-PR-LANE", "familyOf reads the title prefix");
+const CT = "Fix the thing.\n\ncode-task: repo=qnfo-workers path=qnfo-ops/worker.js\ncode-anchor: function foo() {";
+const deny = (title, body, extra) => familyDenied(normalize(item(900, Object.assign({ title, body }, extra || {}))));
+ok(deny("OWNER-TASK-op-1: do x", "") === "family-record-owned" && deny("RESEARCH-TERMINAL 3840ba66: complete", "") === "family-record-owned" && deny("STALE-PR-LANE: pr 5", "") === "family-record-owned", "records another loop owns are not assigned");
+ok(deny("CF-OBS-ISSUE-1: qnfo-ops: x", CT) === "code-loop-owns" && deny("METRIC-TRIGGER-1-FOO: x", CT) === "code-loop-owns", "an issue the code loop holds through a code-task line is not assigned");
+ok(deny("CODE-LOOP-EXHAUSTED-1: ct_1 qnfo-ops/worker.js", CT) === null && deny("CODE-MERGE-REFUSED-1: ct_2", CT) === null, "the code loop's own failure mirrors stay assignable (the second path)");
+ok(deny("CF-OBS-ISSUE-1: qnfo-ops: x", "no task line here") === null && deny("LOOP-BREAKER-1: a", "") === null && deny("CHAOS-DRILL-FAILED-1: b", "") === null, "families with a measured yield and no code-task line stay assignable");
+ok(deny("OWNER-TASK-op-1: x", CT, { labels: [{ name: "ci-watchdog" }] }) === null, "a red-main (ci-watchdog) issue is never filtered");
+{
+  const { s, g } = await go({ issues: [item(951, { title: "OWNER-TASK-op-9: x" }), item(952, { title: "CF-OBS-ISSUE-1: y", body: CT }), item(953, { title: "LOOP-BREAKER-1: z" }), item(954, { title: "CODE-LOOP-EXHAUSTED-1: ct_9", body: CT })] });
+  ok(s.assigned === 2 && s.skipped["family-record-owned"] === 1 && s.skipped["code-loop-owns"] === 1 && !g.log.some((c) => /\/(951|952)\//.test(c.path)), "the sweep assigns only 953 and 954 and spends no read on the filtered issues", s);
+  const off = await go({ issues: [item(951, { title: "OWNER-TASK-op-9: x" }), item(952, { title: "CF-OBS-ISSUE-1: y", body: CT })] }, { familyFilter: false });
+  ok(off.s.assigned === 2 && !off.s.skipped["family-record-owned"], "ASSIGN_COPILOT_FAMILY_FILTER=off restores the unfiltered sweep", off.s);
+}
 
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
