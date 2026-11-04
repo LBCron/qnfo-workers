@@ -3,7 +3,7 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 
 // worker.js
 import { EmailMessage } from "cloudflare:email";
-var VERSION = "0.3.8-cf-dow"; /* OUTREACH-CF-DOW-1: cron 0 11 * * 2-6 (Cloudflare Mon-Fri; 1-5 was Sun-Thu) */
+var VERSION = "0.3.9-email-utm"; /* 0.3.9 EMAIL-UTM-1 (2026-11-04, pillar reach): links to qnfo.org, papers.qnfo.org, q08.org and qwav.org in a sent body carry utm_source=email&utm_medium=email&utm_campaign=<template>, so reach_signals/v_channel_impact_7d can count email clicks (7d: 18 sends, 0 attributed clicks because no link was tagged). */ /* OUTREACH-CF-DOW-1: cron 0 11 * * 2-6 (Cloudflare Mon-Fri; 1-5 was Sun-Thu) */
 var ACTIVATION_AT_MS = Date.parse("2026-09-13T00:00:00Z");
 var WARMUP_FROM_MS = Date.parse("2026-09-08T00:00:00Z");
 var GLOBAL_DAILY_CAP = 8;
@@ -132,7 +132,20 @@ async function unsubUrl(email) {
   const h = await sha16(e + ":qnfo-unsub-2026");
   return "https://qnfo.org/email/unsubscribe?e=" + encodeURIComponent(e) + "&t=" + h.slice(0, 16);
 }
-async function compliant(body, email) {
+function utmEmail(body, campaign) {
+  const camp = encodeURIComponent(String(campaign || "outreach").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "outreach");
+  return String(body || "").replace(/https?:\/\/(?:[a-z0-9-]+\.)*(?:qnfo\.org|q08\.org|qwav\.org)(?:\/[^\s<>"')\]]*)?/gi, function (u) {
+    if (/[?&]utm_source=/i.test(u) || /\/email\/unsubscribe/i.test(u)) return u;
+    const tail = (u.match(/[.,;:!]+$/) || [""])[0];
+    const base = tail ? u.slice(0, -tail.length) : u;
+    const h = base.indexOf("#");
+    const b = h < 0 ? base : base.slice(0, h), f = h < 0 ? "" : base.slice(h);
+    return b + (b.indexOf("?") < 0 ? "?" : "&") + "utm_source=email&utm_medium=email&utm_campaign=" + camp + f + tail;
+  });
+}
+__name(utmEmail, "utmEmail");
+async function compliant(body, email, campaign) {
+  body = utmEmail(body, campaign);
   const url = await unsubUrl(email);
   const footer = "\n\n--\nThis was sent once, to one person. If you would rather not receive anything further from me: " + url + "\nReplying with STOP also works and I will remove you within a day.\nRowan Brad Quni-Gudzinas, QNFO (Netherlands)";
   return String(body || "") + footer;
@@ -251,7 +264,7 @@ async function sendGated(env) {
     }
     if (shared.n >= GLOBAL_DAILY_CAP) return { sent, skipped: "shared-cap", shared_today: shared.n };
     if (shared.d >= PER_DOMAIN_DAILY_CAP) continue;
-    const finalBody = await compliant(row.body, to);
+    const finalBody = await compliant(row.body, to, row.kind);
     const res = await sendRaw(env, FROM_ACADEMIC, to, row.subject, finalBody);
     if (res.ok) {
       await env.OUTREACH_D1.prepare("UPDATE sends SET status='sent', sent_at=datetime('now'), message_id=?2 WHERE id=?1").bind(row.id, res.messageId).run();

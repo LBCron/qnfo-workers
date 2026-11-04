@@ -1,0 +1,10 @@
+import fs from "node:fs"; import assert from "node:assert";
+const src = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+const m = src.match(/function utmEmail[\s\S]*?\n}\n/)[0];
+const utmEmail = new Function("__name", m + "; return utmEmail;")(() => {});
+const o = utmEmail("See https://papers.qnfo.org/papers/x. Also https://qnfo.org/a?b=1#c and https://example.com/z", "paper-intro");
+assert.match(o, /papers\.qnfo\.org\/papers\/x\?utm_source=email&utm_medium=email&utm_campaign=paper-intro\./);
+assert.match(o, /qnfo\.org\/a\?b=1&utm_source=email[^#]*#c/);
+assert.ok(o.endsWith("https://example.com/z"));
+assert.equal(utmEmail("https://qnfo.org/email/unsubscribe?e=a"), "https://qnfo.org/email/unsubscribe?e=a");
+console.log("ok");
