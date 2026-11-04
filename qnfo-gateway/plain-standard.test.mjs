@@ -14,7 +14,7 @@ const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m 
 const lines = src.split("\n");
 const grab = (re) => { const l = lines.find((x) => re.test(x)); if (!l) throw new Error("missing " + re); return l; };
 const code = [
-  /^var PLAIN_MAX_SENT/, /^var PLAIN_MIN_LEN/, /^var PLAIN_TARGET_GRADE/, /^var PLAIN_HARD_GRADE/, /^var PLAIN_RETRY_MS/, /^var PLAIN_PROMPT_MARKERS/,
+  /^var PLAIN_MAX_SENT/, /^var PLAIN_MIN_LEN/, /^var PLAIN_TARGET_GRADE/, /^var PLAIN_HARD_GRADE/, /^var PLAIN_RETRY_MS/, /^var PLAIN_REFUSAL_MARKERS/, /^var PLAIN_PROMPT_MARKERS/,
   /^function sylCount/, /^function fleschGrade/, /^function plainSentenceCount/, /^function plainHasPromptResidue/, /^function plainPrompt/,
   /^async function plainBuild/, /^function plainRevOk/, /^function plainRev\(/, /^function fnv32/, /^function plainFillOrder/, /^async function plainMarkGated/, /^async function plainStore/,
 ].map(grab).join("\n");
