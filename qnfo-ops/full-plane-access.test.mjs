@@ -73,6 +73,8 @@ ok(!/model such as llama/i.test(src.split("\n").filter((l) => l.includes('name: 
   ok(r.ok && r.nodes === 3 && /\/fleet-graph\/impact\?id=d1t%3Aqnfo-audit.agent_issues&depth=2$/.test(seen), "fleet_graph impact over the binding", seen);
   r = await lib.fleetGraphTool({ MEMORY: mem }, { op: "find", query: "bad" });
   ok(!r.ok && r.candidates.length === 2, "fleet_graph passes refusals and candidates through", r);
+  ok((await lib.fleetGraphTool({ MEMORY: mem }, { op: "find", query: "%".repeat(11) })).error === "Query pattern too complex", "fleet_graph rejects an over-wildcard query");
+  ok((await lib.fleetGraphTool({ MEMORY: mem }, { op: "find", query: "a".repeat(101) })).error === "Query pattern too complex", "fleet_graph rejects a too-long query");
   ok((await lib.fleetGraphTool({ MEMORY: mem }, { op: "drop" })).ok === false, "fleet_graph refuses an unknown op");
   // dashboard_feed.
   const dash = { fetch: async (u) => { seen = u; return J({ endpoints: 23 }); } };

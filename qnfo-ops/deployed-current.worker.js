@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.18-codeagent";
+var VERSION = "2.62.19-codeagent";
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -3962,6 +3962,12 @@ async function githubProjectsList(env, args) {
 }
 var FPA_GRAPH_OPS = ["find", "node", "impact", "path", "worker", "resource", "findings", "freshness"];
 async function fleetGraphTool(env, args) {
+  if (args && typeof args.query === "string") {
+    const wildcards = (args.query.match(/[%_]/g) || []).length;
+    if (args.query.length > 100 || wildcards > 10) {
+      return { ok: false, error: "Query pattern too complex" };
+    }
+  }
   const op = String(args && args.op || "").trim();
   if (FPA_GRAPH_OPS.indexOf(op) < 0) return { ok: false, error: "op must be one of " + FPA_GRAPH_OPS.join(", ") };
   if (!env.MEMORY) return { ok: false, error: "MEMORY binding (qnfo-memory-mcp) missing" };
