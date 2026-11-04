@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.91.0";
+var VERSION = "1.91.1";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -3845,7 +3845,7 @@ nav a{flex:1;max-width:240px;text-align:center;padding:14px 8px;color:var(--mut)
 .msg.you{background:transparent;border-style:dashed;color:var(--mut)}.steps{font:12.5px/1.5 ui-monospace,Consolas,monospace;color:var(--mut);margin:0 0 8px}
 #cbar{position:fixed;left:0;right:0;bottom:52px;background:var(--bg);border-top:1px solid var(--rule);padding:10px 14px;display:none}#cbar.on{display:block}
 #cbar form{max-width:720px;margin:0 auto;display:flex;gap:8px}textarea,input{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:10px 12px;width:100%}textarea{resize:none;height:46px}
-.more{max-width:720px;margin:24px auto 0;padding:0 16px 8px;color:var(--mut);font-size:13px;text-align:center}.more a{color:var(--mut);margin:0 6px}.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}.chips button{font-size:14px;padding:6px 12px}#sib{display:flex;gap:8px;margin-top:10px}`;
+.more{max-width:720px;margin:24px auto 0;padding:0 16px calc(84px + env(safe-area-inset-bottom));color:var(--mut);font-size:13px;text-align:center}.more a{display:inline-block;color:var(--mut);margin:0 2px;padding:8px 6px}.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}.chips button{font-size:14px;padding:6px 12px}#sib{display:flex;gap:8px;margin-top:10px}`;
 var V3_JS = String.raw`(function(){
 var $=function(i){return document.getElementById(i)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
