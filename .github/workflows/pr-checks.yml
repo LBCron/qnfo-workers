@@ -2,8 +2,9 @@ name: pr-checks
 
 # PR-CHECK-CAP-5-1 (2026-11-04, owner directive: "A PR MAY HAVE A MAXIMUM OF 5 ACTIONS/CHECKS/WORKFLOWS, NEVER 23 ... DELETE ALL CHECKS/WORKFLOWS THAT TAKE LONGER THAN 1 MINUTE AND/OR
 # REPEATEDLY FAIL"). Measured on PR 7130 (head 94df39fb): 22 check entries, because every `uses:` job of a reusable workflow is one entry, a path-skipped one included.
-# A pull request now shows exactly five entries: "Workers Builds: qnfo-workers" (Cloudflare, the one required check in the live ruleset) and the jobs `versions`, `scans`,
-# `suites` (this file) and `lane` (pr-lane.yml). No job here calls a reusable workflow: workflow-lint.py (PR-CHECK-CAP-5-1) fails a file that does.
+# A pull request now shows five entries: "Workers Builds: qnfo-workers" (Cloudflare, the one required check in the live ruleset), the jobs `versions` and `scans` (this file) and
+# `lane` twice (pr-lane.yml: one run for the pull_request_target event, one for pr-checks completing; measured 2026-11-04 on PR 7178, six entries with a third job here).
+# The migration, charter and small offline suites are steps of `versions`, behind their path flags. No job here calls a reusable workflow: workflow-lint.py (PR-CHECK-CAP-5-1) fails a file that does.
 # Each job holds the steps of the guards it replaced, copied from the guard's own workflow file (those files keep their push-to-main and dispatch triggers and stay the
 # post-merge net). Measured over the last 40 pr-checks runs: every guard below took 10 to 51 s; only deploy-gate (p50 279 s, max 376 s, advisory on a PR since MERGE-STREAMLINE-1)
 # and fleet-graph (63 s) were over a minute, and ux-journeys (Playwright, base and head app builds) and research-code (Lean build, 60 minute timeout) cannot fit one. Those four
@@ -25,7 +26,7 @@ concurrency:
 
 jobs:
 
-  # VERSION bump, VERSION-pair mirror and comparator guards: every pull request, about 45 s
+  # VERSION bump, VERSION-pair mirror and comparator guards on every pull request; migration, charter, the small offline suites and the workflow-pin suites when their paths change
   versions:
     # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
     runs-on: ubuntu-24.04
@@ -180,130 +181,7 @@ jobs:
           fi
           python scripts/mirror-guard.py $SCOPE
 
-  # identity lexicon always; worker prompt, model floor and workflow lint when their paths change
-  scans:
-    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Match changed files to guards
-        id: f
-        run: |
-          set -eu
-          git diff --name-only HEAD^1 HEAD > files.txt
-          wc -l < files.txt
-          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/adversarial-workers-guard\.py$|^\.github/workflows/adversarial-workers-guard\.yml$' files.txt; then echo 'adversarial_workers_guard=true' >> "$GITHUB_OUTPUT"; else echo 'adversarial_workers_guard=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
-          if grep -qE '^docs/|^CLAUDE\.md$|^AGENTS\.md$|^llms\.txt$|^\.github/(copilot-instructions\.md|agents/)|^[^/]+/README\.md$|^scripts/build-agent-catalog\.mjs$' files.txt; then echo 'docs_catalog=true' >> "$GITHUB_OUTPUT"; else echo 'docs_catalog=false' >> "$GITHUB_OUTPUT"; fi
-
-      # ---- identity-guard: steps of .github/workflows/identity-guard.yml ----
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: ${{ !cancelled() }}
-        with:
-          python-version: "3.11"
-
-      - name: Identity lexicon guard
-        if: ${{ !cancelled() }}
-        run: python3 scripts/identity-guard.py .
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: ${{ !cancelled() }}
-        with:
-          node-version: "22"
-
-      - name: Bluesky profile sync offline suite (qnfo-social)
-        if: ${{ !cancelled() }}
-        run: node qnfo-social/profile-sync.test.mjs
-
-      # ---- adversarial-workers-guard: steps of .github/workflows/adversarial-workers-guard.yml ----
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: ${{ !cancelled() && steps.f.outputs.adversarial_workers_guard == 'true' }}
-        with:
-          python-version: "3.11"
-
-      - name: ADVERSARIAL-REASONING-1 on core worker prompt surfaces (fail-closed)
-        if: ${{ !cancelled() && steps.f.outputs.adversarial_workers_guard == 'true' }}
-        run: python3 scripts/adversarial-workers-guard.py
-
-      # ---- model-floor-guard: steps of .github/workflows/model-floor-guard.yml ----
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: ${{ !cancelled() && steps.f.outputs.model_floor_guard == 'true' }}
-        with:
-          node-version: "20"
-
-      - name: Scan repo sources and live bundles
-        if: ${{ !cancelled() && steps.f.outputs.model_floor_guard == 'true' }}
-        env:
-          QNFO_WORKERS: ${{ github.workspace }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set +e
-          LIVE=""
-          BASE=""
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}" > /dev/null 2>&1
-            git worktree add --detach "$RUNNER_TEMP/floor-base" "${{ github.event.pull_request.base.sha }}" > /dev/null 2>&1
-            BASE="--base $RUNNER_TEMP/floor-base"
-          elif [ "${{ github.event_name }}" != "push" ]; then
-            LIVE="--live"
-          fi
-          node scripts/model-floor-guard.mjs $LIVE $BASE > floor-report.txt 2>&1
-          rc=$?
-          { echo '### model-floor-guard'; echo "exit code: $rc"; echo '```'; head -c 60000 floor-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          head -40 floor-report.txt
-          exit $rc
-
-      # ---- workflow-lint: steps of .github/workflows/workflow-lint.yml ----
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-        with:
-          python-version: "3.11"
-
-      - run: pip install --quiet pyyaml
-        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-
-      - name: Lint every workflow file (fail closed)
-        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-        run: python3 scripts/workflow-lint.py
-
-      - name: STATUS-NOOP-SKIP-1 self-test (skip stamp-only status commits, never an outcome change)
-        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-        run: python3 scripts/status_unchanged_test.py
-
-      - name: SECRET-LOCK-ENFORCE-1 guard (fail CI when a secrets or bindings mutation skips the secret-lock)
-        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-        run: python3 scripts/secret-mutation-guard.py
-
-      - name: SECRET-LOCK-ENFORCE-1 offline tests
-        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-        run: bash scripts/stop-commands.sh python3 scripts/secret-mutation-guard_test.py
-
-      - name: CANONICAL-DEPLOY-SKIP-1 offline tests (a refused creation of an absent worker is a skip, any other failure still fails)
-        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
-        run: python3 scripts/canonical_deploy_skip_test.py
-
-      # FLEET-SHARED-LIBRARY-1 catalog: docs/INDEX.md and docs/agent-catalog.json hash every tracked system document, so a pull request that adds or edits one must regenerate them
-      # (docs/agent-library.test.mjs was red on main 2026-11-04 after four doc additions and a CLAUDE.md edit, because only the post-merge sweep checked it).
-      - name: Agent documentation catalog is current (run node scripts/build-agent-catalog.mjs when this fails)
-        if: ${{ !cancelled() && steps.f.outputs.docs_catalog == 'true' }}
-        run: node scripts/build-agent-catalog.mjs --check
-
-  # migration, charter and the small offline suites, each only when its paths change
-  suites:
-    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
+      # ---- the former `suites` job, folded in so a pull request shows one check fewer (PR-CHECK-CAP-5-1: the lane shows twice, once per event) ----
       - name: Match changed files to guards
         id: f
         run: |
@@ -499,7 +377,7 @@ jobs:
 
       - name: Resolve the diff range
         if: ${{ !cancelled() && steps.f.outputs.charter_guard == 'true' }}
-        id: range
+        id: charter_range
         run: |
           set -euo pipefail
           HEAD_SHA='${{ github.sha }}'
@@ -518,7 +396,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/charter-guard.py
-          python3 scripts/charter-guard.py "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+          python3 scripts/charter-guard.py "${{ steps.charter_range.outputs.base }}" "${{ steps.charter_range.outputs.head }}"
 
       # ---- code-loop-test: steps of .github/workflows/code-loop-test.yml ----
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -615,3 +493,118 @@ jobs:
             node --no-warnings "$s" || fail=1
           done
           exit "$fail"
+
+
+  # identity lexicon always; worker prompt, model floor and workflow lint when their paths change
+  scans:
+    # RUNNER-PIN-2 (2026-11-04): pinned to ubuntu-24.04 because ubuntu-latest moves to Ubuntu 26 until 2026-11-19; unpin after a green trial run on ubuntu-26.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Match changed files to guards
+        id: f
+        run: |
+          set -eu
+          git diff --name-only HEAD^1 HEAD > files.txt
+          wc -l < files.txt
+          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/adversarial-workers-guard\.py$|^\.github/workflows/adversarial-workers-guard\.yml$' files.txt; then echo 'adversarial_workers_guard=true' >> "$GITHUB_OUTPUT"; else echo 'adversarial_workers_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^[^/]+/(worker\.js|deployed-current\.worker\.js)$|^scripts/model-floor-guard\.mjs$|^\.github/workflows/model-floor-guard\.yml$' files.txt; then echo 'model_floor_guard=true' >> "$GITHUB_OUTPUT"; else echo 'model_floor_guard=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^\.github/workflows/|^scripts/[^/]*\.py$|^scripts/secret-mutation-allowlist\.txt$' files.txt; then echo 'workflow_lint=true' >> "$GITHUB_OUTPUT"; else echo 'workflow_lint=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^docs/|^CLAUDE\.md$|^AGENTS\.md$|^llms\.txt$|^\.github/(copilot-instructions\.md|agents/)|^[^/]+/README\.md$|^scripts/build-agent-catalog\.mjs$' files.txt; then echo 'docs_catalog=true' >> "$GITHUB_OUTPUT"; else echo 'docs_catalog=false' >> "$GITHUB_OUTPUT"; fi
+
+      # ---- identity-guard: steps of .github/workflows/identity-guard.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          python-version: "3.11"
+
+      - name: Identity lexicon guard
+        if: ${{ !cancelled() }}
+        run: python3 scripts/identity-guard.py .
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          node-version: "22"
+
+      - name: Bluesky profile sync offline suite (qnfo-social)
+        if: ${{ !cancelled() }}
+        run: node qnfo-social/profile-sync.test.mjs
+
+      # ---- adversarial-workers-guard: steps of .github/workflows/adversarial-workers-guard.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.adversarial_workers_guard == 'true' }}
+        with:
+          python-version: "3.11"
+
+      - name: ADVERSARIAL-REASONING-1 on core worker prompt surfaces (fail-closed)
+        if: ${{ !cancelled() && steps.f.outputs.adversarial_workers_guard == 'true' }}
+        run: python3 scripts/adversarial-workers-guard.py
+
+      # ---- model-floor-guard: steps of .github/workflows/model-floor-guard.yml ----
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.model_floor_guard == 'true' }}
+        with:
+          node-version: "20"
+
+      - name: Scan repo sources and live bundles
+        if: ${{ !cancelled() && steps.f.outputs.model_floor_guard == 'true' }}
+        env:
+          QNFO_WORKERS: ${{ github.workspace }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          LIVE=""
+          BASE=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}" > /dev/null 2>&1
+            git worktree add --detach "$RUNNER_TEMP/floor-base" "${{ github.event.pull_request.base.sha }}" > /dev/null 2>&1
+            BASE="--base $RUNNER_TEMP/floor-base"
+          elif [ "${{ github.event_name }}" != "push" ]; then
+            LIVE="--live"
+          fi
+          node scripts/model-floor-guard.mjs $LIVE $BASE > floor-report.txt 2>&1
+          rc=$?
+          { echo '### model-floor-guard'; echo "exit code: $rc"; echo '```'; head -c 60000 floor-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          head -40 floor-report.txt
+          exit $rc
+
+      # ---- workflow-lint: steps of .github/workflows/workflow-lint.yml ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        with:
+          python-version: "3.11"
+
+      - run: pip install --quiet pyyaml
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+
+      - name: Lint every workflow file (fail closed)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/workflow-lint.py
+
+      - name: STATUS-NOOP-SKIP-1 self-test (skip stamp-only status commits, never an outcome change)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/status_unchanged_test.py
+
+      - name: SECRET-LOCK-ENFORCE-1 guard (fail CI when a secrets or bindings mutation skips the secret-lock)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/secret-mutation-guard.py
+
+      - name: SECRET-LOCK-ENFORCE-1 offline tests
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: bash scripts/stop-commands.sh python3 scripts/secret-mutation-guard_test.py
+
+      - name: CANONICAL-DEPLOY-SKIP-1 offline tests (a refused creation of an absent worker is a skip, any other failure still fails)
+        if: ${{ !cancelled() && steps.f.outputs.workflow_lint == 'true' }}
+        run: python3 scripts/canonical_deploy_skip_test.py
+
+      # FLEET-SHARED-LIBRARY-1 catalog: docs/INDEX.md and docs/agent-catalog.json hash every tracked system document, so a pull request that adds or edits one must regenerate them
+      # (docs/agent-library.test.mjs was red on main 2026-11-04 after four doc additions and a CLAUDE.md edit, because only the post-merge sweep checked it).
+      - name: Agent documentation catalog is current (run node scripts/build-agent-catalog.mjs when this fails)
+        if: ${{ !cancelled() && steps.f.outputs.docs_catalog == 'true' }}
+        run: node scripts/build-agent-catalog.mjs --check

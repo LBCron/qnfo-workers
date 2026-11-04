@@ -464,8 +464,9 @@ def main() -> int:
         if os.path.basename(p) not in allowed_pr and any(e in ("pull_request", "pull_request_target") for e in evs):
             bad.append(f"{p}: TWO-PR-WORKFLOWS-1 -- triggers on a pull request; call it from pr-checks.yml with workflow_call instead")
     # PR-CHECK-CAP-5-1 (2026-11-04, owner directive: a pull request shows at most five checks, never 23): every job of pr-checks.yml and pr-lane.yml is one entry on the
-    # pull request, a skipped one included, and every job of a reusable workflow it calls is one more. Cloudflare's "Workers Builds" is the fifth entry, so the two files hold at
-    # most four jobs between them and none calls a reusable workflow. A new guard is a step in `versions`, `scans` or `suites`, never a job.
+    # pull request, a skipped one included, and every job of a reusable workflow it calls is one more. pr-lane.yml runs twice per head sha (the pull_request_target event and pr-checks completing),
+    # so its job shows twice (PR 7178, 2026-11-04: six entries with three pr-checks jobs). Cloudflare's "Workers Builds" is one entry, which leaves four: pr-checks jobs plus twice the pr-lane jobs
+    # at most four, and none calls a reusable workflow. A new guard is a step in `versions` or `scans`, never a job.
     pr_jobs = 0
     for p in files:
         if os.path.basename(p) not in allowed_pr:
@@ -476,12 +477,16 @@ def main() -> int:
         except yaml.YAMLError:
             continue
         jobs = (d.get("jobs") or {}) if isinstance(d, dict) else {}
-        pr_jobs += len(jobs)
+        pr_jobs += len(jobs) * (2 if os.path.basename(p) == "pr-lane.yml" else 1)
+        for jn, jv in jobs.items():
+            ids = [s.get("id") for s in (jv.get("steps") or []) if isinstance(s, dict) and s.get("id")] if isinstance(jv, dict) else []
+            for dup in sorted({i for i in ids if ids.count(i) > 1}):
+                bad.append(f"{p}: PR-CHECK-CAP-5-1 -- job `{jn}` has two steps with id `{dup}`; GitHub refuses the whole file (PR 7185: no pull_request run started), rename one")
         for jn, jv in jobs.items():
             if isinstance(jv, dict) and "uses" in jv:
                 bad.append(f"{p}: PR-CHECK-CAP-5-1 -- job `{jn}` calls a reusable workflow, which adds one pull request check per called job (and per skipped one); inline its steps")
     if pr_jobs > 4:
-        bad.append(f"pr-checks.yml and pr-lane.yml: PR-CHECK-CAP-5-1 -- {pr_jobs} jobs; a pull request may show at most 5 checks (Workers Builds plus 4 jobs)")
+        bad.append(f"pr-checks.yml and pr-lane.yml: PR-CHECK-CAP-5-1 -- {pr_jobs} check entries (pr-lane counts twice); a pull request may show at most 5 checks (Workers Builds plus 4)")
     if bad:
         print(f"=== WORKFLOW-LINT FAILED: {len(bad)} invalid workflow file(s) ===")
         for b in bad:

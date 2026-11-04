@@ -7,14 +7,16 @@ name: pr-lane
 # qnfo-fleet-control also runs every 10 minutes), and the merge (was merge-when-ready.yml, MERGE-WHEN-READY-1). Runs from main (pull_request_target and workflow_run both do);
 # the only values taken from the event are the pull request number, its base ref and its draft flag; QNFO_GH_PAT reaches the fallback review step and the merge step only.
 # Readiness (merge step): open, not a draft, into main, no `hold` label, no comment starting HOLD:, and every check run on the head sha outside the own list concluded
-# green, with at least 3 present (versions, scans, suites). The own list holds `lane` itself (it is running while it reads the list), Workers Builds, CodeQL, and the retired names.
+# green, with at least 2 present (versions, scans). The own list holds `lane` itself (it is running while it reads the list), Workers Builds, CodeQL, and the retired names.
 # LANE-ADVISORY-JOBS-1 still holds: a cancelled or running advisory entry never makes a pull request wait. The merge is pinned to the checked head sha.
 # Style: step names colon-free, no heredocs, no inline python, inputs travel through env (workflow-lint.py).
+# Events: only opened, reopened, synchronize and ready_for_review start this workflow from a pull request. review_requested, assigned and edited each added another `lane` entry to the same head sha
+# (the lane's own review request fires review_requested); the pr-checks completion adds the second entry a pull request shows.
 # Revert: git revert the PR-CHECK-CAP-5-1 commit (restores merge-when-ready.yml, request-copilot-review.yml and the four-job lane).
 
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, review_requested, assigned, edited]
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_run:
     workflows: [pr-checks]
     types: [completed]
@@ -157,7 +159,7 @@ jobs:
           pending="$(printf '%s' "$runs" | jq '[.[] | select(.status != "completed")] | length')"
           bad="$(printf '%s' "$runs" | jq '[.[] | select(.status == "completed" and (.conclusion | IN("success", "skipped", "neutral") | not))] | length')"
           echo "checks=$total pending=$pending failed=$bad"
-          if [ "$total" -lt 3 ] || [ "$pending" != "0" ] || [ "$bad" != "0" ]; then
+          if [ "$total" -lt 2 ] || [ "$pending" != "0" ] || [ "$bad" != "0" ]; then
             echo "waiting for a later guard to conclude, or a check failed"
             exit 0
           fi

@@ -123,7 +123,7 @@ ok(checkProblems({ ...cfg, required_checks: ["deploy-gate / gate", "nonesuch"] }
 // the real repository: the committed config names checks real pull_request jobs always produce
 const real = checkProblems(loadConfig(repoRoot), repoRoot);
 ok(real.length === 0, "the committed config's required checks are produced by unfiltered pull_request workflows in this repository", real);
-ok(JSON.stringify(loadConfig(repoRoot).required_checks) === JSON.stringify(["versions", "scans", "suites"]), "the declared checks are the three jobs of pr-checks (agent_issues 2927, PR-CHECK-CAP-5-1)");
+ok(JSON.stringify(loadConfig(repoRoot).required_checks) === JSON.stringify(["versions", "scans"]), "the declared checks are the two jobs of pr-checks (agent_issues 2927, PR-CHECK-CAP-5-1)");
 
 // payload
 const desired = buildRuleset(cfg, [{ slug: "qnfo-fleet", actor_id: 424242 }]);
