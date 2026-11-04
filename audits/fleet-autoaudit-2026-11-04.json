@@ -1,13 +1,25 @@
 {
-  "audited_at": "2026-11-04 15:02:21",
-  "d1_write_failures": [
-    [
-      "personal-events-radar",
-      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
-    ]
-  ],
-  "d1_writes_ok": 128,
+  "audited_at": "2026-11-04 15:13:40",
+  "d1_write_failures": [],
+  "d1_writes_ok": 129,
   "guard": {
+    "_deploy_settle": {
+      "settled": [
+        "qnfo-research-exec"
+      ],
+      "waited_for": [
+        "qnfo-research-exec"
+      ]
+    },
+    "_drift_confirm": {
+      "first_pass": [
+        "qnfo-code-orchestrator"
+      ],
+      "refreshed": true,
+      "second_pass": [
+        "qnfo-research-exec"
+      ]
+    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -552,7 +564,7 @@
     "retired_present": [],
     "retired_present_count": 0,
     "scope": "all",
-    "sync": 36,
+    "sync": 35,
     "sync_workers": [
       {
         "dir": "idea-hub",
@@ -591,7 +603,7 @@
       },
       {
         "dir": "qnfo-ai",
-        "version": "5.45.0-codeagent",
+        "version": "5.45.1-codeagent",
         "worker": "qnfo-ai"
       },
       {
@@ -611,7 +623,7 @@
       },
       {
         "dir": "qnfo-code-orchestrator",
-        "version": "0.37.4-codeagent",
+        "version": "0.37.5-codeagent",
         "worker": "qnfo-code-orchestrator"
       },
       {
@@ -705,11 +717,6 @@
         "worker": "qnfo-pdf"
       },
       {
-        "dir": "qnfo-research-exec",
-        "version": "0.46.0",
-        "worker": "qnfo-research-exec"
-      },
-      {
         "dir": "qnfo-social",
         "version": "0.21.14-codeagent",
         "worker": "qnfo-social"
@@ -733,6 +740,10 @@
         "dir": "radar-hub",
         "version": "1.5.1-heartbeat-retry",
         "worker": "radar-hub"
+      },
+      {
+        "version": "0.48.0",
+        "worker": "qnfo-research-exec"
       }
     ],
     "unmanaged_route_drift": [
@@ -1117,9 +1128,9 @@
       "worker": "qnfo-agents"
     },
     "qnfo-ai": {
-      "before": "5.45.0-codeagent",
+      "before": "5.45.1-codeagent",
       "http": 200,
-      "live": "5.45.0-codeagent",
+      "live": "5.45.1-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai"
@@ -1293,9 +1304,9 @@
       "worker": "qnfo-code-agent"
     },
     "qnfo-code-orchestrator": {
-      "before": "0.37.4-codeagent",
+      "before": "0.37.5-codeagent",
       "http": 200,
-      "live": "0.37.4-codeagent",
+      "live": "0.37.5-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-code-orchestrator"
@@ -1687,9 +1698,9 @@
       "worker": "qnfo-register-guard"
     },
     "qnfo-research-exec": {
-      "before": "0.46.0",
+      "before": "0.48.0",
       "http": 200,
-      "live": "0.46.0",
+      "live": "0.48.0",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-research-exec"
@@ -1875,5 +1886,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
