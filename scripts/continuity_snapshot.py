@@ -28,6 +28,7 @@ D1-EXPORT-BEYOND-TIME-TRAVEL-1 (issue 2371, 2026-10-13, pillar core; doctrine se
       content is printed.
 """
 import gzip
+import calendar
 import hashlib
 import io
 import json
@@ -58,6 +59,28 @@ PART_ROWS = 20000
 EXPORT_MAX_AGE_DAYS = 6
 EXPORT_BUDGET_SEC = float(os.environ.get("EXPORT_BUDGET_SEC") or 270)
 _STARTED = time.time()
+
+
+RETRY_DELAYS = (2, 4, 8, 16, 32)
+EXPORT_RETRY_MAX = 3
+EXPORT_REOPEN_DAYS = 3
+
+
+def retrying(fn, sleep=None):
+    """BACKUP-RETRY-1 (2026-11-04): D1 answers a burst with HTTP 429 (and Cloudflare with 5xx). Every qnfo-audit export since
+    2026-10-20 ended ok=0 on a 429 for one table (code_tasks), and 4 of 6 daily snapshots on 2026-11-04 did the same: the first
+    error was recorded and never retried. A transient answer is retried with exponential backoff; anything else raises at once."""
+    def wrapped(*a, **k):
+        for i in range(len(RETRY_DELAYS) + 1):
+            try:
+                return fn(*a, **k)
+            except Exception as e:  # noqa: BLE001
+                m = str(e)
+                transient = "HTTP 429" in m or "HTTP 5" in m or "timed out" in m.lower() or "overloaded" in m.lower()
+                if not transient or i == len(RETRY_DELAYS):
+                    raise
+                (sleep or time.sleep)(RETRY_DELAYS[i])
+    return wrapped
 
 
 def cf(method, path, body=None, ctype=None, timeout=60):
@@ -165,6 +188,12 @@ def daily(argv, d1, plane, call=cf, out_dir=None):
         total += len(rows)
         size += len(data)
         digest.update(data)
+    try:
+        names = ",".join("'%s'" % t for t in STATE_TABLES)
+        r2_put(prefix + "_schema.jsonl.gz", gz_lines(d1("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND "
+                                                         "(name IN (%s) OR tbl_name IN (%s)) ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name" % (names, names))), call)
+    except Exception as e:  # noqa: BLE001 - the data is already stored; the drill falls back to the live schema
+        errors.append("schema: %s" % str(e)[:80])
     ok = 1 if (not errors and bm) else 0
     note = "; ".join(errors)[:400] or ("ok" if bm else "no time-travel bookmark")
     try:
@@ -216,6 +245,10 @@ def export_query(d1, plane, database):
 def list_tables(q):
     rows = q("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name")
     return [r["name"] for r in rows if r.get("name")]
+
+
+SCHEMA_SQL = ("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' "
+              "AND name NOT LIKE '_cf_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name")
 
 
 def export_table(q, table, st, put, deadline):
@@ -273,13 +306,24 @@ def export_table(q, table, st, put, deadline):
 
 def export_database(d1, plane, database, call, deadline):
     """Exports one database, resuming from its progress file. Returns 'skipped', 'paused' or 'done'."""
-    recent = d1("SELECT id FROM continuity_snapshots WHERE r2_prefix LIKE ?1 AND ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?2) LIMIT 1",
+    recent = d1("SELECT id FROM continuity_snapshots WHERE ok = 1 AND r2_prefix LIKE ?1 AND ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?2) LIMIT 1",
                 [BUCKET + "/export/" + database + "/%", "-%d days" % EXPORT_MAX_AGE_DAYS])
     if recent:
         return "skipped"
     q = export_query(d1, plane, database)
     pkey = "export/%s/_progress.json" % database
     prog = r2_get_json(pkey, call)
+    if prog and prog.get("complete") and prog.get("errors") and prog.get("stamp") and int(prog.get("retries") or 0) < EXPORT_RETRY_MAX:
+        # BACKUP-REOPEN-1: a finished run with failed tables (ok=0) is reopened for those tables only, while it is young enough
+        # that the rest of the export is still a consistent copy; before this a partial export stood until the next week.
+        try:
+            age = (time.time() - calendar.timegm(time.strptime(prog["stamp"], "%Y%m%d"))) / 86400.0
+        except ValueError:
+            age = 99
+        if age <= EXPORT_REOPEN_DAYS:
+            for t in list(prog["errors"]):
+                prog["tables"][t] = {}
+            prog["errors"], prog["complete"], prog["retries"] = {}, False, int(prog.get("retries") or 0) + 1
     if not prog or prog.get("complete") or not prog.get("stamp"):
         prog = {"database": database, "stamp": time.strftime("%Y%m%d", time.gmtime()), "tables": {}, "errors": {}}
     prefix = "export/%s/%s/" % (database, prog["stamp"])
@@ -288,6 +332,12 @@ def export_database(d1, plane, database, call, deadline):
 
     def put(name, data):
         return r2_put_obj(prefix + name, data, "application/gzip", call)
+
+    if not prog.get("schema_saved"):
+        # RESTORE-SCHEMA-1: rows alone cannot rebuild a database; the DDL goes beside them so a restore needs nothing else.
+        if not put("_schema.jsonl.gz", gz_lines(q(SCHEMA_SQL))):
+            raise RuntimeError("r2 put refused for _schema.jsonl.gz")
+        prog["schema_saved"] = True
 
     def save():
         if not r2_put_obj(pkey, json.dumps(prog, sort_keys=True).encode("utf-8"), "application/json", call):
@@ -363,7 +413,7 @@ def export_step(d1, plane, call=cf, deadline=None):
 
 def main(argv=None, d1=None, plane=None, call=cf, out_dir=None, deadline=None):
     argv = argv if argv is not None else sys.argv[1:]
-    d1, plane = d1 or RC.d1, plane or RC.d1_plane
+    d1, plane = retrying(d1 or RC.d1), retrying(plane or RC.d1_plane)
     daily(argv, d1, plane, call, out_dir)
     if "--no-export" not in argv:
         export_step(d1, plane, call, deadline)
@@ -501,6 +551,34 @@ INSERT INTO tags VALUES ('a', '1'), ('b', '2'), ('c', '3');
         # 6. export rows never satisfy the daily snapshot's 20-hour freshness check.
         c.execute("DELETE FROM continuity_snapshots WHERE r2_prefix LIKE 'qnfo-backups/continuity/%'")
         assert not d1("SELECT id FROM continuity_snapshots WHERE ok = 1 AND r2_prefix LIKE ?1", [BUCKET + "/continuity/%"])
+        # 7. BACKUP-RETRY-1 / BACKUP-REOPEN-1: a 429 is retried; a finished run with a failed table is reopened for that table only.
+        calls = {"n": 0}
+
+        def flaky(sql, params=None):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise RuntimeError("HTTP 429 from https://api.cloudflare.com/x: overloaded")
+            return [{"ok": 1}]
+        naps = []
+        assert retrying(flaky, sleep=naps.append)("x") == [{"ok": 1}] and naps == [2, 4], naps
+        try:
+            retrying(lambda: (_ for _ in ()).throw(RuntimeError("d1 error: no such table")), sleep=naps.append)()
+            raise AssertionError("a non-transient error must raise at once")
+        except RuntimeError:
+            assert naps == [2, 4]
+        stamp2 = time.strftime("%Y%m%d", time.gmtime())
+        pk = "export/living-paper/_progress.json"
+        c.execute("DELETE FROM continuity_snapshots WHERE r2_prefix LIKE 'qnfo-backups/export/living-paper/%'")
+        prog = json.loads(store[pk].decode("utf-8"))
+        prog["errors"], prog["complete"] = {"tags": "HTTP 429 from x"}, True
+        prog["tables"]["tags"] = {"done": True, "exported": 0, "live": 3}
+        store[pk] = json.dumps(prog).encode("utf-8")
+        EXPORT_DATABASES = ["living-paper"]
+        assert export_step(d1, plane, call, deadline=time.time() + 600) == {"living-paper": "done"}
+        again = d1("SELECT ok, integrity FROM continuity_snapshots WHERE r2_prefix LIKE 'qnfo-backups/export/living-paper/%'")
+        assert again == [{"ok": 1, "integrity": 1.0}], again
+        assert json.loads(store[pk].decode("utf-8"))["retries"] == 1 and "export/living-paper/%s/_schema.jsonl.gz" % stamp2 in store
+        assert any(r["name"] == "papers" for r in lines("export/living-paper/%s/_schema.jsonl.gz" % stamp2))
         try:
             export_query(d1, plane, "qnfo-identity")
             raise AssertionError("qnfo-identity must be refused")

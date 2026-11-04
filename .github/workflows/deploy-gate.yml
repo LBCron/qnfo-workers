@@ -1101,6 +1101,10 @@ jobs:
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         if: ${{ !cancelled() }}
         run: python3 scripts/continuity_snapshot.py --selftest
+      - name: d1_restore_drill selftest (scripts/d1_restore_drill.py)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() }}
+        run: python3 scripts/d1_restore_drill.py --selftest
       # GENERATED-BUNDLE-AUDIT-1 (agent_issues 2758): the fleet best-practices audit judges a generated bundle by its src/ files; its offline selftest ran in no gate before.
       - name: fleet_best_practices_audit selftest (scripts/fleet_best_practices_audit.py)
         continue-on-error: ${{ github.event_name == 'pull_request' }}

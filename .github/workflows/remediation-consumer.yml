@@ -202,6 +202,16 @@ jobs:
         run: |
           python3 scripts/continuity_snapshot.py --selftest && python3 scripts/continuity_snapshot.py
 
+      # RESTORE-DRILL-1 (2026-11-04): weekly, restores the newest R2 exports into a scratch D1 database and compares counts
+      # (scripts/d1_restore_drill.py, table d1_restore_drills). Never fails the job; the failure mode detectors read the table.
+      - name: Restore drill from R2 into a scratch D1
+        id: restore-drill
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          python3 scripts/d1_restore_drill.py --selftest && python3 scripts/d1_restore_drill.py
+
       - name: Upload the public-safe continuity snapshot
         if: always() && hashFiles('continuity-snapshot/*.jsonl.gz') != ''
         continue-on-error: true
