@@ -6,7 +6,7 @@ var PROTOCOL_VERSION = "2024-11-05";
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var NL = String.fromCharCode(10);
 var SERVER_NAME = "qnfo-memory-mcp";
-var VERSION = "2.7.1"; /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
+var VERSION = "2.7.2"; /* 2.7.2: Batch semantic memory D1 enrichment to one query per search. */ /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
 // NO-REGISTRAR-1: a DOI under the dead 10.5281 prefix is never returned; third-party DOIs pass through.
 function nozDoi(d) { return d && !/10\.5281\//.test(String(d)) ? d : null; }
 var SERVER_VERSION = VERSION;
@@ -170,12 +170,17 @@ async function tool_search_memories(args, env) {
   const res = await env.PAPER_VZ.query(vec, { topK: Math.min(limit * 5, 50), returnMetadata: "all", returnValues: false });
   let matches = (res.matches || []).filter((m) => m.id.startsWith("mem:"));
   if (category) matches = matches.filter((m) => m.id.startsWith("mem:" + category + ":"));
-  const results = [];
-  for (const m of matches.slice(0, limit)) {
+  const selected = matches.slice(0, limit);
+  const records = new Map();
+  if (selected.length) {
     const rec = await env.GRAPH_DB.prepare(
-      "SELECT id, category, content, summary, importance, session_id, created_at FROM agent_memories WHERE id = ?1"
-    ).bind(m.id).first().catch(() => null);
-    results.push({
+      "SELECT id, category, content, summary, importance, session_id, created_at FROM agent_memories WHERE id IN (SELECT value FROM json_each(?1))"
+    ).bind(JSON.stringify(selected.map((m) => m.id))).all().catch(() => ({ results: [] }));
+    for (const row of rec.results || []) records.set(row.id, row);
+  }
+  const results = selected.map((m) => {
+    const rec = records.get(m.id);
+    return {
       id: m.id,
       score: m.score,
       category: rec?.category || m.metadata?.category || null,
@@ -184,8 +189,8 @@ async function tool_search_memories(args, env) {
       importance: rec?.importance || null,
       session_id: rec?.session_id || null,
       created_at: rec?.created_at || null
-    });
-  }
+    };
+  });
   return { content: [{ type: "text", text: JSON.stringify({ count: results.length, results }) }] };
 }
 __name(tool_search_memories, "tool_search_memories");
