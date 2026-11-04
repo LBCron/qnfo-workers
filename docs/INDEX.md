@@ -343,6 +343,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-agents](../qnfo-agents/README.md) - `qnfo-agents/README.md`
 - [qnfo-agents/releases/0.7.2.md](../qnfo-agents/releases/0.7.2.md) - `qnfo-agents/releases/0.7.2.md`
 - [qnfo-ai-calibration](../qnfo-ai-calibration/README.md) - `qnfo-ai-calibration/README.md`
+- [qnfo-ai-calibration 1.6.12 (2026-11-04)](../qnfo-ai-calibration/releases/1.6.12.md) - `qnfo-ai-calibration/releases/1.6.12.md`
 - [qnfo-ai-search (ask.qwav.tech)](../qnfo-ai-search/README.md) - `qnfo-ai-search/README.md`
 - [Chatbox (Windows) — Full QNFO Setup](../qnfo-ai/CHATBOX-SETUP.md) - `qnfo-ai/CHATBOX-SETUP.md`
 - [QNFO Notes API — Quickstart (2026-08-28)](../qnfo-ai/QUICKSTART.md) - `qnfo-ai/QUICKSTART.md`
@@ -380,6 +381,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-fleet-deploy — fleet self-heal control plane](../qnfo-fleet-deploy/README.md) - `qnfo-fleet-deploy/README.md`
 - [qnfo-gateway — QNFO site router (papers.qnfo.org, ideas, archive, ipatent, graph-api, legal)](../qnfo-gateway/README.md) - `qnfo-gateway/README.md`
 - [qnfo-gateway 3.55.0-codeagent (2026-11-04)](../qnfo-gateway/releases/3.55.0-codeagent.md) - `qnfo-gateway/releases/3.55.0-codeagent.md`
+- [qnfo-gateway 3.56.1-codeagent (2026-11-04)](../qnfo-gateway/releases/3.56.1-codeagent.md) - `qnfo-gateway/releases/3.56.1-codeagent.md`
 - [qnfo-github-steward](../qnfo-github-steward/README.md) - `qnfo-github-steward/README.md`
 - [qnfo-idea-factory — QNFO Ideas (ideas.qnfo.org)](../qnfo-idea-factory/README.md) - `qnfo-idea-factory/README.md`
 - [qnfo-intent-orchestrator](../qnfo-intent-orchestrator/README.md) - `qnfo-intent-orchestrator/README.md`
@@ -427,6 +429,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-venue-radar](../qnfo-venue-radar/README.md) - `qnfo-venue-radar/README.md`
 - [qnfo-web-unified — the QNFO design system (QDS-1, 2026-10-02)](../qnfo-web-unified/README.md) - `qnfo-web-unified/README.md`
 - [qnfo-youtube-shorts 0.5.0-oauth (2026-11-04)](../qnfo-youtube-shorts/releases/0.5.0-oauth.md) - `qnfo-youtube-shorts/releases/0.5.0-oauth.md`
+- [qnfo-youtube-shorts 0.5.1-oauth (2026-11-04)](../qnfo-youtube-shorts/releases/0.5.1-oauth.md) - `qnfo-youtube-shorts/releases/0.5.1-oauth.md`
 - [research-code](../research-code/README.md) - `research-code/README.md`
 - [agentic-collapse](../research-code/agentic-collapse/README.md) - `research-code/agentic-collapse/README.md`
 - [ignorance-audit](../research-code/ignorance-audit/README.md) - `research-code/ignorance-audit/README.md`
