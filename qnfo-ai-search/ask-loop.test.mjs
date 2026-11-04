@@ -62,7 +62,8 @@ async function gatewayFetch(u) {
 const ideasFetch = async () => new Response(JSON.stringify({ sessions: [{ id: "t-1", title: "Energy per correct answer: what does JPCUB measure in LLM benchmarks?", message_count: 2, updated_at: "2026-10-01T00:00:00Z" }] }), { headers: { "content-type": "application/json" } });
 const uploads = [];
 const searchRequests = [];
-const AI_SEARCH = { get() { return { items: { async upload(key, text, opts) { uploads.push({ key, bytes: text.length, meta: opts && opts.metadata }); return { key }; } }, async search(request) { searchRequests.push(request); return { chunks: [{ score: 0.7, text: "# JPCUB for LLM Energy\n\nJPCUB is joules per correct answer.", item: { key: "jpcub-llm-energy.md" } }, { score: 0.65, text: "audit row", item: { key: "audit-test-002.md" } }] }; } }; }, async list() { return ["qnfo-corpus"]; } };
+let searchHook = null; // RAG-HYBRID-BASELINE-1: a section can make one retrieval arm return different chunks
+const AI_SEARCH = { get() { return { items: { async upload(key, text, opts) { uploads.push({ key, bytes: text.length, meta: opts && opts.metadata }); return { key }; } }, async search(request) { searchRequests.push(request); const hooked = searchHook && searchHook(request); if (hooked) return hooked; return { chunks: [{ score: 0.7, text: "# JPCUB for LLM Energy\n\nJPCUB is joules per correct answer.", item: { key: "jpcub-llm-energy.md" } }, { score: 0.65, text: "audit row", item: { key: "audit-test-002.md" } }] }; } }; }, async list() { return ["qnfo-corpus"]; } };
 const models = [];
 const AI = {
   async run(model, input) {
@@ -225,6 +226,55 @@ ok(models.includes("@cf/deepseek-ai/deepseek-v4-flash-0731"), "the judge is a di
   const ev2 = sq.prepare("SELECT detail FROM ask_evals WHERE kind = 'retrieval-champion' ORDER BY id DESC LIMIT 1").get();
   const defs = ev2 ? JSON.parse(ev2.detail).defs : null;
   ok(defs && defs["joules-per-solution-metric"] === 1 && defs["distinction-lattice-framework"] === 1, "the retrieval eval always includes the defined terms' golden questions and records their ranks: " + JSON.stringify(defs));
+}
+
+// 8a. RAG-HYBRID-BASELINE-1 (2.14.0, agent_issues 1000640): rerank is a retrieval parameter the daily golden-set loop A/Bs. The tick of
+// section 8 was the first with a usable golden set and no rerank pair on record, so its key was rerank: hybrid-plus-rerank (champion)
+// against hybrid alone (challenger), both arms carrying mean_ms, whether they rerank and how many rerank calls they made.
+{
+  const row = (kind) => sq.prepare("SELECT cfg, score, detail FROM ask_evals WHERE kind = ? ORDER BY id DESC LIMIT 1").get(kind);
+  const champ8 = row("retrieval-champion"), chal8 = row("retrieval-challenger");
+  const dc = JSON.parse(champ8.detail), dh = JSON.parse(chal8.detail);
+  ok(dh.change === "rerank=false", "with no rerank pair on record the daily retrieval key is rerank, challenger rerank=false: " + dh.change);
+  ok(dc.rerank === true && dc.rerank_calls === dc.n && dc.n >= 8 && typeof dc.mean_ms === "number", "the champion arm records rerank=true, one rerank call per golden question and its mean latency: " + champ8.detail);
+  ok(dh.rerank === false && dh.rerank_calls === 0 && typeof dh.mean_ms === "number", "the challenger arm records rerank=false, no rerank calls and its mean latency: " + chal8.detail);
+  const reqs = searchRequests.map((r) => r.ai_search_options.reranking);
+  ok(reqs.some((x) => x.enabled === false) && reqs.some((x) => x.enabled === true && x.model === "@cf/baai/bge-reranker-base"), "AI Search is asked with the reranker on for one arm and off for the other");
+  ok(searchRequests.every((r) => r.ai_search_options.retrieval.retrieval_type === "hybrid"), "both arms stay hybrid; only the rerank flag differs");
+  const snapshot = sq.prepare("SELECT value FROM pipeline_flags WHERE key='ask_config'").get().value;
+  const stored8 = JSON.parse(snapshot);
+  ok(stored8.champion.rerank === true && !stored8.champion.rerank_tuned, "an equal arm is not adopted by the win rule: the hybrid-plus-rerank baseline stays champion");
+  ok(sq.prepare("SELECT status FROM experiments WHERE id LIKE 'ASK-TUNE-R-%-rerank'").get().status === "rejected", "the rerank experiment is recorded with its decision");
+
+  // A rerank=false arm that wins by the existing rule (MRR +0.03) is adopted, survives the later saves of the same tick, and the live path then asks AI Search without the reranker.
+  // Dropping the recorded pair makes the rerank key due again, which keeps this deterministic without touching the clock.
+  sq.exec("DELETE FROM ask_evals WHERE kind IN ('retrieval-champion', 'retrieval-challenger')");
+  searchHook = (req) => {
+    const m = /Filler question number (\d+)/.exec(req.query);
+    return req.ai_search_options.reranking.enabled === false && m ? { chunks: [{ score: 0.9, text: "# Filler " + m[1] + "\n\nbody", item: { key: "filler-" + m[1] + ".md" } }] } : null;
+  };
+  await worker.scheduled({ scheduledTime: Date.UTC(2026, 9, 8, 3, 41) }, env, ctx);
+  await Promise.allSettled(waits.splice(0));
+  searchHook = null;
+  const winner = JSON.parse(row("retrieval-challenger").detail), loser = JSON.parse(row("retrieval-champion").detail);
+  ok(winner.change === "rerank=false" && winner.mrr >= loser.mrr + 0.03, "rerank=false scores above the baseline on a golden set it suits: " + winner.mrr + " vs " + loser.mrr);
+  ok(sq.prepare("SELECT status FROM experiments WHERE id LIKE 'ASK-TUNE-R-%-rerank'").get().status === "adopted", "the win is recorded as adopted");
+  const stored9 = JSON.parse(sq.prepare("SELECT value FROM pipeline_flags WHERE key='ask_config'").get().value);
+  ok(stored9.champion.rerank === false && stored9.champion.rerank_tuned === true && stored9.challenger && stored9.challenger.rerank === false, "an adopted rerank=false persists as rerank_tuned through the generation save of the same tick: " + JSON.stringify(stored9.champion));
+  const n0 = searchRequests.length;
+  await call("/api/ask", { query: "RAGB live: what does the adelic product formula say about statistics, concretely?" }, "5.5.5.5");
+  const live = searchRequests.slice(n0).map((r) => r.ai_search_options.reranking.enabled);
+  ok(live.length >= 1 && live.every((e) => e === false), "after the adoption a live question asks AI Search without the reranker: " + JSON.stringify(live));
+
+  // Put the section's starting state back for the sections below: the stored config, and the 60 s config cache (read once with the clock 2 minutes ahead).
+  sq.prepare("UPDATE pipeline_flags SET value = ? WHERE key = 'ask_config'").run(snapshot);
+  const realNow = Date.now;
+  Date.now = () => realNow() + 120000;
+  await call("/api/ask", { query: "RAGB reset: what does the adelic product formula say about statistics, concretely?" }, "5.5.5.6");
+  Date.now = realNow;
+  const reset = searchRequests.slice(-1)[0].ai_search_options.reranking.enabled;
+  ok(reset === true, "the restored baseline config asks with the reranker again");
+  sq.exec("DELETE FROM ask_events WHERE query LIKE 'RAGB %'");
 }
 
 // 8b. ASK-JUDGE-CONTEXT-1 (2.4.2, agent_issues 2165): the judge reads the excerpt text the writer read; only verdicts made

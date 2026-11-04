@@ -29,7 +29,8 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.13.0"; // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
+var VERSION = "2.14.0";
+// 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
 async function callModelWithRetry(url, payload, timeoutMs = 20000) {
@@ -88,10 +89,14 @@ var TUNE_SPACE = {
   kw_terms: [1, 2, 3],
   kw_title_score: [0.55, 0.62, 0.7],
   max_sources: [4, 6, 8],
+  // RAG-HYBRID-BASELINE-1 (2.14.0, agent_issues 1000640): hybrid retrieval with the cross-encoder reranker is the fixed baseline
+  // (rerank true); the daily golden-set loop scores it against hybrid alone (rerank false) with the same win rule as every other
+  // retrieval key. The earlier rerank entry (removed by the baseline change) was never read by corpusSearch, so its A/B compared a config with itself.
+  rerank: [false, true],
   model: ["@cf/zai-org/glm-5.3-flash", "@cf/qwen/qwen3.8-27b"],
   temperature: [0.2, 0.3, 0.5],
 };
-var RETRIEVAL_KEYS = ["retrieval_limit", "kw_terms", "kw_title_score", "max_sources"];
+var RETRIEVAL_KEYS = ["retrieval_limit", "kw_terms", "kw_title_score", "max_sources", "rerank"];
 var GENERATION_KEYS = ["model", "temperature"];
 var FALLBACK_MODEL = "@cf/zai-org/glm-5.3-flash";
 var FALLBACK_MODEL_2 = "@cf/zai-org/glm-5.3-flash";
@@ -234,6 +239,7 @@ var FIX_ANCHORS = {
 function params(c) {
   var o = { id: c.id };
   Object.keys(DEFAULT_CONFIG).forEach(function (k) { if (k !== "id") o[k] = c[k] !== undefined ? c[k] : DEFAULT_CONFIG[k]; });
+  if (c.rerank_tuned === true) o.rerank_tuned = true; // RAG-HYBRID-BASELINE-1: carries a rerank value the golden-set loop adopted through later adoptions
   return o;
 }
 
@@ -665,7 +671,10 @@ async function corpusSync(env) {
   out.remaining = Math.max(0, out.due - out.uploaded);
   return out;
 }
-async function corpusSearch(env, query, limit) {
+async function corpusSearch(env, query, limit, rerank) {
+  // RAG-HYBRID-BASELINE-1: hybrid (vector plus keyword, reciprocal-rank fusion) is always on; the cross-encoder rerank
+  // follows the config's rerank parameter (true unless the golden-set loop adopted false), so the loop can A/B the two arms.
+  var useRerank = rerank !== false;
   try {
     var r = await env.AI_SEARCH.get(DEFAULT_INSTANCE).search({
       query: query,
@@ -673,7 +682,7 @@ async function corpusSearch(env, query, limit) {
       returnMetadata: true,
       ai_search_options: {
         retrieval: { retrieval_type: "hybrid", fusion_method: "rrf" },
-        reranking: { enabled: true, model: "@cf/baai/bge-reranker-base" },
+        reranking: useRerank ? { enabled: true, model: "@cf/baai/bge-reranker-base" } : { enabled: false },
       },
     });
     return (r && (r.chunks || r.data)) || [];
@@ -687,7 +696,7 @@ async function retrieve(env, query, cfg) {
   var defs = glossaryHits(query);
   var t0 = Date.now();
   var catP = deadline(catalogIndex(env), CATALOG_WAIT_MS, "catalog").catch(function () { return null; });
-  var res = await Promise.all([corpusSearch(env, query, cfg.retrieval_limit)].concat(terms.map(function (t) { return up(env, "GATEWAY", UP.papers, "/papers?format=json&limit=4&search=" + encodeURIComponent(t), null, 8000); })).concat(defs.map(function (d) { return pinPaper(env, d.slug, query); })));
+  var res = await Promise.all([corpusSearch(env, query, cfg.retrieval_limit, cfg.rerank)].concat(terms.map(function (t) { return up(env, "GATEWAY", UP.papers, "/papers?format=json&limit=4&search=" + encodeURIComponent(t), null, 8000); })).concat(defs.map(function (d) { return pinPaper(env, d.slug, query); })));
   var chunks = res[0], kw = res.slice(1, 1 + terms.length), defined = res.slice(1 + terms.length);
   var groups = new Map();
   // Keyword pass over published titles/abstracts: catches acronyms (JPCUB, PaQit) vector search ranks poorly.
@@ -772,6 +781,7 @@ async function retrieve(env, query, cfg) {
   }
   var out = ranked.slice(0, cfg.max_sources).map(function (x, i) { return Object.assign(x, { n: i + 1 }); });
   out.ms = Date.now() - t0;
+  out.rerank_calls = cfg.rerank !== false ? 1 : 0; // RAG-HYBRID-BASELINE-1: one cross-encoder rerank per retrieval; the eval sums it into ask_evals.detail
   return out;
 }
 // SOURCE-VOICE-ASK-1 (2.5.1, agent_issues 2471, parent 2468; owner 2026-10-13: "Papers shall cite full texts, not merely
@@ -1013,8 +1023,11 @@ async function loadConfig(env) {
         if (j && j.challenger) v.challenger = Object.assign({}, v.champion, j.challenger);
       }
     } catch (e) { logErr("loadConfig ask_config", e); }
-    v.champion.rerank = true;
-    if (v.challenger) v.challenger.rerank = true;
+    // RAG-HYBRID-BASELINE-1: hybrid plus cross-encoder rerank is the fixed baseline, so a stored rerank value is honoured only when the
+    // golden-set loop adopted it (rerank_tuned, set by tuneRetrieval); a legacy rerank=false from before the baseline is normalized to true.
+    // A generation challenger never changes retrieval, so it follows the champion.
+    if (!(v.champion.rerank_tuned === true && typeof v.champion.rerank === "boolean")) v.champion.rerank = true;
+    if (v.challenger) v.challenger.rerank = v.champion.rerank;
     try {
       var gl = await d.prepare("SELECT value FROM pipeline_flags WHERE key='ask_glossary'").first();
       var gj = gl && gl.value ? JSON.parse(gl.value) : null;
@@ -1645,31 +1658,46 @@ function definedSlugs() {
   return Array.from(new Set(Object.keys(all).map(function (k) { return all[k]; })));
 }
 async function retrievalScore(env, cfg, golden) {
-  var rr = 0, hits = 0, ms = 0, defs = {}, dslugs = definedSlugs();
+  var rr = 0, hits = 0, ms = 0, defs = {}, dslugs = definedSlugs(), rerankCalls = 0;
   for (var i = 0; i < golden.length; i++) {
     var g = golden[i];
     var src = await retrieve(env, g.question, cfg);
     ms += src.ms || 0;
+    rerankCalls += src.rerank_calls || 0;
     var at = src.findIndex(function (s) { return s.slug === g.slug; });
     if (at >= 0) { rr += 1 / (at + 1); hits++; }
     if (dslugs.indexOf(g.slug) >= 0) defs[g.slug] = at + 1;
   }
   var n = golden.length || 1;
-  return { mrr: round(rr / n), recall: round(hits / n), mean_ms: Math.round(ms / n), n: golden.length, defs: defs };
+  // RAG-HYBRID-BASELINE-1: both arms of an ask_evals pair carry the mean retrieval latency (mean_ms), whether the arm reranks
+  // and how many cross-encoder rerank calls the eval made (rerank_calls), so a pair shows what the reranker costs next to what it gains.
+  return { mrr: round(rr / n), recall: round(hits / n), mean_ms: Math.round(ms / n), n: golden.length, defs: defs, rerank: cfg.rerank !== false, rerank_calls: rerankCalls };
 }
 // ---- IMPROVE: ASK-TUNE-1 retrieval (offline, on the golden set)
+// RAG-HYBRID-BASELINE-1: until an ask_evals pair for the rerank key is recorded with its rerank call counts, the daily key is
+// rerank (the other keys rotate as before), so the hybrid versus hybrid-plus-rerank result lands at the next daily tick and not up to
+// four days later; after that the keys rotate again and rerank is re-scored in turn.
+async function retrievalKey(d) {
+  var seen = true; // a failed read falls back to the rotation, never to rerank every day
+  try { seen = !!(await d.prepare("SELECT id FROM ask_evals WHERE kind = 'retrieval-challenger' AND json_extract(detail, '$.rerank_calls') IS NOT NULL AND json_extract(detail, '$.change') LIKE 'rerank=%' LIMIT 1").first()); }
+  catch (e) { logErr("retrievalKey rerank pair", e); }
+  return seen ? RETRIEVAL_KEYS[Math.floor(Date.now() / 864e5) % RETRIEVAL_KEYS.length] : "rerank";
+}
 async function tuneRetrieval(env) {
   var d = db(env);
   var conf = await loadConfig(env);
   var gold = (await d.prepare("SELECT slug, question FROM ask_golden WHERE " + GOLDEN_COMPLETE_SQL + " ORDER BY CASE WHEN slug IN (SELECT value FROM json_each(?1)) THEN 0 ELSE 1 END, RANDOM() LIMIT 16").bind(JSON.stringify(definedSlugs())).all()).results || [];
   if (gold.length < 8) return { skipped: "golden set has " + gold.length + " questions (needs 8)" };
   var champ = conf.champion;
+  // RAG-HYBRID-BASELINE-1: one unscored retrieval first. The first retrieval of a cold isolate waits for the catalog download, and the
+  // champion arm runs first, so on 2026-11-03 the same config read 6608 ms as champion and 2871 ms as challenger; the latency half of the win rule needs equal footing.
+  try { await retrieve(env, gold[0].question, champ); } catch (e) { logErr("tuneRetrieval warm-up", e); }
   var base = await retrievalScore(env, champ, gold);
   await d.prepare("INSERT INTO ask_evals (ts, kind, cfg, n, score, detail) VALUES (?1, 'retrieval-champion', ?2, ?3, ?4, ?5)").bind(new Date().toISOString(), champ.id, base.n, base.mrr, JSON.stringify(base)).run();
-  var key = RETRIEVAL_KEYS[Math.floor(Date.now() / 864e5) % RETRIEVAL_KEYS.length];
+  var key = await retrievalKey(d);
   var alts = TUNE_SPACE[key].filter(function (v) { return v !== champ[key]; });
   var val = alts[Math.floor(Math.random() * alts.length)];
-  var chal = Object.assign(params(champ), { id: "c" + Date.now().toString(36) }, (function () { var o = {}; o[key] = val; return o; })());
+  var chal = Object.assign(params(champ), { id: "c" + Date.now().toString(36) }, (function () { var o = {}; o[key] = val; return o; })(), key === "rerank" ? { rerank_tuned: true } : {});
   var res = await retrievalScore(env, chal, gold);
   await d.prepare("INSERT INTO ask_evals (ts, kind, cfg, n, score, detail) VALUES (?1, 'retrieval-challenger', ?2, ?3, ?4, ?5)").bind(new Date().toISOString(), chal.id, res.n, res.mrr, JSON.stringify(Object.assign({ change: key + "=" + val }, res))).run();
   // Adopt only a clear win that does not slow retrieval by more than 20%. max_sources may only grow if MRR rises (it is
