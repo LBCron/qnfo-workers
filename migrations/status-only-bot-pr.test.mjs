@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+
+// STATUS-ONLY-PR-1: the detector contract reads 0 for a healthy table and 1 for a stale status-only bot pull request, and the file is idempotent.
+const migration = readFileSync(new URL("./2026-11-05-status-only-bot-pr.sql", import.meta.url), "utf8");
+assert.match(migration, /^-- APPLY-BY: ci$/m);
+assert.match(migration, /^-- DB: qnfo-audit$/m);
+assert.match(migration, /^-- Rollback: /m);
+const db = new DatabaseSync(":memory:");
+db.exec(`CREATE TABLE failure_modes (fm_key TEXT PRIMARY KEY, failure_mode TEXT, root_cause TEXT, remediation TEXT, detector TEXT, probe_class TEXT, first_seen TEXT, issue_id INTEGER, trigger_condition TEXT, symptom TEXT, blast_radius TEXT);
+CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, verify_probe TEXT, verify_transport TEXT, max_attempts INTEGER, expected_cadence_h INTEGER, status TEXT, precondition TEXT, action TEXT, escalate_to TEXT);
+CREATE TABLE decision_log (id INTEGER PRIMARY KEY, actor TEXT, assumption TEXT, action TEXT, evidence TEXT, outcome TEXT, blast_radius TEXT, rollback_path TEXT, capability_gain TEXT, predicted_outcome TEXT, reach_gain TEXT, surfaces_tested TEXT);
+CREATE TABLE pr_sla_state (pr INTEGER PRIMARY KEY, opened_at TEXT NOT NULL, head_ref TEXT, draft INTEGER DEFAULT 0, state TEXT NOT NULL DEFAULT 'open', last_seen TEXT, closed_at TEXT, waits_on TEXT);`);
+db.exec(migration);
+db.exec(migration);
+assert.equal(db.prepare("SELECT COUNT(*) n FROM failure_modes WHERE fm_key = 'status-only-bot-pr'").get().n, 1, "one failure mode, idempotent");
+assert.equal(db.prepare("SELECT COUNT(*) n FROM remediation_contracts WHERE class = 'fm-status-only-bot-pr'").get().n, 1, "one contract, idempotent");
+assert.equal(db.prepare("SELECT COUNT(*) n FROM decision_log").get().n, 1, "one decision row, idempotent");
+const probe = db.prepare("SELECT verify_probe p FROM remediation_contracts WHERE class = 'fm-status-only-bot-pr'").get().p;
+assert.ok(!/\bLIKE\b/i.test(probe), "the probe uses no LIKE pattern");
+const iso = (min) => new Date(Date.now() - min * 60000).toISOString().replace(/\.\d+Z$/, "Z");
+const ins = db.prepare("INSERT INTO pr_sla_state (pr, opened_at, head_ref, state, last_seen) VALUES (?, ?, ?, ?, ?)");
+ins.run(1, iso(90), "some-other-branch", "open", iso(1));
+ins.run(2, iso(90), "fleet-bot/apply-pending-patches", "merged", iso(1));
+ins.run(3, iso(20), "fleet-bot/apply-pending-patches", "open", iso(1));
+assert.deepEqual({ ...db.prepare(probe).get() }, { expected: "0", observed: "0" }, "a young bot pull request, a merged one and another branch do not count");
+ins.run(4, iso(90), "fleet-bot/apply-pending-patches", "open", iso(1));
+assert.deepEqual({ ...db.prepare(probe).get() }, { expected: "0", observed: "1" }, "an open bot pull request older than 60 minutes counts");
+ins.run(5, iso(300), "fleet-bot/apply-pending-patches", "open", iso(500));
+assert.equal(db.prepare(probe).get().observed, "1", "a row the lane stopped seeing for 30 minutes does not count");
+console.log("status-only-bot-pr: ok");

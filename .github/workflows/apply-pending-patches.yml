@@ -132,8 +132,14 @@ jobs:
           # patcher touched (PARTIAL-APPLY-1 / REVERT-COLLATERAL-1), so anything left
           # dirty at this point is a deliberate, successful write.
           git add -A
+          # STATUS-ONLY-PR-1 (2026-11-05, pr_open_over_10m): ci-status/ is an artifact path. The step "Commit the status artifact" below publishes
+          # it to the fleet-artifacts branch (push_head.sh artifact, no pull request), so it must not ride in the code pull request: a run
+          # that landed no patch still rewrote ci-status/apply-pending-report.json (timestamps), the bot opened a pull request carrying only that
+          # file, and the next merge to main that touched the same file left it CONFLICTING for good (PR 7285 sat 25 minutes, CONFLICT-REPAIR-DOER-1
+          # refused it six times; PR 7257 before it; fleet-bot/apply-pending-patches was over 10 minutes in 2 of 2 pull requests of 48 hours).
+          git reset -q -- ci-status/ || true
           if git diff --cached --quiet; then
-            echo "nothing to commit (main already current)"
+            echo "nothing to commit (main already current; ci-status artifacts go to fleet-artifacts)"
             exit 0
           fi
           git commit -m "fix(fleet): APPLY-PENDING-1 land pending patch scripts [skip ci]"
