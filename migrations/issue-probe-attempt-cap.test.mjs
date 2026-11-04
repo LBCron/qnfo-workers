@@ -1,0 +1,35 @@
+// ISSUE-PROBE-CAP-1 offline suite: the issue-probe-agent asks about one issue at most issue_probe_max_attempts (2) times.
+// Run: node migrations/issue-probe-attempt-cap.test.mjs
+import { DatabaseSync } from "node:sqlite"; import { readFileSync } from "node:fs";
+const db = new DatabaseSync(":memory:");
+db.exec(`CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, priority TEXT, status TEXT, created_at INTEGER);
+CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, precondition TEXT NOT NULL, action TEXT NOT NULL, verify_probe TEXT NOT NULL, verify_transport TEXT NOT NULL, max_attempts INTEGER, escalate_to TEXT NOT NULL, expected_cadence_h INTEGER, status TEXT, last_verdict TEXT, next_due_at TEXT, attempts INTEGER DEFAULT 0);
+CREATE TABLE cf_agent_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, requester TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'run', prompt TEXT, instance TEXT, priority TEXT NOT NULL DEFAULT 'medium', status TEXT NOT NULL DEFAULT 'queued', result TEXT, error TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')));
+CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT);
+CREATE TABLE fleet_tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, definition TEXT NOT NULL, timeout_ms INTEGER, retries INTEGER, version INTEGER, enabled INTEGER, updated_at TEXT);
+CREATE TABLE fleet_crons (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, cron_expr TEXT NOT NULL, task_id TEXT NOT NULL, enabled INTEGER, timezone TEXT, updated_at TEXT);
+CREATE TABLE failure_modes (fm_key TEXT PRIMARY KEY, failure_mode TEXT, root_cause TEXT, remediation TEXT, detector TEXT, probe_class TEXT, first_seen TEXT, issue_id INTEGER, trigger_condition TEXT, symptom TEXT, blast_radius TEXT);
+CREATE TABLE decision_log (actor TEXT, assumption TEXT, action TEXT, evidence TEXT, outcome TEXT, blast_radius TEXT, rollback_path TEXT, capability_gain TEXT, predicted_outcome TEXT, surfaces_tested TEXT);`);
+db.prepare("INSERT INTO agent_issues VALUES (201, 'Queue y is stuck', 'd', 'high', 'open', ?)").run(Date.now() - 5 * 3600 * 1000);
+const read = (f) => readFileSync(new URL(f, import.meta.url), "utf8");
+db.exec(read("./2026-10-26-issue-probe-agent.sql"));
+const cap = read("./2026-11-04-issue-probe-attempt-cap.sql");
+db.exec(cap);
+let pass = 0, fail = 0; const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " -- " + JSON.stringify(x) : "")); } };
+const task = () => db.prepare("SELECT definition, version FROM fleet_tasks WHERE id = 'issue-probe-agent'").get();
+const steps = () => JSON.parse(task().definition).steps;
+const run = () => { for (const s of steps()) db.prepare(s.sql).run(); };
+const asks = () => db.prepare("SELECT COUNT(*) n FROM cf_agent_requests").get().n;
+ok(/probe-attempt-cap/.test(task().definition) && task().version === 2, "the cap clause is in the workflow and the version moved", task().version);
+ok(steps().every((s) => s.type === "sql" && s.sql.indexOf(";") < 0), "each step is still one SQL statement");
+const reset = () => db.prepare("UPDATE issue_probe_requests SET requested_at = '2000-01-01T00:00:00Z'").run();
+run(); ok(asks() === 1, "first ask goes out", asks());
+reset(); run(); ok(asks() === 2, "second ask goes out after 24 hours", asks());
+reset(); run(); ok(asks() === 2, "third ask is blocked by the cap", asks());
+db.prepare("UPDATE ops_config SET value = '3' WHERE key = 'issue_probe_max_attempts'").run();
+reset(); run(); ok(asks() === 3, "raising ops_config issue_probe_max_attempts allows another ask", asks());
+const v = task().version; db.exec(cap);
+ok(task().version === v && (task().definition.match(/probe-attempt-cap/g) || []).length === 1, "the file can run twice");
+ok(db.prepare("SELECT COUNT(*) n FROM decision_log WHERE action LIKE 'ISSUE-PROBE-CAP-1:%'").get().n === 1, "one decision_log row");
+console.log("issue-probe-attempt-cap.test: " + pass + " passed, " + fail + " failed");
+process.exit(fail ? 1 : 0);
