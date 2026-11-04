@@ -98,7 +98,9 @@ jobs:
               echo "::error file=$f::syntax error: $(head -1 /tmp/err)"
               fail=1
             fi
-          done < <(find . \( -name worker.js -o -name deployed-current.worker.js \) -not -path "./.git/*")
+          done < <(find . \( -name worker.js -o -name deployed-current.worker.js \) -not -path "./.git/*" -not -path "./docs/*")
+          # DOCS-ARCHIVE-SCOPE-1 (2026-11-04): ./docs/ holds archived copies that are never deployed (REPO-UNIFY-2, PR 6932, folded docs/ops-governance/cloud/qnfo-infra/worker.js,
+          # which has never parsed: line 132, Unexpected token '{'). The gate failed every push to main from 15:08Z (ci-watchdog issue 6945) and blocked its status commit-back.
           if [ "$fail" -ne 0 ]; then
             echo "SYNTAX GATE FAILED"
             exit 1
