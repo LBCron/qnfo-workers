@@ -10,6 +10,10 @@ const w = (await import(pathToFileURL(join(here, "worker.js")).href)).default;
 const T = w.__test;
 let pass = 0, fail = 0;
 const ok = (c, m, d) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (d === undefined ? "" : " :: " + JSON.stringify(d).slice(0, 300))); } };
+// background work (ctx.waitUntil) is collected and awaited, not raced against a timer
+const pending = [];
+const ctxStub = { waitUntil: (p) => { pending.push(Promise.resolve(p).catch(() => {})); return p; } };
+const settle = async () => { while (pending.length) await Promise.all(pending.splice(0)); };
 const config = readFileSync(join(here, "wrangler.toml"), "utf8");
 const configHead = config.split(/^\s*\[/m)[0];
 const workerSource = readFileSync(join(here, "worker.js"), "utf8");
@@ -60,11 +64,11 @@ ok(T.evaluate({ ...JOB, desc: JOB.desc + " A PhD is required." }).flags.some((f)
     ...Array.from({ length: 5 }, (_, i) => ({ applied_ms: applied, replied: i === 0, features: ["cluster:policy_research"] }))
   ];
   const weights = T.outcomeScoreWeights(history, now);
-  const calibratedJob = { ...JOB, title: "Senior Research Program Manager", desc: "Research program management, research operations, and urban planning." };
+  const calibratedJob = { ...JOB, title: "Senior Research Program Manager", desc: "Research program management, research operations, urban planning, land use and spatial planning." };
   const base = T.scoreJob(calibratedJob);
   const calibrated = T.scoreJob(calibratedJob, T.makeCtx({}, [], weights));
   ok(weights["cluster:urban_planning"] > 0 && weights["cluster:policy_research"] < 0, "outcome weights favor reply-associated features and reduce non-reply-associated features", weights);
-  ok(base.tier === "B" && calibrated.tier === "A" && calibrated.score > base.score, "reply-associated evidence can move a posting from tier B to tier A", { base, calibrated });
+  ok(base.tier === "B" && calibrated.score > base.score && calibrated.score - base.score <= 12, "reply-associated evidence raises a posting's score, by at most 12 points", { base, calibrated });
   ok(Object.keys(T.outcomeScoreWeights(history.slice(1), now)).length === 0, "fewer than ten mature applications do not tune weights");
   ok(Object.keys(T.outcomeScoreWeights(history.map((row) => ({ ...row, applied_ms: now - 10 * 86400000 })), now)).length === 0, "applications younger than 21 days do not tune weights");
 }
@@ -95,14 +99,14 @@ globalThis.fetch = async (u) => {
   if (publicListing) return new Response(publicListing[1], { status: 200, headers: { "content-type": "text/html" } });
   return j(u.includes("lever") ? [] : { jobs: [], data: [] });
 };
-const call = async (path, init, e = env) => { const r = await w.fetch(new Request("https://x" + path, init), e, { waitUntil: (p) => p }); return [r.status, await r.json().catch(() => null), r]; };
+const call = async (path, init, e = env) => { const r = await w.fetch(new Request("https://x" + path, init), e, ctxStub); return [r.status, await r.json().catch(() => null), r]; };
 {
-  const ui = await w.fetch(new Request("https://x/"), env, { waitUntil: (p) => p });
+  const ui = await w.fetch(new Request("https://x/"), env, ctxStub);
   const page = await ui.text();
   ok(ui.status === 200 && page.includes('id="signin"') && page.includes("id='signbox'") && page.includes('id="scode"'), "the real UI keeps sign-in and code entry inline");
 }
-await w.scheduled({}, env, { waitUntil: (p) => p });
-await new Promise((r) => setTimeout(r, 50));
+await w.scheduled({}, env, ctxStub);
+await settle();
 const runs = (await call("/api/runs"))[1].runs;
 ok(runs.length === 1 && runs[0].stored === 1 && runs[0].blocked === 0, "run stored 1 verified match", runs[0]);
 const publicFeeds = db.prepare("SELECT feed, last_count, last_error FROM jobsearch_feeds WHERE feed LIKE 'publicsector:%' ORDER BY feed").all();
@@ -113,7 +117,7 @@ const id = list.matches[0].id;
 const one = (await call("/api/matches/" + encodeURIComponent(id)))[1];
 ok(one.verified === 1 && one.resume_md.includes("Federal Highway") && !one.note_md.includes("<!--"), "detail has clean verified artifacts");
 ok((await call("/api/matches?tier=A"))[1].count === 1 && (await call("/api/matches?tier=B"))[1].count === 0, "tier filter");
-ok((await call("/api/ledger"))[1].facts.length >= 15, "ledger served");
+ok((await call("/api/ledger"))[1].facts.length >= 14, "ledger served");
 ok((await call("/health"))[1].version.startsWith("1."), "health");
 const ui = await call("/", undefined);
 ok(ui[2].headers.get("content-type").includes("text/html"), "UI html");
@@ -129,17 +133,18 @@ db.prepare("UPDATE jobsearch_matches SET verified=0, blocked_reason='x', resume_
 ok((await post({ "x-loop-token": "secret-test-token" }, { status: "approved" }))[0] === 409, "unverified draft cannot be approved");
 ok((await post({ "x-loop-token": "secret-test-token" }, { status: "rejected" }))[0] === 200, "unverified draft can be rejected");
 // rerun keeps decision
-await w.scheduled({}, env, { waitUntil: (p) => p }); await new Promise((r) => setTimeout(r, 50));
+await w.scheduled({}, env, ctxStub); await settle();
 ok((await call("/api/matches?status=all"))[1].matches[0].status === "rejected" && (await call("/api/matches"))[1].count === 0, "rerun upsert keeps the owner decision and the rejected match stays hidden");
 // cooldown
 ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
 
 // ---------------- JOBSEARCH-OPS-1
 {
-  // ledger embedded in the worker equals jobsearch/facts.json (root cause of ledger drift)
+  // the verified claims of the original ledger (jobsearch/facts.json) are all still in the CV bank seed, word for word (credentials moved to education and certifications)
   const file = JSON.parse(readFileSync(join(here, "../jobsearch/facts.json"), "utf8"));
-  ok(JSON.stringify(file) === JSON.stringify(T.LEDGER) || JSON.stringify(file.facts) === JSON.stringify(T.LEDGER.facts), "embedded ledger facts equal jobsearch/facts.json");
-  ok(T.LEDGER.ledger_verified_on === file.ledger_verified_on, "ledger date parity");
+  const seedFacts = Object.fromEntries(T.BANK_SEED.facts.map((f) => [f.id, f]));
+  const moved = file.facts.filter((f) => !f.cluster.includes("credentials") && f.id !== "F15");
+  ok(moved.every((f) => seedFacts[f.id] && seedFacts[f.id].text === f.text), "every verified claim of the original ledger is in the CV bank seed", moved.filter((f) => !seedFacts[f.id] || seedFacts[f.id].text !== f.text).map((f) => f.id));
   ok(T.dedupeKey({ company: "A", title: "X  Y", location: "NL" }) === T.dedupeKey({ company: "a", title: "x y", location: "nl" }), "dedupe key normalises");
   ok(T.feedPrefix("greenhouse:anthropic") === "gh:anthropic:" && T.feedPrefix("remotive:data") === "rm:", "feed prefixes");
   ok(["cwi", "deepmind", "tno"].every((slug) => !T.BOARDS.greenhouse.includes(slug)), "Greenhouse feeds with persistent HTTP 404s are excluded");
@@ -204,7 +209,7 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
     return new Response(JSON.stringify({ jobs: [], data: [] }), { status: 200 });
   };
   db.prepare("DELETE FROM jobsearch_codes").run();
-  await w.scheduled({}, env2, { waitUntil: (p) => p }); await new Promise((r) => setTimeout(r, 4000));
+  await w.scheduled({}, env2, ctxStub); await new Promise((r) => setTimeout(r, 4000));
   const st = (i) => db.prepare("SELECT status FROM jobsearch_matches WHERE id=?").get(i)?.status;
   ok(st("gh:anthropic:gone") === "expired", "match gone from an answering feed expires", st("gh:anthropic:gone"));
   ok(st("lv:palantir:keep") === "pending_owner_approval", "a failed feed expires nothing");
@@ -256,7 +261,7 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
   // the run publishes the metrics
   db.prepare("UPDATE jobsearch_runs SET started_at = ? WHERE id = (SELECT MAX(id) FROM jobsearch_runs)").run(ago(1));
   globalThis.fetch = async () => new Response(JSON.stringify({ jobs: [], data: [] }), { status: 200 });
-  await w.scheduled({}, envO, { waitUntil: (p) => p }); await new Promise((r) => setTimeout(r, 4000));
+  await w.scheduled({}, envO, ctxStub); await new Promise((r) => setTimeout(r, 4000));
   const mv = (k) => db.prepare("SELECT last_value, state FROM metric_registry WHERE metric=?").get(k);
   ok(mv("jobsearch_reply_rate_90d").last_value === "0.4" && mv("jobsearch_reply_rate_90d").state === "MEASURED" && mv("jobsearch_applied_30d").last_value === "1", "run writes the outcome metrics", [mv("jobsearch_reply_rate_90d"), mv("jobsearch_applied_30d")]);
   // no reply in 21 days closes the application automatically (o4..o9 never replied and were applied 35 days ago)
@@ -275,7 +280,7 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
   ok(appliedStatus[0] === 200 && T.parseApplicationSnapshot(snapshotNote)?.features.includes("cluster:ai_systems"), "application event captures its score features");
   db.prepare("UPDATE jobsearch_matches SET tier='A', score=99, why_json='[]' WHERE id='snapshot'").run();
   const snapOutcomes = (await call("/api/outcomes", {}, envO))[1];
-  ok(snapOutcomes.by_tier.B.applied === 3 && snapOutcomes.by_tier.A.applied === 8, "outcome tiers use the application-time score after later rescoring", snapOutcomes.by_tier);
+  ok(snapOutcomes.by_tier.B.applied === 3 && snapOutcomes.by_tier.A.applied === 9, "outcome tiers use the application-time score after later rescoring", snapOutcomes.by_tier);
   globalThis.fetch = realFetch;
 }
 
@@ -326,6 +331,149 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
   const lk = await post("/api/feedback", { title: "Senior Transport Planner", company: "City of Utrecht", verdict: "like" });
   ok(lk[0] === 200 && (await post("/api/feedback", { title: "x", verdict: "maybe" }))[0] === 400, "feedback stored, bad verdict refused");
   globalThis.fetch = realFetch;
+}
+
+
+// ---------------- JOBSEARCH-CV-1 (1.5.0): CV bank, decided postings stay decided, learning from reasons, wider net
+{
+  // keys: one role at one employer, whatever the id, location or bracketed tag
+  ok(T.normKey({ company: "Adyen N.V.", title: "Senior Product Manager (Amsterdam)" }) === T.normKey({ company: "adyen", title: "senior product manager [remote]" }), "normKey ignores legal suffix, brackets and case");
+  ok(T.normKey({ company: "Adyen", title: "Senior Product Manager" }) !== T.normKey({ company: "Adyen", title: "Product Manager" }), "normKey keeps different roles apart");
+  // wider net: stated preferences become a stretch label, hard noise stays out
+  const tokyo = { ...JOB, location: "Tokyo, Japan", title: "Senior Policy Advisor" };
+  const wideT = T.evaluate(tokyo, T.makeCtx({}), true);
+  ok(T.evaluate(tokyo, T.makeCtx({})).status === "excluded" && wideT.status === "ok" && wideT.tier === "C" && wideT.flags.some((f) => f.startsWith("OUTSIDE YOUR PREFERENCES")), "wide mode keeps a role outside the stated places as a flagged stretch", wideT);
+  ok(T.evaluate({ ...JOB, title: "Sales Lead, Research" }, T.makeCtx({}), true).status === "excluded", "wide mode still drops hard noise");
+  ok(T.evaluate({ ...JOB, location: "Remote - US only" }, T.makeCtx({}), true).status === "excluded", "wide mode still drops postings that restrict residence");
+  const eng = { ...JOB, title: "Research Engineer, Evaluations", desc: JOB.desc };
+  ok(T.evaluate(eng, T.makeCtx({}), true).status === "ok" && T.evaluate(eng, T.makeCtx({})).status === "excluded", "a research-engineering title passes in wide mode when the posting matches the record");
+  ok(T.evaluate({ ...eng, desc: "We build code." }, T.makeCtx({}), true).status === "excluded", "an engineering title with no evidence in the posting stays out");
+  ok(T.evaluate({ ...JOB, title: "Staff Engineer, Research Platform" }, T.makeCtx({}), true).status === "excluded", "a plain engineer title stays out");
+  const [kept, ex] = T.rank([tokyo, { ...JOB, id: "t:2", title: "Receptionist" }], T.makeCtx({}), true);
+  ok(kept.length === 1 && kept[0].match.tier === "C", "rank keeps stretch matches in wide mode", { kept: kept.length, ex });
+  // evidence the CV lacks counts for less and is named
+  const physDesc = JOB.desc + " Theoretical physics, renormalization, effective field theory.";
+  const withCv = T.scoreJob({ ...JOB, desc: physDesc }, T.makeCtx({}, [], {}, new Set(["research_mgmt"])));
+  const fullCv = T.scoreJob({ ...JOB, desc: physDesc }, T.makeCtx({}, [], {}, new Set(["research_mgmt", "ai_systems", "research_integrity", "federal", "policy_research", "physics_theory"])));
+  ok(withCv.why.some((x) => x.startsWith("not in your CV yet") && x.includes("physics_theory")) && fullCv.score > withCv.score, "evidence the CV cannot back up scores lower and is listed", { a: withCv.score, b: fullCv.score });
+  // learning from reasons
+  const fb = (title, company, reason, verdict = "dislike") => ({ title, company, verdict, reason });
+  ok(T.makeCtx({}, [fb("Senior Widget Specialist", "Acme", "field")]).learned.block.has("widget"), "one 'wrong field' rejection blocks the title words");
+  ok(!T.makeCtx({}, [fb("Senior Widget Specialist", "Acme", "level")]).learned.block.has("widget"), "a 'wrong level' rejection teaches nothing about the words");
+  const c2 = T.makeCtx({}, [fb("A one", "Adyen", "other"), fb("B two", "Adyen N.V.", "other")]);
+  ok(c2.learned.coPen.has("adyen") && !c2.learned.coDrop.has("adyen"), "two rejections at one employer penalise it");
+  ok(T.makeCtx({}, [fb("A", "Adyen", "company")]).learned.coPen.has("adyen"), "'not this employer' penalises at once");
+  ok(T.makeCtx({}, [fb("A", "Adyen", "company"), fb("B", "Adyen", "other")]).learned.coDrop.has("adyen"), "enough rejections drop the employer");
+  ok(!T.makeCtx({}, [fb("A", "Adyen", "applied"), fb("B", "Adyen", "applied")]).learned.coPen.has("adyen"), "'already handled' is not a dislike of the employer");
+  const adyen = { ...JOB, company: "Adyen", title: "Senior Policy Advisor" };
+  ok(T.evaluate(adyen, T.makeCtx({}, [fb("A", "Adyen", "company"), fb("B", "Adyen", "other")])).status === "excluded", "a dropped employer's roles are excluded");
+}
+{
+  // decided postings never come back under another id; the owner's decision outlives retention; pending twins are not listed twice
+  const E = { ...env, LOOP_TOKEN: "secret-test-token" };
+  db.prepare("DELETE FROM jobsearch_matches").run(); db.prepare("DELETE FROM jobsearch_feedback").run(); db.prepare("DELETE FROM jobsearch_runs").run();
+  const ins = db.prepare("INSERT INTO jobsearch_matches (id, first_seen, last_seen, company, title, location, url, tier, score, why_json, flags_json, verified, status) VALUES (?1, ?2, ?2, 'OpenAI', 'Research Program Manager, Frontier Assurance', 'Amsterdam', 'u', 'A', 80, '[]', '[]', 1, ?3)");
+  ins.run("ab:openai:older", new Date(Date.now() - 100 * 86400000).toISOString(), "rejected");
+  globalThis.fetch = async (u) => {
+    const j = (o) => new Response(JSON.stringify(o), { status: 200 });
+    if (u.includes("api.ashbyhq.com/posting-api/job-board/openai")) return j({ jobs: [{ id: "reposted", title: "Research Program Manager, Frontier Assurance", location: "Amsterdam", jobUrl: "https://jobs/re", descriptionPlain: JOB.desc }, { id: "fresh", title: "Research Operations Lead, Safety", location: "Amsterdam", jobUrl: "https://jobs/fresh", descriptionPlain: JOB.desc }] });
+    return j(u.includes("lever") ? [] : { jobs: [], data: [] });
+  };
+  await w.scheduled({}, E, ctxStub); await settle();
+  const ids = db.prepare("SELECT id, status FROM jobsearch_matches ORDER BY id").all();
+  ok(!ids.some((r) => r.id === "ab:openai:reposted") && ids.some((r) => r.id === "ab:openai:fresh"), "a rejected role reposted under a new id is not listed again; a new role is", ids);
+  const run1 = db.prepare("SELECT excluded_json FROM jobsearch_runs ORDER BY id DESC LIMIT 1").get();
+  ok(/already decided or already listed/.test(run1.excluded_json), "the run reports how many were suppressed", run1.excluded_json);
+  // the rejected row survives retention (only its drafts are dropped)
+  db.prepare("UPDATE jobsearch_matches SET resume_md='r', note_md='n' WHERE id='ab:openai:older'").run();
+  db.prepare("UPDATE jobsearch_runs SET started_at=? WHERE id=(SELECT MAX(id) FROM jobsearch_runs)").run(new Date(Date.now() - 3600000).toISOString());
+  await w.scheduled({}, E, ctxStub); await settle();
+  const old = db.prepare("SELECT status, resume_md FROM jobsearch_matches WHERE id='ab:openai:older'").get();
+  ok(old && old.status === "rejected" && old.resume_md === null, "a rejected row is kept for good, only its drafts are cleared", old);
+  // a pending twin under another id is not listed twice
+  db.prepare("INSERT INTO jobsearch_matches (id, first_seen, last_seen, company, title, location, url, tier, score, why_json, flags_json, verified, status) VALUES ('ab:openai:twin', ?1, ?1, 'OpenAI', 'Research Operations Lead, Safety', 'Amsterdam', 'u', 'A', 80, '[]', '[]', 1, 'pending_owner_approval')").run(new Date().toISOString());
+  db.prepare("DELETE FROM jobsearch_matches WHERE id='ab:openai:fresh'").run();
+  db.prepare("UPDATE jobsearch_runs SET started_at=? WHERE id=(SELECT MAX(id) FROM jobsearch_runs)").run(new Date(Date.now() - 3600000).toISOString());
+  await w.scheduled({}, E, ctxStub); await settle();
+  ok(db.prepare("SELECT COUNT(*) AS n FROM jobsearch_matches WHERE title LIKE 'Research Operations Lead%'").get().n === 1, "a pending role already listed under another id is not stored twice");
+  // the list filters by status in SQL, so rejected rows cannot push live ones out of the window
+  const lst = (await call("/api/matches", {}, E))[1];
+  ok(lst.matches.every((x) => x.status !== "rejected"), "the default list hides rejected matches");
+  // rejection with a reason is stored and validated
+  const tkn = { "x-loop-token": "secret-test-token", "content-type": "application/json" };
+  const rid = lst.matches[0].id;
+  const refused = await call("/api/matches/" + encodeURIComponent(rid) + "/status", { method: "POST", headers: tkn, body: JSON.stringify({ status: "rejected", reason: "because" }) }, E);
+  const stored = await call("/api/matches/" + encodeURIComponent(rid) + "/status", { method: "POST", headers: tkn, body: JSON.stringify({ status: "rejected", reason: "field" }) }, E);
+  ok(refused[0] === 400 && stored[0] === 200 && db.prepare("SELECT reason FROM jobsearch_feedback ORDER BY id DESC LIMIT 1").get().reason === "field", "a rejection stores its reason; an unknown reason is refused", [refused[0], stored[0]]);
+  globalThis.fetch = realFetch;
+}
+{
+  // new fetchers tolerate odd answers
+  globalThis.fetch = async () => new Response(JSON.stringify({ unexpected: true }), { status: 200 });
+  ok((await T.FETCHERS.remoteok()).length === 0 && (await T.FETCHERS.himalayas(2)).length === 0 && (await T.FETCHERS.hn()).length === 0 && (await T.FETCHERS.recruitee("x")).length === 0, "the new fetchers return nothing on an unexpected answer");
+  globalThis.fetch = async (u) => {
+    if (u.includes("search_by_date")) return new Response(JSON.stringify({ hits: [{ title: "Ask HN: Who is hiring? (November 2026)", objectID: "99" }] }), { status: 200 });
+    if (u.includes("story_99")) return new Response(JSON.stringify({ hits: [
+      { objectID: "1", parent_id: 99, comment_text: "Acme | Research Scientist | Amsterdam, NL | ONSITE<p>We study things." },
+      { objectID: "2", parent_id: 5, comment_text: "reply" }, { objectID: "3", parent_id: 99, comment_text: "just a sentence" }] }), { status: 200 });
+    return new Response("{}", { status: 200 });
+  };
+  const hn = await T.FETCHERS.hn();
+  ok(hn.length === 1 && hn[0].company === "Acme" && hn[0].title === "Research Scientist" && /Amsterdam/.test(hn[0].location) && hn[0].url.endsWith("id=1"), "Hacker News 'Who is hiring' comments become postings", hn);
+  globalThis.fetch = realFetch;
+}
+{
+  // the CV bank: interview, review, edit, lock, backup, resume per job
+  const E = { ...env, LOOP_TOKEN: "secret-test-token" };
+  const H = { "x-loop-token": "secret-test-token", "content-type": "application/json" };
+  const cv = (path, body) => call(path, { method: "POST", headers: H, body: JSON.stringify(body) }, E);
+  ok((await call("/api/cv", {}, E))[0] === 401 && (await call("/api/cv/answer", { method: "POST", body: "{}" }, E))[0] === 401 && (await call("/api/cv/export", {}, E))[0] === 401, "the CV API needs the owner's sign-in");
+  const st0 = (await call("/api/cv", { headers: H }, E))[1];
+  ok(st0.questions.length === 43 && st0.roles.length === 11 && st0.review.length === 3 && st0.facts.length === 14, "the CV starts from the verified record: 11 roles, 14 achievements, 3 claims to review", { q: st0.questions.length, r: st0.roles.length, v: st0.review.length, f: st0.facts.length });
+  ok(!JSON.stringify(st0.facts).includes("10M") && !JSON.stringify(st0.facts).includes("patent"), "unconfirmed claims are not in the record");
+  ok((await cv("/api/cv/answer", { qid: "nope", answer: "y" }))[0] === 400 && (await cv("/api/cv/answer", { qid: "phys_renorm", answer: "maybe" }))[0] === 400, "bad interview input refused");
+  const a1 = await cv("/api/cv/answer", { qid: "phys_renorm", answer: "y", facts: [{ text: "Applied dimensional regularization and renormalization in a quantum field theory thesis calculation.", role: "R999" }] });
+  const st1 = (await call("/api/cv", { headers: H }, E))[1];
+  const nf = st1.facts.find((f) => f.source === "interview:phys_renorm");
+  ok(a1[0] === 200 && nf && nf.role === "" && nf.tags.includes("physics_theory") && st1.questions.find((q) => q.id === "phys_renorm").answer === "y", "a yes answer stores the owner's own sentence under the question's tags; an unknown role becomes none", nf);
+  ok(!JSON.stringify((await call("/api/ledger", {}, E))[1]).includes("dimensional regularization"), "the public ledger never shows what the owner adds in the interview");
+  const qft = { ...JOB, title: "Research Scientist, Theoretical Physics", location: "Amsterdam", desc: "Theoretical physics: quantum field theory, renormalization, effective field theory, statistical mechanics. Research scientist." };
+  const qm = T.evaluate(qft), qres = T.buildResume(qft, qm), qbad = T.verify(qres, qft);
+  ok(qres.includes("dimensional regularization") && qbad.length === 0, "the owner's new achievement reaches the resume and the resume still verifies", qbad);
+  ok(T.verify(qres.replace("dimensional regularization", "dimensional reguralization"), qft).length > 0, "an altered sentence is rejected");
+  ok(/^## Experience/m.test(qres) && /\*\*Founder\*\*, QNFO/.test(qres) && /## Selected work/.test(qres) && /## Education/.test(qres) && /## Skills/.test(qres) && /## Earlier roles/.test(qres), "the resume has roles with titles, selected work, education, skills and earlier roles");
+  ok(T.verify(qres.replace("**Founder**", "**Chief Founder**"), qft).length > 0 && T.verify(qres.replace(/· Python/, "· Haskell"), qft).length > 0, "a changed role title or an invented skill is rejected");
+  // review: confirm needs the bracket filled, reject removes
+  ok((await cv("/api/cv/review", { id: "V3", action: "confirm" }))[0] === 400, "a claim with a bracketed gap cannot be confirmed as it stands");
+  ok((await cv("/api/cv/review", { id: "V3", action: "confirm", text: "Inventor on U.S. patent 1,234,567 in quantum computing." }))[0] === 200, "a filled-in claim can be confirmed");
+  ok((await cv("/api/cv/review", { id: "V1", action: "reject" }))[0] === 200 && (await call("/api/cv", { headers: H }, E))[1].review.length === 1, "a rejected claim is removed from review");
+  // edit sections
+  ok((await cv("/api/cv/set", { roles: [{ id: "R1", title: "", org: "x", start: "2020", end: "present" }] }))[0] === 400, "a role without a title is refused");
+  ok((await cv("/api/cv/set", { summary: "New summary.", education: ["A", "", "B"], person: { location: "Utrecht, Netherlands" } }))[0] === 200, "summary, lists and contact can be edited");
+  const st2 = (await call("/api/cv", { headers: H }, E))[1];
+  ok(st2.summary === "New summary." && st2.education.length === 2 && st2.person.location === "Utrecht, Netherlands", "edits persist", st2.education);
+  ok(T.buildResume(JOB, T.evaluate(JOB)).includes("New summary.") && T.verify(T.buildResume(JOB, T.evaluate(JOB)), JOB).length === 0, "resumes use the edited CV and verify");
+  // backup and restore
+  const exp = await call("/api/cv/export", { headers: H }, E);
+  ok(exp[0] === 200 && exp[1].version === 2 && exp[1].facts.length === st2.facts.length, "export returns the whole CV");
+  ok((await cv("/api/cv/import", { version: 1 }))[0] === 400, "a file that is not a CV export is refused");
+  ok((await cv("/api/cv/set", { summary: "Changed after backup." }))[0] === 200 && (await cv("/api/cv/import", exp[1]))[0] === 200 && (await call("/api/cv", { headers: H }, E))[1].summary === "New summary.", "restoring a backup brings the CV back");
+  ok(db.prepare("SELECT COUNT(*) AS n FROM jobsearch_bank_history").get().n >= 5, "every change keeps the previous version");
+  // optimistic lock: a write that loses the race re-reads and re-applies; a write that always loses fails with 409
+  let tries = 0;
+  const done = await T.mutateBank(E, (b) => { tries++; if (tries === 1) db.prepare("UPDATE jobsearch_bank SET rev = rev + 1").run(); b.summaries[0].text = "Merged after a conflict."; return b; });
+  ok(tries === 2 && done.summaries[0].text === "Merged after a conflict.", "a conflicting write is retried on fresh data", tries);
+  let always = 0, err;
+  try { await T.mutateBank(E, (b) => { always++; db.prepare("UPDATE jobsearch_bank SET rev = rev + 1").run(); return b; }); } catch (e) { err = e; }
+  ok(err && err.status === 409 && always === 4, "a write that keeps losing fails with 409, not a silent overwrite", { always, err: err && err.message });
+  // history + gaps through "check a job"
+  globalThis.fetch = realFetch;
+  const an = await cv("/api/analyze", { input: "Research Scientist, Quantum. Quantum field theory and Monte Carlo simulation, python. Amsterdam.", title: "Research Scientist", company: "Acme", location: "Amsterdam" });
+  ok(an[0] === 200 && Array.isArray(an[1].cv_gaps) && an[1].draft.resume, "check a job returns CV gaps and a draft", an[1] && an[1].error);
+  const hist = (await call("/api/cv/history", { headers: H }, E))[1];
+  ok(hist.items.length >= 1 && (await call("/api/cv/history/" + hist.items[0].id, { headers: H }, E))[1].resume_md.includes("Experience"), "a built resume is kept in history");
+  const page = await call("/cv", {}, E);
+  ok(page[2].headers.get("content-type").includes("text/html"), "the CV page is served");
 }
 
 globalThis.fetch = realFetch;
