@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.17-codeagent";
+var VERSION = "2.62.18-codeagent";
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -7190,7 +7190,7 @@ async function callDeepSeekStream(env, messages, maxTokens, tools, opts, onDelta
     try { _tx = await resp.text(); } catch (e) { console.error(JSON.stringify({ evt: "ops:callDeepSeekStream:caught", error: String((e && e.message) || e) })); }
     _dsLastErr = "deepseek stream " + _st + ": " + String(_tx || "").slice(0, 200);
     await opsUpstreamError(env, _st, "callDeepSeekStream", body.model, _tx);
-    if (_st === 429) { console.log("OPS_GW_429_FREE_FALLBACK stream " + _dsLastErr.slice(0, 120)); break; }
+    if (_st === 429) { console.log("OPS_GW_429_FREE_FALLBACK stream " + _dsLastErr.slice(0, 120)); if (await dsPaidTrip(env, body.model, _st, "callDeepSeekStream")) break; }
     if (await dsPaidTrip(env, body.model, _st, "callDeepSeekStream")) break;
     console.log("OPS_DS_STREAM_RETRY attempt=" + (_dsTry + 1) + " " + _dsLastErr.slice(0, 120));
     if (_st < 500 && _st !== 429) break;
