@@ -95,7 +95,7 @@ const dash = fs.readFileSync(path.join(here, "..", "qnfo-fleet-dashboard", "work
 const dm = /read\("code-tasks"[\s\S]{0,200}?d1all\(env\.AUDIT, "([^"]+)"/.exec(dash);
 ok(!!dm && /FROM code_tasks/.test(dm[1]), "the dashboard's code-task owner-card query was found in qnfo-fleet-dashboard/worker.js", dm && dm[1]);
 const ownerCards = (env) => (dm ? env.AUDIT_DB._db.prepare(dm[1]).all() : [{ missing: true }]);
-const LADDER = ["@cf/openai/gpt-oss-120b", "@cf/moonshotai/kimi-k2.7-code", "@cf/zai-org/glm-5.3"]; // LADDER-COST-FIRST-1 (cheapest equal-yield rung first) // LADDER-DEAD-RUNG-1 (deepseek-v4-flash-0731 removed: empty replies disproved the 0.18.9 budget fix)
+const LADDER = ["@cf/openai/gpt-oss-120b", "@cf/zai-org/glm-5.3", "@cf/moonshotai/kimi-k2.7-code"]; // COST-CUT-CODE-1 (glm before kimi) LADDER-COST-FIRST-1 (cheapest equal-yield rung first) // LADDER-DEAD-RUNG-1 (deepseek-v4-flash-0731 removed: empty replies disproved the 0.18.9 budget fix)
 
 // Issue #1763 as it reached the loop: an opted-in issue with a code-task and a code-anchor line (ISSUE-INTAKE-1).
 const GOAL_TEXT = "Part of #1758. Inside feedbackScan only, in BOTH SQL subqueries that read q08_feedback f, add the condition AND f.created_at >= '2026-10-03T00:00:00Z' directly after f.slug = p.slug. Change nothing else.";
@@ -162,7 +162,7 @@ function fileIssue(env) {
 {
   // FAIL-SIGNATURE-STOP-1 (0.16.0): three failures of one kind in a row now end the task early (fail-signature-stop.test.mjs), so
   // the rounds are driven by three different failures in turn: a SEARCH absent from the file, prose with no block, an empty reply.
-  const kinds = [block("this text is nowhere in the file", "x"), "I would rather explain the change than make it.", ""];
+  const kinds = [block("this text is nowhere in the file", "x"), "", "I would rather explain the change than make it."]; // COST-CUT-CODE-1: glm is rung 2, so the empty reply (which kimi answers with a second call) sits on rung 2
   const { env, calls } = envWith(new Array(9).fill(0).map((_, i) => kinds[i % 3]));
   fileIssue(env);
   await tick(env);
@@ -178,7 +178,7 @@ function fileIssue(env) {
   ok(calls.length === 9 && calls.map((c) => c.model).join() === LADDER.concat(LADDER, LADDER).join(), "B2 nine attempts in all, each round climbing the whole ladder once", calls.map((c) => c.model));
   ok(r3.status === "failed" && r3.attempts === 9 && r3.lease_until == null, "B2 after the last round the task is failed, not needs_human", { st: r3.status, a: r3.attempts });
   ok(iss.length === 1 && iss[0].status === "open" && iss[0].title === "CODE-LOOP-EXHAUSTED-1: " + id + " q08-signal-engine/worker.js" && iss[0].category === "automation", "B2 exactly one open fleet issue names the task", iss.map((i) => i.title));
-  ok(iss[0] && iss[0].description.indexOf(id) >= 0 && /UPDATE code_tasks SET status = 'queued', step = 'read', attempts = 0/.test(iss[0].description) && /reply was empty/.test(iss[0].description) && /Definition of done/.test(iss[0].description), "B2 the issue carries the last error, the evidence query, the lever and a definition of done", iss[0] && iss[0].description.slice(0, 300));
+  ok(iss[0] && iss[0].description.indexOf(id) >= 0 && /UPDATE code_tasks SET status = 'queued', step = 'read', attempts = 0/.test(iss[0].description) && /no SEARCH\/REPLACE block found/.test(iss[0].description) && /Definition of done/.test(iss[0].description), "B2 the issue carries the last error, the evidence query, the lever and a definition of done", iss[0] && iss[0].description.slice(0, 300));
   ok(iss[0] && !/code-task:/i.test(iss[0].description), "B2 the fleet issue holds no code-task: marker (intake can never turn it into a code task)");
   ok(new RegExp("agent_issues #" + (iss[0] && iss[0].id)).test(r3.last_error), "B2 the task's last_error points at the fleet issue", r3.last_error);
   ok(ownerCards(env).length === 0, "B2 no owner card at any point", ownerCards(env));

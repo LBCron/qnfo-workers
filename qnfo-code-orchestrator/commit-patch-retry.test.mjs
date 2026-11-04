@@ -80,8 +80,8 @@ ok(row.status === "queued" && row.step === "propose" && row.attempts === 1, "an 
 });
 ok(/patch too large: exceeds verification limit/.test(row.last_error) && !context(row).patch, "the retry gets the failure reason without persisting the oversized patch", context(row));
 await tick();
-ok(calls.length === 2 && calls[1].model === "@cf/zai-org/glm-5.3" && /patch too large: exceeds verification limit/.test(calls[1].prompt),
-  "the next ladder rung receives the size failure as feedback", calls.map((item) => item.model));
+ok(calls.length === 2 && calls[1].model === "@cf/openai/gpt-oss-120b" && /patch too large: exceeds verification limit/.test(calls[1].prompt),
+  "COST-CUT-CODE-1: the cheapest rung (not a dearer one) receives the size failure as feedback", calls.map((item) => item.model));
 await tick();
 await tick();
 await tick();

@@ -166,8 +166,8 @@ try {
     await tick(env, opts);
     assert.equal(db.prepare("SELECT attempts FROM code_tasks WHERE id='ct_budget'").get().attempts, 1);
     await tick(env, opts);
-    assert.deepEqual(inputs, [OSS, KIMI], "an empty cheap reply uses the existing bounded retry ladder as fallback");
-    assert.equal(db.prepare("SELECT downgraded FROM ai_spend_ledger WHERE model=?").get(KIMI).downgraded, 0,
+    assert.deepEqual(inputs, [OSS, GLM], "COST-CUT-CODE-1: glm climbs before kimi; an empty cheap reply uses the existing bounded retry ladder as fallback");
+    assert.equal(db.prepare("SELECT downgraded FROM ai_spend_ledger WHERE model=?").get(GLM).downgraded, 0,
       "the ledger does not mislabel a more expensive fallback as the cheap primary");
     assert.equal(db.prepare("SELECT step FROM code_tasks WHERE id='ct_budget'").get().step, "verify");
     db.close();

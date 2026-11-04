@@ -73,7 +73,7 @@ ok(Array.isArray(h.capabilities) && h.capabilities.includes("reasoning-low"), "h
 // 1. glm-5.3 gets reasoning_effort low and keeps its 16,384-token budget; the task still proceeds on its reply
 {
   const { env, inputs, id } = await run(GLM, [EDIT]);
-  ok(inputs.length === 1 && inputs[0].model === GLM && inputs[0].input.reasoning_effort === "low" && inputs[0].input.max_tokens === 16384, "1a glm-5.3 is called with reasoning_effort low and max_tokens 16384", inputs.map((x) => x.input && { re: x.input.reasoning_effort, mt: x.input.max_tokens }));
+  ok(inputs.length === 1 && inputs[0].model === GLM && inputs[0].input.reasoning_effort === "low" && inputs[0].input.max_tokens === 8192, "1a glm-5.3 is called with reasoning_effort low and max_tokens 8192 (COST-CUT-CODE-1)", inputs.map((x) => x.input && { re: x.input.reasoning_effort, mt: x.input.max_tokens }));
   ok(Array.isArray(inputs[0].input.messages) && inputs[0].input.messages.length === 2, "1b the messages are unchanged", inputs[0].input && inputs[0].input.messages && inputs[0].input.messages.length);
   ok(row(env, id).step === "verify" || row(env, id).status === "ready_to_publish", "1c the reply is used", { step: row(env, id).step, status: row(env, id).status });
 }
@@ -98,7 +98,7 @@ ok(Array.isArray(h.capabilities) && h.capabilities.includes("reasoning-low"), "h
 // 4. a call the platform rejects because of the option is made once more without it, and audited
 {
   const { env, inputs, id } = await run(GLM, [new Error("AiError: 400 invalid parameter reasoning_effort for this model"), EDIT]);
-  ok(inputs.length === 2 && inputs[0].input.reasoning_effort === "low" && !("reasoning_effort" in inputs[1].input) && inputs[1].input.max_tokens === 16384, "4a the second call has no reasoning_effort", inputs.map((x) => Object.keys(x.input)));
+  ok(inputs.length === 2 && inputs[0].input.reasoning_effort === "low" && !("reasoning_effort" in inputs[1].input) && inputs[1].input.max_tokens === 8192, "4a the second call has no reasoning_effort", inputs.map((x) => Object.keys(x.input)));
   const ev = events(env, "code-task.model-opt-refused");
   ok(ev.length === 1 && /refused reasoning_effort/.test(ev[0].text), "4b event code-task.model-opt-refused", ev);
   ok(row(env, id).step === "verify" || row(env, id).status === "ready_to_publish", "4c the retry's reply is used", { step: row(env, id).step });
