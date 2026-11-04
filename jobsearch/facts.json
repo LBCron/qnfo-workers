@@ -237,6 +237,15 @@
     "data science"
   ],
   "headlines": [
+  {
+   "id": "H0",
+   "cluster": [
+    "ai_systems",
+    "research_integrity",
+    "research_mgmt"
+   ],
+   "text": "I build AI systems that research, ask the right questions about what is unknown, then deploy and maintain themselves with autonomous code fixes: QNFO, the Universal Ignorance Audit, 44+ live workers."
+  },
     {
       "id": "H1",
       "cluster": [
