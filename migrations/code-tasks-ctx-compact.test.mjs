@@ -7,6 +7,12 @@ const migration = readFileSync(new URL("./2026-11-04-code-tasks-ctx-compact.sql"
 assert.match(migration, /^-- APPLY-BY: ci$/m);
 assert.match(migration, /^-- DB: qnfo-audit$/m);
 assert.match(migration, /^-- Rollback: /m);
+// CODE-TASKS-CTX-COMPACT-2 replaces the trigger of the first file (the live order: file 1 applied 18:07Z, file 2 after the review) and adds the detector.
+const migration2 = readFileSync(new URL("./2026-11-04-code-tasks-ctx-compact-2.sql", import.meta.url), "utf8");
+assert.match(migration2, /^-- APPLY-BY: ci$/m);
+assert.match(migration2, /^-- DB: qnfo-audit$/m);
+assert.match(migration2, /^-- Rollback: /m);
+assert.match(migration2, /^-- BACKUP: bak_20261104_ctx_compact_trigger_v1$/m);
 
 const T0 = Date.now();
 const isoDaysAgo = (d) => new Date(T0 - d * 86400000).toISOString().replace(/\.\d+Z$/, "Z");
@@ -22,6 +28,12 @@ db.exec(`
   BEGIN SELECT RAISE(ABORT, 'CTX-JSON-1'); END;
   CREATE TABLE decision_log (actor TEXT, assumption TEXT, action TEXT, evidence TEXT, outcome TEXT, blast_radius TEXT, rollback_path TEXT, capability_gain TEXT,
     predicted_outcome TEXT, reach_gain TEXT, surfaces_tested TEXT);
+  CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, status TEXT);
+  CREATE TABLE failure_modes (fm_key TEXT PRIMARY KEY, failure_mode TEXT, root_cause TEXT, remediation TEXT, detector TEXT, probe_class TEXT, first_seen TEXT, issue_id INTEGER,
+    trigger_condition TEXT, symptom TEXT, blast_radius TEXT);
+  CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, precondition TEXT, action TEXT, verify_probe TEXT, verify_transport TEXT, max_attempts INTEGER,
+    escalate_to TEXT, expected_cadence_h INTEGER, status TEXT, next_due_at TEXT, module TEXT, budget_ms INTEGER, max_items INTEGER, requires_container INTEGER);
+  CREATE INDEX idx_fleet_tick_heavy_ts ON fleet_tick_heavy (ts);
 `);
 const blob = (n) => "x".repeat(n);
 const ctxOf = (extra = {}) => JSON.stringify({ base: blob(120000), patch: blob(15000), win_text: blob(5000), x: blob(2000), claim: { token: "t1", released_at: "2026-10-30T00:00:00Z" }, anchor: "async function f() {", superseded_pr: 77, sigs: ["a"], lastError: "e", edits: [1, 2], ...extra });
@@ -50,7 +62,12 @@ const total = () => db.prepare("SELECT SUM(length(ctx)) AS n FROM code_tasks").g
 const bytes0 = total();
 
 db.exec(migration);
+db.exec(migration2);
 const heavy = () => db.exec("INSERT INTO fleet_tick_heavy (source) VALUES ('test')");
+// Count json_valid calls (the cost the review measured): application-defined functions override the built-in for statements prepared on this connection (Node 23.5+).
+let jsonValidCalls = 0;
+const canCount = typeof db.function === "function";
+if (canCount) db.function("json_valid", { deterministic: true }, (s) => { jsonValidCalls++; try { JSON.parse(String(s)); return 1; } catch { return 0; } });
 
 // First heavy tick: at most 40 tasks, only the four keys.
 heavy();
@@ -68,8 +85,12 @@ assert.ok(led.bytes_before > 140000 && led.bytes_after < 400, "the ledger holds 
 // Three more ticks finish the 116 due tasks (100 + 5 + 5 + 3 + 3 from the resumability cases); nothing else is touched.
 heavy(); heavy(); heavy();
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM code_task_ctx_compacted").get().n, 116, "all due tasks, once each");
+const callsBefore = jsonValidCalls;
 heavy();
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM code_task_ctx_compacted").get().n, 116, "a further tick finds nothing and repeats nothing");
+// Steady state (review finding 1): the ledger probe comes first, so a tick over 116 compacted tasks parses only the few rows the ledger does not cover
+// (the epoch/small/bad rows are not due; json_valid runs for rows that pass the cheap filters and the ledger check: none here). Without the reorder it was one parse per old finished task.
+if (canCount) assert.ok(jsonValidCalls - callsBefore <= 2, "a steady-state tick parses no compacted task: " + (jsonValidCalls - callsBefore) + " json_valid calls");
 for (const id of ["fy", "my", "q", "pr", "small", "epoch", "bad", "sn", "sd", "sr"]) {
   assert.ok(!db.prepare("SELECT 1 FROM code_task_ctx_compacted WHERE task_id = ?").get(id), id + " is not compacted");
   assert.ok(db.prepare("SELECT length(ctx) AS n FROM code_tasks WHERE id = ?").get(id).n > 100 || id === "small", id + " keeps its ctx");
@@ -88,7 +109,36 @@ db.exec("DELETE FROM ops_config WHERE key = 'code_tasks_ctx_compact'");
 heavy();
 assert.ok(db.prepare("SELECT 1 FROM code_task_ctx_compacted WHERE task_id = 'late'").get(), "and it resumes when the key is gone");
 
+// Review finding 2: a compacted task that is requeued (updated_at moves past its compaction), regrows its ctx and ends terminal again is compacted again;
+// one that was not touched since is not. The ledger row is replaced, so the UPDATE finds it in the new batch.
+db.prepare("UPDATE code_task_ctx_compacted SET compacted_at = ? WHERE task_id = 'fo0'").run(isoDaysAgo(30));
+db.prepare("UPDATE code_tasks SET ctx = ?, updated_at = ?, status = 'failed' WHERE id = 'fo0'").run(ctxOf(), isoDaysAgo(9));
+heavy();
+assert.equal(db.prepare("SELECT length(ctx) AS n FROM code_tasks WHERE id = 'fo0'").get().n < 1000, true, "a regrown task is compacted again");
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM code_task_ctx_compacted WHERE task_id = 'fo0'").get().n, 1, "the ledger keeps one row per task");
+assert.ok(db.prepare("SELECT compacted_at >= ? AS fresh FROM code_task_ctx_compacted WHERE task_id = 'fo0'").get(isoDaysAgo(1)).fresh, "and the ledger row is the latest compaction");
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM code_task_ctx_compacted").get().n, 117, "(the late task from the kill-switch case plus the 116)");
+db.prepare("UPDATE code_tasks SET ctx = ?  WHERE id = 'm5'").run(ctxOf());
+heavy();
+assert.ok(db.prepare("SELECT length(ctx) AS n FROM code_tasks WHERE id = 'm5'").get().n > 100000, "a task whose updated_at did not move since its compaction is left alone (a ctx rewritten behind its back is not chased)");
+
+// Review finding 3: WHERE batch = NEW.id is served by the index.
+const plan = db.prepare("EXPLAIN QUERY PLAN SELECT task_id FROM code_task_ctx_compacted WHERE batch = 1").all().map((r) => r.detail).join(" | ");
+assert.match(plan, /idx_ctx_compacted_batch/, "the batch lookup uses the ledger index: " + plan);
+
+// Review finding 4: the heavy-tick stall detector reads 0 for a fresh tick, 1 for a stale or empty table.
+const probe = db.prepare("SELECT verify_probe FROM remediation_contracts WHERE class = 'fm-fleet-tick-heavy-stale'").get().verify_probe;
+assert.deepEqual({ ...db.prepare(probe).get() }, { expected: "0", observed: "0" }, "a fresh heavy tick reads 0");
+db.exec("UPDATE fleet_tick_heavy SET ts = '" + isoDaysAgo(1) + "'");
+assert.equal(db.prepare(probe).get().observed, "1", "no heavy tick for a day reads 1");
+db.exec("DELETE FROM fleet_tick_heavy");
+assert.equal(db.prepare(probe).get().observed, "1", "an empty table reads 1");
+assert.match(db.prepare("EXPLAIN QUERY PLAN " + probe).all().map((r) => r.detail).join(" | "), /fleet_tick_heavy/, "the probe reads fleet_tick_heavy");
+
 db.exec(migration);
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM decision_log").get().n, 1, "replay is idempotent");
+db.exec(migration2);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM decision_log").get().n, 2, "replay is idempotent: one decision row per file");
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM failure_modes").get().n, 1);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM remediation_contracts").get().n, 1);
 db.close();
 console.log("code-tasks-ctx-compact: all passed");
