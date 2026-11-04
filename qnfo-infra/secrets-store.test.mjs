@@ -37,7 +37,9 @@ await assert.rejects(
 );
 
 assert.match(wrangler, /\[\[secrets_store_secrets\]\]\s+binding = "CF_TOKEN_STORE"\s+store_id = "8ef28060302e4311b064ba3529493e8b"\s+secret_name = "CF_API_TOKEN"/);
-assert.equal((source.match(/infraSecret\(env, "CF_TOKEN_STORE", "CF_TOKEN"\)/g) || []).length, 4);
+// Every Cloudflare token read goes through the Secrets Store helper: at least the four original readers, plus any later one (REACH-AE-1 reachAeSql was the fifth), and no bare env.CF_TOKEN read.
+assert.ok((source.match(/infraSecret\(env, "CF_TOKEN_STORE", "CF_TOKEN"\)/g) || []).length >= 4);
+assert.equal((source.match(/env\.CF_TOKEN\b/g) || []).length, 0, "no code reads env.CF_TOKEN directly");
 assert.match(source, /bindings: \["INFRA_TOKEN", "CF_ACCOUNT", "CF_TOKEN", "CF_TOKEN_STORE"\]/);
 
 console.log("QNFO.INFRA Secrets Store migration checks passed");

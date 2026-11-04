@@ -5,31 +5,8 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 var __defProp2 = Object.defineProperty;
 var __name2 = /* @__PURE__ */ __name((target, value) => __defProp2(target, "name", { value, configurable: true }), "__name");
 var NL = String.fromCharCode(10);
-async function recordReach(env, path, ctx) {
-  try {
-    const binding = env.REACH;
-    if (!binding || typeof binding.put !== "function") {
-      return;
-    }
-    const write = binding.put({ path, ts: Date.now() });
-    if (!write || typeof write.then !== "function") {
-      return;
-    }
-    if (ctx && ctx.waitUntil) {
-      ctx.waitUntil(
-        write.catch((err) => {
-          console.error(JSON.stringify({ worker: "qnfo-infra", where: "recordReach", error: String(err) }));
-        })
-      );
-      return;
-    }
-    await write;
-  } catch (err) {
-    console.error(JSON.stringify({ worker: "qnfo-infra", where: "recordReach", error: String(err) }));
-  }
-}
-__name(recordReach, "recordReach");
-__name2(recordReach, "recordReach");
+// REACH-AE-1 (1.12.0): the recordReach stub that stood here wrote to env.REACH.put(), a binding that was never declared and an API Analytics Engine does not have, so it
+// never wrote a row; it is replaced by the real read-back (collectReachAe, below) of the data points qnfo-gateway writes with writeDataPoint.
 // ROADMAP-1 / QNFO.INFRA #2 (issue 1000698, RED-DRAIN-1 dispatch): prefer Secrets Store bindings while
 // retaining the per-worker secret as a fallback until the live binding is verified. Secret values are never logged.
 async function infraSecret(env, key, legacyKey = key) {
@@ -97,16 +74,14 @@ __name(infraManifestResponse, "infraManifestResponse");
 __name2(infraManifestResponse, "infraManifestResponse");
 function infraManifestRoute(url, env) {
   if (url.pathname === "/infra/manifest.json") {
-    recordReach(env, url.pathname).catch((err) => {
-      console.error(JSON.stringify({ worker: "qnfo-infra", where: "recordReach", error: String(err) }));
-    });
     return infraManifestResponse(env);
   }
   return null;
 }
 __name(infraManifestRoute, "infraManifestRoute");
 __name2(infraManifestRoute, "infraManifestRoute");
-var VERSION = "1.11.1-cost-ledger"; /* 1.11.1 COST-LEDGER-ALLVENDOR-1c: each cost ledger tick records its outcome (points, errors, note) as cost_usage_daily rows of vendor cost_ledger. */ /* 1.11.0 COST-LEDGER-ALLVENDOR-1 (pillar cost): hourly all-product Cloudflare cost ledger, usage meters priced into cost_usage_daily and cost_vendor_month. */ /* 1.10.3 QNFO.OPS #1 (issue 1000696): route deterministic infra embeddings through the existing AI Gateway with a one-day per-request cache; non-critical calls use their existing cheaper ladder rung, while critical retrieval preserves its model. */ /* 1.10.2 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work collection omits identifiers on the retired prefix; generic paper collection remains unchanged. */ /* 1.9.2 HANDOFFS-VZ-CATCHUP-1 (2026-10-26, pillar autonomy, agent_issues 1000176; patch): the producer indexed 100 handoffs an hour, and 707 handoffs older than 90 minutes were still unindexed on 2026-10-26 (the issue asks for the backlog within 24 hours and a new handoff within 60 minutes), so a fire takes 300 rows while more than one normal batch waits, and the normal 100 when the previous run left a FAILED note, so a batch that cannot finish inside the 120 second timeout cannot repeat itself for ever. prior 1.9.1-codeagent */ /* 1.9.0-handoffs-index HANDOFFS-VZ-PRODUCER-1 (2026-10-26, pillar autonomy, agent_issues 1000176): the handoffs vector index had no working producer. PR 4230 added one inside the 06:30 indexer member that selected handoffs.content, a column the table does not have (summary, pending_work, next_action are the text), so it threw into a catch and logged every night while semantic handoff search stayed frozen at 2026-07. The block is removed; indexHandoffs() runs on every hourly fire, reads the real columns, embeds in chunks of 1000 characters with the model the readers query with, upserts ids handoff:<id>:<chunk> with metadata {doc, id, session_id, ts, summary}, and moves the ops_config watermark handoffs_vz_last_id only after the upsert succeeded (100 handoffs per run, so the 1,706-row backfill is done in about 18 hours and a new handoff is indexed within the hour). A handoff of the personal plane (project, WBS or session label: personal, q08, twin, msgraph, owner-, email-strategic-) is skipped and the watermark moves past it, because scope=research retrieval reads this index (51 of 1,706 rows on 2026-10-26); a failure or a call stalled for 120 s is written to the watermark row's note and the state refresh still runs. */ /* 1.8.5-codeagent */ /* 1.8.3-analytics-untruncated MCP-ANALYTICS-TRUNCATION-1 (2026-10-25, pillar honest-measure): /analytics read aiInferenceAdaptiveGroups with limit 100 over {date, modelId}; the real group set is 437, so Workers AI usage under-reported 7.7x (3,438,429 neurons / $37.8 vs 26,345,487 / $286.5). Total now from a dimension-free aggregate, breakdown from {modelId}, with shown/groups/truncated and the 10k/day free-tier deduction so it matches cost_daily. */ /* 1.8.2-mcp-state-full-lists MCP-STATE-TRUNCATION-1 (2026-10-25, pillar honest-measure): /state returned count=35 with only 30 worker names and count=11 with only 10 D1 rows, so a caller could not tell that five workers and qnfo-audit were omitted -- a silent false census. The list caps are now 60 workers / 25 D1 and both carry shown + truncated, so an omission is visible instead of inferred. */ /* 1.8.1-null-doi-cursor CITATION-PAGINATION-NULL-CURSOR-1 (2026-10-25, pillar reach): stable DOI pagination now traverses legacy rows with NULL created_at using slug-only cursors; the offline test covers 217 records, including the null-timestamp boundary across five pages. */ /* 1.8.0-all-doi-impact CITATION-TRACKING-ALL-DOIS-1 (2026-10-25, pillar reach): the daily impact run queried only the newest 50 (at most 100) DOIs; stable keyset pagination now collects the entire third-party DOI set without changing the cron grid. qnfo-infra/impact.test.mjs covers 217 records across five pages. */ /* 1.7.0-no-registrar NO-REGISTRAR-1 (2026-10-21): the registrar is not named; dead DOIs are recognised by the 10.5281 prefix only */ // 1.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly :30 trigger. The 06:30 run (indexer member + state refresh) and the 18:00 refresh keep their slots on it and are retried hourly, at most 3 times, while their last good run is over 24.5 h old; every other hour runs the state refresh (it ran twice a day). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.5.1 WORKERS-BP-LOGGING-qnfo-infra-1 (2026-10-14, agent_issues 2534, child of 2342, pillar autonomy): the 3 swallowed catches in handleWebhook log as a structured console.error (worker, where, error); control flow unchanged. // 1.5.0 CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, pillar autonomy): scheduled() upserts its fleet_heartbeat row after the run, ok=0 when the work threw. // 1.4.0 SOURCE-VOICE-1 (agent_issues 2468, owner directive 2026-10-13 "Papers shall cite full texts, not merely reference work summaries"; pillar research): a PAPER_VZ hit in /context carries the passage of the paper's body that matched (the indexer's own chunk, from metadata.chunk), after the abstract when one is stored; it was title + status + abstract.slice(0, 220), so a paper with no abstract (269 of 575 published on 2026-10-13) reached qnfo-ai's retrieved context as its title alone. renderContext gives a paper hit up to 1300 characters (300 before). isDeadPrefixDoi was defined only inside the folded indexer member, so the /context enrichment and metaLine threw a ReferenceError on every paper hit and returned "slug <x> (enrich error)"; it is now defined at module scope too. // 1.3.4 WORKERS-STANDARDS-1 (2026-10-12, pillar security): the indexer member compares X-Index-Token in constant time (same accepted value). // 1.3.1 INDEXER-FOLD-1 (#1756): qnfo-paper-indexer runs here as a member (its two jobs on this worker's existing 06:30 trigger, no cron added; /indexer/* read routes).
+var VERSION = "1.12.0-cost-ledger";
+/* 1.11.1 COST-LEDGER-ALLVENDOR-1c: each cost ledger tick records its outcome (points, errors, note) as cost_usage_daily rows of vendor cost_ledger. */ /* 1.11.0 COST-LEDGER-ALLVENDOR-1 (pillar cost): hourly all-product Cloudflare cost ledger, usage meters priced into cost_usage_daily and cost_vendor_month. */ /* 1.10.3 QNFO.OPS #1 (issue 1000696): route deterministic infra embeddings through the existing AI Gateway with a one-day per-request cache; non-critical calls use their existing cheaper ladder rung, while critical retrieval preserves its model. */ /* 1.10.2 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work collection omits identifiers on the retired prefix; generic paper collection remains unchanged. */ /* 1.9.2 HANDOFFS-VZ-CATCHUP-1 (2026-10-26, pillar autonomy, agent_issues 1000176; patch): the producer indexed 100 handoffs an hour, and 707 handoffs older than 90 minutes were still unindexed on 2026-10-26 (the issue asks for the backlog within 24 hours and a new handoff within 60 minutes), so a fire takes 300 rows while more than one normal batch waits, and the normal 100 when the previous run left a FAILED note, so a batch that cannot finish inside the 120 second timeout cannot repeat itself for ever. prior 1.9.1-codeagent */ /* 1.9.0-handoffs-index HANDOFFS-VZ-PRODUCER-1 (2026-10-26, pillar autonomy, agent_issues 1000176): the handoffs vector index had no working producer. PR 4230 added one inside the 06:30 indexer member that selected handoffs.content, a column the table does not have (summary, pending_work, next_action are the text), so it threw into a catch and logged every night while semantic handoff search stayed frozen at 2026-07. The block is removed; indexHandoffs() runs on every hourly fire, reads the real columns, embeds in chunks of 1000 characters with the model the readers query with, upserts ids handoff:<id>:<chunk> with metadata {doc, id, session_id, ts, summary}, and moves the ops_config watermark handoffs_vz_last_id only after the upsert succeeded (100 handoffs per run, so the 1,706-row backfill is done in about 18 hours and a new handoff is indexed within the hour). A handoff of the personal plane (project, WBS or session label: personal, q08, twin, msgraph, owner-, email-strategic-) is skipped and the watermark moves past it, because scope=research retrieval reads this index (51 of 1,706 rows on 2026-10-26); a failure or a call stalled for 120 s is written to the watermark row's note and the state refresh still runs. */ /* 1.8.5-codeagent */ /* 1.8.3-analytics-untruncated MCP-ANALYTICS-TRUNCATION-1 (2026-10-25, pillar honest-measure): /analytics read aiInferenceAdaptiveGroups with limit 100 over {date, modelId}; the real group set is 437, so Workers AI usage under-reported 7.7x (3,438,429 neurons / $37.8 vs 26,345,487 / $286.5). Total now from a dimension-free aggregate, breakdown from {modelId}, with shown/groups/truncated and the 10k/day free-tier deduction so it matches cost_daily. */ /* 1.8.2-mcp-state-full-lists MCP-STATE-TRUNCATION-1 (2026-10-25, pillar honest-measure): /state returned count=35 with only 30 worker names and count=11 with only 10 D1 rows, so a caller could not tell that five workers and qnfo-audit were omitted -- a silent false census. The list caps are now 60 workers / 25 D1 and both carry shown + truncated, so an omission is visible instead of inferred. */ /* 1.8.1-null-doi-cursor CITATION-PAGINATION-NULL-CURSOR-1 (2026-10-25, pillar reach): stable DOI pagination now traverses legacy rows with NULL created_at using slug-only cursors; the offline test covers 217 records, including the null-timestamp boundary across five pages. */ /* 1.8.0-all-doi-impact CITATION-TRACKING-ALL-DOIS-1 (2026-10-25, pillar reach): the daily impact run queried only the newest 50 (at most 100) DOIs; stable keyset pagination now collects the entire third-party DOI set without changing the cron grid. qnfo-infra/impact.test.mjs covers 217 records across five pages. */ /* 1.7.0-no-registrar NO-REGISTRAR-1 (2026-10-21): the registrar is not named; dead DOIs are recognised by the 10.5281 prefix only */ // 1.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly :30 trigger. The 06:30 run (indexer member + state refresh) and the 18:00 refresh keep their slots on it and are retried hourly, at most 3 times, while their last good run is over 24.5 h old; every other hour runs the state refresh (it ran twice a day). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.5.1 WORKERS-BP-LOGGING-qnfo-infra-1 (2026-10-14, agent_issues 2534, child of 2342, pillar autonomy): the 3 swallowed catches in handleWebhook log as a structured console.error (worker, where, error); control flow unchanged. // 1.5.0 CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, pillar autonomy): scheduled() upserts its fleet_heartbeat row after the run, ok=0 when the work threw. // 1.4.0 SOURCE-VOICE-1 (agent_issues 2468, owner directive 2026-10-13 "Papers shall cite full texts, not merely reference work summaries"; pillar research): a PAPER_VZ hit in /context carries the passage of the paper's body that matched (the indexer's own chunk, from metadata.chunk), after the abstract when one is stored; it was title + status + abstract.slice(0, 220), so a paper with no abstract (269 of 575 published on 2026-10-13) reached qnfo-ai's retrieved context as its title alone. renderContext gives a paper hit up to 1300 characters (300 before). isDeadPrefixDoi was defined only inside the folded indexer member, so the /context enrichment and metaLine threw a ReferenceError on every paper hit and returned "slug <x> (enrich error)"; it is now defined at module scope too. // 1.3.4 WORKERS-STANDARDS-1 (2026-10-12, pillar security): the indexer member compares X-Index-Token in constant time (same accepted value). // 1.3.1 INDEXER-FOLD-1 (#1756): qnfo-paper-indexer runs here as a member (its two jobs on this worker's existing 06:30 trigger, no cron added; /indexer/* read routes).
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1486,6 +1461,71 @@ async function costVendorTickRun(env, nowMs) {
   return { days: days, points: points.length, month_rows: written, errors: errors, stopped: stopped };
 }
 // ---- COST-LEDGER-ALLVENDOR-1:END
+// ---- REACH-AE-1:BEGIN (pillar reach, agent_issues 1000699, GitHub #5727): the read-back half of the first-party per-page reach stream. qnfo-gateway writes one Workers
+// Analytics Engine data point per human-class HTML page load to the dataset qnfo_reach (binding REACH_AE, the only binding for it in the fleet): blob1 'reach', blob2 host,
+// blob3 path, blob4 referrer host ('' none, 'self' a fleet host), blob5 utm_source, blob6 country, double1 1, index1 host. Each hourly fire sums the last two days through
+// the Analytics Engine SQL API (the CF_TOKEN already used for the GraphQL reads) and upserts day-level rows into qnfo-audit reach_signals (source reach-ae, channel web,
+// metric pageloads; entity types host, referrer and page), so referral attribution can be read from our own edge and set beside cf-rum-human and ga4. The dataset does
+// not exist before the first write and the SQL API answers it with zero rows, so the read-back is safe to deploy first. quality is unknown on purpose: automation that does
+// not declare itself is not separable at the edge (READER-YIELD-1), so these are page loads and never readers. State and the last error are in infra_state id reach_ae.
+var REACH_AE_DATASET = "qnfo_reach";
+var REACH_AE_SOURCE = "reach-ae";
+var REACH_AE_DAYS = 2;
+var REACH_AE_HOST_SQL = "SELECT toDate(timestamp) AS day, blob2 AS host, blob4 AS ref, sum(_sample_interval * double1) AS loads FROM " + REACH_AE_DATASET + " WHERE blob1 = 'reach' AND timestamp > NOW() - INTERVAL '" + REACH_AE_DAYS + "' DAY GROUP BY day, host, ref ORDER BY loads DESC LIMIT 1000";
+var REACH_AE_PAGE_SQL = "SELECT toDate(timestamp) AS day, blob2 AS host, blob3 AS path, sum(_sample_interval * double1) AS loads FROM " + REACH_AE_DATASET + " WHERE blob1 = 'reach' AND timestamp > NOW() - INTERVAL '" + REACH_AE_DAYS + "' DAY GROUP BY day, host, path ORDER BY loads DESC LIMIT 500";
+var REACH_AE_UPSERT = "INSERT INTO reach_signals (date, source, channel, entity_type, entity_id, metric, value, quality, collected_at) VALUES (?1, '" + REACH_AE_SOURCE + "', 'web', ?2, ?3, 'pageloads', ?4, 'unknown', datetime('now')) ON CONFLICT(date, source, channel, entity_type, entity_id, metric) DO UPDATE SET value = excluded.value, quality = excluded.quality, collected_at = excluded.collected_at";
+async function reachAeSql(env, sql) {
+  const token = await infraSecret(env, "CF_TOKEN_STORE", "CF_TOKEN");
+  if (!token || !env.CF_ACCOUNT) throw new Error("CF_TOKEN or CF_ACCOUNT is not set");
+  const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + env.CF_ACCOUNT + "/analytics_engine/sql", { method: "POST", headers: { Authorization: "Bearer " + token, "User-Agent": "Mozilla/5.0 (qnfo-infra)" }, body: sql });
+  const text = await r.text();
+  if (!r.ok) throw new Error("analytics_engine sql HTTP " + r.status + ": " + text.slice(0, 160));
+  const j = JSON.parse(text);
+  return Array.isArray(j && j.data) ? j.data : [];
+}
+// day-level rows [date, entity_type, entity_id, value] from the two query answers; a group without a valid day, an id or a positive number is dropped
+function reachAeRows(hostRef, pages) {
+  const m = new Map();
+  const add = function (day, type, id, v) {
+    const d = String(day == null ? "" : day).slice(0, 10), e = String(id == null ? "" : id).slice(0, 200), n = Number(v);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !e || !Number.isFinite(n) || n <= 0) return;
+    const k = d + "|" + type + "|" + e;
+    m.set(k, (m.get(k) || 0) + n);
+  };
+  (hostRef || []).forEach(function (r) {
+    const host = String(r.host == null ? "" : r.host).toLowerCase(), ref = String(r.ref == null ? "" : r.ref).toLowerCase();
+    add(r.day, "host", host, r.loads);
+    add(r.day, "referrer", ref === "" ? "direct" : ref === "self" ? "internal" : ref, r.loads);
+  });
+  (pages || []).forEach(function (r) { add(r.day, "page", String(r.host == null ? "" : r.host).toLowerCase() + String(r.path == null ? "" : r.path), r.loads); });
+  return Array.from(m.entries()).map(function (kv) { const p = kv[0].split("|"); return [p[0], p[1], p.slice(2).join("|"), Math.round(kv[1] * 100) / 100]; });
+}
+async function reachAeState(env, ts, data) {
+  try {
+    await env.AUDIT.prepare("INSERT INTO infra_state (id, ts, kind, data) VALUES ('reach_ae', ?1, 'reach_ae', ?2) ON CONFLICT(id) DO UPDATE SET ts = excluded.ts, data = excluded.data").bind(ts, JSON.stringify(Object.assign({ ts: ts, version: VERSION }, data))).run();
+  } catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "reachAeState", error: String(e && e.message || e).slice(0, 160) })); }
+}
+async function collectReachAe(env) {
+  if (!env || !env.AUDIT) return { skipped: "no AUDIT" };
+  const ts = new Date().toISOString();
+  let hostRef, pages;
+  try {
+    hostRef = await reachAeSql(env, REACH_AE_HOST_SQL);
+    pages = await reachAeSql(env, REACH_AE_PAGE_SQL);
+  } catch (e) {
+    const error = String(e && e.message || e).slice(0, 200);
+    await reachAeState(env, ts, { error: error });
+    return { error: error };
+  }
+  const rows = reachAeRows(hostRef, pages);
+  for (let i = 0; i < rows.length; i += 50) {
+    await env.AUDIT.batch(rows.slice(i, i + 50).map(function (r) { return env.AUDIT.prepare(REACH_AE_UPSERT).bind(r[0], r[1], r[2], r[3]); }));
+  }
+  const loads = rows.filter(function (r) { return r[1] === "host"; }).reduce(function (s, r) { return s + r[3]; }, 0);
+  await reachAeState(env, ts, { host_ref_groups: hostRef.length, page_groups: pages.length, rows: rows.length, loads: Math.round(loads), days: REACH_AE_DAYS });
+  return { rows: rows.length, loads: Math.round(loads) };
+}
+// ---- REACH-AE-1:END
 async function runScheduled(event, env, ctx) {
     // HANDOFFS-VZ-PRODUCER-1: every fire, so a new handoff is indexed within the hour. A failure or a stalled call (120 s, so the refresh below still runs)
     // is logged, written to the watermark row's note and leaves the watermark where it was.
@@ -1494,6 +1534,9 @@ async function runScheduled(event, env, ctx) {
     // COST-LEDGER-ALLVENDOR-1: every fire (hourly :30), after the handoffs; a failure is logged and never fails the fire.
     try { const c = await withTimeout(costVendorTick(env), Number(env && env.COST_TICK_TIMEOUT_MS) || 200000, "costVendorTick"); if (c && c.errors && c.errors.length) console.log("[qnfo-infra] cost ledger: " + JSON.stringify(c)); }
     catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "costVendorTick", error: String(e && e.message || e) })); }
+    // REACH-AE-1: every fire (hourly :30), after the cost ledger; the read-back of the first-party reach events, a failure is logged and never fails the fire.
+    try { const re = await withTimeout(collectReachAe(env), Number(env && env.REACH_AE_TIMEOUT_MS) || 60000, "collectReachAe"); if (re && re.error) console.log("[qnfo-infra] reach read-back: " + re.error); }
+    catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "collectReachAe", error: String(e && e.message || e) })); }
     // INDEXER-FOLD-1: the folded qnfo-paper-indexer member's two jobs (its old "0 4" impact collection and "5 6" render
     // metrics) run on this worker's existing 06:30 trigger, impact first, both after the gateway's 06:00 sweep. No cron is
     // added: a newly registered trigger was seen not to fire (PROBER-ON-CAL-TICK-1), and the cron count drops by two. A
