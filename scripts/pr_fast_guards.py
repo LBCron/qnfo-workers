@@ -57,6 +57,11 @@ GUARDS = [
      ["node", "migrations/metric-family-cluster-b.test.mjs"], None),
     ("code-anchor-once", lambda f: any_match(f, r"^migrations/", WORKER.pattern),
      ["node", "migrations/code-anchor-once.test.mjs"], None),
+    # WORKERS-STANDARDS-GUARD-1 on the pull request (DEFAULT-APPROVE-1, agent_issues 1000657, owner card 200; owner directive 2026-10-19: reversible decisions take the recommended
+    # option): the diff-only Workers anti-pattern guard (about 15 s) is the ONE deploy-gate step that blocks a pull request. It judges only what the change ADDS, so existing debt never
+    # blocks an unrelated pull request, and the base tree (which adds nothing) passes it. The rest of deploy-gate stays advisory (MERGE-STREAMLINE-1). GUARD_BASE (set in main) is its base.
+    ("workers-standards-guard", lambda f: any_match(f, r"^[^/]+/worker\.js$", r"^[^/]+/wrangler\.(toml|jsonc)$", r"^scripts/[^/]+\.py$", r"^scripts/workers-standards-allowlist\.txt$"),
+     ["python3", "scripts/workers_standards_guard.py"], r"violation\(s\) added|^\S+:\d+ \[[a-z0-9-]+\]|failing closed|cannot read the diff"),
     ("suite-regressions", lambda f: any(not f_.startswith(("docs/", "ci-status/", "audits/")) for f_ in f),
      suites_cmd, r"^FAIL\s+<t>\s+\S+$|expired|malformed"),
 ]
@@ -82,6 +87,8 @@ def main(argv):
     base = next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--base"), None) or regression_gate.default_base(ROOT)
     jobs = int(next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--jobs"), "4"))
     files = changed_files(base) if base else None
+    if base:
+        os.environ["GUARD_BASE"] = base  # the diff-only guards (workers-standards-guard) compare with the same base the regression gate uses
     if files is None and "--all" not in argv:
         print("::error title=fast-guards::cannot compute the changed files against %r; running every guard" % base)
     run_all = "--all" in argv or files is None

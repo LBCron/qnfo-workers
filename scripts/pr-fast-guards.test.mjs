@@ -27,11 +27,25 @@ const selected = (files) => {
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 ok(same(selected(["docs/X.md", "ci-status/a.json"]), []), "a docs-only change selects no guard", selected(["docs/X.md"]));
-ok(same(selected(["qnfo-ai/worker.js", "qnfo-ai/deployed-current.worker.js"]), ["narrative-prompt-guard", "worker-load-gate", "code-anchor-once"] ), "a worker change selects the prose, load and anchor guards and its suites", selected(["qnfo-ai/worker.js"]));
+ok(same(selected(["qnfo-ai/worker.js", "qnfo-ai/deployed-current.worker.js"]), ["narrative-prompt-guard", "worker-load-gate", "code-anchor-once", "workers-standards-guard"] ), "a worker change selects the prose, load, anchor and Workers-standards guards and its suites", selected(["qnfo-ai/worker.js"]));
 ok(same(selected(["migrations/2026-11-04-x.sql"]), ["metric-cause", "code-anchor-once"] ), "a migration selects the metric-cause and anchor guards and the suites", selected(["migrations/2026-11-04-x.sql"]));
 ok(same(selected([".github/workflows/pr-checks.yml"]), []), "a workflow change selects the suites only", selected([".github/workflows/pr-checks.yml"]));
-ok(same(selected(["scripts/narrative-prompt-guard.py"]), ["narrative-prompt-guard"] ), "the guard's own file selects it", selected(["scripts/narrative-prompt-guard.py"]));
+ok(same(selected(["scripts/narrative-prompt-guard.py"]), ["narrative-prompt-guard", "workers-standards-guard"] ), "the guard's own file selects it (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/narrative-prompt-guard.py"]));
 ok(same(selected(["_shared/x.js"]), ["worker-load-gate"] ), "a shared helper selects the load gate", selected(["_shared/x.js"]));
+// DEFAULT-APPROVE-1 (agent_issues 1000657): the diff-only WORKERS-STANDARDS-GUARD-1 is the one deploy-gate step that blocks a pull request
+ok(same(selected(["qnfo-ai/wrangler.toml"]), ["workers-standards-guard"]), "a wrangler.toml change selects the Workers-standards guard", selected(["qnfo-ai/wrangler.toml"]));
+ok(same(selected(["scripts/bp26_web.py"]), ["workers-standards-guard"]), "a scripts/*.py change selects the Workers-standards guard (WRITE-SUCCESS-CODES-1)", selected(["scripts/bp26_web.py"]));
+ok(!selected(["docs/A.md", "migrations/2026-11-04-x.sql"]).includes("workers-standards-guard"), "docs and migrations do not select the Workers-standards guard");
+{
+  const src = readFileSync(join(here, "pr_fast_guards.py"), "utf8");
+  ok(/GUARD_BASE/.test(src) && /scripts\/workers_standards_guard\.py/.test(src), "the guard is run with the regression gate's base through GUARD_BASE");
+  const from = src.indexOf('("workers-standards-guard"'), to = src.indexOf('("suite-regressions"');
+  const entry = from >= 0 && to > from ? src.slice(from, to) : "";
+  ok(entry.includes("violation") && entry.includes("added"), "its failure-line pattern matches the guard's own violation header", entry.slice(-200));
+  // the header the guard prints is matched by the pattern in the entry (the regression gate compares these lines against the base tree)
+  const pat = /r"([^"]*violation[^"]*)"/.exec(entry);
+  ok(!!pat, "the entry carries a raw-string failure pattern", entry.slice(-200));
+}
 
 // the suites command writes the changed directories, "." for a root file that is not prose
 const r = spawnSync(PY, ["-c", [
