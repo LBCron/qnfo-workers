@@ -36,7 +36,7 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, lastStepText, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
+import { callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
 declare var VERSION: string;
@@ -393,17 +393,19 @@ export class FleetCodeAgent extends Agent<Env, State> {
       modelId = m.id;
       const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, runId: id, proposals });
       const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(/^issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
-      result = String(out.text || "").trim() || lastStepText(out.steps);
+      // FINAL-ANSWER-PICK-1: a preface, an empty last step or raw tool-call markup is not an answer (see pickAnswer in lib.js).
+      const pick = pickAnswer(out.text, out.steps);
+      result = pick.text;
       await meter(this.env, modelId, usageOf(out));
       steps = Array.isArray(out.steps) ? out.steps.length : 0;
       for (const s of out.steps || []) for (const tc of s.toolCalls || []) if (used.indexOf(tc.toolName) < 0) used.push(tc.toolName);
-      // EMPTY-TURN-ANSWER-1: no step wrote text, so one more call without tools turns what the tools returned into the answer.
-      if (!result) {
+      // EMPTY-TURN-ANSWER-1 and FINAL-ANSWER-PICK-1: no step wrote an answer, so one more call without tools turns what the tools returned into it.
+      if (!pick.answered) {
         try {
           const fin: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: "Request:\n" + clip(r.prompt, 6000) + "\n\nTool results so far:\n" + (toolTranscript(out.steps, 24000) || "(none)") + "\n\n" + FINAL_ANSWER_ASK, abortSignal: AbortSignal.timeout(FINAL_ANSWER_TIMEOUT_MS) } as any);
-          result = String(fin.text || "").trim();
+          const ft = stripToolMarkup(String(fin.text || "").trim());
           await meter(this.env, modelId, usageOf(fin));
-          if (result) used.push("final-answer");
+          if (ft) { result = ft; used.push("final-answer"); }
         } catch (eF) { logErr("final-answer", eF); }
       }
       result = result || EMPTY_TEXT;

@@ -2,7 +2,7 @@
 // ADVERSARIAL: the helpers are tested directly; the bundle is checked by shape (it needs the Workers runtime to run). The live proof
 // is GET https://agents.qnfo.org/health answering this VERSION, a public POST /run answering 403, and a console turn reaching done.
 import { readFileSync } from "node:fs";
-import { callerOf, scopeOf, opsToolAllowed, readOnlySql, repoPathOk, codeTaskText, scheduleWhen, safeToolName, sliceLines, OPS_READ_ONLY, validateRequest, loopInstance, requesterOk, DRAIN_PER_TICK, EMPTY_TEXT, lastStepText, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute } from "./src/lib.js";
+import { callerOf, scopeOf, opsToolAllowed, readOnlySql, repoPathOk, codeTaskText, scheduleWhen, safeToolName, sliceLines, OPS_READ_ONLY, validateRequest, loopInstance, requesterOk, DRAIN_PER_TICK, EMPTY_TEXT, lastStepText, pickAnswer, hasToolMarkup, stripToolMarkup, SHORT_ANSWER_CHARS, FINAL_ANSWER_ASK, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute } from "./src/lib.js";
 const here = (p) => new URL(p, import.meta.url);
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
@@ -81,6 +81,31 @@ ok(/CREATE TABLE IF NOT EXISTS cf_agent_requests/.test(mig) && /INSERT OR IGNORE
 // EMPTY-TURN-ANSWER-1: a turn that ends on a tool step still answers.
 ok(lastStepText([{ text: "first finding" }, { text: "", toolCalls: [{}] }]) === "first finding", "the last step that wrote text is the answer");
 ok(lastStepText([{ text: "" }, { text: "  " }]) === "" && lastStepText(undefined) === "", "no text anywhere reads empty");
+
+// FINAL-ANSWER-PICK-1: a preface or raw tool-call markup is not the answer; a real one is kept.
+const PREFACE = "I'll start by reading the fleet's data and the repository.";
+const LONG = "TITLE: Cache the metric breakdown\nWHY: " + "the breakdown is read on every tick. ".repeat(8) + "\ncode-task: repo=qnfo-workers path=qnfo-ops/worker.js\ncode-anchor: async function metricBreakdown(\nEDIT: memoize it.";
+const TOOL = { text: "", toolCalls: [{}], finishReason: "tool-calls" };
+ok(LONG.length > SHORT_ANSWER_CHARS && SHORT_ANSWER_CHARS === 200, "the fixture answer is longer than the threshold");
+const prefaceOnly = pickAnswer("", [{ text: PREFACE, toolCalls: [{}], finishReason: "tool-calls" }, TOOL]);
+ok(!prefaceOnly.answered && prefaceOnly.text === PREFACE, "a one-line preface before tool steps is not an answer");
+ok(!pickAnswer(PREFACE, [TOOL, { text: PREFACE, toolCalls: [{ toolName: "fleet_sql" }], finishReason: "tool-calls" }]).answered, "a short text written beside the last tool call is not an answer");
+ok(!pickAnswer("", [{ text: PREFACE, toolCalls: [], finishReason: "stop" }, { text: "", toolCalls: [], finishReason: "stop" }]).answered, "a preface followed by an empty last step is not an answer");
+const markupOnly = pickAnswer('<|tool_calls_section_begin|><|tool_call_begin|>functions.ops_workspace_grep:0<|tool_call_argument_begin|>{"path": "a"}<|tool_call_end|>', [TOOL]);
+ok(!markupOnly.answered && markupOnly.text === "", "raw tool-call tokens are not an answer and are not stored");
+const markupInLong = pickAnswer(LONG + '<tool_call>{"name":"fleet_sql"}</tool_call>', []);
+ok(!markupInLong.answered && markupInLong.text === LONG.trim(), "markup after a long text is cut and the turn still asks once more");
+ok(!pickAnswer("We need a query.\n<|start|>assistant<|channel|>commentary to=", []).answered, "harmony channel tokens count as markup");
+const real = pickAnswer(LONG, [TOOL, { text: LONG, toolCalls: [], finishReason: "stop" }]);
+ok(real.answered && real.text === LONG, "a real answer is returned unchanged");
+const SHORT_REAL = "No change needed: the metric already recovered.";
+const shortReal = pickAnswer(SHORT_REAL, [TOOL, { text: SHORT_REAL, toolCalls: [], finishReason: "stop" }]);
+ok(shortReal.answered && shortReal.text === SHORT_REAL, "a short final answer written with no tool call is kept");
+const earlierLong = pickAnswer("", [{ text: LONG, toolCalls: [{}], finishReason: "tool-calls" }, TOOL]);
+ok(earlierLong.answered && earlierLong.text === LONG, "a long text from an earlier step still stands as the answer (EMPTY-TURN-ANSWER-1)");
+ok(!pickAnswer("", [{ text: "", toolCalls: [{}] }]).answered && !pickAnswer(undefined, undefined).answered, "an empty turn is unanswered");
+ok(hasToolMarkup("a <function_calls> b") && !hasToolMarkup("I read <b> and a | b") && stripToolMarkup("x <|python_tag|>y") === "x", "markup detection is narrow and strips from the first marker");
+ok(/format it asked for/.test(FINAL_ANSWER_ASK), "the final-answer ask keeps the request's format");
 const tt = toolTranscript([{ toolResults: [{ toolName: "fleet_sql", input: { sql: "SELECT 1" }, output: { ok: true, rows: 1 } }] }, { toolResults: [{ toolName: "repo_read_file", args: { path: "a" }, result: "x".repeat(5000) }] }], 3000);
 ok(tt.length <= 3000 && /repo_read_file/.test(tt), "the transcript keeps the newest tool results within its budget", tt.slice(0, 120));
 ok(/tool fleet_sql \{"sql":"SELECT 1"\} -> \{"ok":true,"rows":1\}/.test(toolTranscript([{ toolResults: [{ toolName: "fleet_sql", input: { sql: "SELECT 1" }, output: { ok: true, rows: 1 } }] }], 9000)), "a tool result reads as name, input and output");
@@ -96,7 +121,8 @@ ok(/modelFor\(this\.env, "code-session"[,)]/.test(ts) && !/fallback:\s*\[/.test(
 ok(/async function modelFor\(env: Env, purpose\?: string, affinity\?: string\)/.test(ts) && /sessionAffinity: "qnfo-agents:" \+ ses/.test(ts), "modelFor passes a sanitised session key to createAI as sessionAffinity");
 ok(/modelFor\(this\.env, undefined, id\)/.test(ts) && /modelFor\(this\.env, "code-session", this\.name \+ "-t" \+ turn\)/.test(ts), "agent turns key the cache by run id and code sessions by session and turn");
 ok(/cacheReadTokens/.test(ts) && /cached_tok=cached_tok\+excluded\.cached_tok/.test(ts), "the meter records cache-read tokens in ai_spend_ledger.cached_tok");
-ok(/result = String\(out\.text \|\| ""\)\.trim\(\) \|\| lastStepText\(out\.steps\);/.test(ts) && /if \(!result\) \{[\s\S]{0,200}generateText\(\{ model: m\.model[^\n]*FINAL_ANSWER_ASK, abortSignal/.test(ts), "an empty turn gets one more call, without tools");
+ok(/const pick = pickAnswer\(out\.text, out\.steps\);\n\s+result = pick\.text;/.test(ts) && /if \(!pick\.answered\) \{[\s\S]{0,200}generateText\(\{ model: m\.model[^\n]*FINAL_ANSWER_ASK, abortSignal/.test(ts), "an unanswered turn (empty, preface-only or tool markup) gets one more call, without tools");
+ok(/const ft = stripToolMarkup\(String\(fin\.text \|\| ""\)\.trim\(\)\);/.test(ts) && /if \(ft\) \{ result = ft; used\.push\("final-answer"\); \}/.test(ts), "the final-answer reply replaces the first text only when it holds text, with no markup");
 ok(/result = result \|\| EMPTY_TEXT;/.test(ts) && EMPTY_TEXT === "(the model returned no text)", "an answer that stays empty still says so");
 ok(/export class CodeSession extends Agent/.test(ts) && /CREATE TABLE IF NOT EXISTS code_session_events/.test(ts), "CodeSession persists session and ordered event state in its Durable Object");
 ok(/for await \(const part of out\.fullStream\)/.test(ts) && /part\.type === "text-delta"/.test(ts) && /part\.type === "tool-result"/.test(ts), "CodeSession emits text and tool events as the model stream runs");

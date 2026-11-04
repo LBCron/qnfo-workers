@@ -131,6 +131,38 @@ export function lastStepText(steps) {
   return "";
 }
 
+// FINAL-ANSWER-PICK-1: lastStepText is the right pick when the model wrote its answer in an earlier step, but it also returns a one-line
+// preface ("I'll start by reading the fleet's data", 58 characters) when step 1 wrote that and the turn then ran its step budget out on tool
+// steps. 288 of 332 lever reviews and the OPS and INFRA roadmap asks of 2026-11-04 stored such a preface (or a raw tool-call token string) as
+// the result, so the manager re-asked at about 3.3k neurons a call. A turn is unanswered when its final text is empty, carries tool-call
+// markup, or is a short text (under SHORT_ANSWER_CHARS) that came from a tool step or from an earlier step; the caller then runs the
+// FINAL_ANSWER_ASK call once. A real answer, short or long, that the last step wrote with no tool call stays as it was.
+export const SHORT_ANSWER_CHARS = 200;
+const TOOL_MARKUP = /<\|tool_calls?_(?:section_)?(?:begin|end)\|>|<\|tool_call_(?:begin|end|argument_begin)\|>|<\/?tool_call>|<function_calls>|<\|python_tag\|>|<\|(?:start|channel|message|call|constrain)\|>/i;
+
+export function hasToolMarkup(text) {
+  return TOOL_MARKUP.test(String(text || ""));
+}
+
+// The text before the first tool-call marker: raw markup is never stored as an answer.
+export function stripToolMarkup(text) {
+  const s = String(text || "");
+  const m = s.search(TOOL_MARKUP);
+  return (m < 0 ? s : s.slice(0, m)).trim();
+}
+
+export function pickAnswer(text, steps) {
+  const s = Array.isArray(steps) ? steps : [];
+  const last = s[s.length - 1];
+  const endedOnTool = !!last && ((Array.isArray(last.toolCalls) && last.toolCalls.length > 0) || last.finishReason === "tool-calls");
+  const final = String(text || "").trim();
+  const t = final || lastStepText(s);
+  if (!t) return { text: "", answered: false };
+  if (hasToolMarkup(t)) return { text: stripToolMarkup(t), answered: false };
+  if (t.length < SHORT_ANSWER_CHARS && (!final || endedOnTool)) return { text: t, answered: false };
+  return { text: t, answered: true };
+}
+
 export function toolTranscript(steps, maxChars) {
   const out = [];
   for (const st of Array.isArray(steps) ? steps : []) {
