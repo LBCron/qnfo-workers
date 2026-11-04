@@ -118,6 +118,21 @@ def _opt(argv, name, default):
     return default
 
 
+ARTIFACT_REF = "origin/fleet-artifacts"
+
+
+def resolve_ref(path, ref):
+    """MAIN-PUSH-POLICY-1: status artifacts are published to branch fleet-artifacts (main refuses workflow pushes), so a
+    comparison against origin/main would see a stale copy and never throttle. For origin/main, prefer the fleet-artifacts
+    copy of PATH when the branch carries it (fetched best effort, depth 1); otherwise keep REF."""
+    if ref != "origin/main":
+        return ref
+    subprocess.run(["git", "fetch", "-q", "--depth=1", "origin", "fleet-artifacts:refs/remotes/origin/fleet-artifacts"],
+                   capture_output=True, text=True)
+    r = subprocess.run(["git", "cat-file", "-e", ARTIFACT_REF + ":" + path], capture_output=True, text=True)
+    return ARTIFACT_REF if r.returncode == 0 else ref
+
+
 def main(argv):
     if not argv or argv[0].startswith("-"):
         print(__doc__)
@@ -137,6 +152,7 @@ def main(argv):
         raw = _opt(argv, "--outcome", None)
         outcome = tuple(x for x in raw.split(",") if x) if raw is not None else outcome
     stamp_key = _opt(argv, "--stamp-key", "ts")
+    ref = resolve_ref(path, ref)
     if unchanged(path, ignore, ref):
         print("%s: unchanged apart from run stamps" % path)
         return 0

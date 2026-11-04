@@ -35,4 +35,4 @@ git commit -q -m "$msg"
 # MAIN-PUSH-POLICY-1 (2026-11-04): ruleset require-build refuses direct pushes to main from the workflow token (GH013), so a
 # status artifact is published to the branch fleet-artifacts instead (see scripts/push_head.sh, docs/MAIN-PUSH-POLICY.md).
 # Best effort: exits 0 with a warning when the branch cannot be updated, so the workflow's verdict is its own step's, not the artifact's.
-exec bash "$(dirname "$0")/push_head.sh" artifact
+exec bash "$(dirname "$0")/push_head.sh" artifact "$@"

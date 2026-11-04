@@ -46,11 +46,27 @@ stop writing to main. `reader` is what a grep of the repository and the workers 
 | container-config-autoverify, container-config-selfheal-cron, deploy-containers-pilot, restore-container-config-1485 | `ci-status/<name>.json` | none in code | c | `push_head.sh artifact` |
 | apply-pending-patches | patch scripts, `*/worker.js`, `.github/workflows/*` (landed patches); `ci-status/` report | the repository itself | b (code) / c (report) | code to branch `fleet-bot/apply-pending-patches` plus pull request; report to `fleet-artifacts` |
 | applier-doctor | retired appliers; `ci-status/applier-doctor.json`, `audits/` | code-read probe of `ci-status/applier-doctor.json` (issue-100320 contract) | b / c | code to `fleet-bot/applier-retire` plus pull request; report to `fleet-artifacts` |
-| applier-rot-triage | `ci-status`, retired appliers | none | b / c | code to `fleet-bot/applier-rot-triage` plus pull request |
+| applier-rot-triage | `ci-status` (hourly status output) | none | c | `push_head.sh artifact` (MAIN-PUSH-POLICY-2: one pull request per hourly run cost CI and a deploy each; retiring appliers stays with applier-doctor) |
 | apply-unmangle-worker-js | `*/worker.js` repairs, `ci-status/unmangle-worker-js.json` | the repository itself | b | code to `fleet-bot/unmangle-worker-js` plus pull request |
 | mirror-sync | `*/deployed-current.worker.js` | `mirror-guard`, the canonical deploy | b | code to `fleet-bot/mirror-sync` plus pull request |
 | deploy-code-orchestrator, canonical-deploy (canary) | automatic revert commit via `scripts/canary_revert.py` | the deploy path | b, NOT yet converted | `canary_revert.py` was under another session's work claim (`session:deploy-proof`); pending in `main-push-policy.test.mjs` (`PENDING`). Follow-up: push the revert to a branch, open the pull request, dispatch the redeploy from it |
 | code-task-publish, canary scripts' tests | test fixtures only | n/a | a | not a push to the real main |
+
+## Mechanics (MAIN-PUSH-POLICY-2)
+
+- `artifact [path ...]` builds a new commit from the artifact paths only, on top of `origin/fleet-artifacts` (`origin/main` for the first run). Only
+  `ci-status/` and `audits/` are published, so nothing under `.github/` can ride along and a `fetch-depth: 1` checkout (no parent commit) cannot copy
+  the whole tree. The path list is the arguments, else the files HEAD changed (after `fetch --deepen=1` when the clone is shallow).
+- `code <branch>` skips the push when `HEAD^{tree}` equals the remote branch's tree, so an unchanged hourly result does not reset the pull request
+  head or the lane's quiet timer. It exits 1 when the pull request cannot be opened, so the workflow goes red and ci-watchdog records it.
+- Checks on a branch pull request: the one required check, `Workers Builds: qnfo-workers`, is started by the Cloudflare GitHub app on the branch push
+  (an app webhook, which `GITHUB_TOKEN` does not suppress). Actions workflows (`pr-checks`) do not start on a pull request opened by `GITHUB_TOKEN`; they are
+  not required, and the helper pokes the merge lane (`/gh/poke`) after opening it. Not verifiable offline: the first real run of each code-mode workflow
+  shows whether the check appears on the branch head; if it does not, the workflow fails on the missing pull request or the lane's stale-PR timer
+  escalates, and the fix is a `workflow_dispatch` trigger on `pr-checks`.
+- The code-read probe `issue-100320` (`ci-status/applier-doctor.json` on main) was superseded by migration 2026-10-20-real-probes-3 (closure-observing probe);
+  no live reader of any `ci-status/` file on main remains. `scripts/main-push-policy.test.mjs` also scans `scripts/*.py|sh` and detects bare, variable and
+  expression targets and `gh api` contents writes.
 
 ## Risks and follow-ups
 
@@ -61,7 +77,7 @@ stop writing to main. `reader` is what a grep of the repository and the workers 
 - A code branch pull request made by `GITHUB_TOKEN` does not start workflows by itself (GitHub's documented behaviour); the lane's
   update-branch kick (KICK-GATED-CHECKS-1) starts the required checks. If the setting for Actions-created pull requests is off,
   the change waits on its branch.
-- `scripts/status_unchanged.py ... --ref origin/main` (fleet-autodeploy, apply-unmangle) compares with the now stale copy on main, so
+- `scripts/status_unchanged.py --ref origin/main` now resolves the ref to `origin/fleet-artifacts` when that branch carries the file (MAIN-PUSH-POLICY-2), so the throttle works again; `push_head.sh artifact` also skips a snapshot identical to the branch tip, so the branch does not grow with identical commits.
   the throttle no longer suppresses an identical snapshot; the effect is one extra branch commit per run, not a failure.
 - `scripts/github-settings-actions.mjs workflowPushPaths` still lists `push_artifact.sh` as a main push path; it is report-only.
 

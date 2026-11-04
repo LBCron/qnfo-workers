@@ -40,7 +40,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: applier-rot-triage
@@ -118,11 +117,12 @@ jobs:
           set -uo pipefail
           git config user.name "qnfo-selfheal-bot"
           git config user.email "bot@qnfo.org"
-          git add -A ci-status scripts .github/workflows
+          # MAIN-PUSH-POLICY-2: hourly status output only (no pull request per run); retiring appliers is applier-doctor's job
+          git add -A ci-status
           if git diff --cached --quiet; then echo "no status change"; exit 0; fi
           git commit -m "ci(applier): applier-rot-triage + retire superseded appliers [skip ci]"
           for i in 1 2 3; do
-            if bash scripts/push_head.sh code fleet-bot/applier-rot-triage "ci(applier): applier-rot-triage + retire superseded appliers"; then
+            if bash scripts/push_head.sh artifact ci-status/applier-rot-triage.json ci-status/applier-doctor.json; then
               echo "status pushed on attempt $i"
               exit 0
             fi
