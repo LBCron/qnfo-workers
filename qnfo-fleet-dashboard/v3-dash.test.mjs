@@ -97,6 +97,9 @@ ok(st.status === "done" && st.reply === "listed" && st.steps[0].tool === "shell_
 r = await post("/api/v3/warm", {}, { "x-loop-token": env.LOOP_TOKEN });
 ok(r.status === 200, "V4 warm-up route answers");
 
+// V6 (1.83.0) the Readers screen compares output with readership and reads the registry figures
+ok(html.includes("Output vs readers") && /visits_per_publication/.test(src) && src.includes("FROM metric_registry WHERE metric IN ('pageviews_30d','referral_30d','publications_30d'"), "V6 Readers card compares papers published with referred visits");
+
 // V5
 r = await get("/classic");
 ok(r.status === 200 && !(await r.text()).includes('id="n-code"'), "V5 /classic is still the old overview");

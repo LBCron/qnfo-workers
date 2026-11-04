@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.82.1";
+var VERSION = "1.83.0";
+// 1.83.0 V3-READERS-1 (owner request 2026-11-04, pillar reach; minor, new Readers card): the Readers screen compares output with readership (papers published, referred visits, visits per paper, new subscribers from metric_registry) and says plainly when output outruns readers.
 // 1.82.1 V3-DASH-1 follow-up (pillar core; patch): the Code screen header said "loading" forever; it now says signed in or sign in to start.
 // 1.82.0 V3-DASH-1 (owner request 2026-11-04, pillar core; minor, new home page and routes): "/" is three screens (Now, Readers, Code) on a static shell that paints at once; GET /api/v3/now and /api/v3/readers read small, separately timed sections and carry their own age; POST /api/v3/code starts an ops-exec run and GET /api/v3/code/<id> returns its steps. The old overview stays at /classic and every /area page is unchanged. Cause: "/" took 10-19 s measured on 2026-11-04 (fleetStatusData).
 // 1.81.4 AREA-FEED-LATENCY-1 (#6717, agent_issues 1001453, pillar core): area reads use cached probe counts without building the human queue or awaiting a cold fleet refresh.
@@ -3462,7 +3463,9 @@ async function v3Health(env) {
   };
 }
 async function v3Reach(env) {
-  const r = await reachScorecardData(env);
+  const [r, reg] = await Promise.all([reachScorecardData(env), d1all(env.AUDIT, "SELECT metric, last_value, last_refreshed FROM metric_registry WHERE metric IN ('pageviews_30d','referral_30d','publications_30d','subscribers_growth_monthly')").catch(function() { return []; })]);
+  const rg = {};
+  reg.forEach(function(x) { const n = Number(x.last_value); rg[x.metric] = isFinite(n) ? n : null; });
   const w7 = r.windows && r.windows.d7 || {}, w28 = r.windows && r.windows.d28 || {};
   const pv7 = w7.pageviews ? Number(w7.pageviews.value) : null, pv28 = w28.pageviews ? Number(w28.pageviews.value) : null;
   if (pv7 == null) throw new Error("no pageview window readable (reach scorecard empty)");
@@ -3485,7 +3488,10 @@ async function v3Reach(env) {
     subscribers: subs.length ? Number(subs[subs.length - 1].value) : null,
     outreach_sent_7d: outreach.sent != null ? outreach.sent : null, outreach_replied_7d: outreach.replied != null ? outreach.replied : null,
     contacts_30d: wm.contacts_30d != null ? Number(wm.contacts_30d) : null,
-    data_day: r.end || null, ingest_status: li.status || null, ingest_age_s: v3Age(li.ts)
+    data_day: r.end || null, ingest_status: li.status || null, ingest_age_s: v3Age(li.ts),
+    human_pageviews_30d: rg.pageviews_30d != null ? rg.pageviews_30d : null, referral_30d: rg.referral_30d != null ? rg.referral_30d : null,
+    publications_30d: rg.publications_30d != null ? rg.publications_30d : null, subscribers_growth_monthly: rg.subscribers_growth_monthly != null ? rg.subscribers_growth_monthly : null,
+    visits_per_publication: rg.publications_30d && rg.referral_30d != null ? Math.round(rg.referral_30d / rg.publications_30d * 10) / 10 : null
   };
 }
 async function v3Content(env) {
@@ -3626,6 +3632,7 @@ function renderReaders(d){var r=d.reach||{},c=d.content||{},o='';
 if(r.ok){var few=(r.referred_7d||0)<100,tone=few?'warn':'ok',t=few?'Few verifiable readers':'People are reading';
 o+='<div class="hero '+tone+'"><h1>'+t+'</h1><p>'+num(r.referred_7d)+' visits this week came from a named source (search, social, links). '+(r.no_referrer_share!=null?r.no_referrer_share+'% arrived with no referrer, which includes bots, so treat the headline as an upper bound.':'')+'</p></div>';
 o+='<div class="card"><h2>Pageviews, 7 days<span class="'+cls(r.ingest_age_s,86400)+'">through '+esc(r.data_day||'?')+', ingested '+ago(r.ingest_age_s)+'</span></h2><div class="big">'+num(r.pageviews_7d)+'</div><p class="note">'+(r.trend==null?'':(r.trend>=0?'Up ':'Down ')+Math.abs(r.trend)+'% on the previous three-week average ('+num(r.pageviews_prior_week_avg)+' a week). ')+'</p></div>';
+if(r.publications_30d!=null){o+='<div class="card"><h2>Output vs readers, 30 days</h2><div class="row"><span>Papers published</span><span>'+num(r.publications_30d)+'</span></div><div class="row"><span>Visits from a named source</span><span>'+num(r.referral_30d)+'</span></div><div class="row"><span>Visits per paper</span><span>'+(r.visits_per_publication==null?'n/a':r.visits_per_publication)+'</span></div><div class="row"><span>New subscribers</span><span>'+num(r.subscribers_growth_monthly)+'</span></div>'+(r.visits_per_publication!=null&&r.visits_per_publication<5?'<p class="note">Output is far ahead of readership: fewer than 5 referred visits per paper. More papers will not fix that; distribution and quality will.</p>':'')+'</div>'}
 o+='<div class="card"><h2>Where named visits come from</h2>'+(r.top_referrers.length?r.top_referrers.map(function(x){return '<div class="row"><span>'+esc(x.name)+'</span><span>'+x.n+'</span></div>'}).join(''):'<p class="note">No named referrers this week.</p>')+'</div>';
 o+='<div class="card"><h2>Most read</h2>'+r.top_pages.map(function(x){return '<div class="row"><span>'+esc(x.name.length>46?x.name.slice(0,46)+'...':x.name)+'</span><span>'+x.n+'</span></div>'}).join('')+'</div>';
 o+='<div class="card"><h2>Do they respond?</h2><div class="row"><span>Newsletter subscribers</span><span>'+num(r.subscribers)+'</span></div><div class="row"><span>People who contacted you, 30 days</span><span>'+num(r.contacts_30d)+'</span></div><div class="row"><span>Outreach sent / replied, 7 days</span><span>'+num(r.outreach_sent_7d)+' / '+num(r.outreach_replied_7d)+'</span></div>'+(c.ok?'<div class="row"><span>Papers published, 7 days</span><span>'+num(c.published_7d)+'</span></div>':'')+'</div>'}
