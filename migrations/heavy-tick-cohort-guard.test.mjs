@@ -44,12 +44,13 @@ assert.match(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'output_qual
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM bak_20261104_cohort_snapshot_tick").get().n, 1, "the previous definition is backed up");
 
 // After: a fresh snapshot is left alone, a stale or missing one is recomputed.
-db.exec(`UPDATE output_quality_cohort_snapshot SET computed_at = '${ago(5)}'`);
+const t5 = ago(5), t29 = ago(29); // one reading each: a second boundary between two ago() calls would make the equality flaky
+db.exec(`UPDATE output_quality_cohort_snapshot SET computed_at = '${t5}'`);
 heavy();
-assert.equal(computedAt(), ago(5), "a 5-minute-old snapshot is not recomputed");
-db.exec(`UPDATE output_quality_cohort_snapshot SET computed_at = '${ago(29)}'`);
+assert.equal(computedAt(), t5, "a 5-minute-old snapshot is not recomputed");
+db.exec(`UPDATE output_quality_cohort_snapshot SET computed_at = '${t29}'`);
 heavy();
-assert.equal(computedAt(), ago(29), "a 29-minute-old snapshot is not recomputed");
+assert.equal(computedAt(), t29, "a 29-minute-old snapshot is not recomputed");
 db.exec(`UPDATE output_quality_cohort_snapshot SET computed_at = '${ago(31)}', subjects = 0`);
 heavy();
 assert.ok(computedAt() > ago(1), "a 31-minute-old snapshot is recomputed");

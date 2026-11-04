@@ -23,6 +23,9 @@ SELECT 'task-overdue:' || c.name, 'task-overdue', 'fleet-exec:' || c.name, NULL,
   'next_fire ' || c.next_fire || ' is ' || c.overdue_min || ' min overdue', CAST(c.overdue_min / 5 AS INTEGER)
 FROM v_cron_health c WHERE c.overdue_min > 10;`;
 
+// One clock for both databases: the fault detail carries started_at, so two builds a second apart (a slow CI runner) would differ in text, not in logic.
+const T0 = Date.now();
+
 function build() {
   const db = new DatabaseSync(":memory:");
   db.exec(`
@@ -36,7 +39,7 @@ function build() {
       predicted_outcome TEXT, reach_gain TEXT, surfaces_tested TEXT);
   `);
   db.exec(OLD_VIEW);
-  const iso = (minAgo) => new Date(Date.now() - minAgo * 60000).toISOString().replace(/\.\d+Z$/, "Z");
+  const iso = (minAgo) => new Date(T0 - minAgo * 60000).toISOString().replace(/\.\d+Z$/, "Z");
   const add = db.prepare("INSERT INTO fleet_runs (task_id, cron_name, status, started_at, error) VALUES (?, ?, ?, ?, ?)");
   db.exec("BEGIN");
   // 30,000 old runs of 60 tasks (the table the planner would scan), all ok.
@@ -51,7 +54,7 @@ function build() {
   add.run("oldFail", "co", "failed", iso(60 * 30), "failed 30 h ago");
   db.exec("COMMIT");
   db.prepare("INSERT INTO fleet_crons VALUES ('late-cron', '*/10 * * * *', 1, NULL, ?)").run(iso(45));
-  db.prepare("INSERT INTO fleet_crons VALUES ('fine-cron', '*/10 * * * *', 1, NULL, ?)").run(new Date(Date.now() + 5 * 60000).toISOString());
+  db.prepare("INSERT INTO fleet_crons VALUES ('fine-cron', '*/10 * * * *', 1, NULL, ?)").run(new Date(T0 + 5 * 60000).toISOString());
   return db;
 }
 const rows = (db) => JSON.stringify(db.prepare("SELECT fault_key, kind, worker, detail, consecutive_fails FROM v_cron_faults_task ORDER BY fault_key").all());
