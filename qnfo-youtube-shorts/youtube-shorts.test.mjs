@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
+import { splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
 
 const article = {
   title: "Why scientists stop testing ideas", short: "Safe stories pay better than risky guesses.",
@@ -213,4 +213,12 @@ test("YT-SCRIPT-1: the closing line varies by paper, is stable per paper and spe
   const seen = new Set(["a", "bb", "ccc", "dddd", "eeeee", "ffffff", "g7", "h88"].map((s) => ctaBeat(s).narr));
   assert.ok(seen.size >= 2);
   for (const n of seen) assert.ok(!/qnfo\.org|http|www/i.test(n));
+});
+
+test("YT-17: the paper outsiders read goes first; unread papers keep newest-first order; no data changes nothing", () => {
+  const rows = [{ slug: "new" }, { slug: "mid" }, { slug: "old" }, { slug: "older" }];
+  const out = rankByInterest(rows, [{ slug: "old", ext_30d: 4, pv_30d: 10 }, { slug: "mid", ext_30d: 0, pv_30d: 30 }, { slug: "older", ext_30d: 4, pv_30d: 2 }]);
+  assert.deepEqual(out.map((r) => r.slug), ["old", "older", "mid", "new"]);
+  assert.deepEqual(rankByInterest(rows, []).map((r) => r.slug), ["new", "mid", "old", "older"]);
+  assert.deepEqual(rankByInterest(rows, null).map((r) => r.slug), ["new", "mid", "old", "older"]);
 });

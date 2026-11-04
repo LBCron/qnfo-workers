@@ -1,4 +1,4 @@
-var VERSION = "0.5.0-oauth";
+var VERSION = "0.5.1-oauth";
 /* 0.4.1: new Shorts descriptions include the QNFO channel context. */ /* #5479, pillar reach: authenticated re-consent and code exchange with the stored OAuth client. */ /* 0.3.0 YT-6 (2026-10-28, pillar reach; minor: a data product; agent_issues 1000597): views and average view duration of each uploaded Short are read hourly from the YouTube Data and Analytics APIs into youtube_videos (views, avg_view_duration_s) and metric youtube_avg_view_duration_s; without the extra owner consent (human_actions yt-analytics-consent) the read is refused, recorded as youtube.retention_scope and nothing is written. */ /* 0.2.1 HEALTH-CONTRACT-1 (2026-10-28, pillar autonomy; patch; agent_issues 2852): /health declares capabilities[] and limitations[], so capability_contract_conformance counts this worker. */ /* 0.2.0 YT-QUALITY-1 (2026-10-28, pillar reach; minor: new capabilities): the Shorts stop looking alike and sounding flat. Voice: Workers AI Deepgram Aura 2 (more natural than melotts, which stays as the per-sentence fallback). Director: four new templates (bignum, flow, compare, list) beside the old ones, rules for speech-written narration (contractions, short sentences, pitch-bearing punctuation, no spoken URL) and for variety (at least four kinds, never one kind three times). Render image: scene fitted to a safe width so nothing leaves the frame, five themes (palette plus animated background) chosen per paper, captions measured in the real font and chunked at phrases in the Shorts safe zone, loudness-normalised audio, an AI-generated mp4 comment tag and provenance.json (BP26-AI-ACT-ART50-1). Closing line no longer speaks a URL. Sources: scripts/youtube_poc (YT-POC-3/4), docs/YOUTUBE-PIPELINE.md. */ /* prior: 0.1.5 */ /* 0.1.5 YT-MANIM-PIN-1 (2026-10-27, pillar reach; patch): the render image pins manim 0.22.0, the version the scene was tested on; 0.18.1 has no Scene.time and the first container render failed with that AttributeError (visible since 0.1.4 returns the Manim stderr). */ /* prior: 0.1.4 */ /* 0.1.4 YT-RENDER-ERR-1 (2026-10-27, pillar reach; patch): the render container returns the Manim stderr tail when Manim fails (the first live render failed with only a traceback of the wrapper). */ /* prior: 0.1.3 */ /* 0.1.3 YT-DIRECTOR-1 (2026-10-27, pillar reach; patch): the director takes the first reply that holds a beats array from qnfo-ai, then Workers AI kimi, then gpt-oss, and a failure note quotes each reply (the first live run failed with "no JSON in model reply" from one model). */ /* prior: 0.1.2 */ /* 0.1.2 YT-EXPORTS-1 (2026-10-27, pillar reach; patch): wrangler.toml declares RenderContainer in `exports` instead of `migrations`, so a deploy after a secrets write through the script API is accepted and re-attaches the container (the pilot incident 1485 class). */ /* prior: 0.1.1 */ /* 0.1.1 YT-RUN-SYNC-1 (2026-10-27, pillar reach; patch): POST /run did its pass inside ctx.waitUntil, which a fetch handler loses 30 s after the response, so a manual run died at the director; it now awaits one bounded pass (budget_s, default 80, under the edge 100 s limit) and returns the row states. */ /* prior: 0.1.0 */ /* 0.1.0 YT-SERVER-1 (2026-10-27, pillar reach; minor: a new worker): the plain-language paper to YouTube Short pipeline runs on Cloudflare only. One hourly tick takes the newest plain_article (living-paper, status ok) with no youtube_videos row (cap 2 videos a week), an LLM director writes the beats, a second model family and a number check drop any beat the article does not support, Workers AI TTS speaks each sentence, a Cloudflare Container renders 1080x1920 with Manim, word-timed captions and the visible AI-narration tag into R2, and videos.insert uploads it (public by default, owner directive 2026-10-27) with containsSyntheticMedia. */
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -172,6 +172,14 @@ function spendUsd(kind, units) {
 }
 function spendAllows(monthUsd) { return monthUsd < SPEND_STOP_USD; }
 function capAllows(startedLast7d) { return startedLast7d < WEEKLY_CAP; }
+// YT-17: of the newest plain articles, make the Short for the paper outsiders already read (external-referrer loads, then all page views in 30 days from paper_readership);
+// papers with no reading data keep their newest-first order, and a failed read leaves the order untouched.
+function rankByInterest(rows, readership) {
+  var m = {};
+  (readership || []).forEach(function (r) { if (r && r.slug) m[r.slug] = r; });
+  var score = function (x) { var r = m[x.slug]; return r ? [Number(r.ext_30d) || 0, Number(r.pv_30d) || 0] : [0, 0]; };
+  return rows.map(function (r, i) { return { r: r, i: i, s: score(r) }; }).sort(function (a, b) { return (b.s[0] - a.s[0]) || (b.s[1] - a.s[1]) || (a.i - b.i); }).map(function (x) { return x.r; });
+}
 function nextCandidate(rows, takenSlugs) {
   var taken = {};
   (takenSlugs || []).forEach(function (s) { taken[s] = 1; });
@@ -605,6 +613,9 @@ async function runTick(env, opts) {
     if (capAllows(started ? started.n : 0) || (opts && opts.ignoreCap)) {
       var cands = (await env.LIVING_PAPER.prepare("SELECT slug, rev FROM plain_article WHERE status = 'ok' AND body IS NOT NULL AND words >= 200 ORDER BY generated_at DESC LIMIT 40").all()).results || [];
       var taken = ((await env.QNFO_AUDIT.prepare("SELECT slug FROM youtube_videos").all()).results || []).map(function (x) { return x.slug; });
+      var interest = [];
+      try { interest = (await env.QNFO_AUDIT.prepare("SELECT slug, ext_30d, pv_30d FROM paper_readership WHERE slug IS NOT NULL").all()).results || []; } catch (e) { await logEvent(env, "youtube.interest_read", String(e && e.message || e).slice(0, 200), null, "warn"); }
+      cands = rankByInterest(cands, interest);
       var c = nextCandidate(cands, taken);
       if (c) {
         var ins = await env.QNFO_AUDIT.prepare("INSERT INTO youtube_videos (slug, rev, state, privacy, synthetic, created_at, updated_at) VALUES (?1, ?2, 'queued', ?3, 1, ?4, ?4)").bind(c.slug, c.rev, PRIVACY, nowIso()).run();
@@ -691,5 +702,5 @@ var worker_default = {
     ctx.waitUntil(runTick(env, {}).then(function (r) { return logEvent(env, "youtube.tick", JSON.stringify(r), r, "ok"); }).catch(function (e) { console.error(JSON.stringify({ worker: WORKER, where: "scheduled", error: String(e && e.message || e) })); return logEvent(env, "youtube.tick", String(e && e.message || e), null, "error"); }));
   }
 };
-export { RenderContainer, spendUsd, spendAllows, splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION, parseRetentionReport, parseVideoStats, retentionDue, retentionFailure, readRetention };
+export { RenderContainer, spendUsd, spendAllows, splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION, parseRetentionReport, parseVideoStats, retentionDue, retentionFailure, readRetention };
 export default worker_default;
