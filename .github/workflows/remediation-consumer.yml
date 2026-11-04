@@ -96,7 +96,10 @@ jobs:
       cancel-in-progress: false
     # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # CONSUMER-TIMEOUT-1 (2026-11-04): five consecutive consume jobs (17:10, 17:41, 18:04 and later) were cancelled by this cap, not by a failing step: with D1 loaded
+    # "Run the remediation consumer" took 5 to 10 minutes, the three sweeps after it 7 more, so "Write the daily cost ledger", the continuity snapshot and the
+    # status artifact never started and no run completed after 16:47Z. Every step carries its own timeout; the job cap only has to cover their sum.
+    timeout-minutes: 30
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
