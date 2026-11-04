@@ -30,11 +30,12 @@ name: remediation-consumer
 # 20:31Z, 41894454508 at 19:11Z, 41884323072), so a contract that became due mid-run waited for the next run and a two-pass issue close took 80 minutes. The steps
 # of one run, measured on the 8 runs of 2026-11-04, in seconds (range): contract run 61-692, loop-breaker with the BP26 collectors 79-404, restore drill 300-490,
 # weekly export step 270-370, trigger-depth sweep 120-139, cost ledger 50-250, blocker red-team 59-84, observability bridge 11-80. They ran in series. The work is
-# now four jobs beside each other:
+# now five jobs beside each other:
 #   consume  the contract run and the status artifact: what every issue close waits for, with nothing else in front of it;
 #   sweeps   StackExchange, the observability bridge, loop-breaker + BP26 and the red-team: every cycle, as before, but beside the contract run instead of behind it;
-#   audits   the trigger-depth sweep, the view-health pass (4-6 minutes, formerly the tail of the consumer step), the claim reaper and the daily continuity snapshot
-#            with its table sweeps: every cycle, as before;
+#   audits   the trigger-depth sweep, the claim reaper and the daily continuity snapshot with its table sweeps: every cycle, as before;
+#   views    the view-health pass (242 serial EXPLAINs, 4 to 6 minutes and growing with D1 load: 247, 288, 363 s on three consecutive runs; formerly the tail of the
+#            consumer step, then the longest step of `audits`), every cycle, alone so that it is not the sum of the audits;
 #   heavy    cost ledger, weekly export, restore drill: when the newest consumer-heavy-stamp artifact is 3 hours old (scripts/consumer-cadence-gate.mjs), so a
 #            run that does not need them finishes without them. The drill also holds itself for 6 hours after an attempt that did not pass (scripts/d1_restore_drill.py).
 # Pinned by scripts/consumer-speed.test.mjs; measured with `node scripts/consumer-run-timing.mjs --check` (median consume minutes, timeout cancellations, heavy cadence).
@@ -136,7 +137,7 @@ jobs:
       # drains the whole due set instead of 10 per hour. 40 keeps the run well inside
       # the 15 minute job timeout (measured: 4273 ms for 1 contract).
       REMEDIATION_MAX_ITEMS: "40"
-      # CONSUMER-SPEED-1: the view-health pass (242 serial EXPLAINs, 4 to 6 minutes) runs in the sweeps job; the consumer skips its in-process call.
+      # CONSUMER-SPEED-1: the view-health pass (242 serial EXPLAINs, 4 to 6 minutes) runs in the views job; the consumer skips its in-process call.
       REMEDIATION_VIEW_HEALTH: sweeps
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -282,9 +283,9 @@ jobs:
         run: |
           python3 scripts/blocker_redteam_runner.py --selftest && python3 scripts/blocker_redteam_runner.py
 
-  # CONSUMER-SPEED-1: the D1 audits, in a job of their own beside `sweeps` so neither is the longer of the two for the other's sake: the trigger-depth sweep (2 minutes), the
-  # view-health pass (242 serial EXPLAINs, 4 to 6 minutes, formerly the tail of the consumer step), the claim reaper and the daily continuity snapshot with its table sweeps.
-  # All of them run every cycle exactly as before.
+  # CONSUMER-SPEED-1: the D1 audits, in a job of their own beside `sweeps` so neither is the longer of the two for the other's sake: the trigger-depth sweep (2 to 3 minutes),
+  # the claim reaper and the daily continuity snapshot with its table sweeps (3 minutes, most of it the BAK-TABLE-SWEEP, BLOB-TRIM and COLD-TIER stages). All of them run
+  # every cycle exactly as before. The view-health pass is the `views` job below.
   audits:
     needs: cadence-gate
     if: needs.cadence-gate.outputs.run == 'true'
@@ -315,14 +316,6 @@ jobs:
         timeout-minutes: 6
         run: |
           python3 scripts/trigger_depth_sweep.py --selftest && python3 scripts/trigger_depth_sweep.py
-
-      # VIEW-HEALTH-1 (2026-11-04, BLINDSPOT-1): every qnfo-audit view is planned with EXPLAIN (reads no rows); a view that errors on read is filed as one BLINDSPOT-1 issue
-      # and closed when all compile. CONSUMER-SPEED-1: moved here from the tail of the consumer step, every cycle as before. Never fails the job.
-      - name: Plan every qnfo-audit view
-        continue-on-error: true
-        timeout-minutes: 10
-        run: |
-          python3 scripts/view_health.py && python3 scripts/view_health.py --run
 
       # CLAIM-REAPER-1 (owner request 2026-10-09, scheduled audits that remediate): releases work claims whose PR merged or
       # closed 30+ minutes ago, in work_claims and deploy_locks, so a session that stopped without releasing does not block
@@ -360,6 +353,36 @@ jobs:
           path: continuity-snapshot/
           retention-days: 30
           if-no-files-found: ignore
+
+  # VIEW-HEALTH-1 (2026-11-04, BLINDSPOT-1): every qnfo-audit view is planned with EXPLAIN (reads no rows); a view that errors on read is filed as one BLINDSPOT-1 issue
+  # and closed when all compile. CONSUMER-SPEED-1: moved out of the tail of the consumer step into `audits`, and from there into a job of its own: the pass took 247, 288 and
+  # 363 seconds on the three runs after the move, the longest step of the audits and the reason the audits job, not the contract run, set the length of the whole run.
+  # Every cycle as before. Never fails the job.
+  views:
+    needs: cadence-gate
+    if: needs.cadence-gate.outputs.run == 'true'
+    concurrency:
+      group: remediation-consumer-views
+      cancel-in-progress: false
+    # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      - name: Plan every qnfo-audit view
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          python3 scripts/view_health.py && python3 scripts/view_health.py --run
 
   # CONSUMER-SPEED-1: the steps that need not run every cycle. The gate starts this job when the newest consumer-heavy-stamp artifact is 3 hours old (or absent),
   # beside `consume` and `sweeps`, so a run without it finishes in the time of the contract run. Each script keeps its own freshness gate and ledger:

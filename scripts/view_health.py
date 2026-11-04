@@ -164,7 +164,7 @@ def selftest():
 
 
 def live():
-    """CONSUMER-SPEED-1 (2026-11-04): the pass as its own workflow step (the `sweeps` job of remediation-consumer.yml). It was the tail of the consumer step, 242 serial
+    """CONSUMER-SPEED-1 (2026-11-04): the pass as its own workflow step (the `views` job of remediation-consumer.yml). It was the tail of the consumer step, 242 serial
     EXPLAINs of 4 to 6 minutes (runs 41889103989, 41894454508, 41913665245: the contract loop ended at 5.1, 3.0 and 5.0 minutes, the step at 10.9, 11.5 and 9.1), on the path
     every issue close waits for. The consume job sets REMEDIATION_VIEW_HEALTH=sweeps and the consumer then skips its in-process call."""
     import os

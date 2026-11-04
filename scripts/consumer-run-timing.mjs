@@ -2,7 +2,7 @@
 // scripts/consumer-run-timing.mjs: CONSUMER-SPEED-1 (2026-11-04, charter pillar: autonomy). The measurement behind remediation-consumer.yml's speed target.
 //
 // Measured 2026-11-04 (Actions API): a consume job took 26-32 minutes and runs 41907336197, 41894454508 and 41884323072 were cancelled at the 30-minute cap, so a contract
-// that became due mid-run waited for the next run and a two-pass issue close took 80 minutes. The workflow is now consume + sweeps + audits + heavy (see its header). This script
+// that became due mid-run waited for the next run and a two-pass issue close took 80 minutes. The workflow is now consume + sweeps + audits + views + heavy (see its header). This script
 // reads the runs list and answers, from the API and not from a belief:
 //   median_consume_min        median of the `consume` job durations (the contract run; what every issue close waits for)
 //   median_run_min_no_heavy   median wall-clock of the runs that did not start the heavy job (the target: under 12; done = a run under 15)
@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 export const TARGET_MEDIAN_MIN = 12;
 export const TARGET_RUN_MAX_MIN = 15;
 export const HEAVY_WINDOW_MIN = 180;
-export const CAPS_MIN = { consume: 25, sweeps: 25, audits: 25, heavy: 50 };
+export const CAPS_MIN = { consume: 25, sweeps: 25, audits: 25, views: 25, heavy: 50 };
 const LEGACY_CAP_MIN = 30; // the single consume job before CONSUMER-SPEED-1
 
 const minutes = (a, b) => (Date.parse(b) - Date.parse(a)) / 60000;
