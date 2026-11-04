@@ -77,9 +77,13 @@ ok(Array.isArray(h.capabilities) && h.capabilities.includes("reasoning-low"), "h
   ok(Array.isArray(inputs[0].input.messages) && inputs[0].input.messages.length === 2, "1b the messages are unchanged", inputs[0].input && inputs[0].input.messages && inputs[0].input.messages.length);
   ok(row(env, id).step === "verify" || row(env, id).status === "ready_to_publish", "1c the reply is used", { step: row(env, id).step, status: row(env, id).status });
 }
-// 2. no other rung is touched
+// 2. gpt-oss is not touched; KIMI-NOTHINK-1: kimi is asked with thinking off from the first call
 {
-  for (const m of [KIMI, OSS]) {
+  const { inputs } = await run(KIMI, [EDIT]);
+  ok(inputs.length === 1 && inputs[0].input.chat_template_kwargs && inputs[0].input.chat_template_kwargs.thinking === false, "2k kimi is called with thinking off", inputs[0] && Object.keys(inputs[0].input));
+}
+{
+  for (const m of [OSS]) {
     const { inputs } = await run(m, [EDIT]);
     ok(inputs.length === 1 && inputs[0].model === m && !("reasoning_effort" in inputs[0].input) && !("chat_template_kwargs" in inputs[0].input), "2 " + m + " is called exactly as before", inputs[0] && Object.keys(inputs[0].input));
   }
@@ -124,7 +128,7 @@ ok(Array.isArray(h.capabilities) && h.capabilities.includes("reasoning-low"), "h
 // 8. EMPTY-REPLY-NOTHINK-1: an empty kimi reply is asked once more with thinking off, and that answer is used
 {
   const { env, inputs, id } = await run(KIMI, ["", EDIT]);
-  ok(inputs.length === 2 && !("chat_template_kwargs" in inputs[0].input) && inputs[1].input.chat_template_kwargs && inputs[1].input.chat_template_kwargs.thinking === false, "8a the second call turns thinking off", inputs.map((x) => Object.keys(x.input)));
+  ok(inputs.length === 2 && inputs[0].input.chat_template_kwargs && inputs[1].input.chat_template_kwargs && inputs[1].input.chat_template_kwargs.thinking === false, "8a the second call has thinking off", inputs.map((x) => Object.keys(x.input)));
   ok(row(env, id).step === "verify" || row(env, id).status === "ready_to_publish", "8b the retried reply is used", { step: row(env, id).step, status: row(env, id).status });
   const ev = env.AUDIT_DB._db.prepare("SELECT text FROM cloud_ops_events WHERE kind = 'code-task.empty-retry'").all();
   ok(ev.length === 1 && /thinking off/.test(ev[0].text), "8c event code-task.empty-retry", ev);
