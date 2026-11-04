@@ -1,15 +1,13 @@
 {
-  "audited_at": "2026-11-04 03:10:46",
-  "d1_write_failures": [],
-  "d1_writes_ok": 129,
+  "audited_at": "2026-11-04 03:49:14",
+  "d1_write_failures": [
+    [
+      "qnfo-evolve",
+      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
+    ]
+  ],
+  "d1_writes_ok": 128,
   "guard": {
-    "_drift_confirm": {
-      "first_pass": [
-        "qnfo-ops"
-      ],
-      "refreshed": true,
-      "second_pass": []
-    },
     "_guard_rc": 0,
     "ahead": [],
     "cf_script_list": true,
@@ -713,7 +711,7 @@
       },
       {
         "dir": "qnfo-social",
-        "version": "0.21.10-codeagent",
+        "version": "0.21.12-codeagent",
         "worker": "qnfo-social"
       },
       {
@@ -1751,9 +1749,9 @@
       "worker": "qnfo-skills-discovery"
     },
     "qnfo-social": {
-      "before": "0.21.10-codeagent",
+      "before": "0.21.12-codeagent",
       "http": 200,
-      "live": "0.21.10-codeagent",
+      "live": "0.21.12-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-social"
@@ -1877,5 +1875,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 1
 }
