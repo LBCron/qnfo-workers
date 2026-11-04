@@ -1,8 +1,404 @@
 {
- "ok": false,
- "error": "no parseable consumer output: Extra data: line 2 column 1 (char 449)",
+ "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
- "head": "90600d2d73f3a5144b818982020169fc9e340acf",
- "job_status": "cancelled",
- "ts": "2026-11-04T00:58:22Z"
-}
+ "verifier": "remediation-consumer@c83154e29f30",
+ "due": 543,
+ "pass": 275,
+ "fail": 255,
+ "skipped": 13,
+ "deferred": 1,
+ "contracts": [
+  {
+   "class": "rt-page-subscribe",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1001087",
+   "issue_id": 1001087,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001135",
+   "issue_id": 1001135,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001186",
+   "issue_id": 1001186,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-6151",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1000960",
+   "issue_id": 1000960,
+   "verdict": "fail",
+   "expected": "0 structural complete failures in 6h",
+   "observed": "4 structural complete failures in 6h, last 2026-11-03T23:01:07.309Z",
+   "written": true
+  },
+  {
+   "class": "issue-100362",
+   "issue_id": 100362,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "75",
+   "written": true
+  },
+  {
+   "class": "issue-100572",
+   "issue_id": 100572,
+   "verdict": "fail",
+   "expected": "metric_ok",
+   "observed": "regression_active",
+   "written": true
+  },
+  {
+   "class": "issue-1000301",
+   "issue_id": 1000301,
+   "verdict": "fail",
+   "expected": "1",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "goal-PRG-QNFO-PERSONAL-DEFECTS-0",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "open defects in QNFO.PERSONAL: 4",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4907",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4908",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5335",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5349",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "fm-verify-autocorrect-precision",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "autocorrect-added-precision",
+   "written": true
+  },
+  {
+   "class": "issue-1000682",
+   "issue_id": 1000682,
+   "verdict": "fail",
+   "expected": "3",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "issue-1000783",
+   "issue_id": 1000783,
+   "verdict": "fail",
+   "expected": "[]",
+   "observed": "[\"qnfo-infra:retries<2\"]",
+   "written": true
+  },
+  {
+   "class": "issue-1001089",
+   "issue_id": 1001089,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001173",
+   "issue_id": 1001173,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001242",
+   "issue_id": 1001242,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "9",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5334",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001305",
+   "issue_id": 1001305,
+   "verdict": "fail",
+   "expected": "1",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4936",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4937",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4938",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4927",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4939",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4786",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5300",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001375",
+   "issue_id": 1001375,
+   "verdict": "pass",
+   "expected": "1",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4796",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4797",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5303",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1000614",
+   "issue_id": 1000614,
+   "verdict": "fail",
+   "expected": "1.0",
+   "observed": "0.519",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4891",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-100458",
+   "issue_id": 100458,
+   "verdict": "fail",
+   "expected": "confirm-reaches-model: last tick deferred=0 with >0 verdicts and not stalled",
+   "observed": "no model verdicts (deferred=0)",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4799",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4812",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4814",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-5304",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "issue-1001134",
+   "issue_id": 1001134,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "fm-web-search-stale-patch",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "0",
+   "observed": "0",
+   "written": true
+  },
+  {
+   "class": "issue-100120",
+   "issue_id": 100120,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "17",
+   "written": true
+  },
+  {
+   "class": "issue-100408",
+   "issue_id": 100408,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "over: 3 of the last 7 complete days spent more than 600000 neurons (highest 1027194)",
+   "written": true
+  },
+  {
+   "class": "goal-PRG-QNFO-OPS-DEFECTS-0",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "open defects in QNFO.OPS: 477",
+   "written": true
+  },
+  {
+   "class": "goal-PRG-QNFO-REACH-DEFECTS-0",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "open defects in QNFO.REACH: 32",
+   "written": true
+  },
+  {
+   "class": "goal-WORKERS-STANDARDS-ADVISORY-0",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "above target: the newest workers best-practice audit reads 0 fail and 96 advisory findings at 2026-11-04T00:07:55Z (target 0)",
+   "written": true
+  },
+  {
+   "class": "issue-1001139",
+   "issue_id": 1001139,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-PAPER-LEARN-4909",
+   "issue_id": null,
+   "verdict": "fail",
+   "expected": "0",
+   "observed": "1",
+   "written": true
+  },
+  {
+   "class": "goal-YT-SHO
