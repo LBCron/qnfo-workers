@@ -8,3 +8,5 @@ assert.match(src, /INDEXNOW-BACKOFF-1/);
 assert.match(src, /if \(!got && st === 429\) break;/);
 console.log("ok backoff");
 assert.match(src, /notFound: \(nf && nf\.results\)/); console.log('ok notFound');
+assert.match(src, /if \(!D\.slug\) return Promise\.resolve\(null\);/);
+console.log("ok slug guard");
