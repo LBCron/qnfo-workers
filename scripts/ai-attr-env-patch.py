@@ -64,14 +64,25 @@ TARGETS = {
     "qnfo-ai": ("qnfo-ai", "AI", "QNFO_AUDIT", ["  async fetch(request, env, ctx) {"]),
     "qnfo-ops": ("qnfo-ops", "WAI", "QNFO_AUDIT", ["  async fetch(request, env, ctx) {", "  async scheduled(controller, env, ctx) {", "  async queue(batch, env, ctx) {"]),
     "q08-signal-engine": ("q08-signal-engine", "AI", "AUDIT", ["  async fetch(req, env, ctx) {", "  async scheduled(controller, env, ctx) {"]),
+    # AI-METER-COVER-1 (2026-11-04, agent_issues 1001705): the Workers AI meter showed kimi-k2.7-code 6,571, kimi-k2.6 7,599 and
+    # gpt-oss-120b 16,313 calls in 7 days against 873, 1,107 and 3,682 in ai_call_counters; on 2026-11-03 the counters held
+    # 1.48M of the 3.56M neurons Cloudflare billed (42%). These six workers call env.AI.run with qnfo-audit bound and were never
+    # wrapped, so their spend had no named caller and no budget lever could reach it.
+    "qnfo-gateway": ("qnfo-gateway", "AI", "AUDIT", ["  async fetch(request, env, ctx) {", "  async scheduled(event, env, ctx) {"]),
+    "qnfo-ai-calibration": ("qnfo-ai-calibration", "AI", "QNFO_AUDIT", ["  async fetch(request, env, ctx) {", "  async scheduled(controller, env, ctx) {"]),
+    "qnfo-intent-orchestrator": ("qnfo-intent-orchestrator", "AI", "D1", ["  async scheduled(event, env, ctx) {", "  async fetch(request, env, ctx) {"]),
+    "qnfo-infra": ("qnfo-infra", "AI", "AUDIT", ["  async scheduled(event, env, ctx) {", "  async fetch(request, env) {"]),
+    "qnfo-memory-mcp": ("qnfo-memory-mcp", "AI", "AUDIT", ["  async fetch(request, env) {"]),
+    "qnfo-youtube-shorts": ("qnfo-youtube-shorts", "AI", "QNFO_AUDIT", ["  async fetch(request, env, ctx) {", "  async scheduled(event, env, ctx) {"]),
 }
 
 
 def bump(src: str) -> str:
-    m = re.search(r'var VERSION = "(\d+)\.(\d+)\.(\d+)(-[^"]*)?";', src)
+    # Both spellings occur (`var VERSION = "x"` and the minified `var VERSION="x"`); the patch number rises and the suffix is kept.
+    m = re.search(r'var VERSION( ?= ?)"(\d+)\.(\d+)\.(\d+)(-[^"]*)?";', src)
     if not m:
         sys.exit("no VERSION")
-    new = 'var VERSION = "%s.%s.%d-ai-attr";' % (m.group(1), m.group(2), int(m.group(3)) + 1)
+    new = 'var VERSION%s"%s.%s.%d%s";' % (m.group(1), m.group(2), m.group(3), int(m.group(4)) + 1, m.group(5) or "")
     return src.replace(m.group(0), new, 1)
 
 
@@ -83,9 +94,11 @@ def main() -> int:
             print("skip", d, "(already patched)")
             continue
         for h in handlers:
-            if s.count(h) != 1:
-                sys.exit("%s: handler %r found %d times" % (d, h, s.count(h)))
-            s = s.replace(h, h + '\n    env = __aiAttrEnv(env, "%s", "%s", "%s");' % (name, aikey, dbkey))
+            # Anchored at a line start: a folded member's handler indented four spaces must not match a two-space signature.
+            line = "\n" + h + "\n"
+            if s.count(line) != 1:
+                sys.exit("%s: handler %r found %d times" % (d, h, s.count(line)))
+            s = s.replace(line, line + '    env = __aiAttrEnv(env, "%s", "%s", "%s");\n' % (name, aikey, dbkey))
         i = s.index("export default {") if "export default {" in s else None
         anchor = "var VERSION"
         j = s.index(anchor)

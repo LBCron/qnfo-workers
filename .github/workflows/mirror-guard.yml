@@ -20,12 +20,17 @@ on:
   workflow_dispatch:
 
 # GHA-AUDIT-1 (2026-10-13): read-only token; a superseded PR head is cancelled, a push run never is (group per sha).
+# CI-QUEUE-1 (2026-11-04): the workflow_run lane on main shares ONE group and a newer run replaces the older one. Every
+# workflow_run reads the tip of main (ref: main below), so two of them check the same tree, and the lane is advisory (exit 0,
+# see the step). Measured 2026-11-04 16:51-16:52Z: 7 such runs created within 45 s, each waited 12-20 minutes for a runner
+# (run_started_at to updated_at 726-1237 s for a 15-50 s check), holding runner slots that pull-request checks and deploys
+# queue for. With one group the burst costs one run. A dispatch keeps its own per-sha group and is never cancelled.
 permissions:
   contents: read
 
 concurrency:
-  group: mirror-guard-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: mirror-guard-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'workflow_run' && 'main-advisory') || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_run' }}
 
 jobs:
   mirror-guard:
