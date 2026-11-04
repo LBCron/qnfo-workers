@@ -286,6 +286,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CODE-REACH-PROGRAM.md"
     },
     {
+      "path": "docs/CODEMODE-EVAL.md",
+      "title": "Code-mode MCP surface for qnfo-ops: evaluation (CODEMODE-SURFACE-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CODEMODE-EVAL.md"
+    },
+    {
       "path": "docs/COMPOSIO-INTEGRATION.md",
       "title": "Composio and the DeepSeek harness (COMPOSIO-1, DSH-LESSONS-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/COMPOSIO-INTEGRATION.md"
@@ -576,6 +581,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/PLUSSING.md"
     },
     {
+      "path": "docs/POLICY-GATE-REPLAY.md",
+      "title": "Policy gate replay (POLICY-GATE-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/POLICY-GATE-REPLAY.md"
+    },
+    {
       "path": "docs/PORTFOLIO-OPERATIONS.md",
       "title": "Portfolio operations (PORTFOLIO-OPS-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/PORTFOLIO-OPERATIONS.md"
@@ -730,6 +740,11 @@
       "path": "docs/TEMPO-POLICY-120M-5M-1.md",
       "title": "TEMPO-POLICY-120M-5M-1 — the 120-minute cap and the 5-minute tick",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/TEMPO-POLICY-120M-5M-1.md"
+    },
+    {
+      "path": "docs/TRACE-FOLD-EVAL.md",
+      "title": "Event ledger and folded run state for long qnfo-ops runs (TRACE-FOLD-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/TRACE-FOLD-EVAL.md"
     },
     {
       "path": "docs/TRANSFORMATION-PROGRAM.md",

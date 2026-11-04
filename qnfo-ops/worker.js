@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.20-tool-arg-alias";
+var VERSION = "2.63.0-tool-arg-alias";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -1882,7 +1882,7 @@ var OPS_SYSTEM_PROMPT = [
   "16. KERNEL-REPLY-1 (binding, docs/DOCTRINE-KERNEL.md recognitions, 2026-10-12): a reply ends with the result. Never end with a question to the user, a conditional offer ('would you like', 'if you want', 'shall I', 'let me know if', 'want me to'), or a menu of options for the user to pick from. When evidence reveals an actionable defect and an issue write is authorized, file the issue now; never offer to file it later or defer it to a future write-capable session. For every other optional next step, decide: take it when reversible and in scope and report it done, or state in one line why it is not taken. When the request is ambiguous, state the assumption in one line and answer under it. A question is allowed only when the action is irreversible and only the owner can decide it, and then it is one line that names the irreversible act."
 ].join(String.fromCharCode(10));
 var OPS_TOOLS = [
-  // CODEMODE-SURFACE-1: ops_search + ops_execute exposed as a code-mode search+execute pair (issue #1000639)
+  // CODEMODE-SURFACE-1 (issue #1000639): the code-mode search+execute pair is NOT part of this catalogue (see OPS_CODEMODE_TOOLS); the default tool list stays the tools below.
   { name: "fleet_status", description: "Probe /health of the internal fleet services via service bindings (qnfo-lifecycle, qnfo-email, qnfo-gateway, qnfo-ai, qnfo-ai-search, qnfo-memory-mcp, qnfo-backlog-exec). Returns ok/http/version per service.", parameters: { type: "object", properties: {}, additionalProperties: false } },
   { name: "ops_issues_list", description: "List agent issues from qnfo-audit agent_issues (the ops backlog). Default: open issues, newest first.", parameters: { type: "object", properties: { status: { type: "string", enum: ["open", "closed", "all"], description: "issue status filter (default open)" }, priority: { type: "string", enum: ["high", "medium", "low"], description: "optional priority filter" }, limit: { type: "number", description: "max rows 1-50 (default 20)" } }, additionalProperties: false } },
   { name: "ops_issue_run", description: "Trigger the qnfo-backlog-exec drain on open agent_issues (safe by design: it only auto-closes health-availability rows whose re-probe PASSes; failures are escalated to alerts). confirm must be true to execute; otherwise returns the plan.", parameters: { type: "object", properties: { confirm: { type: "boolean", description: "must be true to trigger the drain" } }, additionalProperties: false } },
@@ -1908,33 +1908,6 @@ var OPS_TOOLS = [
   { name: "email_stats", description: "Email account stats: total messages, last 24h, by classification, by status.", parameters: { type: "object", properties: {}, additionalProperties: false } },
   { name: "ops_fleet_log", description: "Read the last ops_ai_log entries (this endpoint execution log, qnfo-audit). Use when the user asks what the ops endpoint has done recently.", parameters: { type: "object", properties: { limit: { type: "number", description: "1-20 (default 5)" } }, additionalProperties: false } },
   { name: "email_mark", description: "Update the status of an inbound/outbound email (received/processed/sent/replied/archived/spam/read/rejected). Requires the message id from email_check.", parameters: { type: "object", properties: { id: { type: "number", description: "message id" }, status: { type: "string", enum: ["received", "processed", "sent", "replied", "archived", "spam", "read", "rejected"], description: "new status" } }, required: ["id", "status"], additionalProperties: false } },
-  {
-    name: "ops_search",
-    description: "Keyword search over OPS_TOOLS names and descriptions. Returns an array of objects with 'name' and a one‑line snippet.",
-    args: [{ name: "query", type: "string", description: "Search term" }],
-    parameters: { type: "object", properties: { query: { type: "string", description: "Search term" } }, required: ["query"], additionalProperties: false },
-    exec: async (env, args) => {
-      const q = (args.query || "").toLowerCase();
-      const matches = OPS_TOOLS.filter(t => (t.name?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)))
-        .map(t => ({ name: t.name, snippet: t.description?.split("\n")[0] || "" }));
-      return { ok: true, result: matches };
-    }
-  },
-  {
-    name: "ops_execute",
-    description: "Execute a named OPS tool via the existing execTool path, preserving all gates and audit logging.",
-    args: [{ name: "tool", type: "string", description: "Name of the tool to execute" }, { name: "args", type: "object", description: "Arguments for the tool" }],
-    parameters: { type: "object", properties: { tool: { type: "string", description: "Name of the tool to execute" }, args: { type: "object", description: "Arguments for the tool", additionalProperties: true } }, required: ["tool"], additionalProperties: false },
-    exec: async (env, args) => {
-      const toolName = args.tool;
-      const toolArgs = args.args || {};
-      const r = await execTool(env, toolName, JSON.stringify(toolArgs), "", 20000);
-      let parsed = null;
-      try { parsed = JSON.parse(r.text); } catch (e) { parsed = r.text; }
-      return { ok: r.ok, result: parsed };
-    }
-  },
-  // End of added CODEMODE-SURFACE-1 tools
   { name: "email_respond", description: "Send a REPLY inside an existing inbound thread (reply_to_id from email_check). Requires explicit user affirmation in the latest message; replies only - never cold sends. Subject must not contain spam-trip tokens.", parameters: { type: "object", properties: { reply_to_id: { type: "number", description: "inbound message id being replied to" }, subject: { type: "string", description: "reply subject" }, body: { type: "string", description: "plain-text reply body" } }, required: ["reply_to_id", "body"], additionalProperties: false } },
   { name: "run_code", description: "Execute pure-JavaScript code directly on Cloudflare (isolated compute only: no network, filesystem, secrets, or worker bindings; math/verification/data transforms). Provide finite code that returns a value or uses console.log. Never fabricate results - if the tool errors, report the error.", parameters: { type: "object", properties: { code: { type: "string", description: "JavaScript code to execute. Use return to emit a value, or console.log() for text output." } }, required: ["code"], additionalProperties: false } },
   { name: "web_fetch", description: "Fetch a public http/https URL and return its readable text (HTML stripped). SSRF-guarded: private/internal/link-local hosts are blocked. Returns up to maxChars of text.", parameters: { type: "object", properties: { url: { type: "string", description: "full http(s) URL to fetch" }, maxChars: { type: "number", description: "max chars to return (default 8000, max 30000)" } }, required: ["url"], additionalProperties: false } },
@@ -6636,7 +6609,8 @@ function policyGateShadowDecision(name, args) {
       reason: "publishing requires explicit confirmation and non-empty published content"
     };
   }
-  const d1Delete = name === "ops_d1_write" && /^\s*(?:delete|drop|truncate)\b/i.test(String(input.sql || ""));
+  // POLICY-GATE-1 replay (scripts/policy_gate_replay.mjs): the first pattern missed a delete behind a leading block or line comment and a WITH ... DELETE (recall 0.8636 on qnfo-ops/policy-gate-corpus.json).
+  const d1Delete = name === "ops_d1_write" && /^(?:\s|\/\*[\s\S]*?\*\/|--[^\n]*(?:\n|$))*(?:with\b[\s\S]*?\)\s*)?(?:delete|drop|truncate)\b/i.test(String(input.sql || ""));
   const composioDelete = external && /(?:^|_)(?:delete|remove|destroy)(?:_|$)/.test(slug);
   const deleteTool = ["github_branch_delete", "workspace_delete", "r2_delete", "kv_delete"].includes(name) || d1Delete || composioDelete;
   if (deleteTool) {
@@ -6823,21 +6797,6 @@ async function logToolEvent(env, name, args, res, ms) {
     await logAuditTrail(env, name, args, res);
   } catch (e) {
   }
-  // Insert run event if runId present
-  try {
-    const runId = args && args.runId;
-    if (runId) {
-      const argsJson = JSON.stringify(args);
-      const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(argsJson));
-      const args_sha = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
-      const okFlag = Boolean(res?.ok);
-      const bytesOut = res?.bytes_out ?? 0;
-      const detail = JSON.stringify(res?.detail ?? {});
-      await env.QNFO_AUDIT.prepare("INSERT INTO ops_run_events (run_id, ts, kind, tool, ok, bytes_out, detail, args_sha) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
-        .bind(runId, iso(), "tool", name, okFlag ? 1 : 0, bytesOut, detail, args_sha).run();
-    }
-  } catch (_) {
-  }
 }
 __name(logToolEvent, "logToolEvent");
 __name2(logToolEvent, "logToolEvent");
@@ -6846,6 +6805,38 @@ __name222(logToolEvent, "logToolEvent");
 __name2222(logToolEvent, "logToolEvent");
 __name22222(logToolEvent, "logToolEvent");
 __name222222(logToolEvent, "logToolEvent");
+// TRACE-FOLD-1 (RM-TRACE-FOLD-1, agent_issues 1000650): one append-only ops_run_events row per tool call of a long run, written next to the cloud_ops_events audit row
+// by the loops that own a run id (the job workflow: its job id; the agent DO: its conversation id). The first appender lived in logToolEvent, read the run id from the
+// MODEL's tool arguments (never present) and omitted the NOT NULL seq column, so the table stayed empty. Arguments are hashed, never stored; a failure to write never
+// fails the call. kind tool-rejected marks a caller-input mistake (arg_error, rejected, user_code_error), which the fold counts apart from real errors.
+async function opsRunEventAppend(env, runId, name, rawArgs, execRes, ms) {
+  try {
+    const rid = String(runId || "").slice(0, 120);
+    if (!rid || !env || !env.QNFO_AUDIT) return false;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(rawArgs == null ? "" : rawArgs)));
+    const argsSha = Array.from(new Uint8Array(digest)).map(function(b) { return b.toString(16).padStart(2, "0"); }).join("").slice(0, 16);
+    const text = String(execRes && execRes.text != null ? execRes.text : "");
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+    const ok = !!(execRes && execRes.ok) || !!(parsed && parsed.not_found);
+    const rejected = !ok && !!(parsed && (parsed.rejected || parsed.arg_error || parsed.user_code_error));
+    const err = ok ? "" : String(parsed && (parsed.error || parsed.err) || text).slice(0, 160);
+    const detail = JSON.stringify({ ms: Math.max(0, Math.round(Number(ms) || 0)), status: ok ? "ok" : rejected ? "rejected" : "error", error: err || void 0 });
+    await env.QNFO_AUDIT.prepare("INSERT INTO ops_run_events (run_id, seq, ts, kind, tool, args_sha, ok, bytes_out, detail) SELECT ?1, COALESCE(MAX(seq), 0) + 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 FROM ops_run_events WHERE run_id = ?1")
+      .bind(rid, iso(), rejected ? "tool-rejected" : "tool", String(name || "").slice(0, 80), argsSha, ok ? 1 : 0, text.length, detail).run();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+async function opsRunState(env, runId) {
+  const rid = String(runId || "").slice(0, 120);
+  if (!rid) return { ok: false, arg_error: true, error: "run_id required", hint: "GET /v1/run-state?run_id=<job id or conversation id>" };
+  if (!env.QNFO_AUDIT) return { ok: false, error: "audit store not bound" };
+  const rows = await env.QNFO_AUDIT.prepare("SELECT seq, ts, kind, tool, args_sha, ok, bytes_out, detail FROM ops_run_events WHERE run_id = ?1 ORDER BY seq, id LIMIT 1000").bind(rid).all();
+  const events = rows && rows.results || [];
+  return { ok: true, run_id: rid, truncated: events.length >= 1000, state: foldRunState(events) };
+}
 var schemaEnsured = false;
 async function ensureSchema(env) {
   if (schemaEnsured || !env.QNFO_AUDIT) return;
@@ -6922,26 +6913,50 @@ __name222(logOps, "logOps");
 __name2222(logOps, "logOps");
 __name22222(logOps, "logOps");
 __name222222(logOps, "logOps");
- // TRACE-FOLD-1: utility to fold run state from events
- function foldRunState(events) {
-   const tools_used = [];
-   const errors = [];
-   let last_error = null;
-   let bytes_out_total = 0;
-   const open_items = [];
-   for (const ev of events || []) {
-     if (ev && ev.tool && !tools_used.includes(ev.tool)) tools_used.push(ev.tool);
-     if (!ev.ok) {
-       errors.push(ev);
-       if (!last_error || (ev.ts && last_error.ts && ev.ts > last_error.ts)) {
-         last_error = ev;
-       }
-     }
-     if (typeof ev.bytes_out === 'number') bytes_out_total += ev.bytes_out;
-     if (ev.kind === 'open' || ev.ok == null) open_items.push(ev);
-   }
-   return { tools_used, errors, last_error, bytes_out_total, open_items };
- }
+// TRACE-FOLD-1: fold the append-only ops_run_events rows of one run into a typed run state (a pure function of the events, so an agent or an observer reads this
+// instead of the raw transcript). errors are real failures (ok 0, kind tool); rejected are caller-input mistakes (kind tool-rejected) counted apart; open_items are
+// rows still open (kind open, or ok unset). detail is the JSON text the appender wrote (or an object); only its error text is surfaced, capped.
+function foldRunState(events) {
+  const tools_used = [];
+  const tool_counts = {};
+  const errors = [];
+  let error_count = 0;
+  let rejected_count = 0;
+  let calls = 0;
+  let last_error = null;
+  let bytes_out_total = 0;
+  let first_ts = null;
+  let last_ts = null;
+  const open_items = [];
+  const errText = function(ev) {
+    let d = ev && ev.detail;
+    if (typeof d === "string") { try { d = JSON.parse(d); } catch (e) { d = null; } }
+    return d && typeof d === "object" && d.error ? String(d.error).slice(0, 160) : "";
+  };
+  for (const ev of events || []) {
+    if (!ev) continue;
+    calls++;
+    if (ev.tool) {
+      if (tools_used.indexOf(ev.tool) < 0) tools_used.push(ev.tool);
+      tool_counts[ev.tool] = (tool_counts[ev.tool] || 0) + 1;
+    }
+    if (ev.ts) {
+      if (first_ts == null || ev.ts < first_ts) first_ts = ev.ts;
+      if (last_ts == null || ev.ts > last_ts) last_ts = ev.ts;
+    }
+    if (ev.kind === "tool-rejected") {
+      rejected_count++;
+    } else if (ev.ok === 0 || ev.ok === false) {
+      error_count++;
+      const e = { seq: ev.seq, ts: ev.ts, tool: ev.tool, error: errText(ev) };
+      if (errors.length < 20) errors.push(e);
+      if (!last_error || (ev.ts && last_error.ts && ev.ts >= last_error.ts)) last_error = e;
+    }
+    if (typeof ev.bytes_out === "number") bytes_out_total += ev.bytes_out;
+    if (ev.kind === "open" || ev.ok == null) open_items.push({ seq: ev.seq, ts: ev.ts, tool: ev.tool, kind: ev.kind });
+  }
+  return { calls, tools_used, tool_counts, errors, error_count, rejected_count, last_error, bytes_out_total, open_items, first_ts, last_ts };
+}
 async function callWorkersAI(env, messages, maxTokens, tools, opts) {
   const o = opts || {};
   const msgs = truncateToContext(messages, CODE_MODEL_CTX - Math.max(maxTokens || 0, 0) - 8192);
@@ -9343,7 +9358,11 @@ async function opsAgentChat(env, messages, maxTokens, tools, opts, conversationI
 }
 async function opsAgentTool(env, name, rawArgs, userContent, resultCap, conversationId) {
   return await opsAgentSpan("execute_tool", conversationId, { "gen_ai.tool.name": String(name).slice(0, 100) }, function() {
-    return execTool(env, name, rawArgs, userContent, resultCap);
+    const t0 = Date.now();
+    return execTool(env, name, rawArgs, userContent, resultCap).then(async function(er) {
+      await opsRunEventAppend(env, conversationId, name, rawArgs, er, Date.now() - t0); // TRACE-FOLD-1
+      return er;
+    });
   });
 }
 var AgenticOpsExec = class extends DurableObject {
@@ -9796,7 +9815,9 @@ var OpsExecWorkflow = class extends WorkflowEntrypoint {
           const tid = stableToolIds ? opsWorkflowToolCallId(turn, toolIndex, tc.id) : String(tc.id || randId("tc-"));
           const toolStepName = stableToolIds ? opsWorkflowToolStepName(turn, toolIndex, tid) : "tool-" + turn + "-" + tid;
           const toolRes = await step.do(toolStepName, { retries: { limit: 2, delay: "2 seconds", backoff: "linear" } }, async function() {
+            const t0 = Date.now();
             const er = await execTool(env, tname, rawArgs, lastUserText(work), toolResultCap);
+            await opsRunEventAppend(env, jobId, tname, rawArgs, er, Date.now() - t0); // TRACE-FOLD-1
             return { ok: !!er.ok, text: String(er.text != null ? er.text : "") };
           });
           toolLog.push({ name: tname, ok: !!toolRes.ok, summary: snippet(toolRes.text, 160) });
@@ -10278,17 +10299,51 @@ function opsOpenApi() {
     "/v1/ideas": { post: { operationId: "submitIdea", summary: "File an idea, research item or task", requestBody: { content: { "application/json": { schema: { type: "object", properties: { kind: { type: "string", enum: ["idea", "issue"] }, title: { type: "string" }, body: { type: "string" }, category: { type: "string" }, priority: { type: "string" } } } } } }, responses: { "200": { description: "filed" } } } },
     "/v1/queue": { get: { operationId: "readQueue", summary: "Read open backlog, ideas and intents", parameters: ["which", "status", "category", "q", "limit"].map(function(n) { return { name: n, in: "query", schema: { type: "string" } }; }), responses: { "200": { description: "queue" } } } },
     "/v1/tools": { get: { operationId: "listTools", responses: { "200": { description: "tool list" } } } },
+    "/v1/run-state": { get: { operationId: "runState", summary: "Folded run state of one long run: tools used, errors, bytes out, open items (TRACE-FOLD-1)", parameters: [{ name: "run_id", in: "query", schema: { type: "string" } }], responses: { "200": { description: "run state" } } } },
     "/v1/tools/call": { post: { operationId: "callTool", requestBody: { content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, arguments: obj } } } } }, responses: { "200": { description: "result" } } } }
   } };
 }
 function opsRestToolList(full) {
   return OPS_TOOLS.filter(function(t) { return full || OPS_REST_TOOL_NAMES.indexOf(t.name) >= 0; });
 }
+// CODEMODE-SURFACE-1 (RM-CODEMODE-MCP-SURFACE-1, agent_issues 1000639): the opt-in MCP surface (tools/list?surface=codemode) is two tools, ops_search over the OPS_TOOLS
+// catalogue and ops_execute through the existing execTool path (every gate and audit row apply unchanged; no new capability). The pair was once appended to OPS_TOOLS itself:
+// that put two tools the agent loop cannot execute (execTool has no branch for them) into the default list and into every model request. Every tools/list and tools/call answer
+// of the MCP route logs its size to cloud_ops_events kind ops-surface-size (text = label, meta = surface, chars, req_chars) so tokens per task can be compared.
+var OPS_CODEMODE_TOOLS = [
+  { name: "ops_search", description: "Search the ops tool catalogue by keyword, returning matching tool names and their first description line.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+  { name: "ops_execute", description: "Execute a named ops tool with arguments. The name must exist in the catalogue; recursive calls are rejected.", inputSchema: { type: "object", properties: { name: { type: "string" }, args: { type: "object" } }, required: ["name"] } }
+];
+function opsCodemodeSearch(query) {
+  const q = String(query || "").trim().toLowerCase();
+  const hits = [];
+  if (!q) return hits;
+  for (const t of opsRestToolList(true)) {
+    const desc = String(t.description || "");
+    const firstLine = desc.split("\n")[0] || desc;
+    if (t.name.toLowerCase().indexOf(q) >= 0 || desc.toLowerCase().indexOf(q) >= 0) hits.push({ name: t.name, description: firstLine });
+  }
+  return hits;
+}
+function opsSurfaceOf(toolName) {
+  return toolName === "ops_search" || toolName === "ops_execute" ? "codemode" : "default";
+}
+async function opsSurfaceSizeLog(env, label, surface, chars, reqChars) {
+  try {
+    if (!env || !env.QNFO_AUDIT) return false;
+    await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+      .bind(randId("evt-"), iso(), "ops-surface-size", String(label || "").slice(0, 80), JSON.stringify({ surface: surface, chars: Number(chars) || 0, req_chars: Number(reqChars) || 0 }), "qnfo-ops", "ok").run();
+    return true;
+  } catch (e) {
+    console.error(JSON.stringify({ step: "ops-surface-size", error: String(e && e.message || e).slice(0, 160) }));
+    return false;
+  }
+}
 // REST + MCP (Streamable HTTP, JSON-RPC) for any third-party LLM app. Returns a Response or null when the path is not one of these.
 async function ownerRestRoutes(request, env, path, method) {
   if (path === "/v1/owner/login" && method === "POST") return json(await ownerOtpSend(env));
   if (path === "/v1/owner/verify" && method === "POST") { let b = {}; try { b = await request.json(); } catch (e) { return json({ error: "invalid JSON body" }, 400); } return json(await ownerOtpVerify(env, b && b.code)); }
-  const isRest = path === "/v1/ideas" || path === "/v1/queue" || path === "/v1/tools" || path === "/v1/tools/call" || path === "/mcp" || path === "/openapi.json";
+  const isRest = path === "/v1/ideas" || path === "/v1/queue" || path === "/v1/tools" || path === "/v1/tools/call" || path === "/v1/run-state" || path === "/mcp" || path === "/openapi.json";
   if (!isRest) return null;
   if (path === "/openapi.json" && method === "GET") return json(opsOpenApi());
   const hdr = request.headers.get("Authorization") || "";
@@ -10298,13 +10353,7 @@ async function ownerRestRoutes(request, env, path, method) {
     let parsed = null; try { parsed = JSON.parse(r.text); } catch (e) { parsed = r.text; }
     return { ok: r.ok, result: parsed };
   };
-  async function auditSurfaceSize(env2, text) {
-    try {
-      if (!env2.QNFO_AUDIT) return;
-      await env2.QNFO_AUDIT.prepare("CREATE TABLE IF NOT EXISTS cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, job TEXT, size INTEGER)").run();
-      await env2.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, job, size) VALUES (?1, ?2, ?3, ?4, ?5)").bind(randId("coe-"), iso(), "ops-surface-size", "qnfo-ops", String(text).length).run();
-    } catch (e) { console.error(JSON.stringify({ step: "audit-surface-size", error: String(e && e.message || e).slice(0, 160) })); }
-  }
+  if (path === "/v1/run-state" && method === "GET") return json(await opsRunState(env, new URL(request.url).searchParams.get("run_id"))); // TRACE-FOLD-1
   if (path === "/v1/ideas" && method === "POST") { let b = {}; try { b = await request.json(); } catch (e) { return json({ error: "invalid JSON body" }, 400); } return json(await ideaSubmit(env, b)); }
   if (path === "/v1/queue" && method === "GET") { const u = new URL(request.url); const a = {}; u.searchParams.forEach(function(v, k) { a[k] = v; }); return json(await queueRead(env, a)); }
   if (path === "/v1/tools" && method === "GET") return json({ object: "list", data: opsRestToolList(true).map(function(t) { return { type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }; }) });
@@ -10323,47 +10372,35 @@ async function ownerRestRoutes(request, env, path, method) {
       let respBody;
       if (codemode) {
         // CODEMODE-SURFACE-1: opt-in MCP search/execute surface
-        respBody = { jsonrpc: "2.0", id, result: { tools: [
-          { name: "ops_search", description: "Search the ops tool catalogue by keyword, returning matching tool names and their first description line.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
-          { name: "ops_execute", description: "Execute a named ops tool with arguments. The name must exist in the catalogue; recursive calls are rejected.", inputSchema: { type: "object", properties: { name: { type: "string" }, args: { type: "object" } }, required: ["name"] } }
-        ] } };
+        respBody = { jsonrpc: "2.0", id, result: { tools: OPS_CODEMODE_TOOLS } };
       } else {
         respBody = { jsonrpc: "2.0", id, result: { tools: opsRestToolList(true).map(function(t) { return { name: t.name, description: t.description, inputSchema: t.parameters }; }) } };
       }
-      await auditSurfaceSize(env, JSON.stringify(respBody));
+      await opsSurfaceSizeLog(env, "tools/list", codemode ? "codemode" : "default", JSON.stringify(respBody).length, 0);
       return json(respBody);
     }
     if (m.method === "tools/call") {
       const p = m.params || {};
       const nm = String(p.name || "");
-      if (nm === "ops_search" || nm === "ops_execute") {
-        let r;
-        if (nm === "ops_search") {
-          const q = String((p.arguments || {}).query || "").toLowerCase();
-          const hits = [];
-          if (q) {
-            for (const t of opsRestToolList(true)) {
-              const desc = String(t.description || "");
-              const firstLine = desc.split("\n")[0] || desc;
-              if (t.name.toLowerCase().indexOf(q) >= 0 || desc.toLowerCase().indexOf(q) >= 0) hits.push({ name: t.name, description: firstLine });
-            }
-          }
-          r = { ok: true, result: hits };
-        } else {
-          const target = String((p.arguments || {}).name || "");
-          const args = (p.arguments || {}).args || {};
-          let found = false;
-          for (const t of opsRestToolList(true)) if (t.name === target) { found = true; break; }
-          if (!found) r = { ok: false, result: { error: "tool not found: " + target } };
-          else if (target === "ops_execute") r = { ok: false, result: { error: "recursive ops_execute is not allowed" } };
-          else r = await run(target, args);
-        }
-        const respBody = { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r.result) }], isError: !r.ok } };
-        await auditSurfaceSize(env, JSON.stringify(respBody));
-        return json(respBody);
+      const reqChars = JSON.stringify(p).length;
+      let r;
+      if (nm === "ops_search") {
+        r = { ok: true, result: opsCodemodeSearch((p.arguments || {}).query) };
+      } else if (nm === "ops_execute") {
+        const a = p.arguments || {};
+        const target = String(a.name || a.tool || "");
+        const args = a.args || {};
+        let found = false;
+        for (const t of opsRestToolList(true)) if (t.name === target) { found = true; break; }
+        if (target === "ops_execute" || target === "ops_search") r = { ok: false, result: { error: "recursive " + target + " is not allowed" } };
+        else if (!found) r = { ok: false, result: { error: "tool not found: " + target, hint: "call ops_search with a keyword to find the tool name" } };
+        else r = await run(target, args);
+      } else {
+        r = await run(nm, p.arguments || {});
       }
-      const r = await run(nm, p.arguments || {});
-      return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r.result) }], isError: !r.ok } });
+      const respBody = { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(r.result) }], isError: !r.ok } };
+      await opsSurfaceSizeLog(env, "tools/call:" + nm, opsSurfaceOf(nm), JSON.stringify(respBody).length, reqChars);
+      return json(respBody);
     }
     return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } });
   }

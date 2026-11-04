@@ -16,7 +16,8 @@
       "explain": [
         "INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) SELECT 'probe', 'probe', 'probe', 'reliability', 'low', 'open', 0, 0",
         "INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) SELECT 'probe', 't', 'probe', 'probe', '{}', 'probe', 'ok'",
-        "INSERT INTO fleet_deploys (worker, actor, ok, note, ts) SELECT 'probe', 'probe', 1, 'probe', 't'"
+        "INSERT INTO fleet_deploys (worker, actor, ok, note, ts) SELECT 'probe', 'probe', 1, 'probe', 't'",
+        "INSERT INTO ops_run_events (run_id, seq, ts, kind, tool, args_sha, ok, bytes_out, detail) SELECT 'probe', COALESCE(MAX(seq), 0) + 1, 't', 'tool', 'probe', 'p', 1, 0, '{}' FROM ops_run_events WHERE run_id = 'probe'"
       ]
     }
   ]

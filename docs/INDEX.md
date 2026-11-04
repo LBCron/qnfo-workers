@@ -53,6 +53,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Cloudflare Integration — Verification Follow-up (2026-09-07)](CLOUDFLARE-INTEGRATION-VERIFICATION-2026-09-07.md) - `docs/CLOUDFLARE-INTEGRATION-VERIFICATION-2026-09-07.md`
 - [Code-agent console (CODE-AGENT-CONSOLE-1)](CODE-AGENT-CONSOLE.md) - `docs/CODE-AGENT-CONSOLE.md`
 - [Research code as reach (CODE-REACH-1)](CODE-REACH-PROGRAM.md) - `docs/CODE-REACH-PROGRAM.md`
+- [Code-mode MCP surface for qnfo-ops: evaluation (CODEMODE-SURFACE-1)](CODEMODE-EVAL.md) - `docs/CODEMODE-EVAL.md`
 - [Composio and the DeepSeek harness (COMPOSIO-1, DSH-LESSONS-1)](COMPOSIO-INTEGRATION.md) - `docs/COMPOSIO-INTEGRATION.md`
 - [The content pipeline (CONTENT-PIPELINE-1)](CONTENT-PIPELINE.md) - `docs/CONTENT-PIPELINE.md`
 - [Copilot assignment yield, 2026-11-04 (COPILOT-YIELD-1)](COPILOT-YIELD-2026-11.md) - `docs/COPILOT-YIELD-2026-11.md`
@@ -111,6 +112,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Pi integration](PI-INTEGRATION.md) - `docs/PI-INTEGRATION.md`
 - [PIPELINE-FLOW-POLICY-1](PIPELINE-FLOW-POLICY-1.md) - `docs/PIPELINE-FLOW-POLICY-1.md`
 - [Plussing: every product gets better without being asked (PLUSSING-1)](PLUSSING.md) - `docs/PLUSSING.md`
+- [Policy gate replay (POLICY-GATE-1)](POLICY-GATE-REPLAY.md) - `docs/POLICY-GATE-REPLAY.md`
 - [Portfolio operations (PORTFOLIO-OPS-1)](PORTFOLIO-OPERATIONS.md) - `docs/PORTFOLIO-OPERATIONS.md`
 - [The QNFO portfolio (QNFO-PORTFOLIO-1)](PORTFOLIO.md) - `docs/PORTFOLIO.md`
 - [PR cycle time, 2026-11 (PR-RETRY-1)](PR-CYCLE-TIME-2026-11.md) - `docs/PR-CYCLE-TIME-2026-11.md`
@@ -142,6 +144,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [QNFO unified strategy (STRATEGY-1)](STRATEGY.md) - `docs/STRATEGY.md`
 - [SYSTEM-MAP: the whole Quniverse on one page](SYSTEM-MAP.md) - `docs/SYSTEM-MAP.md`
 - [TEMPO-POLICY-120M-5M-1 — the 120-minute cap and the 5-minute tick](TEMPO-POLICY-120M-5M-1.md) - `docs/TEMPO-POLICY-120M-5M-1.md`
+- [Event ledger and folded run state for long qnfo-ops runs (TRACE-FOLD-1)](TRACE-FOLD-EVAL.md) - `docs/TRACE-FOLD-EVAL.md`
 - [Quniverse transformation program (TRANSFORMATION-PROGRAM-1)](TRANSFORMATION-PROGRAM.md) - `docs/TRANSFORMATION-PROGRAM.md`
 - [Phone journeys: every user-facing app is tested the way a person uses it (UX-JOURNEYS-1)](UX-JOURNEYS.md) - `docs/UX-JOURNEYS.md`
 - [Value for money (VALUE-FOR-MONEY-1)](VALUE-FOR-MONEY.md) - `docs/VALUE-FOR-MONEY.md`
