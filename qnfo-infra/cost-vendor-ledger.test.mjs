@@ -169,5 +169,10 @@ const prStale = db2.prepare(probe).get();
 ok(Date.now() < Date.parse("2026-11-05T03:00:00Z") ? prStale.observed === "0" : prStale.observed === "1", "the detector flags a ledger older than 6 hours once the grace period (to 2026-11-05T03:00Z) is over", prStale);
 ok(db2.prepare("SELECT COUNT(*) AS n FROM failure_modes WHERE fm_key = 'cost-vendor-ledger-stale'").get().n === 1, "the failure mode is registered with its detector");
 
+const mk = db.prepare("SELECT metric, quantity, unit FROM cost_usage_daily WHERE vendor = 'cost_ledger' AND date = (SELECT MAX(date) FROM cost_usage_daily WHERE vendor = 'cost_ledger') ORDER BY metric").all();
+ok(mk.length === 3 && mk.some((x) => x.metric === "errors") && mk.some((x) => x.metric === "last_note" && x.unit.length > 0), "every tick records points, errors and a note as cost_ledger rows", mk);
+const noAcc = await L.costVendorTick({ AUDIT: env.AUDIT }, sandbox.now);
+ok(/CF_ACCOUNT/.test(noAcc.skipped) && /CF_ACCOUNT/.test(db.prepare("SELECT unit FROM cost_usage_daily WHERE vendor = 'cost_ledger' AND metric = 'last_note' ORDER BY date DESC").get().unit), "a skipped tick (missing binding) is recorded with its reason", noAcc);
+
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
