@@ -1,12 +1,7 @@
 {
-  "audited_at": "2026-11-04 02:30:20",
-  "d1_write_failures": [
-    [
-      "calendar-api",
-      "HTTP 429: b'{\"messages\":[],\"result\":null,\"success\":false,\"errors\":[{\"code\":7429,\"message\":\"D1 DB is overloaded. Too many"
-    ]
-  ],
-  "d1_writes_ok": 128,
+  "audited_at": "2026-11-04 02:37:12",
+  "d1_write_failures": [],
+  "d1_writes_ok": 129,
   "guard": {
     "_guard_rc": 0,
     "ahead": [],
@@ -601,7 +596,7 @@
       },
       {
         "dir": "qnfo-ai-search",
-        "version": "2.12.14-codeagent",
+        "version": "2.12.15-codeagent",
         "worker": "qnfo-ai-search"
       },
       {
@@ -1133,9 +1128,9 @@
       "worker": "qnfo-ai-calibration"
     },
     "qnfo-ai-search": {
-      "before": "2.12.14-codeagent",
+      "before": "2.12.15-codeagent",
       "http": 200,
-      "live": "2.12.14-codeagent",
+      "live": "2.12.15-codeagent",
       "match": 1,
       "note": "SYNC",
       "worker": "qnfo-ai-search"
@@ -1875,5 +1870,5 @@
       "worker": "voice-stt"
     }
   },
-  "stale_rows_purged": 1
+  "stale_rows_purged": 0
 }
