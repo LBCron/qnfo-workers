@@ -230,7 +230,7 @@ ok(atLeast(mod.__version, "0.12.0"), "the worker is 0.12.0 or later", mod.__vers
   ok(r1.created.length === 0 && r1b.created.length === 0 && !row(env) && waits.length === 1 && /code_merge_multi_file is not on/.test(waits[0].text), "E1 with the merge runner's key off, a multi-path line is left alone and noted once", { r1, waits: waits.length });
   ok(/code-task: repo=qnfo-workers path=/.test(db.prepare("SELECT description FROM agent_issues").get().description), "E2 the issue keeps its code-task line while it waits");
   db.prepare("INSERT INTO ops_config (key, value) VALUES ('code_merge_multi_file', 'on')").run();
-  const r2 = await mod.__intake(env, 2);
+  const r2 = await mod.__intake(Object.assign({}, env), 2);
   const t = row(env), cx = t ? JSON.parse(t.ctx) : {};
   ok(r2.created.length === 1 && t.path === P && cx.anchor === ANCHOR && cx.extras.length === 2 && cx.extras[0].path === T && cx.extras[0].anchor === "if (quota('free') !== 10)" && cx.extras[1].path === M && !("anchor" in cx.extras[1]) && /^\[issue #1\]/.test(t.goal) && !/code-task:/.test(t.goal), "E3 with the key on, the task is filed with its companions and their anchors", { r2, cx });
   // a single-path line is taken whatever the key says

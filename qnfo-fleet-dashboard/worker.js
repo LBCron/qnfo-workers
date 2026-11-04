@@ -11,7 +11,8 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.83.1";
+var VERSION = "1.83.3";
+// 1.83.3 (merge of PR 6935 onto main 1.83.0): keeps the 1.82.3 dashboard changes of this branch.
 // 1.83.1 (cont.) NOW-URGENT-1: the Now screen turns red only for cards that carry an IDENTITY-BOUND: line; owner-lane cards matched by a keyword alone are listed as optional.
 // 1.83.1 V3-CODE-STATUS-1 (pillar core; patch): the Code screen poll treats every status other than queued/running as final, so an executor status such as timeout or cancelled ends the run instead of polling for 25 minutes.
 // 1.83.0 V3-READERS-1 (owner request 2026-11-04, pillar reach; minor, new Readers card): the Readers screen compares output with readership (papers published, referred visits, visits per paper, new subscribers from metric_registry) and says plainly when output outruns readers.
@@ -1541,13 +1542,22 @@ function queueLoopSyncIfStale(env, ctx, st, meta, nowMs) {
 // ==== AREA-MAP reliability: fleet state: buildState, the integration view and report-card data ====
 // OUTREACH-WEEKDAY-1 (#1940): whole hours between raw and nowMs that fall on a weekday (UTC); Saturdays and Sundays do
 // not count. Outreach sends Monday to Friday only, so its queue's freshness is judged in these hours.
+var _wobsMemo = null;
 async function workerObservability(env, nowMs) {
+  /* D1-OVERLOAD-1d: the correlated scans ran on every page build (484 calls, 46M rows read a day); an isolate keeps the answer for 5 minutes */
+  if (_wobsMemo && nowMs - _wobsMemo.at < 3e5) return _wobsMemo.v;
+  const v = await workerObservabilityRead(env, nowMs);
+  _wobsMemo = { at: nowMs, v };
+  return v;
+}
+__name(workerObservability, "workerObservability");
+async function workerObservabilityRead(env, nowMs) {
   const rows = await d1all(env.AUDIT, "SELECT COUNT(*) AS n, GROUP_CONCAT(DISTINCT x.svc) AS workers FROM (SELECT l.fingerprint, COALESCE((SELECT CASE WHEN json_valid(d.payload) THEN CAST(json_extract(d.payload, '$.lastObserved') AS REAL) END FROM fleet_issue_dispatch d WHERE d.fingerprint = l.fingerprint), (CASE WHEN CAST(l.last_seen AS REAL) > 1e12 THEN CAST(l.last_seen AS REAL) ELSE (julianday(l.last_seen) - 2440587.5) * 864e5 END)) AS seen_ms, (SELECT CASE WHEN json_valid(d.payload) THEN json_extract(d.payload, '$.service') END FROM fleet_issue_dispatch d WHERE d.fingerprint = l.fingerprint) AS svc FROM fleet_issue_loop l WHERE l.category='worker-observability' AND l.closed_at IS NULL) x WHERE x.seen_ms >= ? AND NOT EXISTS (SELECT 1 FROM fleet_deploys f WHERE x.svc IS NOT NULL AND f.worker = x.svc AND f.ok = 1 AND COALESCE(f.note,'') NOT LIKE 'SETTINGS-ONLY%' AND (julianday(f.ts) - 2440587.5) * 864e5 > x.seen_ms)", [nowMs - ERR_ACTIVE_MS]);
   const row = rows && rows.length ? rows[0] : {};
   const workers = String(row.workers || "").split(",").filter((worker) => /^[a-z0-9][a-z0-9_-]{0,62}$/.test(worker));
   return { count: row.n || 0, workers };
 }
-__name(workerObservability, "workerObservability");
+__name(workerObservabilityRead, "workerObservabilityRead");
 
 function weekdayHoursSince(raw, nowMs) {
   if (raw == null) return null;
@@ -3047,7 +3057,8 @@ async function fleetStatusData(env, ctx) {
     state.then(function(st) { return humanView(env, st, ctx); }),
     safe("metrics (v_fleet_metrics)", "SELECT metric, title, operator, threshold, value, breach, priority, kind, measured_at, program_code, good, value_7d_ago FROM v_fleet_metrics"),
     safe("activity ledgers", STATUS_ACTIVITY_SQL),
-    d1all(A, "SELECT * FROM v_output_quality_headline").catch(function() { return null; }),
+    /* D1-OVERLOAD-1b: one-row snapshot (refreshed hourly), the 1.5M-row view only when the snapshot is empty or unreadable */
+    d1all(A, "SELECT verdict, better, worse, flat, unmeasured, gaps FROM output_quality_headline_cache WHERE id = 1").then(function(r) { return r && r.length ? r : d1all(A, "SELECT * FROM v_output_quality_headline"); }).catch(function() { return null; }),
     safe("programs", "SELECT program_code, name FROM programs"),
     d1all(A, "SELECT cause_key, title, plain, lever, doer, needs_owner, breaches, metrics FROM v_breach_by_cause").catch(function() { return null; }),
     statusValueInputs(env, now).catch(function() { return null; })
