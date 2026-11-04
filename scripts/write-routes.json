@@ -1,0 +1,46 @@
+{
+  "_doc": "WRITE-ROUTES-1 (RM-TP-8-TRUST-BOUNDARY, charter pillar security). The inventory behind metric unauth_write_routes_open (scripts/bp26_writeroutes.py). `probe` lists write routes the remediation-consumer runner POSTs with an EMPTY body and NO credential every hour: the answer must be a refusal (401 or 403). A 2xx answer is an open write route and is counted. A route is listed under `probe` only when an open answer is harmless: an empty body does nothing, or the route runs the same idempotent job its cron runs. Everything that spends money, sends mail, publishes, takes a lock or writes configuration is listed under `register` and is never POSTed: its gate is proven by reading its code, and the register names who owns each known gap.",
+  "probe": [
+    {"worker": "qnfo-memory-mcp", "url": "https://qnfo-memory-mcp.q08.workers.dev/mcp", "why": "MCP endpoint; an empty body is a JSON-RPC parse error"},
+    {"worker": "qnfo-memory-mcp", "url": "https://qnfo-memory-mcp.q08.workers.dev/mcp/messages", "why": "MCP message endpoint; an empty body carries no session"},
+    {"worker": "qnfo-containers-pilot", "url": "https://qnfo-containers-pilot.q08.workers.dev/exec", "why": "command execution; an empty body names no command"},
+    {"worker": "qnfo-ops", "url": "https://ops.qnfo.org/v1/tools/call", "why": "tool call; an empty body names no tool"},
+    {"worker": "qnfo-ops", "url": "https://ops.qnfo.org/mcp", "why": "MCP endpoint of the ops tool surface"},
+    {"worker": "qnfo-ops", "url": "https://ops.qnfo.org/ops/deploy", "why": "deploy; an empty body names no worker"},
+    {"worker": "qnfo-tools-mcp", "url": "https://qnfo-tools-mcp.q08.workers.dev/mcp", "why": "MCP endpoint of the machine tool surface"},
+    {"worker": "qnfo-email", "url": "https://qnfo-email.q08.workers.dev/send", "why": "mail send; an empty body has no recipient"},
+    {"worker": "qnfo-intent-orchestrator", "url": "https://qnfo-intent-orchestrator.q08.workers.dev/intent", "why": "intent intake; an empty body has no text"},
+    {"worker": "qnfo-agents", "url": "https://agents.qnfo.org/code-sessions", "why": "code session creation; an empty body has no task"},
+    {"worker": "qnfo-model-eval", "url": "https://qnfo-model-eval.q08.workers.dev/ab/run", "why": "paired A/B run; an empty body lacks worker, pre_model and post_model"},
+    {"worker": "qnfo-evolve", "url": "https://qnfo-evolve.q08.workers.dev/tick", "why": "the same tick its cron runs every 15 minutes (EVOLVE-TICK-FAILCLOSED-1)"},
+    {"worker": "qnfo-deploy-guard", "url": "https://qnfo-deploy-guard.q08.workers.dev/scan", "why": "the same fleet scan its cron runs every 20 minutes; a stranger can still start one (issue filed by migration 2026-11-04-c5-resilience-write-route-probe.sql)"},
+    {"worker": "qnfo-research-exec", "url": "https://qnfo-research-exec.q08.workers.dev/run", "why": "deferred kick: logs one cloud_ops_events row and runs nothing (the cron drains the queue); a stranger can still write rows (issue filed by the same migration)"},
+    {"worker": "voice-stt", "url": "https://voice-stt.q08.workers.dev/", "why": "speech to text; an empty body has no audio"}
+  ],
+  "register": [
+    {"worker": "qnfo-deploy-guard", "route": "POST /work-lock/acquire, /work-lock/release, /work-lock/check", "disposition": "open-by-design", "why": "sessions hold no credential (CLAUDE.md work claims); a claim is advisory, ttl is clamped to 7200 s and the kill switch refuses new claims"},
+    {"worker": "qnfo-deploy-guard", "route": "POST /secret-lock/acquire, /secret-lock/release", "disposition": "open-by-design", "why": "sessions hold no credential (CLAUDE.md shared secrets); a lease is advisory and expires within 7200 s"},
+    {"worker": "qnfo-deploy-guard", "route": "POST /lock/acquire, /lock/release", "disposition": "open-gap", "why": "an anonymous acquire on a live worker name holds its deploy lock for up to 7200 s; callers are fleet workers that can authenticate (issue filed by migration 2026-11-04-c5-resilience-write-route-probe.sql)"},
+    {"worker": "qnfo-deploy-guard", "route": "POST /ledger", "disposition": "open-gap", "why": "an anonymous POST inserts a fleet_deploys row and ensures a service_registry row for any worker name (ledger forgery); callers are qnfo-ops and the canonical deploy (same issue)"},
+    {"worker": "qnfo-deploy-guard", "route": "POST /thresholds", "disposition": "open-gap", "why": "an anonymous POST rewrites the KV cost thresholds the scan grades COST-THRESHOLD-BREACH against; no caller exists in the repository (same issue)"},
+    {"worker": "qnfo-deploy-guard", "route": "POST /capability-snapshot", "disposition": "open-gap", "why": "forces a capability snapshot, 10 minute floor; low (same issue)"},
+    {"worker": "qnfo-subscribers", "route": "POST /subscribe", "disposition": "open-by-design", "why": "public newsletter form behind Turnstile (BP26-EDGE-SECURITY-1)"},
+    {"worker": "qnfo-subscribers", "route": "POST /run/digest, /unsubscribe", "disposition": "unverified", "why": "/run/digest mails every subscriber if it is open: never POSTed; the gate must be proven by reading the code (next slice)"},
+    {"worker": "qnfo-ai", "route": "POST /v1/chat/completions and the other public model routes", "disposition": "open-by-design", "why": "OPEN-ACCESS-1: public AI use is capped per anonymous visitor and globally"},
+    {"worker": "qnfo-fleet-dashboard", "route": "POST /api/cmd/code", "disposition": "open-by-design", "why": "mails the owner a sign-in code; Turnstile and a per-address limit (BP26-EDGE-SECURITY-1); never POSTed because it sends mail"},
+    {"worker": "qnfo-cloud-ops", "route": "POST /run, /record", "disposition": "refused-once", "why": "answered 401 to an empty POST on 2026-11-04T23:05Z; /run starts digests, so it is not re-probed"},
+    {"worker": "qnfo-code-orchestrator", "route": "POST /tick, /run", "disposition": "refused-once", "why": "answered 401 (ORCH_TOKEN required) on 2026-11-04T23:07Z; a tick spends model neurons, so it is not re-probed"},
+    {"worker": "qnfo-fleet-control", "route": "POST /tick, /run", "disposition": "refused-once", "why": "answered 401 on 2026-11-04T23:07Z; a tick is heavy, so it is not re-probed"},
+    {"worker": "qnfo-social", "route": "POST /tick, /run", "disposition": "refused-once", "why": "answered 401 on 2026-11-04T23:07Z; a run posts to social channels, so it is not re-probed"},
+    {"worker": "qnfo-youtube-shorts", "route": "POST /run", "disposition": "refused-once", "why": "answered 401 on 2026-11-04T23:07Z; a run uploads a video, so it is not re-probed"},
+    {"worker": "q08-signal-engine", "route": "POST /run", "disposition": "refused-once", "why": "answered 401 on 2026-11-04T23:07Z; a run publishes essays and spends model calls, so it is not re-probed"},
+    {"worker": "qnfo-github-steward", "route": "POST /tick", "disposition": "refused-once", "why": "answered 401 (needs x-steward-key) on 2026-11-04T23:07Z; a tick spends the shared GitHub budget, so it is not re-probed"},
+    {"worker": "qnfo-model-eval", "route": "POST /run, /canary", "disposition": "refused-once", "why": "gated by a key held in D1 cf_model_eval_config (403 when D1 answers, 500 when D1 is overloaded); a run spends model neurons, so it is not re-probed"},
+    {"worker": "qnfo-research-exec", "route": "POST /run?sync=1, /claim-integrity/run, /revision-loop/run, /run/drain-v2", "disposition": "refused-by-code", "why": "RUN-INTERNAL-1: isPublicHost refuses a public hostname with 403 before any work (read in worker.js 2026-11-04)"}
+  ],
+  "never_probe_suffixes": [
+    "/work-lock/acquire", "/work-lock/release", "/work-lock/check", "/secret-lock/acquire", "/secret-lock/release",
+    "/lock/acquire", "/lock/release", "/ledger", "/thresholds", "/capability-snapshot",
+    "/subscribe", "/unsubscribe", "/run/digest", "/digest/send", "/api/cmd/code", "/v1/chat/completions"
+  ]
+}

@@ -33,10 +33,11 @@
  * READING
  *   GET /health  version, last run, open filings (public read)
  *   GET /report  the last 20 filings and the last run (public read)
- *   POST /tick   same work as the cron; needs x-loop-token when LOOP_TOKEN is configured
+ *   POST /tick   same work as the cron; needs x-loop-token equal to LOOP_TOKEN (403 when no LOOP_TOKEN is bound)
  */
 // 0.2.7 CAPABILITY-CONTRACT-REFRESH-1 (#2852, pillar autonomy; patch: re-publish the declared /health lists for a fresh live capability audit).
-var VERSION = "0.2.11-revert-a339688"; // 0.2.6 WIP-RECOVERY-PLANNER-ALIGNMENT-1: recoverWip counts the planner's active-task set and reads its shared code_plan_wip ceiling; the run ledger records queued work and oldest age.
+var VERSION = "0.2.12-revert-a339688";
+// 0.2.6 WIP-RECOVERY-PLANNER-ALIGNMENT-1: recoverWip counts the planner's active-task set and reads its shared code_plan_wip ceiling; the run ledger records queued work and oldest age.
 var WORKER = "qnfo-evolve";
 var SOURCE = "qnfo-evolve|EVOLVE-1";
 var MAX_OPEN = 5;
@@ -458,8 +459,14 @@ function sameSecret(a, b) {
   return d === 0 && x.length > 0;
 }
 
+/* EVOLVE-TICK-FAILCLOSED-1 (RM-TP-8-TRUST-BOUNDARY): this worker holds no secret on purpose, so the old rule "no LOOP_TOKEN
+ * configured means anyone may POST /tick" left the route open to the internet: an anonymous empty-body POST ran a whole tick
+ * (it scans v_process_path_gaps, files and closes agent_issues) at any rate, on a D1 that is already overloaded by scans.
+ * Measured 2026-11-04T23:04Z with scripts/bp26_writeroutes.py: HTTP 200 with the tick summary. The route now fails closed: with no
+ * LOOP_TOKEN bound it answers 403, and the cron (which never goes through this check) is unaffected. Binding the token is how
+ * the on-demand path is turned back on. */
 function tickAllowed(env, req) {
-  if (!env.LOOP_TOKEN) return true;
+  if (!env.LOOP_TOKEN) return false;
   return sameSecret(req.headers.get("x-loop-token"), env.LOOP_TOKEN);
 }
 
@@ -476,7 +483,7 @@ var CAPABILITIES = [
   "control-plane-visibility: counts a gap whose owner the code loop may not change and reports it instead of filing it",
   "run-ledger: records every tick in evolve_runs",
   "report: GET /report returns the last 20 filings and the last run",
-  "manual-tick: POST /tick runs the same work as the cron, gated by x-loop-token when LOOP_TOKEN is configured"
+  "manual-tick: POST /tick runs the same work as the cron, only for a request whose x-loop-token matches LOOP_TOKEN; with no LOOP_TOKEN bound the route answers 403 (fail closed)"
 ];
 var LIMITATIONS = [
   "never edits code, opens a pull request, deploys or changes a view; it writes only its own agent_issues rows and its own tables",

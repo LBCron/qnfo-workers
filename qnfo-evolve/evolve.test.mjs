@@ -26,7 +26,7 @@ const ok = (c, m, d) => {
  * `export default {` is rewritten to a local binding so the same file that ships to Cloudflare is the
  * file under test. */
 const body = src.replace(/^export default /m, "var __default = ");
-const mod = new Function("console", body + "\n;return { isSinglePath, gapKey, buildIssue, pickNew, isDenied, DENY_WORKERS, VERSION, SOURCE, MAX_OPEN, MAX_NEW_PER_TICK, WIP_CEILING_DEFAULT, WIP_CEILING_MAX, WIP_TERMINAL_STATUSES, WIP_HANDOFF_STATUSES, WIP_EXCLUDED_STATUSES, WIP_ATTEMPTS, WIP_STALE_MIN, WIP_PARK_PER_TICK, recoverWip, CAPABILITIES, LIMITATIONS, handlers: __default };")
+const mod = new Function("console", body + "\n;return { isSinglePath, gapKey, buildIssue, pickNew, isDenied, DENY_WORKERS, VERSION, SOURCE, MAX_OPEN, MAX_NEW_PER_TICK, WIP_CEILING_DEFAULT, WIP_CEILING_MAX, WIP_TERMINAL_STATUSES, WIP_HANDOFF_STATUSES, WIP_EXCLUDED_STATUSES, WIP_ATTEMPTS, WIP_STALE_MIN, WIP_PARK_PER_TICK, recoverWip, tickAllowed, CAPABILITIES, LIMITATIONS, handlers: __default };")
   ({ log() {}, error() {} });
 
 ok(/^\d+\.\d+\.\d+/.test(mod.VERSION), "VERSION is semver-shaped", mod.VERSION);
@@ -220,6 +220,26 @@ ok(health.limitations.some((l) => l.includes("at most " + mod.MAX_NEW_PER_TICK +
 ok(health.limitations.some((l) => l.includes(mod.WIP_ATTEMPTS + " attempts") && l.includes(mod.WIP_STALE_MIN + " minutes") && l.includes("at most " + mod.WIP_PARK_PER_TICK + " times")), "the wip-recovery limit on /health is built from the constants the recovery uses");
 ok(health.limitations.some((l) => /never edits code/.test(l)) && health.capabilities.some((c) => /^auto-close/.test(c)), "the contract states what the worker refuses to do and what it closes itself");
 ok(health.last_run && health.last_run.scanned === 1, "the last run is still reported next to the contract", health.last_run);
+
+/* 10. EVOLVE-TICK-FAILCLOSED-1 (RM-TP-8-TRUST-BOUNDARY): POST /tick is a write route (it files and closes agent_issues), and this
+ * worker holds no secret by design, so "no LOOP_TOKEN bound" must mean closed. Measured live 2026-11-04T23:04Z: an anonymous
+ * empty-body POST answered 200 with a tick summary. None of these cases may touch D1 unless the token matches. */
+const mkReq = (token) => new Request("https://qnfo-evolve.example/tick", { method: "POST", headers: token === undefined ? {} : { "x-loop-token": token } });
+ok(mod.tickAllowed({}, mkReq()) === false, "no LOOP_TOKEN bound and no header: the tick is refused");
+ok(mod.tickAllowed({}, mkReq("anything")) === false, "no LOOP_TOKEN bound and a header: still refused (the route fails closed)");
+ok(mod.tickAllowed({ LOOP_TOKEN: "" }, mkReq("")) === false, "an empty LOOP_TOKEN never matches an empty header");
+ok(mod.tickAllowed({ LOOP_TOKEN: "s3cret" }, mkReq()) === false, "a bound token and no header: refused");
+ok(mod.tickAllowed({ LOOP_TOKEN: "s3cret" }, mkReq("wrong")) === false, "a bound token and a wrong header: refused");
+ok(mod.tickAllowed({ LOOP_TOKEN: "s3cret" }, mkReq("s3cret")) === true, "a bound token and the matching header: allowed");
+let touched = 0;
+const spyEnv = { AUDIT: { prepare() { touched++; throw new Error("D1 must not be read for an unauthenticated tick"); } } };
+const anon = await mod.handlers.fetch(mkReq(), spyEnv);
+ok(anon.status === 403 && touched === 0, "an anonymous POST /tick answers 403 and reads no D1", { status: anon.status, touched });
+const wrong = await mod.handlers.fetch(mkReq("nope"), Object.assign({ LOOP_TOKEN: "s3cret" }, spyEnv));
+ok(wrong.status === 403 && touched === 0, "a wrong x-loop-token answers 403 and reads no D1", { status: wrong.status, touched });
+const good = await mod.handlers.fetch(mkReq("s3cret"), Object.assign({ LOOP_TOKEN: "s3cret" }, spyEnv));
+ok(good.status !== 403 && touched > 0, "the right x-loop-token passes the gate and runs the tick", { status: good.status, touched });
+ok(mod.CAPABILITIES.some((c) => /^manual-tick/.test(c) && /fail closed/.test(c)), "the manual-tick capability says the route fails closed");
 
 console.log(`${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
