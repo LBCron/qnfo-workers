@@ -36,7 +36,7 @@ function fakeDb(o) {
     const s = {
       bind: (...xs) => { args = xs; return s; },
       first: async () => {
-        if (/FROM v_output_quality_headline/.test(sql)) { reads.quality++; if (o.qThrows) throw new Error("no such column: updated_at"); return o.worse === undefined ? null : { worse: o.worse }; }
+        if (/FROM output_quality_headline_cache/.test(sql)) { reads.quality++; if (o.qThrows) throw new Error("no such column: updated_at"); return o.worse === undefined ? null : { worse: o.worse }; }
         return null;
       },
       all: async () => {
@@ -270,9 +270,10 @@ const ledgerDowngrades = (db) => db.writes.filter((w) => /INSERT INTO ai_spend_l
 
 // 5. The SELECT names only columns the view has.
 {
-  const sel = /prepare\("(SELECT [^"]*v_output_quality_headline[^"]*)"\)/.exec(src.slice(a2, b2));
-  ok(!!sel, "the quality read is a single SELECT on v_output_quality_headline", sel && sel[1]);
-  ok(sel && sel[1] === "SELECT worse FROM v_output_quality_headline", "it reads worse and nothing else", sel && sel[1]);
+  const sel = /prepare\("(SELECT [^"]*output_quality_headline_cache[^"]*)"\)/.exec(src.slice(a2, b2));
+  ok(!!sel, "the quality read is a single SELECT on the one-row cache (D1-OVERLOAD-1c), never the view", sel && sel[1]);
+  ok(sel && sel[1] === "SELECT worse FROM output_quality_headline_cache WHERE id = 1", "it reads worse and nothing else", sel && sel[1]);
+  ok(!/prepare\("SELECT[^"]*FROM v_output_quality_headline/.test(src), "no query in the worker scans the view");
   ok(!/updated_at/.test(src.slice(src.indexOf("async function spendGovern("), src.indexOf("// Chokepoint for direct-key / gateway calls"))), "spendGovern no longer reads a column the view does not have");
   const mig = readFileSync(new URL("../migrations/2026-10-26-output-quality-ledger.sql", import.meta.url), "utf8");
   const view = /CREATE VIEW[^;]*v_output_quality_headline[\s\S]*?;/.exec(mig);
