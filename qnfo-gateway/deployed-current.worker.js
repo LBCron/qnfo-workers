@@ -165,7 +165,7 @@ function formatPaper(source, record) {
 }
 // PAPER-FORMAT-2:END
 // 3.48.7 PAPER-REVISION-QUALITY-1 (2026-11-03, pillar reach): recover split revision titles and record abstracts at public rendering, and reject cached refusals from both summary surfaces.
-var VERSION="3.50.0"; // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports.
+var VERSION="3.51.0"; // 3.51.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: every QDS page gains a family bar linking QNFO, QWAV and q08, a Keep exploring module (newest and random papers from the open API, the three family sites, topic chips) and a family line in the footer; QDS 1.1.0; visible ask links use ask.qwav.org per DOMAIN-PLANE-1). Prediction: pages per session on qwav.org and qnfo.org rise and clicks between the three sites become non-zero. Revert: restore 3.50.0. // 3.50.0 earlier history follows: // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports.
 // 3.49.0 PLAIN-ARTICLE-COVERAGE-1 (2026-11-03, pillar reach, qnfo-workers#6437): retry an empty Kimi article reply once with the independent Google writer; raise the bounded hourly backfill cap to 30.
 // 3.48.0 PLAIN-STANDARD-1 (2026-10-28, pillar reach, agent_issues 1000476; minor: the plain-language summary now has a hard readability gate): plainPrompt asks for at most two figures, one everyday comparison, terms defined inline and sentences under 20 words; plainBuild regenerates once and flags a result above Flesch-Kincaid grade 9 as gated, which is never stored or shown (a gated build keeps the old row and waits 6 hours); plainFill queues stored summaries above grade 9 for regeneration, hardest first. qnfo-gateway/plain-standard.test.mjs. // 3.47.0 BP26-AI-ACT-ART50-1 + BP26-PROVENANCE-MARKING-1 (2026-10-28, pillars research and security, agent_issues 1000341 and 1000335): every paper page carries a visible AI label (AI-generated, or AI-assisted only where paper_provenance names a reviewer), JSON-LD creditText / digitalSourceType / isAIGenerated and, when the secret PROVENANCE_SIGNING_KEY is set, a signed Ed25519 sidecar at /papers/<slug>/provenance.json linked by <link rel="c2pa-manifest">, the public key at /.well-known/provenance-key.json, an hourly sweep that signs 40 unsigned papers and files each in qnfo-audit asset_provenance; the footer and the JSON-LD of qnfo.org pages say papers are written by AI. Absent secret = no sidecar, no link. qnfo-gateway/provenance.test.mjs. // 3.45.0 PAPER-PIDS-1 slice (2026-10-28, pillar research): per-paper CITATION.cff, CSL-JSON and BibTeX at /api/papers/<slug>.cff|.csl.json|.bib, built from the same open record as the JSON API and OAI-PMH (BP26-PAPER-PIDS-1, agent_issues 1000338).
 /* 3.46.0 PAPER-PIDS-HASH-1 (2026-10-28, pillar research, agent_issues 1000338; minor): GET /papers/<slug>/v/<version> (alias /api/papers/<slug>/v/<version>) serves that version's Markdown with X-Content-SHA256 and an immutable cache header for a superseded version; /api/papers/<slug> returns sha256 and version_url. 3.45.0 note: */
@@ -373,7 +373,7 @@ h3{font-family:'Fraunces',Georgia,serif;font-size:1.12rem;margin-top:1.5rem;marg
 // toggle, sticky header and the article table of contents. Pages declare <html data-brand="qnfo|qwav|q08">. Reading
 // type is Newsreader, interface type Familjen Grotesk; light and dark themes follow the OS unless the visitor picks one.
 // Replaces the 2026-08-31 paper-and-ink system (qnfo-web-unified/README.md, STRATEGY 2.5), owner decision 2026-10-02.
-var QDS_VERSION = "1.0.0";
+var QDS_VERSION = "1.1.0";
 var QDS_ORIGIN = "https://qnfo.org";
 var QDS_CSS = `/* QDS: the QNFO design system. One stylesheet for every QNFO, QWAV and q08 surface.
    Served by qnfo-gateway at https://qnfo.org/qds.css (versioned with ?v=). Pages set
@@ -613,6 +613,33 @@ button{font:inherit;color:inherit}
 [data-density="compact"] .q-section{padding:28px 0}
 [data-density="compact"] .q-panel{padding:16px}
 
+/* explore: Keep reading + the QNFO family (CROSS-LINK-1) */
+.q-explore{border-top:1px solid var(--q-rule);padding:56px 0 24px;margin-top:24px;background:var(--q-surface)}
+.q-explore h2{font:500 var(--q-fs-xl)/1.2 var(--q-serif);letter-spacing:-.012em;margin:0 0 6px}
+.q-explore .q-sub{color:var(--q-muted);margin:0 0 22px;max-width:60ch}
+.q-keep{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px;margin-bottom:40px}
+.q-keep-card{display:flex;flex-direction:column;gap:8px;padding:18px;border:1px solid var(--q-rule);border-radius:var(--q-r);background:var(--q-paper);text-decoration:none;transition:border-color .15s,transform .15s}
+.q-keep-card:hover{border-color:var(--q-accent);transform:translateY(-2px)}
+.q-keep-card b{font:500 var(--q-fs-base)/1.3 var(--q-serif)}
+.q-keep-card span{color:var(--q-muted);font-size:var(--q-fs-sm);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.q-keep-card small{margin-top:auto;color:var(--q-accent);font-weight:600;font-size:var(--q-fs-xs)}
+.q-keep-h{grid-column:1/-1;font:600 var(--q-fs-xs)/1 var(--q-sans);letter-spacing:.06em;text-transform:uppercase;color:var(--q-muted);margin:0}
+.q-fam{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:28px}
+.q-fam a{display:flex;flex-direction:column;gap:6px;padding:20px;border-radius:var(--q-r);border:1px solid var(--q-rule);text-decoration:none;background:var(--q-paper)}
+.q-fam a:hover{border-color:var(--fam,var(--q-accent))}
+.q-fam a[aria-current]{border-color:var(--fam,var(--q-accent));box-shadow:inset 0 3px 0 var(--fam,var(--q-accent))}
+.q-fam b{font:600 1.125rem/1.2 var(--q-sans);color:var(--fam,var(--q-ink))}
+.q-fam span{color:var(--q-muted);font-size:var(--q-fs-sm);line-height:1.5}
+.q-fam small{margin-top:6px;font-weight:600;color:var(--fam,var(--q-accent));font-size:var(--q-fs-xs)}
+.q-fam [data-fam=qnfo]{--fam:#0E7C70}.q-fam [data-fam=qwav]{--fam:#3B4CCA}.q-fam [data-fam=q08]{--fam:#B4472A}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .q-fam [data-fam=qnfo]{--fam:#5FD3C4}:root:not([data-theme=light]) .q-fam [data-fam=qwav]{--fam:#9AA6FF}:root:not([data-theme=light]) .q-fam [data-fam=q08]{--fam:#F2906A}}
+:root[data-theme=dark] .q-fam [data-fam=qnfo]{--fam:#5FD3C4}:root[data-theme=dark] .q-fam [data-fam=qwav]{--fam:#9AA6FF}:root[data-theme=dark] .q-fam [data-fam=q08]{--fam:#F2906A}
+.q-chips{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0 0 8px;padding:0}
+.q-chips a{display:inline-block;padding:7px 14px;border:1px solid var(--q-rule);border-radius:999px;font-size:var(--q-fs-sm);color:var(--q-ink-2);text-decoration:none;background:var(--q-paper)}
+.q-chips a:hover{border-color:var(--q-accent);color:var(--q-accent)}
+.q-family .q-family-label{font-weight:500}
+.q-family a[aria-current]{color:var(--q-accent)}
+
 /* motion and print */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 @media print{
@@ -688,6 +715,29 @@ var QDS_JS = `/* QDS behaviour: theme toggle, header state, table of contents, c
         hs.forEach(function (h) { io.observe(h); });
       }
     });
+    // Keep reading (CROSS-LINK-1): <div class="q-keep" data-q-keep="qnfo|qwav|q08"> is filled from the open papers API
+    // with the newest papers and a random draw, so a visitor always has a next page. The server-rendered fallback stays when fetch fails.
+    function keepReading() { document.querySelectorAll("[data-q-keep]").forEach(function (box) {
+      if (!window.fetch || box.getAttribute("data-q-done")) return;
+      box.setAttribute("data-q-done", "1");
+      var base = "https://papers.qnfo.org/api/papers?limit=3";
+      var esc = function (t) { return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"); };
+      var card = function (p) {
+        var ab = String(p.abstract || "").replace(/\\$[^$]*\\$/g, " ").replace(/\\\\[a-zA-Z]+|[{}^_$]/g, " ").replace(/\\s+/g, " ").trim();
+        if (ab.length > 170) ab = ab.slice(0, 167).replace(/\\s+\\S*$/, "") + "...";
+        return '<a class="q-keep-card" href="https://papers.qnfo.org/papers/' + esc(p.slug) + '"><b>' + esc(p.title) + "</b><span>" + esc(ab) + "</span><small>Read the paper</small></a>";
+      };
+      fetch(base).then(function (r) { return r.json(); }).then(function (a) {
+        var total = a.total || 0, off = total > 12 ? 3 + Math.floor(Math.random() * (total - 6)) : 3;
+        return fetch(base + "&offset=" + off).then(function (r) { return r.json(); }).then(function (b) { return [a, b]; });
+      }).then(function (ab) {
+        var l1 = (ab[0].items || []).slice(0, 3), l2 = (ab[1].items || []).slice(0, 3);
+        if (!l1.length) return;
+        box.innerHTML = '<p class="q-keep-h">Newest research</p>' + l1.map(card).join("") + (l2.length ? '<p class="q-keep-h">Something different</p>' + l2.map(card).join("") : "");
+      }).catch(function () {});
+    }); }
+    window.qdsKeepReading = keepReading;
+    keepReading();
     // Copy buttons: <button data-q-copy="text"> or data-q-copy-from="#id".
     document.querySelectorAll("[data-q-copy],[data-q-copy-from]").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -756,10 +806,10 @@ var QDS_FAVICON = {
 };
 var QDS_THEME_BTN = '<button class="q-theme" type="button" data-q-theme aria-label="Switch between light and dark theme"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg></button>';
 var QDS_MENU_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
-// One navigation for the QNFO family. QWAV and q08 are separate labels (STRATEGY 2.1) and are not linked from here.
+// One navigation for the QNFO family. QWAV and q08 stay separate imprints (STRATEGY 2.1), linked by the family bar and Keep exploring (CROSS-LINK-1).
 var QDS_NAV_QNFO = [
   { k: "papers", t: "Papers", h: "https://papers.qnfo.org/papers" },
-  { k: "ask", t: "Ask the corpus", h: "https://ask.qwav.tech/" },
+  { k: "ask", t: "Ask the corpus", h: "https://ask.qwav.org/" },
   { k: "ideas", t: "Ideas", h: "https://ideas.qnfo.org/" },
   { k: "archive", t: "Archive", h: "https://archive.qnfo.org/" },
   { k: "about", t: "About", h: "https://qnfo.org/about" },
@@ -770,7 +820,7 @@ var QDS_NAV_QWAV = [
   { k: "stack", t: "Architecture", h: "https://qwav.org/#stack" },
   { k: "landscape", t: "Landscape", h: "https://qwav.org/#landscape" },
   { k: "research", t: "Research", h: "https://qwav.org/#research" },
-  { k: "ask", t: "Ask", h: "https://ask.qwav.tech/" }
+  { k: "ask", t: "Ask", h: "https://ask.qwav.org/" }
 ];
 function qdsAttr(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -783,7 +833,7 @@ function qdsHead(o) {
   const site = brand === "qwav" ? "QWAV" : "QNFO";
   return '<!DOCTYPE html><html lang="en" data-brand="' + brand + '"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">' +
     "<title>" + t + '</title><meta name="description" content="' + d + '">' + (o.canonical ? '<link rel="canonical" href="' + qdsAttr(o.canonical) + '">' : "") +
-    (o.robots ? '<meta name="robots" content="' + qdsAttr(o.robots) + '">' : "") +
+    (o.robots ? '<meta name="robots" content="' + qdsAttr(o.robots) + '">' : "") + (o.noFamily ? '<meta name="q-family" content="off">' : "") +
     '<meta name="author" content="Rowan Brad Quni-Gudzinas"><meta property="og:site_name" content="' + site + '"><meta property="og:title" content="' + t + '"><meta property="og:description" content="' + d + '"><meta property="og:type" content="' + (o.ogType || "website") + '">' +
     (o.canonical ? '<meta property="og:url" content="' + qdsAttr(o.canonical) + '">' : "") + '<meta name="twitter:card" content="summary"><meta name="twitter:title" content="' + t + '"><meta name="twitter:description" content="' + d + '">' +
     '<meta name="theme-color" content="#F5F7FB" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#121731" media="(prefers-color-scheme: dark)">' +
@@ -835,37 +885,79 @@ function wellKnownAnswer(u) {
   }
   return null;
 }
-function qdsHeader(brand, active) {
+// CROSS-LINK-1 (2026-11-04, pillar reach; owner directive: make the sites sticky, cross-pollinate QNFO, QWAV and q08):
+// every QDS page carries a one-line family bar above the header, a "Keep exploring" module above the footer (live paper
+// cards hydrated by qds.js from the open papers API, plus the three family sites and topic chips) and the same links in the
+// footer. It supersedes the earlier "QWAV and q08 are not linked from here" rule; STRATEGY 2.1 keeps them separate imprints,
+// and a link is not a merge.
+var QDS_FAMILY = [
+  { k: "qnfo", t: "QNFO", h: "https://qnfo.org/", d: "The research imprint: hundreds of open papers, an assistant that answers from them with citations, and an ideas pipeline.", cta: "Browse the research" },
+  { k: "qwav", t: "QWAV", h: "https://qwav.org/", d: "Quantum computing measured in joules per correct answer: the JPCUB benchmark, the p-adic architecture and the landscape.", cta: "Explore QWAV" },
+  { k: "q08", t: "q08", h: "https://q08.org/", d: "Essays on technology stories: what happened, and the system that made it happen.", cta: "Read the essays" }
+];
+var QDS_TOPICS = [
+  ["Quantum error correction", "error correction"], ["p-adic and ultrametric", "p-adic"], ["Thermodynamics of computation", "thermodynamic"],
+  ["Topological quantum computing", "topological"], ["Joules per solution", "joules"], ["Foundations", "foundations"], ["Distinction and information", "distinction"]
+];
+function qdsFamilyBar(brand) {
+  const cur = brand === "qwav" ? "qwav" : brand === "q08" ? "q08" : "qnfo";
+  return '<div class="q-family"><div class="q-wrap"><span class="q-family-label">The QNFO family</span>' + QDS_FAMILY.map(function(f) {
+    return '<a href="' + f.h + '"' + (f.k === cur ? ' aria-current="true"' : "") + ">" + f.t + "</a>";
+  }).join("") + '<a href="https://papers.qnfo.org/papers">Papers</a><a href="https://ask.qwav.org/">Ask</a></div></div>';
+}
+function qdsExplore(brand) {
+  const cur = brand === "qwav" ? "qwav" : brand === "q08" ? "q08" : "qnfo";
+  return '<section class="q-explore" aria-labelledby="q-explore-h"><div class="q-wrap"><h2 id="q-explore-h">Keep exploring</h2><p class="q-sub">One body of research, three doors. Pick up a thread, follow it across the family, or ask the papers a question.</p>' +
+    '<div class="q-keep" data-q-keep="' + cur + '"><a class="q-keep-card" href="https://papers.qnfo.org/papers"><b>Browse the full paper library</b><span>Every paper is open, versioned and citable, with a Quick read and an Ask panel on each page.</span><small>Open the library</small></a><a class="q-keep-card" href="https://ask.qwav.org/"><b>Ask the corpus</b><span>Questions are answered only from the published papers, with a citation for every claim.</span><small>Ask a question</small></a><a class="q-keep-card" href="https://ideas.qnfo.org/"><b>Follow the idea threads</b><span>See what is being asked, what the corpus cannot yet answer, and what gets studied next.</span><small>See ideas</small></a></div>' +
+    '<div class="q-fam">' + QDS_FAMILY.map(function(f) {
+      return '<a data-fam="' + f.k + '" href="' + f.h + '"' + (f.k === cur ? ' aria-current="true"' : "") + "><b>" + f.t + (f.k === cur ? " (you are here)" : "") + "</b><span>" + f.d + "</span><small>" + f.cta + " &rarr;</small></a>";
+    }).join("") + "</div>" +
+    '<ul class="q-chips" aria-label="Topics">' + QDS_TOPICS.map(function(t) { return '<li><a href="https://papers.qnfo.org/papers?search=' + encodeURIComponent(t[1]) + '">' + t[0] + "</a></li>"; }).join("") + "</ul></div></section>";
+}
+function qdsHeader(brand, active, quiet) {
   const nav = brand === "qwav" ? QDS_NAV_QWAV : QDS_NAV_QNFO;
   const home = brand === "qwav" ? "https://qwav.org/" : "https://qnfo.org/";
   const name = brand === "qwav" ? "QWAV" : "QNFO";
   const links = nav.map(function(n) {
     return '<a href="' + n.h + '"' + (n.k === active ? ' aria-current="page"' : "") + ">" + n.t + "</a>";
   }).join("");
-  return '<a class="q-skip" href="#main">Skip to main content</a><header class="q-top"><div class="q-wrap"><a class="q-brand" href="' + home + '" aria-label="' + name + ' home">' + QDS_MARK[brand === "qwav" ? "qwav" : "qnfo"] + name + "</a>" +
+  return '<a class="q-skip" href="#main">Skip to main content</a>' + (quiet ? "" : qdsFamilyBar(brand)) + '<header class="q-top"><div class="q-wrap"><a class="q-brand" href="' + home + '" aria-label="' + name + ' home">' + QDS_MARK[brand === "qwav" ? "qwav" : "qnfo"] + name + "</a>" +
     '<nav class="q-nav q-nav-wide" aria-label="Main">' + links + "</nav>" +
     '<details class="q-menu"><summary aria-label="Menu">' + QDS_MENU_ICON + '</summary><nav class="q-nav" aria-label="Main">' + links + "</nav></details>" + QDS_THEME_BTN + "</div></header>";
 }
-function qdsFooter(brand) {
+function qdsFooter(brand, quiet) {
   if (brand === "qwav") {
     return '<footer class="q-foot"><div class="q-wrap"><div class="q-foot-grid"><div><a class="q-brand" href="https://qwav.org/">' + QDS_MARK.qwav + 'QWAV</a><p style="margin-top:12px;max-width:36ch">A pre-commercial computing platform concept, benchmarked in joules per correct answer. Research by Rowan Brad Quni-Gudzinas, published by QNFO.</p></div>' +
       '<div><h2>Platform</h2><ul><li><a href="#jpcub">JPCUB benchmark</a></li><li><a href="#stack">Architecture</a></li><li><a href="#landscape">Landscape</a></li><li><a href="#research">Research</a></li></ul></div>' +
-      '<div><h2>Research</h2><ul><li><a href="https://papers.qnfo.org/papers">Papers</a></li><li><a href="https://papers.qnfo.org/papers/joules-per-solution-metric">JPCUB P0 protocol</a></li><li><a href="https://ask.qwav.tech/">Ask the corpus</a></li><li><a href="https://papers.qnfo.org/rss.xml">RSS</a></li></ul></div>' +
+      '<div><h2>Research</h2><ul><li><a href="https://papers.qnfo.org/papers">Papers</a></li><li><a href="https://papers.qnfo.org/papers/joules-per-solution-metric">JPCUB P0 protocol</a></li><li><a href="https://ask.qwav.org/">Ask the corpus</a></li><li><a href="https://papers.qnfo.org/rss.xml">RSS</a></li></ul></div>' +
       '<div><h2>Legal</h2><ul><li><a href="https://legal.qnfo.org/">License (QNFO-ULA)</a></li><li><a href="https://qnfo.org/about">About the author</a></li><li><a href="https://qnfo.org/work-with-me">Work with me</a></li></ul></div></div>' +
-      '<div class="q-foot-base"><span>\u00a9 2025\u20132026 Rowan Brad Quni-Gudzinas</span><span>Research content under QNFO-ULA v2.1. No commercial product exists yet.</span></div></div></footer>';
+      '<div class="q-foot-base">' + (quiet ? "" : '<span>The QNFO family: <a href="https://qnfo.org/">QNFO</a> \u00b7 <a href="https://qwav.org/">QWAV</a> \u00b7 <a href="https://q08.org/">q08</a></span>') + '<span>\u00a9 2025\u20132026 Rowan Brad Quni-Gudzinas</span><span>Research content under QNFO-ULA v2.1. No commercial product exists yet.</span></div></div></footer>';
   }
   return '<footer class="q-foot"><div class="q-wrap"><div class="q-foot-grid"><div><a class="q-brand" href="https://qnfo.org/">' + QDS_MARK.qnfo + 'QNFO</a><p style="margin-top:12px;max-width:38ch">The independent research imprint of Rowan Brad Quni-Gudzinas. Corrections ship as new versions of the same paper.</p></div>' +
-    '<div><h2>Research</h2><ul><li><a href="https://papers.qnfo.org/papers">Papers</a></li><li><a href="https://qnfo.org/#selected-works">Selected works</a></li><li><a href="https://ask.qwav.tech/">Ask the corpus</a></li><li><a href="https://ideas.qnfo.org/">Ideas</a></li><li><a href="https://archive.qnfo.org/">Archive</a></li><li><a href="https://ipatent.qnfo.org/">Provisional drafting tool</a></li></ul></div>' +
+    '<div><h2>Research</h2><ul><li><a href="https://papers.qnfo.org/papers">Papers</a></li><li><a href="https://qnfo.org/#selected-works">Selected works</a></li><li><a href="https://ask.qwav.org/">Ask the corpus</a></li><li><a href="https://ideas.qnfo.org/">Ideas</a></li><li><a href="https://archive.qnfo.org/">Archive</a></li><li><a href="https://ipatent.qnfo.org/">Provisional drafting tool</a></li></ul></div>' +
     '<div><h2>Author</h2><ul><li><a href="https://qnfo.org/about">About</a></li><li><a href="https://qnfo.org/work-with-me">Work with me</a></li><li><a href="https://orcid.org/' + OWNER_ORCID + '">ORCID ' + OWNER_ORCID + '</a></li><li><a href="https://qnfo.org/work-with-me#contact">Contact</a></li></ul></div>' +
     '<div><h2>Follow</h2><ul><li><a href="https://qnfo.org/#subscribe">New papers by email</a></li><li><a href="https://papers.qnfo.org/rss.xml">RSS</a></li><li><a href="https://legal.qnfo.org/">License (QNFO-ULA)</a></li><li><a href="https://legal.qnfo.org/privacy">Privacy</a></li></ul></div></div>' +
-    '<div class="q-foot-base"><span>\u00a9 2025\u20132026 QNFO \u00b7 Rowan Brad Quni-Gudzinas</span><span>Papers and summaries on this site are written by AI; a paper counts as fleet-generated unless a named person reviewed it. The author is responsible for the content.</span></div></div></footer>';
+    '<div class="q-foot-base">' + (quiet ? "" : '<span>The QNFO family: <a href="https://qnfo.org/">QNFO</a> \u00b7 <a href="https://qwav.org/">QWAV</a> \u00b7 <a href="https://q08.org/">q08</a></span>') + '<span>\u00a9 2025\u20132026 QNFO \u00b7 Rowan Brad Quni-Gudzinas</span><span>Papers and summaries on this site are written by AI; a paper counts as fleet-generated unless a named person reviewed it. The author is responsible for the content.</span></div></div></footer>';
 }
 function qdsPage(o, body) {
-  return qdsHead(o) + "<body>" + qdsHeader(o.brand || "qnfo", o.active) + '<main id="main">' + body + "</main>" + qdsFooter(o.brand || "qnfo") + (o.scripts || "") + "</body></html>";
+  return qdsHead(o) + "<body>" + qdsHeader(o.brand || "qnfo", o.active, o.noFamily) + '<main id="main">' + body + "</main>" + (o.noExplore || o.noFamily ? "" : qdsExplore(o.brand || "qnfo")) + qdsFooter(o.brand || "qnfo", o.noFamily) + (o.scripts || "") + "</body></html>";
+}
+// CROSS-LINK-1: surfaces that load qds.js but are not rendered by qdsPage (q08.org, ideas, fleet) get the same family bar and
+// Keep exploring module from the script itself, so one change reaches every QDS consumer. A page that already carries
+// .q-family or .q-explore (every qdsPage render) is left alone.
+function qdsInjectJs() {
+  const html = {};
+  ["qnfo", "qwav", "q08"].forEach(function(b) { html[b] = { bar: qdsFamilyBar(b), explore: qdsExplore(b) }; });
+  return "\n(function () {\n  var H = " + JSON.stringify(html).replace(/</g, String.fromCharCode(92) + "u003c") + ";\n" +
+    "  function go() {\n    var b = document.documentElement.getAttribute('data-brand'); b = H[b] ? b : 'qnfo';\n" +
+    "    var add = function (h, where, ref) { var t = document.createElement('div'); t.innerHTML = h; var n = t.firstChild; ref ? ref.parentNode.insertBefore(n, ref) : document.body.appendChild(n); return n; };\n" +
+    "    if (document.querySelector('meta[name=q-family][content=off]')) return;\n    if (!document.querySelector('.q-family')) { var top = document.querySelector('.q-skip'); var hd = document.querySelector('.q-top'); var ref = hd || (top && top.nextSibling) || document.body.firstChild; if (ref) add(H[b].bar, 0, ref); }\n" +
+    "    if (!document.querySelector('.q-explore')) { var ft = document.querySelector('footer.q-foot'); add(H[b].explore, 0, ft); if (window.qdsKeepReading) window.qdsKeepReading(); }\n" +
+    "  }\n  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();\n})();\n";
 }
 function qdsAsset(kind) {
   const css = kind === "css";
-  return new Response(css ? QDS_CSS : QDS_JS, { headers: { "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800", "Access-Control-Allow-Origin": "*", "X-QDS-Version": QDS_VERSION } });
+  return new Response(css ? QDS_CSS : QDS_JS + qdsInjectJs(), { headers: { "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800", "Access-Control-Allow-Origin": "*", "X-QDS-Version": QDS_VERSION } });
 }
 // ---- QDS-1:END ----
 
@@ -2375,7 +2467,7 @@ function renderHubHTML(recentPapers, paperCount, nodesCount = 0) {
     }).join("") + "</ul></div></section>";
   }
   const explore = [
-    { t: "Ask the corpus", d: "Questions answered from the papers, with citations and the knowledge graph around each answer.", h: "https://ask.qwav.tech/" },
+    { t: "Ask the corpus", d: "Questions answered from the papers, with citations and the knowledge graph around each answer.", h: "https://ask.qwav.org/" },
     { t: "Work with me", d: "Energy-per-correct-answer assessments, reviews of AI agent operations, talks, collaboration and roles.", h: "/work-with-me" },
     { t: "Ideas", d: "Research conversations as they develop, with the questions that start them.", h: "https://ideas.qnfo.org/" },
     { t: "Archive", d: "The library by field, feeds and the tools for finding your way through it.", h: "https://archive.qnfo.org/" },
@@ -3237,7 +3329,7 @@ function renderAboutHTML(stats) {
   const fmt = function(n) { return Number(n || 0).toLocaleString("en-US"); };
   const body = '<section class="q-hero" style="padding-bottom:16px"><div class="q-wrap"><p class="q-eyebrow">About</p><h1 class="q-display" style="max-width:18ch">About QNFO</h1><p class="q-lede">QNFO is the independent research imprint of Rowan Brad Quni-Gudzinas: one researcher with an open, auditable, AI-assisted research pipeline. The work asks what computation really costs and delivers: energy per correct answer (Joules-per-Solution), what an AI-assisted claim is worth (ignorance audits), and what an autonomous research system actually delivers. The <a href="/#selected-works">selected works</a> are the place to start.</p></div></section>' +
     '<div class="q-wrap"><article class="q-article"><div class="q-prose">' +
-    '<h2>What QNFO is</h2><p>Open research in three lines, in this order: energy-honest computing (the Joules-per-Solution metric), the epistemics of AI-assisted science, and autonomous research operations. The corpus is browsable on <a href="https://papers.qnfo.org/papers">papers.qnfo.org</a>, and <a href="https://ask.qwav.tech/">Ask the corpus</a> answers questions from it with citations and the knowledge graph around each answer.</p><p class="q-meta">QNFO is not an acronym. The name is the name.</p>' +
+    '<h2>What QNFO is</h2><p>Open research in three lines, in this order: energy-honest computing (the Joules-per-Solution metric), the epistemics of AI-assisted science, and autonomous research operations. The corpus is browsable on <a href="https://papers.qnfo.org/papers">papers.qnfo.org</a>, and <a href="https://ask.qwav.org/">Ask the corpus</a> answers questions from it with citations and the knowledge graph around each answer.</p><p class="q-meta">QNFO is not an acronym. The name is the name.</p>' +
     '<h2>The thesis</h2><p>Computational advantage is measured in joules per solution, not qubit counts or press releases. The <a href="https://github.com/rwnq8/joules-per-compute-benchmark">joules-per-compute benchmark</a> formalizes the questions the industry prefers to defer: the Landauer floor for cryogenic controllers, the Margolus\u2013Levitin bound as a scheduling constraint, and the energy floor of surface-code error correction at a thousand logical qubits.</p>' +
     '<h2>The record</h2><div class="q-table-wrap"><table class="q-table"><tbody><tr><td>Papers in the corpus</td><td class="q-num">' + fmt(stats.papers) + ' (counted live)</td></tr><tr><td>Knowledge graph</td><td class="q-num">' + fmt(stats.nodes) + " nodes, " + fmt(stats.edges) + ' edges (counted live)</td></tr><tr><td>Readership on paper pages</td><td class="q-num">about 400 requests a day (2026-09-03)</td></tr></tbody></table></div><p class="q-meta">The first two rows are queried on every request. Roughly nine in ten requests to the zone are scanner noise; the readership figure excludes it.</p>' +
     '<h2>How QNFO runs</h2><p>A cloud-scheduled pipeline keeps the corpus alive: an arXiv radar each morning, a research brief, an hourly errata watch that turns corrections into new versions of the same record, a citation watch, and a weekly visibility digest. Outreach is capped and opt-out. If the laptop is off, the pipeline does not notice.</p>' +
@@ -3436,7 +3528,7 @@ function renderWorkWithMeHTML() {
   }).join("") + '</ol><p class="ww-basis">Quni-Gudzinas, R. B. Published by QNFO. Prepared with an AI-assisted research pipeline; the author is responsible for the content.</p></section>';
   const disclosure = '<p class="ww-basis">This page was prepared with an AI-assisted research pipeline; the author is responsible for the content.</p>';
   const body = hero + '<div class="q-wrap" style="padding-bottom:56px">' + offers + record + how + contact + works + disclosure + "</div>";
-  return qdsPage({ title: title, description: desc, canonical: WWM_URL, jsonld: workWithMeJsonLd(), extra: "<style>" + WWM_CSS + "</style>", active: "work" }, body);
+  return qdsPage({ title: title, description: desc, canonical: WWM_URL, jsonld: workWithMeJsonLd(), extra: "<style>" + WWM_CSS + "</style>", active: "work", noFamily: true }, body);
 }
 function handleWorkWithMe() {
   return new Response(renderWorkWithMeHTML(), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300" } });
@@ -5043,7 +5135,7 @@ async function handleArchive(env) {
     return '<a class="q-link-card" href="https://papers.qnfo.org/papers?category=' + f.k + '"><h3>' + f.t + ' <span class="q-badge q-badge-muted q-num">' + (counts[f.k] || 0) + "</span></h3><p>" + f.d + "</p></a>";
   }).join("") + '<a class="q-link-card" href="https://papers.qnfo.org/papers"><h3>Everything <span class="q-badge q-badge-muted q-num">' + rows.length + "</span></h3><p>The full library, newest first, with search.</p></a></div>";
   const tools = '<div class="q-grid q-grid-3">' + [
-    { t: "Ask the corpus", d: "Natural-language questions answered from the papers, with citations and the knowledge graph.", h: "https://ask.qwav.tech/" },
+    { t: "Ask the corpus", d: "Natural-language questions answered from the papers, with citations and the knowledge graph.", h: "https://ask.qwav.org/" },
     { t: "Ideas", d: "Research conversations as they develop.", h: "https://ideas.qnfo.org/" },
     { t: "RSS feed", d: "New papers as they are published.", h: "https://papers.qnfo.org/rss.xml" },
     { t: "Sitemap", d: "Every paper page, for crawlers and archivists.", h: "https://papers.qnfo.org/sitemap.xml" },
@@ -5098,7 +5190,7 @@ function renderQwavHTML(host) {
     }).join("") + "</tbody></table></div></div></section>" +
     '<section class="q-section" id="research" aria-labelledby="rs-h"><div class="q-wrap"><p class="q-eyebrow">Research</p><h2 class="q-h1" id="rs-h">Built on published research</h2><p class="q-lede" style="font-size:1.125rem">The work behind QWAV is by Rowan Brad Quni-Gudzinas and published by QNFO, an independent research imprint. Every paper is open and can be checked independently.</p><div class="q-grid q-grid-2">' + research.map(function(r) {
       return '<a class="q-link-card" href="https://papers.qnfo.org/papers/' + r.slug + '"><h3>' + r.t + "</h3><p>" + r.d + "</p></a>";
-    }).join("") + '</div><div class="q-actions" style="margin-top:28px"><a class="q-btn" href="https://papers.qnfo.org/papers">Browse all papers</a><a class="q-btn q-btn-ghost" href="https://ask.qwav.tech/">Ask the corpus</a></div></div></section>';
+    }).join("") + '</div><div class="q-actions" style="margin-top:28px"><a class="q-btn" href="https://papers.qnfo.org/papers">Browse all papers</a><a class="q-btn q-btn-ghost" href="https://ask.qwav.org/">Ask the corpus</a></div></div></section>';
   return new Response(qdsPage({ brand: "qwav", title: "QWAV \u2014 benchmarked in joules per solution | p-adic ultrametric computing", description: "QWAV is a pre-commercial computing platform concept exploring p-adic ultrametric architectures, benchmarked with JPCUB: energy per correct answer, not qubit counts.", canonical: canon, active: "" }, body), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
 }
 // NOT-FOUND-HTML-1 (2026-10-02, visitor audit): a mistyped paper link answered {"error":"Paper not found"} as raw JSON.
@@ -5124,7 +5216,7 @@ async function notFoundPage(request, env, host, path, slug) {
   const body = '<section class="q-hero"><div class="q-wrap" style="max-width:760px"><p class="q-eyebrow">Not found</p><h1 class="q-h1">' + (slug ? "There is no paper at this address" : "There is nothing at this address") + "</h1>" +
     '<p class="q-lede">The link may be mistyped, or the paper may have a new address after a revision. Every paper keeps its address across versions.</p>' +
     '<form class="q-field" action="https://papers.qnfo.org/papers" method="get" role="search" style="max-width:560px;margin-top:20px"><label class="q-sr" for="nf-q">Search the papers</label><input id="nf-q" name="search" type="search" value="' + escAttr(q) + '" placeholder="Search titles and abstracts"><button class="q-btn q-btn-accent" type="submit">Search</button></form>' +
-    list + '<p class="q-meta" style="margin-top:28px"><a href="https://papers.qnfo.org/papers">The library</a> \u00b7 <a href="https://ask.qwav.tech/" rel="nofollow">Ask the corpus</a> \u00b7 <a href="https://qnfo.org/">Home</a></p></div></section>';
+    list + '<p class="q-meta" style="margin-top:28px"><a href="https://papers.qnfo.org/papers">The library</a> \u00b7 <a href="https://ask.qwav.org/" rel="nofollow">Ask the corpus</a> \u00b7 <a href="https://qnfo.org/">Home</a></p></div></section>';
   return new Response(qdsPage({ title: "Not found \u00b7 QNFO", description: "No page at this address.", robots: "noindex", brand: "qnfo", active: slug ? "papers" : "" }, body), { status: 404, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 // LIVING-PAPERS-PAGE-1 (3.9.2, 2026-10-02, pillar reach; docs/outreach/living-papers-launch-2026-10.md): the launch

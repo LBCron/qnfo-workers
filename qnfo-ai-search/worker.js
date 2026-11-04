@@ -29,7 +29,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.12.17-codeagent";
+var VERSION = "2.13.0"; // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
 async function callModelWithRetry(url, payload, timeoutMs = 20000) {
@@ -2091,6 +2091,13 @@ button{font:inherit;color:inherit;cursor:pointer}
 .threads a{text-decoration:none}
 .threads small{display:block;font:400 12.5px var(--sans);color:var(--muted);margin-top:2px}
 
+.explore{border-top:1px solid var(--rule);padding:30px 0 6px}
+.explore h2{margin:0 0 14px}
+.exp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.exp-grid a{display:flex;flex-direction:column;gap:5px;padding:16px;border:1px solid var(--rule);border-radius:var(--r);background:var(--surface);text-decoration:none;transition:border-color .15s,transform .15s}
+.exp-grid a:hover{border-color:var(--teal);transform:translateY(-2px)}
+.exp-grid b{font:500 16.5px/1.3 var(--serif)}
+.exp-grid span{font-size:13.5px;color:var(--muted);line-height:1.45}
 footer.site{border-top:1px solid var(--rule);padding:22px 0 40px;font-size:13px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap}
 .subbox{border-top:1px solid var(--rule);padding:26px 0 8px}
 .subbox h2{margin:0 0 6px}
@@ -2141,12 +2148,12 @@ footer.site a{color:var(--muted)}
       <a href="https://papers.qnfo.org/papers">Papers</a>
       <a href="/" aria-current="page">Ask the corpus</a>
       <a href="https://ideas.qnfo.org/">Ideas</a>
-      <a href="https://archive.qnfo.org/">Archive</a>
+      <a href="https://archive.qnfo.org/">Archive</a><a href="https://qwav.org/">QWAV</a><a href="https://q08.org/">q08</a>
       <a href="https://qnfo.org/about">About</a>
       <a href="https://qnfo.org/work-with-me">Work with me</a>
     </nav>
     <details class="menu"><summary aria-label="Menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></summary><div class="menu-panel">
-      <a href="https://papers.qnfo.org/papers">Papers</a><a href="/" aria-current="page">Ask the corpus</a><a href="https://ideas.qnfo.org/">Ideas</a><a href="https://archive.qnfo.org/">Archive</a><a href="https://qnfo.org/about">About</a><a href="https://qnfo.org/work-with-me">Work with me</a>
+      <a href="https://papers.qnfo.org/papers">Papers</a><a href="/" aria-current="page">Ask the corpus</a><a href="https://ideas.qnfo.org/">Ideas</a><a href="https://archive.qnfo.org/">Archive</a><a href="https://qwav.org/">QWAV</a><a href="https://q08.org/">q08</a><a href="https://qnfo.org/about">About</a><a href="https://qnfo.org/work-with-me">Work with me</a>
     </div></details>
     <button class="theme" id="theme" type="button" aria-label="Switch colour theme">
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
@@ -2224,9 +2231,21 @@ footer.site a{color:var(--muted)}
 </div>
 
 <div class="wrap">
+  <section class="explore" aria-labelledby="exp-h">
+    <h2 id="exp-h">Keep exploring</h2>
+    <div class="exp-grid">
+      <a href="https://papers.qnfo.org/papers"><b>The paper library</b><span>Every paper is open and citable, with a Quick read on each page.</span></a>
+      <a href="https://qwav.org/"><b>QWAV: quantum computing in joules</b><span>The JPCUB benchmark, the p-adic architecture and the landscape.</span></a>
+      <a href="https://q08.org/"><b>q08: systems-level essays</b><span>What happened in technology stories, and the system behind it.</span></a>
+      <a href="https://ideas.qnfo.org/"><b>Idea threads</b><span>What is being asked, and what gets studied next.</span></a>
+    </div>
+  </section>
   <footer class="site">
     <span>Runs on the QNFO Cloudflare fleet: AI Search over the paper corpus, the qnfo-graph knowledge graph and Workers AI. Questions and ratings are stored without your address to measure and improve the answers.</span>
     <a href="https://papers.qnfo.org/papers">All papers</a>
+    <a href="https://qnfo.org/">QNFO</a>
+    <a href="https://qwav.org/">QWAV</a>
+    <a href="https://q08.org/">q08</a>
     <a href="https://qnfo.org/about">About QNFO</a>
     <a href="https://qnfo.org/work-with-me#contact">Contact</a>
     <a href="https://legal.qnfo.org/">License (QNFO-ULA v2.0)</a>
