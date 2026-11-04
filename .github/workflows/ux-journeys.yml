@@ -1,0 +1,126 @@
+name: ux-journeys
+
+# UX-JOURNEYS-1 (owner 2026-11-04: "Have you run UI UX and user testing on this ... How would a user actually use this? And is it
+# working? This needs to be baked into the fleet, not just for this app, but for anything."). docs/UX-JOURNEYS.md has the rule.
+#
+# Walks every user-facing app as a person does on a phone (headless Chromium, Pixel 7 size, touch), counting taps and typed fields
+# and measuring each screen (sideways scroll, tap targets under 24px, empty floating bars, axe-core serious/critical, console errors).
+# Deterministic: no model call, no key, no account. Three paths:
+#   pull_request   local journeys (the app's real code on a harness with fake data) on the head AND the base; the check fails only
+#                  when the PR makes a journey broken or harder that is fine on the base (scripts/ux-journeys/compare.mjs).
+#   workflow_run   after a canonical-deploy on main, at most once every 60 minutes (age of ci-status/ux-journeys-live.json): live
+#                  signed-out journeys on q08.org, qnfo.org and qwav.org plus the local journeys of main; each broken or harder
+#                  journey and each app's screen findings become a qnfo-audit agent_issues row, closed by the run that sees it pass.
+#   workflow_dispatch  the same as workflow_run, ungated.
+# GitHub `schedule` does not fire reliably on this repository (CLAUDE.md), so the deploy chain is the cadence, as for fleet-telemetry-probe.
+on:
+  pull_request:
+    paths:
+      - "scripts/ux-journeys/**"
+      - "scripts/ux-journeys.test.mjs"
+      - "personal-api/companion.js"
+      - ".github/workflows/ux-journeys.yml"
+  workflow_run:
+    workflows: ["canonical-deploy"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ux-journeys-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UX_MODULES: /tmp/uxm/node_modules
+  PLAYWRIGHT_VERSION: "1.63.0"
+  AXE_VERSION: "4.10.2"
+
+jobs:
+  journeys:
+    # RUNNER-PIN-2 (2026-10-20, WORKFLOW-FAILURE-AUDIT-1): ubuntu-latest becomes Ubuntu 26 by 2026-11-19 (a notice on every job meanwhile); pinned to ubuntu-24.04 until an ubuntu-26.04 trial run is green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 50
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: At most every 60 minutes when chained from a deploy
+        id: due
+        run: |
+          set -uo pipefail
+          if [ "${{ github.event_name }}" != "workflow_run" ]; then echo "run=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          last=$(git log -1 --format=%ct -- ci-status/ux-journeys-live.json 2>/dev/null || echo 0)
+          age=$(( $(date +%s) - ${last:-0} ))
+          if [ "$age" -ge 3600 ]; then echo "run=1" >> "$GITHUB_OUTPUT"; else echo "run=0" >> "$GITHUB_OUTPUT"; echo "last live run ${age}s ago; next after 60 min"; fi
+      - name: Install the headless phone (Playwright Chromium) and axe-core
+        if: steps.due.outputs.run == '1'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/uxm && cd /tmp/uxm && npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}" "axe-core@${AXE_VERSION}" >/dev/null
+          npx --prefix /tmp/uxm playwright install --with-deps chromium >/dev/null
+      - name: Selftests
+        if: steps.due.outputs.run == '1'
+        run: |
+          node scripts/ux-journeys.test.mjs
+          python3 scripts/ux-journeys/file_issues.py --selftest
+
+      # ---------------- pull request: head against base
+      - name: Local journeys on the PR head
+        if: github.event_name == 'pull_request'
+        run: node scripts/ux-journeys/run.mjs --mode local --out /tmp/head.json --shots /tmp/shots --no-fail
+      - name: Local journeys on the base branch (same journeys, base app code)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git fetch -q --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+          git worktree add -q --detach /tmp/base "${{ github.event.pull_request.base.sha }}"
+          rm -rf /tmp/base/scripts/ux-journeys && cp -r scripts/ux-journeys /tmp/base/scripts/
+          cd /tmp/base && node scripts/ux-journeys/run.mjs --mode local --out /tmp/base.json --no-fail
+      - name: Live journeys, report only (what a phone sees right now)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: node scripts/ux-journeys/run.mjs --mode live --out /tmp/live.json --shots /tmp/shots --no-fail
+      - name: Fail only if this PR makes a journey worse
+        if: github.event_name == 'pull_request'
+        run: node scripts/ux-journeys/compare.mjs /tmp/base.json /tmp/head.json
+
+      # ---------------- main: live + local, file and close issues
+      - name: Live journeys (signed out, read-only)
+        if: github.event_name != 'pull_request' && steps.due.outputs.run == '1'
+        run: node scripts/ux-journeys/run.mjs --mode live --out ci-status/ux-journeys-live.json --shots /tmp/shots --no-fail
+      - name: Local journeys on main
+        if: github.event_name != 'pull_request' && steps.due.outputs.run == '1'
+        run: node scripts/ux-journeys/run.mjs --mode local --out ci-status/ux-journeys-local.json --shots /tmp/shots --no-fail
+      - name: File and close agent_issues
+        if: github.event_name != 'pull_request' && steps.due.outputs.run == '1'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          rc=0
+          for f in ci-status/ux-journeys-live.json ci-status/ux-journeys-local.json; do [ -f "$f" ] && { python3 scripts/ux-journeys/file_issues.py "$f" || rc=1; }; done
+          exit $rc
+      - name: Screenshots
+        if: always() && steps.due.outputs.run == '1'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ux-journeys-shots
+          path: /tmp/shots
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Commit the ci-status reports back
+        if: always() && steps.due.outputs.run == '1' && github.event_name != 'pull_request'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          git config user.name "qnfo-selfheal-bot"
+          git config user.email "bot@qnfo.org"
+          git add ci-status/ux-journeys-live.json ci-status/ux-journeys-local.json 2>/dev/null || true
+          bash scripts/push_artifact.sh "ci(status): ux-journeys [skip ci]" ci-status/ux-journeys-live.json ci-status/ux-journeys-local.json || true

@@ -1,0 +1,95 @@
+{
+ "_doc": "UX-JOURNEYS-1: the most taps and typed fields each journey may take. Lower a number when a change makes a journey easier; raising one needs a reason in the PR. typing is 0 for every owner journey except the six-digit sign-in code.",
+ "companion": {
+  "sign-in": {
+   "taps": 2,
+   "typing": 1
+  },
+  "one-thing-now": {
+   "taps": 2,
+   "typing": 0
+  },
+  "mark-done": {
+   "taps": 2,
+   "typing": 0
+  },
+  "journal-one-tap": {
+   "taps": 3,
+   "typing": 0
+  },
+  "dictate-and-talk": {
+   "taps": 4,
+   "typing": 0
+  },
+  "checkin-from-notification": {
+   "taps": 1,
+   "typing": 0
+  },
+  "reading-pick": {
+   "taps": 0,
+   "typing": 0
+  },
+  "live-sign-in-screen": {
+   "taps": 0,
+   "typing": 0
+  },
+  "live-guide": {
+   "taps": 0,
+   "typing": 0
+  }
+ },
+ "public": {
+  "q08-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "reading-q08-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "mind-q08-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "travel-q08-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "qnfo-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "papers-qnfo-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "archive-qnfo-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "fleet-qnfo-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "ideas-qnfo-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "ipatent-qnfo-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "ai-qnfo-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "qwav-org": {
+   "taps": 1,
+   "typing": 0
+  },
+  "ask-qwav-tech": {
+   "taps": 1,
+   "typing": 0
+  }
+ }
+}

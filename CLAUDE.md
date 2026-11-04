@@ -203,6 +203,13 @@ because each one was broken at least once; the linked issue holds the evidence.
   never the address given to the owner, and the owner signs in with an e-mailed code, never a key. `docs/DOMAINS.md` has the table and
   the attach pattern; a surface on the wrong domain gets a `DOMAIN-PLANE-1:<host>` issue.
 
+## Phone journeys for every user-facing app (UX-JOURNEYS-1)
+- Owner 2026-11-04: "How would a user actually use this? And is it working? This needs to be baked into the fleet ... for anything." Every app a person opens on
+  q08.org, qnfo.org or qwav.org has phone journeys in `scripts/ux-journeys/apps/` (one per everyday task, buttons tapped by their visible names, taps and typed fields
+  against `budgets.json`), added in the PR that creates or changes the app; a new public host joins `HOSTS` in `apps/public.journeys.mjs`. `ux-journeys.yml` fails a PR
+  that makes a journey broken or harder, and after deploys files and closes `UX-JOURNEY-1` / `UX-SCREENS-1` issues. Unit tests passing is not "it works": a journey
+  passing on a phone is. `docs/UX-JOURNEYS.md` has the detail.
+
 ## Look up the blast radius first (FLEET-GRAPH-1)
 - The fleet code + live topology graph (docs/FLEET-GRAPH.md) answers in one call what depends on a worker, function, binding,
   D1 table, view or trigger, cron, route or queue: `GET https://qnfo-memory-mcp.q08.workers.dev/fleet-graph/impact?id=<node>`
