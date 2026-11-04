@@ -364,6 +364,18 @@ def activity_api(events, comments):
 at = calendar.timegm(time.strptime("2026-11-03T01:00:00Z", "%Y-%m-%dT%H:%M:%SZ"))
 check(cr.activity_hold(activity, activity_api(["copilot_work_started"], []), at) is not None,
       "a quiet but unfinished Copilot session is never repaired")
+check(cr.activity_hold(activity, activity_api(["copilot_work_started", "copilot_work_finished_failure"], []), at) is None,
+      "COPILOT-FAILSAFE-1: a failed Copilot session releases the pull request (PR 6703 waited 25 hours on one)")
+def stamped_api(stamp):
+    def api(path):
+        if "/timeline?" in path:
+            return [{"event": "copilot_work_started", "created_at": stamp}]
+        return [] if "/comments?" in path else {"commit": {"committer": {"date": "2026-11-03T00:00:00Z"}}}
+    return api
+check(cr.activity_hold(activity, stamped_api("2026-11-03T00:50:00Z"), at) is not None,
+      "COPILOT-FAILSAFE-1: a Copilot session started 10 minutes ago still holds the repair")
+check(cr.activity_hold(activity, stamped_api("2026-11-03T00:10:00Z"), at) is None,
+      "COPILOT-FAILSAFE-1: a Copilot session silent for 50 minutes no longer holds the repair")
 hold_comment = {"body": "HOLD: fix behavior", "created_at": "2026-11-03T00:01:00Z"}
 release_comment = {"body": "hold released", "created_at": "2026-11-03T00:02:00Z"}
 check(cr.activity_hold(activity, activity_api(["copilot_work_finished"], [hold_comment]), at) is not None,

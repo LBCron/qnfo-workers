@@ -67,6 +67,7 @@ DRAFTS = (os.environ.get("CONFLICT_REPAIR_DRAFTS") or "on").strip().lower() not 
 # conflict, and the wait is paid once per merge: 5 pull requests x 10 minutes of quiet = 50 minutes of a 120-minute SLA. A repair is
 # followed by a gate of 5 to 9 minutes and conflicts recur only after another merge to the same worker (one per runner tick, >= 10 minutes
 # apart), so 3 minutes cannot start a repair loop.
+COPILOT_WAIT_MIN = int(os.environ.get("COPILOT_WAIT_MIN") or "30")  # COPILOT-FAILSAFE-1: minutes a running Copilot session may hold a repair back
 BOT_BRANCH_PREFIX = "codeagent-"
 BOT_QUIET_MIN = 3
 ISSUE_PR = re.compile(r"STALE-PR-CONFLICT-REPAIR-1\b[^\d#]{0,40}#?(\d+)")
@@ -337,9 +338,19 @@ def activity_hold(pr, api=None, now=None):
                 break
         else:
             return "the Copilot timeline exceeds the repair limit"
-        states = [e.get("event") for e in events if str(e.get("event") or "").startswith("copilot_work_")]
-        if not states or states[-1] != "copilot_work_finished":
-            return "Copilot has not finished work on this pull request"
+        # COPILOT-FAILSAFE-1 (2026-11-04): PR 6703 sat dirty for 25 hours because its last Copilot event was copilot_work_finished_failure and this
+        # test accepted only copilot_work_finished, so a Copilot session that failed (or never ended) blocked the repair for ever. Copilot is optional:
+        # any terminal event (finished, finished_failure) releases the pull request, and so does a session still "started" for
+        # COPILOT_WAIT_MIN minutes. Switch: COPILOT_WAIT_MIN=0 repairs at once; a huge value restores the old wait.
+        marks = [e for e in events if str(e.get("event") or "").startswith("copilot_work_")]
+        last = marks[-1] if marks else None
+        if last and last.get("event") == "copilot_work_started":
+            try:
+                since = calendar.timegm(time.strptime(str(last.get("created_at") or ""), "%Y-%m-%dT%H:%M:%SZ"))
+            except ValueError:
+                since = time.time()
+            if (time.time() if now is None else now) - since < COPILOT_WAIT_MIN * 60:
+                return "Copilot started work on this pull request less than %d minutes ago" % COPILOT_WAIT_MIN
     comments = []
     for page in range(1, 101):
         rows = api("repos/%s/issues/%d/comments?per_page=100&page=%d" % (REPO, pr["number"], page))
