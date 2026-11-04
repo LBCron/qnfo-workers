@@ -27,7 +27,8 @@ function setup(table, ghImpl) {
       bind(...a) { q.args = a; return this; },
       async all() {
         const lim = q.args[0];
-        const r = table.filter((x) => x.category === "worker-observability" && x.gh_number && x.exec_state !== "folded" && /D1 DB is overloaded/i.test(x.payload))
+        const liveOnly = sql.includes("state IN ('tracked', 'queued')");
+        const r = table.filter((x) => x.category === "worker-observability" && x.gh_number && x.exec_state !== "folded" && /D1 DB is overloaded/i.test(x.payload) && (!liveOnly || x.state === "tracked" || x.state === "queued"))
           .sort((a, b) => a.exec_attempts - b.exec_attempts || (a.fingerprint < b.fingerprint ? -1 : 1)).slice(0, lim);
         return { results: r };
       },
@@ -114,6 +115,21 @@ test("every reopen / rewrite path skips folded rows", () => {
   assert.ok(fwd.includes("NOT IN ('closed', 'closed-by-sync', 'folded')"), "forward close queue");
   assert.ok(fwd.includes("exec_state = 'closed-by-sync' AND gh_number"), "forward relapse reopen needs closed-by-sync, which a folded row never carries");
   assert.ok(source.includes("await foldOverloadBacklog(env, legacy)"), "wired into the tick");
+});
+
+test("FOLD-BACKLOG-LIVE-FIRST-1: rows whose GitHub issue is already closed (state resolved) do not use the per-run budget", async () => {
+  const closed = Array.from({ length: 8 }, (_, i) => ({ ...mk("a" + i, String(100 + i)), state: "resolved", exec_state: "closed-by-sync" }));
+  const live = [mk("z1", "7021"), mk("z2", "7022")];
+  const table = [...closed, ...live];
+  const { ctx, env, ghCalls } = setup(table, () => ok());
+  await ctx.foldOverloadBacklog(env, { errors: [] });
+  const patched = ghCalls.filter((c) => c.method === "PATCH").map((c) => c.path.split("/").pop());
+  assert.deepEqual(patched.sort(), ["7021", "7022"], "only the live mirrors are closed");
+  assert.ok(closed.every((x) => x.exec_state === "closed-by-sync"), "already-closed rows untouched, no comment spam");
+});
+
+test("the fold select is restricted to live rows", () => {
+  assert.ok(source.includes("AND state IN ('tracked', 'queued') AND payload LIKE"), "state filter in the fold select");
 });
 
 test("version is at least 0.14.0", () => {
