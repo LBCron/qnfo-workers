@@ -144,10 +144,20 @@ jobs:
           note="wrangler deploy (deploy-code-orchestrator.yml run ${GITHUB_RUN_ID}, container worker): wrangler=$WR"
           body="$(jq -cn --arg actor "github-actions/deploy-code-orchestrator" --arg sha "$GITHUB_SHA" --arg src "qnfo-code-orchestrator/worker.js" --argjson ok "$ok" --arg note "$note" --arg ts "$ts" --arg sess "run-${GITHUB_RUN_ID}" \
             '{sql:"INSERT INTO fleet_deploys (worker, actor, from_sha, to_sha, source_path, ok, note, ts, session_id) VALUES (?,?,?,?,?,?,?,?,?)",params:["qnfo-code-orchestrator",$actor,null,$sha,$src,$ok,$note,$ts,$sess]}')"
-          code="$(curl -s -o /tmp/ledger.json -w '%{http_code}' --max-time 30 -X POST \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database/$dbid/query" --data "$body")"
-          echo "guard ledger write HTTP $code success=$(jq -r '.success' /tmp/ledger.json 2>/dev/null)"
+          # LEDGER-RETRY-1 (2026-11-04, #7151): D1 answers 429 (7429, overloaded) or a 5xx under load, and one refused write used to fail the whole job after the deploy had already
+          # succeeded, which skipped the health gate and the canary revert that follow. Retry up to four times with a growing pause; any other status stops at once.
+          code=""
+          for try in 1 2 3 4; do
+            code="$(curl -s -o /tmp/ledger.json -w '%{http_code}' --max-time 30 -X POST \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database/$dbid/query" --data "$body")"
+            echo "guard ledger write try ${try}: HTTP $code success=$(jq -r '.success' /tmp/ledger.json 2>/dev/null)"
+            case "$code" in
+              200) break ;;
+              429|500|502|503|504) [ "$try" -lt 4 ] && sleep $((try * 20)) ;;
+              *) break ;;
+            esac
+          done
           if [ "$code" != "200" ]; then echo "::error::guard ledger write failed"; exit 1; fi
 
       - name: Gate on live health VERSION (fail closed)
