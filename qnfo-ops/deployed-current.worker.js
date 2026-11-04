@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.62.15-codeagent";
+var VERSION = "2.62.16-codeagent";
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
 /* 2.62.0 RM-POLICY-SMT-GATE-1 (2026-11-01, pillar security; minor: records deterministic shadow decisions for outbound email, publish and delete tool calls without changing dispatch). */
@@ -7014,8 +7014,10 @@ async function opsUpstreamError(env, status, where, model, detail) {
     _dsErrKey = key;
     _dsErrAt = now;
     if (!env || !env.QNFO_AUDIT) return;
-    await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'ops_upstream_error', ?3, ?4, 'qnfo-ops', 'error')")
-      .bind(randId("evt-"), iso(), "upstream " + status + " at " + where + " (" + (model || "?") + ") -> free fallback", JSON.stringify({ status: status, where: where, model: model, detail: String(redactSecrets(String(detail || ""))).slice(0, 240), version: VERSION })).run();
+    const _kind = status === 429 ? "ops_upstream_throttle" : "ops_upstream_error";
+    const _status = status === 429 ? "info" : "error";
+    await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, 'qnfo-ops', ?6)")
+      .bind(randId("evt-"), iso(), _kind, "upstream " + status + " at " + where + " (" + (model || "?") + ") -> free fallback", JSON.stringify({ status: status, where: where, model: model, detail: String(redactSecrets(String(detail || ""))).slice(0, 240), version: VERSION }), _status).run();
   } catch (e) { console.error(JSON.stringify({ evt: "ops:opsUpstreamError:caught", error: String((e && e.message) || e) })); }
 }
 async function dsPaidBlocked(env, model) {
