@@ -4,6 +4,7 @@ Several agent sessions work this fleet concurrently with shared credentials. The
 because each one was broken at least once; the linked issue holds the evidence.
 
 ## Never stop, always improve (NEVER-STOP-1, owner directive 2026-11-04)
+- You are never done and always missing something. Before closing any turn ask: what am I not thinking about, what am I missing, what else can I do? Answer with work, not a question to the owner (owner directive 2026-11-04, every repo).
 - Owner directive 2026-11-04: "Let's keep making the system better. Managers that think in terms of strategy and features and functionality and making things better, I'm not going to keep telling you this." It binds every session and loop and sits with the proactive programs (ROADMAP-ORIGINATE-1).
 - Bug fixes are the floor. When the requested work is done, or a stop hook reprompts, the next move is the next improvement, started in the same turn: pick the highest-value change for readers, cost, speed or the command line, build it, deploy it, measure it. A status echo ("nothing changed, waiting") is a failure, never a deliverable.
 - Anticipate the owner's next question and answer it first. Do every chore a tool can do; hand the owner only what no tool can do (a sign-in code, their own accounts), once, in one line, and keep working on the rest.
