@@ -42,6 +42,10 @@ ok(reg("answer_engine_referrals_7d").v === null && reg("answer_engine_referrals_
 for (let n = 5; n <= 7; n++) { fetchRow(n, "gptbot", 100); fetchRow(n, "claudebot", 50); refRow(n, "cf-rum-human", "(direct)", 50); }
 fetchRow(0, "gptbot", 5000);                       // today is partial and outside the window
 fetchRow(2, "chatgpt-user", 12);
+// the same totals repeated under other entity types (the REACH-CANONICAL-1 inflation): the views must read one entity type per measure and ignore these
+sig.run(day(2), "seo-crawl", "agent", "bot-kind", "gptbot|paper", "fetches", 100000, "bot");
+sig.run(day(2), "cf-rum-human", "web", "host", "chatgpt.com", "visits", 50000, "human");
+sig.run(day(2), "cf-rum-human", "web", "page", "chatgpt.com", "pageloads", 50000, "human");
 refRow(2, "cf-rum-human", "chatgpt.com", 3); refRow(3, "cf-rum-human", "perplexity.ai", 2); refRow(3, "cf-rum", "claude.ai", 40);   // cf-rum (not human) is ignored
 refRow(4, "reach-ae", "claude.ai", 7); refRow(4, "cf-rum-human", "claude.ai.evil.example", 9); refRow(4, "cf-rum-human", "notchatgpt.com", 9);
 db.prepare("INSERT INTO fleet_tick (source) VALUES ('migration:test')").run();
