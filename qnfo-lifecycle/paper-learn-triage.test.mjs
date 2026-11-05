@@ -66,7 +66,7 @@ r = await P.triage(env);
 const goal2 = audit.prepare("SELECT * FROM goals WHERE goal_key = 'PAPER-LEARN-2'").get();
 ok(get(2).fleet_status === "probation" && calls.length === 2, "a match whose probe is not ok goes to the model path", { st: get(2).fleet_status, calls: calls.length });
 ok(r.apply === 1 && r.goals === 1 && /^PL-TRIAGE-1 probation: goal PAPER-LEARN-2/.test(get(2).status_note) && /no such check/.test(get(2).status_note), "an uncovered learning is transferred to a probationary goal with its reason", get(2));
-ok(goal2 && goal2.status === "adopted" && goal2.owner === "qnfo-code-orchestrator" && /fleet_status NOT IN \('applied', 'rejected'\)/.test(goal2.dod), "the goal has an owner and a machine-checkable completion condition", goal2);
+ok(goal2 && goal2.status === "adopted" && goal2.owner === "qnfo-code-orchestrator" && /fleet_status NOT IN \('applied', 'rejected', 'routed', 'already-in-place'\)/.test(goal2.dod), "the goal has an owner and a machine-checkable completion condition", goal2);
 ok(audit.prepare(goal2.dod).get().observed === "1", "the goal remains open while the learning is on probation");
 calls.length = 0;
 r = await P.triage(env);
@@ -137,6 +137,89 @@ script = () => ({ disposition: "apply", category: "gap", mechanism: "", reason: 
 r = await P.triage(env);
 ok(calls.length === 8 && r.apply === 4 && r.goals === 4 && r.kept >= 3, "four learnings reach the model per tick (two calls each) and unresolved gaps become goals", { calls: calls.length, r });
 ok(get(issueBound).fleet_status === "probation" && /^PL-TRIAGE-1 probation: goal PAPER-LEARN-/.test(get(issueBound).status_note || "") && get(audit.prepare("SELECT id FROM paper_learnings WHERE claim = 'Unmatched claim number 5'").get().id).status_note === null, "the issue-bound learning is examined before the unbound ones, and the budget stops after four", { bound: get(issueBound).status_note });
+
+// 6b. PAPER-LEARN-RETRIAGE-1: the covered answer, the four settled states in the goal DoD, and the probation re-triage
+audit.exec("UPDATE paper_learnings SET fleet_status = 'n/a' WHERE fleet_status IN ('proposed', 'probation')");
+audit.exec("INSERT INTO paper_learning_mechanisms (mech_key, title, terms, citation, evidence_probe) VALUES ('cov-mech', 'a mechanism the fleet really runs', '', 'COV-1 in qnfo-fleet-control', 'SELECT ''ok'' AS observed'), ('dead-mech', 'a mechanism whose probe fails', '', 'DEAD-1', 'SELECT ''absent'' AS observed'), ('term-mech', 'a mechanism matched by a term', 'zebra-stripes', 'TERM-1 in qnfo-ops', 'SELECT ''ok'' AS observed')");
+const covered = (mech) => () => ({ disposition: "covered", category: "covered", mechanism: mech, reason: "the fleet already runs this: it is exactly what the listed mechanism does today" });
+add({ claim: "Covered claim both families", lever: "x" });
+const idc1 = audit.prepare("SELECT MAX(id) AS id FROM paper_learnings").get().id;
+script = covered("cov-mech");
+r = await P.triage(env, { retriageModelMax: 0 });
+ok(get(idc1).fleet_status === "already-in-place" && /^PL-TRIAGE-1 in place \(two model families agree, .*\): cov-mech - COV-1 in qnfo-fleet-control \(evidence probe ok\)/.test(get(idc1).status_note), "two families answering covered with the same live mechanism settle it in place", get(idc1));
+add({ claim: "Covered by one family only", lever: "x" });
+const idc2 = audit.prepare("SELECT MAX(id) AS id FROM paper_learnings").get().id;
+script = (model) => /glm/.test(model) ? covered("cov-mech")() : { disposition: "apply", category: "gap", mechanism: "", reason: "nothing in the fleet covers this at the moment, so it should be built" };
+await P.triage(env, { retriageModelMax: 0 });
+ok(get(idc2).fleet_status === "probation", "covered by one family and apply by the other is not settled in place", get(idc2));
+add({ claim: "Covered with a dead probe", lever: "x" });
+const idc3 = audit.prepare("SELECT MAX(id) AS id FROM paper_learnings").get().id;
+script = covered("dead-mech");
+await P.triage(env, { retriageModelMax: 0 });
+ok(get(idc3).fleet_status === "proposed", "a covered answer whose mechanism probe is not ok settles nothing", get(idc3));
+add({ claim: "Covered with an invented mechanism", lever: "x" });
+const idc4 = audit.prepare("SELECT MAX(id) AS id FROM paper_learnings").get().id;
+script = covered("no-such-mech");
+await P.triage(env, { retriageModelMax: 0 });
+ok(get(idc4).fleet_status === "proposed", "a covered answer naming an unknown mechanism settles nothing", get(idc4));
+audit.exec("UPDATE paper_learnings SET fleet_status = 'n/a' WHERE id IN (" + idc3 + "," + idc4 + ")");
+ok(/covered\|reject\|apply/.test(calls[calls.length - 1].prompt) && /- cov-mech: a mechanism the fleet really runs/.test(calls[calls.length - 1].prompt), "the prompt offers the covered answer and lists the catalogue");
+
+// the goal DoD counts the four settled states
+const gdod = audit.prepare("SELECT dod FROM goals WHERE goal_key = 'PAPER-LEARN-" + idc2 + "'").get().dod;
+ok(audit.prepare(gdod).get().observed === "1", "the new goal is unsettled while the learning is on probation");
+for (const st of ["routed", "already-in-place", "rejected", "applied"]) { audit.prepare("UPDATE paper_learnings SET fleet_status = ? WHERE id = ?").run(st, idc2); ok(audit.prepare(gdod).get().observed === "0", "the goal DoD reads settled for " + st); }
+audit.prepare("UPDATE paper_learnings SET fleet_status = 'probation', status_note = 'PL-TRIAGE-1 probation: goal PAPER-LEARN-" + idc2 + " (x): initial signal' WHERE id = ?").run(idc2);
+
+// re-triage: a probation row older than the gap is read again by both families
+const OLD = "2026-01-01T00:00:00.000Z";
+const retriageRow = (claim, note) => { add({ claim, lever: "x", st: "probation" }); const id = audit.prepare("SELECT MAX(id) AS id FROM paper_learnings").get().id; audit.prepare("UPDATE paper_learnings SET status_note = ?, updated_at = ? WHERE id = ?").run(note || "PL-TRIAGE-1 probation: goal PAPER-LEARN-" + id + " (x): initial signal", OLD, id); return id; };
+audit.exec("UPDATE paper_learnings SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = " + idc2);
+const idr1 = retriageRow("Probation row both families now reject");
+calls.length = 0;
+script = () => ({ disposition: "reject", category: "paper-convention", mechanism: "", reason: "this is the paper's own authoring convention, not a fleet defect" });
+r = await P.triage(env);
+ok(get(idr1).fleet_status === "rejected" && /^PL-TRIAGE-1 rejected \(paper-convention; two model families agree/.test(get(idr1).status_note) && r.retriaged === 1 && r.rejected >= 1 && calls.length === 2, "a probation learning both families now reject is settled by the re-triage", { st: get(idr1), r, calls: calls.length });
+ok(get(idc2).fleet_status === "probation", "a probation row inside the gap is not read again");
+const idr2 = retriageRow("Probation row covered by a live mechanism");
+script = covered("cov-mech");
+await P.triage(env);
+ok(get(idr2).fleet_status === "already-in-place", "a probation learning both families now see as covered is settled in place", get(idr2));
+const idr3 = retriageRow("Probation row with a term zebra-stripes in it");
+calls.length = 0;
+r = await P.triage(env);
+ok(get(idr3).fleet_status === "already-in-place" && /term-mech - TERM-1 in qnfo-ops/.test(get(idr3).status_note) && calls.length === 0, "a lexical match with a live probe settles a probation row without a model call", { st: get(idr3), calls: calls.length });
+// apply again: counted, then lapsed on the third pass
+const idr4 = retriageRow("Probation row nobody takes");
+script = () => ({ disposition: "apply", category: "gap", mechanism: "", reason: "nothing in the fleet covers this and it should be added by someone" });
+await P.triage(env);
+ok(get(idr4).fleet_status === "probation" && / \| PL-RETRIAGE 1 \(/.test(get(idr4).status_note) && /^PL-TRIAGE-1 probation: goal/.test(get(idr4).status_note), "an apply again keeps probation and counts the pass", get(idr4));
+audit.prepare("UPDATE paper_learnings SET updated_at = ? WHERE id = ?").run(OLD, idr4);
+await P.triage(env);
+ok(/ \| PL-RETRIAGE 2 \(/.test(get(idr4).status_note) && !/PL-RETRIAGE 1/.test(get(idr4).status_note), "the second pass replaces the counter", get(idr4).status_note);
+audit.prepare("UPDATE paper_learnings SET updated_at = ? WHERE id = ?").run(OLD, idr4);
+r = await P.triage(env);
+ok(get(idr4).fleet_status === "rejected" && /^PL-TRIAGE-2 rejected \(lapsed; 3 triage passes by two model families/.test(get(idr4).status_note) && /Re-propose with a measured fleet gap\.$/.test(get(idr4).status_note) && r.lapsed === 1, "the third apply lapses the learning as rejected with the reason", { st: get(idr4), r });
+ok(get(idr4).status_note.length <= 700, "the lapse note is bounded");
+// no agreement: no pass counted, the row waits its gap again
+const idr5 = retriageRow("Probation row with an unreadable answer");
+script = () => "garbage";
+await P.triage(env);
+ok(get(idr5).fleet_status === "probation" && !/PL-RETRIAGE/.test(get(idr5).status_note) && get(idr5).updated_at > OLD, "an unreadable answer counts no pass and moves the row to the back", get(idr5));
+// budget and flag
+const idr6 = retriageRow("Probation row while the budget is zero");
+calls.length = 0;
+script = () => ({ disposition: "reject", category: "paper-convention", mechanism: "", reason: "this is the paper's own authoring convention, not a fleet defect" });
+await P.triage(env, { retriageModelMax: 0 });
+ok(get(idr6).fleet_status === "probation" && calls.length === 0, "retriageModelMax 0 holds the model path of the re-triage");
+audit.prepare("INSERT INTO ops_config (key, value) VALUES ('paper_learn_retriage', 'off')").run();
+r = await P.triage(env);
+ok(r.retriage_skipped === true && get(idr6).fleet_status === "probation" && calls.length === 0, "paper_learn_retriage = off stops the re-triage and not the triage", r);
+audit.exec("DELETE FROM ops_config WHERE key = 'paper_learn_retriage'");
+await P.triage(env);
+ok(get(idr6).fleet_status === "rejected", "and removing the flag restarts it");
+audit.exec("UPDATE paper_learnings SET fleet_status = 'n/a' WHERE fleet_status IN ('proposed', 'probation')");
+audit.exec("DELETE FROM paper_learning_mechanisms WHERE mech_key IN ('cov-mech', 'dead-mech', 'term-mech')");
 
 // 7. the flag
 audit.exec("UPDATE paper_learnings SET status_note = NULL WHERE fleet_status = 'proposed'");

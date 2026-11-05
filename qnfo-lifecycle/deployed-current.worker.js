@@ -1,4 +1,4 @@
-var VERSION = "1.17.9-codeagent";
+var VERSION = "1.18.0-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -3107,10 +3107,10 @@ function plMatchMechanisms(mechs, claim, lever) {
 }
 function plTriagePrompt(L, mechs) {
   return "You triage one learning that a research paper suggested for an autonomous fleet of Cloudflare Workers (loops, a D1 issue queue, remediation probes, a doctrine of rules, a trust ledger, model ensembles). " +
-    "Decide: reject (the learning is the paper's own authoring convention, or only an analogy, or conflicts with an existing fleet mechanism listed below) or apply (the fleet has a real gap this would close and no listed mechanism covers it).\n" +
+    "Decide: covered (a listed mechanism already does what the learning proposes: name its key), reject (the learning is the paper's own authoring convention, or only an analogy, or conflicts with an existing fleet mechanism listed below) or apply (the fleet has a real, measurable gap this would close and no listed mechanism covers it; name the file, table or metric a person would change).\n" +
     "Existing fleet mechanisms:\n" + mechs.map(function (m) { return "- " + m.mech_key + ": " + m.title; }).join("\n") + "\n\n" +
     "LEARNING: " + plStr(L.claim, 600) + "\nLEVER: " + plStr(L.fleet_lever, 200) + "\nAPPLICATION: " + plStr(L.application, 600) + "\nKIND: " + L.kind + " (" + L.verification + ")\n\n" +
-    "Answer with JSON only: {\"disposition\":\"reject|apply\",\"category\":\"paper-convention|analogy-only|conflicts|gap\",\"mechanism\":\"<a key above when category is conflicts, else empty>\",\"reason\":\"one or two specific sentences\"}";
+    "Answer with JSON only: {\"disposition\":\"covered|reject|apply\",\"category\":\"covered|paper-convention|analogy-only|conflicts|gap\",\"mechanism\":\"<a key above when category is covered or conflicts, else empty>\",\"reason\":\"one or two specific sentences\"}";
 }
 async function plTriageModel(env, L, mechs, now) {
   var prompt = plTriagePrompt(L, mechs), answers = [];
@@ -3119,6 +3119,13 @@ async function plTriageModel(env, L, mechs, now) {
     var r = await plRead(env, prompt, 1024, orders[i]);
     var j = r.json || {};
     answers.push({ model: r.model, d: String(j.disposition || "").toLowerCase(), cat: String(j.category || "").toLowerCase(), mech: plStr(j.mechanism, 60), reason: plStr(j.reason, 400) });
+  }
+  // PAPER-LEARN-RETRIAGE-1: both families say a listed mechanism already does this, name the same key, and its evidence probe reads ok now.
+  var bothCovered = answers.every(function (a) { return a.model && a.d === "covered" && a.reason.length >= 40 && a.mech && a.mech === answers[0].mech; });
+  if (bothCovered) {
+    var cm = mechs.filter(function (x) { return x.mech_key === answers[0].mech; })[0];
+    if (!cm || !(await plRunProbe(env, cm.evidence_probe))) return { settled: false, why: "a covered answer named a mechanism that is not in the catalogue or whose probe is not ok" };
+    return { settled: true, status: "already-in-place", note: PL_TRIAGE_MARK + " in place (two model families agree, " + now + "): " + cm.mech_key + " - " + cm.citation + " (evidence probe ok). " + answers[0].reason };
   }
   var bothReject = answers.every(function (a) { return a.model && a.d === "reject" && a.reason.length >= 40 && ["paper-convention", "analogy-only", "conflicts"].indexOf(a.cat) >= 0; });
   if (bothReject) {
@@ -3143,7 +3150,7 @@ async function plProbationGoal(env, L, proposal, now) {
   var source = "paper_learnings " + id + " (PAPER-LEARN-TRIAGE-1; " + plStr(L.slug, 120) + " " + plStr(L.version, 40) + ")";
   var statement = ("Probationary direct learning from " + plStr(L.slug, 120) + " v" + plStr(L.version, 40) + ": " + plStr(L.claim, 500)).slice(0, 700);
   var alignment = ("PAPER-LEARN-TRIAGE-1 probation: no verified fleet mechanism covers this direct learning. Apply signal from " + plStr(proposal.model, 80) + ": " + plStr(proposal.reason, 400)).slice(0, 700);
-  var dod = "SELECT '0' AS expected, CAST(COUNT(*) AS TEXT) AS observed FROM paper_learnings WHERE id = " + id + " AND fleet_status NOT IN ('applied', 'rejected')";
+  var dod = "SELECT '0' AS expected, CAST(COUNT(*) AS TEXT) AS observed FROM paper_learnings WHERE id = " + id + " AND fleet_status NOT IN ('applied', 'rejected', 'routed', 'already-in-place')"; // PAPER-LEARN-RETRIAGE-1: the four settled states
   await env.QNFO_AUDIT.prepare("INSERT OR IGNORE INTO goals (goal_key, statement, goal_type, parent_objective, alignment, source, priority, status, dod, owner) VALUES (?1, ?2, 'instrumental', 'mission', ?3, ?4, 1, 'adopted', ?5, 'qnfo-code-orchestrator')")
     .bind(goalKey, statement, alignment, source, dod).run();
   var goal = await env.QNFO_AUDIT.prepare("SELECT id, source FROM goals WHERE goal_key = ?1").bind(goalKey).first();
@@ -3188,10 +3195,61 @@ async function plTriageTick(env, opts) {
         }
       } else out.kept++;
     }
+    await plRetriage(env, o, mechs, now, out);
   } catch (e) {
     out.error = String(e && e.message || e).slice(0, 200);
   }
   return out;
+}
+// ---- PAPER-LEARN-RETRIAGE-1 (2026-11-05, pillar autonomy; cluster C8-PROJECTS-GOALS of the roadmap sweep) ----
+// A learning is parked in probation once, by one pass against the catalogue, and nothing settled it again: 225 goals PAPER-LEARN-<id> sat adopted and failing, with 229 created in
+// four days (37, 81, 69, 42 a day) and 4 completed. The catalogue now holds the fleet's real mechanisms, the model prompt has a third answer (covered), and each probation
+// learning is read again every PL_RETRIAGE_GAP_H hours by both families: covered or rejected by both settles it (the goal then completes on its probe), an "apply" again is counted
+// in the note, and after PL_RETRIAGE_PASSES passes with no taker the learning lapses as rejected with that reason, so a suggestion no one will take does not hold a roadmap row open
+// for ever (re-propose with a measured gap). ops_config paper_learn_retriage = off stops this step. Revert one row: UPDATE paper_learnings SET fleet_status = 'probation' WHERE id = <id>.
+var PL_RETRIAGE_EXAMINE = 6, PL_RETRIAGE_MODEL_MAX = 2, PL_RETRIAGE_GAP_H = 20, PL_RETRIAGE_PASSES = 3;
+async function plRetriage(env, o, mechs, now, out) {
+  out.retriaged = 0; out.lapsed = 0;
+  var rflag = await env.QNFO_AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'paper_learn_retriage'").first();
+  if (rflag && String(rflag.value || "").trim().toLowerCase() === "off") { out.retriage_skipped = true; return; }
+  var cut = new Date(Date.parse(now) - (o.retriageGapH == null ? PL_RETRIAGE_GAP_H : o.retriageGapH) * 3600e3).toISOString();
+  var prows = ((await env.QNFO_AUDIT.prepare("SELECT id, slug, version, kind, verification, claim, fleet_lever, application, status_note FROM paper_learnings WHERE fleet_status = 'probation' AND applicability = 'direct' AND updated_at < ?1 ORDER BY updated_at ASC LIMIT ?2").bind(cut, o.retriage || PL_RETRIAGE_EXAMINE).all()).results) || [];
+  var budget = o.retriageModelMax == null ? PL_RETRIAGE_MODEL_MAX : o.retriageModelMax;
+  for (var p = 0; p < prows.length; p++) {
+    var R = prows[p];
+    out.retriaged++;
+    var old = String(R.status_note || "");
+    var passes = Number((/ \| PL-RETRIAGE (\d+)/.exec(old) || [0, 0])[1]) || 0;
+    var base = old.replace(/ \| PL-RETRIAGE \d+.*$/, "").slice(0, 380);
+    var hits = plMatchMechanisms(mechs, R.claim, R.fleet_lever), hit = null;
+    for (var k = 0; k < hits.length && !hit; k++) if (await plRunProbe(env, hits[k].evidence_probe)) hit = hits[k];
+    if (hit) {
+      await env.QNFO_AUDIT.prepare("UPDATE paper_learnings SET fleet_status = 'already-in-place', status_note = ?2, updated_at = ?3 WHERE id = ?1 AND fleet_status = 'probation'")
+        .bind(R.id, (PL_TRIAGE_MARK + " in place (" + now + "): " + hit.mech_key + " - " + hit.citation + " (evidence probe ok)").slice(0, 600), now).run();
+      out.in_place++;
+      continue;
+    }
+    if (budget <= 0 || !env.AI) continue;
+    budget--;
+    var v = await plTriageModel(env, R, mechs, now);
+    if (v.settled) {
+      await env.QNFO_AUDIT.prepare("UPDATE paper_learnings SET fleet_status = ?2, status_note = ?3, updated_at = ?4 WHERE id = ?1 AND fleet_status = 'probation'").bind(R.id, v.status, v.note.slice(0, 700), now).run();
+      if (v.status === "rejected") out.rejected++; else out.in_place++;
+    } else if (v.apply) {
+      passes++;
+      if (passes >= PL_RETRIAGE_PASSES) {
+        var lapse = ("PL-TRIAGE-2 rejected (lapsed; " + passes + " triage passes by two model families over " + (PL_RETRIAGE_GAP_H * (passes - 1)) + " hours or more found no covering mechanism and no taker for the apply signal, " + now + "): last signal " + plStr(v.apply.model, 60) + ": " + plStr(v.apply.reason, 300) + " Re-propose with a measured fleet gap.").slice(0, 700);
+        await env.QNFO_AUDIT.prepare("UPDATE paper_learnings SET fleet_status = 'rejected', status_note = ?2, updated_at = ?3 WHERE id = ?1 AND fleet_status = 'probation'").bind(R.id, lapse, now).run();
+        out.lapsed++;
+      } else {
+        await env.QNFO_AUDIT.prepare("UPDATE paper_learnings SET status_note = ?2, updated_at = ?3 WHERE id = ?1 AND fleet_status = 'probation'")
+          .bind(R.id, (base + " | PL-RETRIAGE " + passes + " (" + now + "): apply again, " + plStr(v.apply.reason, 200)).slice(0, 700), now).run();
+      }
+    } else {
+      // No agreement or an unreadable answer: no pass is counted, the row waits its gap again so it does not starve the others.
+      await env.QNFO_AUDIT.prepare("UPDATE paper_learnings SET updated_at = ?2 WHERE id = ?1 AND fleet_status = 'probation'").bind(R.id, now).run();
+    }
+  }
 }
 function withPaperLearn(inner) {
   var out = Object.assign({}, inner, {
