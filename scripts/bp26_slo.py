@@ -99,18 +99,46 @@ def budget(good, n, objective):
     return good / float(n), spent, "spent" if spent >= 100 else ("warn" if spent >= WARN_PCT else "ok")
 
 
+def action_title(surface):
+    return "SLO-POSTMORTEM-ACTION-1 %s: find the root cause of repeated availability failures" % surface
+
+
 def action_recovery_probe(surface):
-    """Require the SLO to be healthy with enough clean samples for a full day."""
+    """SLO-ACTION-RECOVERY-2 (agent_issues 1000892, 1000808, 1000675 to 1000678): the closing probe of an SLO-POSTMORTEM-ACTION-1 issue.
+
+    The surface has recovered when it answered for a full day: at least 12 observed samples in 24 hours, none failed, and no availability incident of the surface still open.
+    It does NOT require slo_budget_state = 'ok' (the version of 2026-11-03, PR 6505). That state is a 28-day figure: it reads 'immature' until a surface holds 200 samples
+    (every surface held 167 on 2026-11-04) and then 'spent' for 28 days after a single failed sample, so a probe on it could not pass inside the issue's 120-minute SLA
+    however well the host behaved, and REMEDIATION-REOPEN-2 reopened the issue each time it closed (observed 'budget state is not ok' on 1000675 to 1000678 and 1000808).
+    The budget stays what it is for: the burn figure and the ops_config slo_budget_spent flag. Not-sampled rows (ok NULL, SLO-PROBE-BUDGET-1) are no observation and do not count."""
     surface_sql = "'" + str(surface).replace("'", "''") + "'"
     subject_sql = "'" + ("avail:" + str(surface)).replace("'", "''") + "'"
     window = "run_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours')"
     return (
         "SELECT 'ok' AS expected, CASE "
-        "WHEN COALESCE((SELECT state FROM slo_budget_state WHERE surface = %s), '') <> 'ok' THEN 'budget state is not ok' "
-        "WHEN (SELECT COUNT(*) FROM bp26_probe_results WHERE metric = 'slo_attainment_28d_min' AND subject = %s AND %s) < 12 THEN 'fewer than 12 samples in 24 h' "
+        "WHEN COALESCE((SELECT state FROM slo_budget_state WHERE surface = %s), 'no-data') = 'no-data' THEN 'no budget state for the surface' "
+        "WHEN (SELECT COUNT(*) FROM bp26_probe_results WHERE metric = 'slo_attainment_28d_min' AND subject = %s AND ok IS NOT NULL AND %s) < 12 THEN 'fewer than 12 observed samples in 24 h' "
         "WHEN (SELECT COUNT(*) FROM bp26_probe_results WHERE metric = 'slo_attainment_28d_min' AND subject = %s AND ok = 0 AND %s) > 0 THEN 'a sample failed in the last 24 h' "
+        "WHEN EXISTS (SELECT 1 FROM incidents WHERE surface = %s AND kind = 'availability' AND closed_at IS NULL) THEN 'an availability incident of the surface is still open' "
         "ELSE 'ok' END AS observed"
-    ) % (surface_sql, subject_sql, window, subject_sql, window)
+    ) % (surface_sql, subject_sql, window, subject_sql, window, surface_sql)
+
+
+def arm_action_contract(ctx, issue_id, surface):
+    """Put the current recovery probe on the issue's contract (class issue-<id>). True when the contract carries it afterwards."""
+    probe = action_recovery_probe(surface)
+    ctx.d1(
+        "UPDATE remediation_contracts SET verify_probe = ?1, verify_transport = 'd1-query', status = 'active', "
+        "module = 'slo-action-recovery-1', attempts = 0, last_verdict = NULL, next_due_at = datetime('now'), "
+        "expected_cadence_h = 1, max_attempts = 3, precondition = 'SLO recovery for 24 hours', "
+        "action = 'the action issue closes only after the surface answered for 24 hours: at least 12 observed samples, none failed, no availability incident open' "
+        "WHERE class = ?2 AND issue_id = ?3 AND (verify_probe IS NOT ?1 OR verify_transport IS NOT 'd1-query' "
+        "OR status IS NOT 'active' OR module IS NOT 'slo-action-recovery-1')",
+        [probe, "issue-" + str(issue_id), issue_id],
+    )
+    armed = ctx.d1("SELECT class FROM remediation_contracts WHERE class = ?1 AND issue_id = ?2 AND verify_transport = 'd1-query' AND verify_probe = ?3 AND status = 'active' AND module = 'slo-action-recovery-1'",
+                   ["issue-" + str(issue_id), issue_id, probe])
+    return bool(armed)
 
 
 def file_action(ctx, title, desc, surface):
@@ -128,22 +156,26 @@ def file_action(ctx, title, desc, surface):
         if not issue:
             return None
         issue_id = int(issue[0]["id"])
-        probe = action_recovery_probe(surface)
-        ctx.d1(
-            "UPDATE remediation_contracts SET verify_probe = ?1, verify_transport = 'd1-query', status = 'active', "
-            "module = 'slo-action-recovery-1', attempts = 0, last_verdict = NULL, next_due_at = datetime('now'), "
-            "expected_cadence_h = 1, max_attempts = 3, precondition = 'SLO recovery for 24 hours', "
-            "action = 'the action issue closes only after the SLO is ok with at least 12 passing samples and no failures in 24 hours' "
-            "WHERE class = ?2 AND issue_id = ?3 AND (verify_probe IS NOT ?1 OR verify_transport IS NOT 'd1-query' "
-            "OR status IS NOT 'active' OR module IS NOT 'slo-action-recovery-1')",
-            [probe, "issue-" + str(issue_id), issue_id],
-        )
-        armed = ctx.d1("SELECT class FROM remediation_contracts WHERE class = ?1 AND issue_id = ?2 AND verify_transport = 'd1-query' AND verify_probe = ?3 AND status = 'active' AND module = 'slo-action-recovery-1'",
-                       ["issue-" + str(issue_id), issue_id, probe])
-        return issue_id if armed else None
+        return issue_id if arm_action_contract(ctx, issue_id, surface) else None
     except Exception as e:  # noqa: BLE001
         print("bp26_slo: action issue not filed: %s" % str(e)[:160], file=sys.stderr)
         return None
+
+
+def rearm_open_actions(ctx, surfaces):
+    """SLO-ACTION-RECOVERY-2: an open action issue carries the CURRENT recovery probe, whenever the code's definition of recovery changes.
+    file_action arms a contract only while a postmortem is being written; an issue whose incident is already complete never reached it, so a probe fixed in code
+    stayed broken on the issues that were already open. One exact-title lookup per surface (the open-title index), never a scan. Returns the issue ids re-armed."""
+    armed = []
+    for surface in surfaces:
+        try:
+            issue = ctx.d1("SELECT id FROM agent_issues WHERE title = ?1 AND status IN ('open','in_progress','triaged') LIMIT 1", [action_title(surface)])
+            if issue and arm_action_contract(ctx, int(issue[0]["id"]), surface):
+                armed.append(int(issue[0]["id"]))
+        except Exception as e:  # noqa: BLE001
+            print("bp26_slo: contract of %s not re-armed: %s" % (surface, str(e)[:160]), file=sys.stderr)
+    return armed
+
 
 
 def collect_slo(ctx):
@@ -176,6 +208,10 @@ def collect_slo(ctx):
     if not ctx.dry:
         ctx.d1("INSERT INTO ops_config (key, value, note) VALUES ('slo_budget_spent', ?1, 'BP26-SLO-ERROR-BUDGETS-1: surfaces whose 28-day error budget is spent (scripts/bp26_slo.py, hourly)') "
                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')", [",".join(spent_surfaces)])
+        # SLO-ACTION-RECOVERY-2: every open action issue carries the current recovery probe (an issue whose incident is already complete never reaches file_action)
+        rearmed = rearm_open_actions(ctx, sorted(defs))
+        if rearmed:
+            rows.append(("slo-action-contracts", 1, "recovery probe re-armed on open action issue(s) %s" % ",".join(str(i) for i in rearmed)))
 
     # ---- incidents
     cutoff = iso(now - INCIDENT_DAYS * 86400)
@@ -227,9 +263,11 @@ def collect_slo(ctx):
         if kind == "deploy-regression":
             action, action_issue = "the canary issue %s owns the fix; this postmortem links it" % ref, ref
         elif n_bad >= 2 or burned:
-            title = "SLO-POSTMORTEM-ACTION-1 %s: find the root cause of repeated availability failures" % surface
+            title = action_title(surface)
             desc = ("Charter pillar: autonomy. Program QNFO.OPS (BP26-SLO-ERROR-BUDGETS-1). Incident %s: %s. Root-cause class from the evidence: %s (%s). Budget state: %s. "
-                    "Definition of done: the cause is named in the postmortem row (qnfo-audit.postmortems, incident_key above), the fix is merged and slo_budget_state for the surface returns to ok."
+                    "Definition of done: the cause is named in the postmortem row (qnfo-audit.postmortems, incident_key above), the fix is merged, and the surface answered for 24 hours "
+                    "(at least 12 observed samples, none failed, no availability incident open: the closing probe, SLO-ACTION-RECOVERY-2). slo_budget_state is the 28-day burn "
+                    "and is not a closing condition: it reads immature below 200 samples and spent for 28 days after a single failed sample."
                     % (key, summary, klass, why, "spent" if burned else "at risk"))
             action = "action issue filed: " + title
             action_issue = title if file_action(ctx, title, desc, surface) else None
@@ -340,15 +378,43 @@ CREATE TABLE bp26_probe_results (id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TE
     ok(res.value == 1.0, "coverage 1.0: %r %s" % (res.value, res.note))
     collect_slo(ctx)
     ok(d1("SELECT COUNT(*) n FROM postmortems")[0]["n"] == 3 and d1("SELECT COUNT(*) n FROM agent_issues WHERE title LIKE 'SLO-POSTMORTEM-ACTION-1%'")[0]["n"] == 1, "a second run adds nothing")
-    d1("UPDATE slo_budget_state SET state = 'ok' WHERE surface = 'a.example'")
+    # SLO-ACTION-RECOVERY-2: an open action issue whose incident is already complete gets the CURRENT recovery probe at the next run (file_action never sees it again)
+    aid = d1("SELECT id FROM agent_issues WHERE title = ?1", [action_title("a.example")])[0]["id"]
+    d1("UPDATE remediation_contracts SET verify_probe = 'SELECT ''ok'' AS expected, ''budget state is not ok'' AS observed', attempts = 7, last_verdict = 'fail' WHERE issue_id = ?1", [aid])
+    collect_slo(ctx)
+    row = d1("SELECT verify_probe, attempts, last_verdict, module FROM remediation_contracts WHERE issue_id = ?1", [aid])[0]
+    ok(row["verify_probe"] == action_recovery_probe("a.example") and row["attempts"] == 0 and row["last_verdict"] is None and row["module"] == "slo-action-recovery-1", "an open action issue with the old probe is re-armed: %r" % (row,))
+    d1("UPDATE remediation_contracts SET attempts = 2, last_verdict = 'fail' WHERE issue_id = ?1", [aid])
+    collect_slo(ctx)
+    ok(d1("SELECT attempts FROM remediation_contracts WHERE issue_id = ?1", [aid])[0]["attempts"] == 2, "a contract that already carries the current probe keeps its attempt count")
+    d1("UPDATE agent_issues SET status = 'closed' WHERE id = ?1", [aid])
+    d1("UPDATE remediation_contracts SET verify_probe = 'old' WHERE issue_id = ?1", [aid])
+    collect_slo(ctx)
+    ok(d1("SELECT verify_probe FROM remediation_contracts WHERE issue_id = ?1", [aid])[0]["verify_probe"] == "old", "a closed action issue is left alone")
+    d1("UPDATE agent_issues SET status = 'open' WHERE id = ?1", [aid])
+    collect_slo(ctx)
+    ok(d1("SELECT verify_probe FROM remediation_contracts WHERE issue_id = ?1", [aid])[0]["verify_probe"] == action_recovery_probe("a.example"), "and re-armed again once it is open")
+    # The closing probe measures the 24 h the surface answered, not the 28-day budget (SLO-ACTION-RECOVERY-2).
+    ok(st["a.example"]["state"] == "spent", "precondition: the 28-day budget of a.example is spent")
     recent = time.time()
     for i in range(12):
         d1("INSERT INTO bp26_probe_results (run_at, metric, subject, ok) VALUES (?1, 'slo_attainment_28d_min', 'avail:a.example', 1)",
            [iso(recent - i * 3600)])
     observed = d1(action_recovery_probe("a.example"))[0]["observed"]
-    ok(observed == "ok", "the recovery probe passes on 12 recent good samples and an ok budget")
+    ok(observed == "ok", "the recovery probe passes on 12 recent good samples although the 28-day budget is still spent: %r" % (observed,))
+    d1("UPDATE slo_budget_state SET state = 'immature' WHERE surface = 'a.example'")
+    ok(d1(action_recovery_probe("a.example"))[0]["observed"] == "ok", "and while the budget state is immature (fewer than 200 samples), which the 2026-11-03 probe could never get past")
+    d1("UPDATE bp26_probe_results SET ok = NULL, detail = 'not sampled' WHERE id IN (SELECT id FROM bp26_probe_results WHERE subject = 'avail:a.example' AND run_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours') LIMIT 2)")
+    ok(d1(action_recovery_probe("a.example"))[0]["observed"] == "fewer than 12 observed samples in 24 h", "not-sampled rows are no observation and do not count toward the 12")
+    d1("UPDATE bp26_probe_results SET ok = 1 WHERE subject = 'avail:a.example' AND ok IS NULL")
+    d1("INSERT INTO incidents (incident_key, kind, surface, opened_at, closed_at, summary, source_ref) VALUES ('avail:a.example:open-test', 'availability', 'a.example', ?1, NULL, 't', 'x')", [iso(recent)])
+    ok(d1(action_recovery_probe("a.example"))[0]["observed"] == "an availability incident of the surface is still open", "an open availability incident blocks closure")
+    d1("DELETE FROM incidents WHERE incident_key = 'avail:a.example:open-test'")
+    d1("DELETE FROM slo_budget_state WHERE surface = 'a.example'")
+    ok(d1(action_recovery_probe("a.example"))[0]["observed"] == "no budget state for the surface", "a surface the collector does not measure cannot close its action issue")
     d1("INSERT INTO bp26_probe_results (run_at, metric, subject, ok) VALUES (?1, 'slo_attainment_28d_min', 'avail:a.example', 0)",
        [iso(recent)])
+    d1("INSERT INTO slo_budget_state (surface, evaluated_at, window_days, samples, bad, objective, attainment, budget_spent_pct, state) VALUES ('a.example', 't', 28, 250, 5, 0.995, 0.98, 400, 'spent')")
     observed = d1(action_recovery_probe("a.example"))[0]["observed"]
     ok(observed == "a sample failed in the last 24 h", "a fresh SLO failure blocks issue closure even when the host may answer 200")
     d1("DELETE FROM bp26_probe_results WHERE subject = 'avail:a.example' AND run_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours')")
