@@ -33,7 +33,8 @@ export const UNMETERED_BASELINE = {
   "qnfo-fleet-dashboard": { expires: "2026-11-12", why: "ask-panel and cmd calls (2 sites): file claimed by another session on 2026-11-05, fix filed as AI-METER-COVER-3b (code-task on qnfo-fleet-dashboard/worker.js)" },
 };
 
-const BINDING_RUN = /\bAI\.run\(/;
+// env.AI.run( and a binding named like WAI (qnfo-ops calls env.WAI.run)
+const BINDING_RUN = /\b\w*AI\.run\(/;
 const PROVIDER_HOSTS = /api\.deepseek\.com|api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|api\.groq\.com|openrouter\.ai|api\.mistral\.ai|api\.together\.xyz/g;
 const GATEWAY_HOST = /gateway\.ai\.cloudflare\.com/;
 const ATTR_WRAP = /__aiAttrEnv\(/;

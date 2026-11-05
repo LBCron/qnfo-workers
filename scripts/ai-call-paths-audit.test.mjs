@@ -26,6 +26,7 @@ worker("w-bare", "const r = await env.AI.run('m', {});");
 worker("w-direct", "await fetch('https://api.deepseek.com/v1/chat/completions');");
 worker("w-router", "await env.QNFO_AI.fetch('https://qnfo-ai/v1/chat/completions');", "[[services]]\nbinding = \"QNFO_AI\"\nservice = \"qnfo-ai\"\n");
 worker("w-gateway-only", "await fetch('https://gateway.ai.cloudflare.com/v1/a/b/workers-ai');");
+worker("w-wai", "const r = await env.WAI.run('m', {});");
 worker("w-none", "export default { fetch() { return new Response('hi'); } };");
 worker("w-retired", "await env.AI.run('m', {});", "", "RETIRED");
 worker("w-folded", "await env.AI.run('m', {});", "", "FOLDED");
@@ -37,6 +38,7 @@ ok(!by["w-none"] && !by["w-retired"] && !by["w-folded"], "a worker with no model
 ok(by["w-metered"] && by["w-metered"].metered && by["w-metered"].meters.includes("ai_call_counters:wrapper"), "__aiAttrEnv counts as metered", by["w-metered"]);
 ok(by["w-own"] && by["w-own"].metered && by["w-own"].meters.includes("ai_call_counters:own"), "an own ai_call_counters write counts as metered", by["w-own"]);
 ok(by["w-bare"] && !by["w-bare"].metered && by["w-bare"].paths.join() === "binding", "a bare env.AI.run is an unmetered binding caller", by["w-bare"]);
+ok(by["w-wai"] && by["w-wai"].paths.join() === "binding" && !by["w-wai"].metered, "a binding named WAI is a binding caller too (qnfo-ops)", by["w-wai"]);
 ok(by["w-direct"] && by["w-direct"].paths.join() === "direct" && by["w-direct"].direct.join() === "api.deepseek.com", "a provider host is a direct path", by["w-direct"]);
 ok(by["w-router"] && by["w-router"].paths.join() === "router", "a service binding to qnfo-ai is a router path", by["w-router"]);
 ok(by["w-gateway-only"] && by["w-gateway-only"].paths.join() === "gateway", "gateway.ai.cloudflare.com is a gateway path", by["w-gateway-only"]);
@@ -44,16 +46,16 @@ ok(by["w-ledger"] && by["w-ledger"].metered && by["w-ledger"].meters.includes("a
 
 const f = findings(rows, { baseline: {}, directAllow: {} });
 const kinds = f.map((x) => x.dir + ":" + x.kind).sort();
-ok(JSON.stringify(kinds) === JSON.stringify(["w-bare:binding-unmetered", "w-direct:direct-provider"]), "findings: the bare binding caller and the unlisted provider host, nothing else", kinds);
+ok(JSON.stringify(kinds) === JSON.stringify(["w-bare:binding-unmetered", "w-direct:direct-provider", "w-wai:binding-unmetered"]), "findings: the two unmetered binding callers and the unlisted provider host, nothing else", kinds);
 const live = { expires: "2999-01-01", why: "AI-METER-COVER-3x" };
-ok(findings(rows, { baseline: { "w-bare": live }, directAllow: { "w-direct": "y" } }).length === 0, "a baseline line and a DIRECT_ALLOW line each clear their finding");
-const exp = findings(rows, { baseline: { "w-bare": { expires: "2026-11-01", why: "old" } }, directAllow: { "w-direct": "y" }, today: "2026-11-05" }).map((x) => x.dir + ":" + x.kind);
+ok(findings(rows, { baseline: { "w-bare": live, "w-wai": live }, directAllow: { "w-direct": "y" } }).length === 0, "a baseline line and a DIRECT_ALLOW line each clear their finding");
+const exp = findings(rows, { baseline: { "w-bare": { expires: "2026-11-01", why: "old" }, "w-wai": live }, directAllow: { "w-direct": "y" }, today: "2026-11-05" }).map((x) => x.dir + ":" + x.kind);
 ok(JSON.stringify(exp) === JSON.stringify(["w-bare:baseline-expired"]), "a baseline line past its date is a finding whether or not the worker was fixed", exp);
-const bad2 = findings(rows, { baseline: { "w-bare": { why: "no date" } }, directAllow: { "w-direct": "y" } }).map((x) => x.dir + ":" + x.kind);
+const bad2 = findings(rows, { baseline: { "w-bare": { why: "no date" }, "w-wai": live }, directAllow: { "w-direct": "y" } }).map((x) => x.dir + ":" + x.kind);
 ok(JSON.stringify(bad2) === JSON.stringify(["w-bare:baseline-malformed"]), "a baseline line without an expiry date is malformed", bad2);
-const stale = staleBaseline(rows, { baseline: { "w-bare": live, "w-metered": live, "w-gone": live } }).map((x) => x.dir).sort();
+const stale = staleBaseline(rows, { baseline: { "w-bare": live, "w-wai": live, "w-metered": live, "w-gone": live } }).map((x) => x.dir).sort();
 ok(JSON.stringify(stale) === JSON.stringify(["w-gone", "w-metered"]), "a baseline line for a metered or vanished worker is a note, not a failure", stale);
-ok(findings(rows, { baseline: { "w-bare": live, "w-metered": live, "w-gone": live }, directAllow: { "w-direct": "y" } }).length === 0, "so the single-file change that wraps a worker never turns main red");
+ok(findings(rows, { baseline: { "w-bare": live, "w-wai": live, "w-metered": live, "w-gone": live }, directAllow: { "w-direct": "y" } }).length === 0, "so the single-file change that wraps a worker never turns main red");
 rmSync(root, { recursive: true, force: true });
 
 // ---- this repository
