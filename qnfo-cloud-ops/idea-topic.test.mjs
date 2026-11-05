@@ -176,6 +176,21 @@ ok(pooled.clusters[0].terms.includes("model") && pooled.clusters[0].terms.includ
 const hubSrc5 = readFileSync(new URL("../idea-hub/worker.js", import.meta.url), "utf8");
 ok(src.includes("lower(COALESCE(name, '')) NOT LIKE '%owner%'") && hubSrc5.includes("lower(COALESCE(name, '')) NOT LIKE '%owner%'"), "both workers derive over the non-owner producers (the shared block's TOPIC_GENERATED_SQL)");
 
+// 9d. TOPIC-TEMPLATE-FAMILY-1 (2026-11-05): the radar intake names one producer per feed (intake:<feed>) and every feed appends the same trailer to its text. Each feed alone has
+// fewer than 10 texts, so the producer-boilerplate rule never fired and the trailer (source, http, fits) became a topic that held every intake text, whatever its field (2026-11-04:
+// 15 intake texts from seven fields, 11 of the 29 generated accepts). A producer is the name up to its first ":" now.
+const feedRows = [];
+const feedTopics = ["Glacier moraine dating", "Lattice braid exchange", "Sparrow flight energetics"];
+for (let i = 0; i < 12; i++) feedRows.push({ name: "intake:feed-" + (i % 6), idea: feedTopics[i % 3] + " study " + i + ". Source: http link fits" });
+const fam = mod.__derive(feedRows);
+ok(["source", "http", "fits", "link"].every((w) => fam.template_terms.includes(w)), "the trailer shared by the intake:<feed> producers is dropped as one producer's boilerplate", fam.template_terms);
+ok(fam.clusters.length === 3 && !fam.clusters.some((c) => c.terms.includes("source") || c.terms.includes("http") || c.terms.includes("fits")), "the three fields stay three clusters; the trailer is no cluster", fam.clusters);
+const famShare = mod.__conc(feedRows.map((r) => ({ idea: r.idea })), fam.clusters);
+ok(famShare.share === 0.333 && famShare.by_cluster.other === undefined, "the share is the true 4 of 12, not the whole intake in one trailer cluster", famShare);
+const lowFeeds = mod.__derive(feedRows.slice(0, 9));
+ok(lowFeeds.template_terms.length === 0, "fewer than 10 texts in the family: no boilerplate is inferred", lowFeeds.template_terms);
+ok(mod.__derive([{ name: "auto-feed", idea: "x" }]).docs === 1 && mod.__derive([{ idea: "Harvested feed glacier" }]).docs === 1, "names without a colon (or no name) are their own producer, as before");
+
 // 10. Wiring: the metric keeps its own daily schedule slot.
 ok(typeof mod.__jobs["idea-topic-metric"] === "function", "job is in the dispatch map");
 ok(mod.__sched["idea-topic-metric"] && mod.__sched["idea-topic-metric"].days === "*" && mod.__sched["idea-topic-metric"].times.join() === "06:25", "runs in its own daily slot");

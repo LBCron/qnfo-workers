@@ -60,5 +60,27 @@ const pre = world();
 const preSnap = JSON.stringify([pre.prepare("SELECT formula, last_value FROM metric_registry").all(), pre.prepare("SELECT notes FROM analytics_metric_triggers").all()]);
 w.exec(rollback);
 ok(JSON.stringify([w.prepare("SELECT formula, last_value FROM metric_registry").all(), w.prepare("SELECT notes FROM analytics_metric_triggers").all()]) === preSnap, "the Rollback restores the formula and the trigger note text for text");
+// The follow-up file (TOPIC-TEMPLATE-FAMILY-1): same rules, applied on top of the first.
+{
+  const sql2 = readFileSync(join(here, "2026-11-05-idea-topic-template-family.sql"), "utf8");
+  const body2 = sql2.split("\n").filter((l) => !l.startsWith("--")).join("\n");
+  const lines2 = sql2.split("\n");
+  const h2 = (k) => (lines2.find((l) => new RegExp("^-- " + k + ": ").test(l)) || "").replace(new RegExp("^-- " + k + ": "), "");
+  ok(h2("APPLY-BY") === "ci" && h2("DB") === "qnfo-audit" && h2("Rollback").length > 200 && lines2.filter((l) => /^-- Rollback: /.test(l)).length === 1, "follow-up: opts in, one single-line Rollback");
+  ok(!/\b(DELETE\s+FROM|DROP)\b/i.test(body2) && !/SET\s+last_value|SET\s+last_refreshed/i.test(body2) && !/INSERT\s+(OR\s+\w+\s+)?INTO\s+metric_registry/i.test(body2), "follow-up: deletes nothing, writes no value, registers no metric");
+  ok(/function topicProducer\(/.test(hub) && /function topicProducer\(/.test(ops) && /src: topicProducer\(r && r\.name\)/.test(hub) && /src: topicProducer\(r && r\.name\)/.test(ops), "follow-up: both workers take the producer for the boilerplate rule from the name up to its first colon");
+  const w2 = world();
+  w2.exec(body);
+  const afterFirst = JSON.stringify(w2.prepare("SELECT formula FROM metric_registry WHERE metric = 'idea_topic_concentration_30d'").get());
+  w2.exec(body2);
+  const f2 = w2.prepare("SELECT formula, last_value FROM metric_registry WHERE metric = 'idea_topic_concentration_30d'").get();
+  ok(f2.formula.includes("TOPIC-DERIVE-GENERATED-1") && f2.formula.includes("TOPIC-TEMPLATE-FAMILY-1") && f2.last_value === "0.724", "follow-up: the formula carries both notes and the value is untouched");
+  const snap2 = JSON.stringify(w2.prepare("SELECT * FROM metric_registry").all()) + w2.prepare("SELECT COUNT(*) n FROM decision_log").get().n;
+  w2.exec(body2);
+  ok(snap2 === JSON.stringify(w2.prepare("SELECT * FROM metric_registry").all()) + w2.prepare("SELECT COUNT(*) n FROM decision_log").get().n, "follow-up: a second apply changes nothing");
+  ok(w2.prepare("SELECT COUNT(*) n FROM decision_log").get().n === 2, "follow-up: two decision_log rows in all");
+  w2.exec(h2("Rollback"));
+  ok(JSON.stringify(w2.prepare("SELECT formula FROM metric_registry WHERE metric = 'idea_topic_concentration_30d'").get()) === afterFirst, "follow-up: the Rollback restores the formula to the state after the first file");
+}
 console.log(`idea-topic-generated-only (migration): ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
