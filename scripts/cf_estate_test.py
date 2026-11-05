@@ -271,6 +271,30 @@ ok(any(c[1].endswith("/r2/buckets?per_page=1000") for c in calls) and not any("/
 m.api = lambda *a, **k: (500, {"errors": [{"message": "boom"}]})
 errs = []
 ok(m.api_list("/accounts/a/workers/scripts", "t", "scripts", errs) == [] and errs and "HTTP 500" in errs[0], "api_list reports a failed page and stops", errs)
+# the Pages list endpoint answers HTTP 400 (code 8000024) to a per_page above 10: the first live run of pages-inventory and dns-drift failed on it
+pages_calls = []
+
+
+def fake_pages_api(method, path, token, body=None, timeout=60):
+    pages_calls.append(path)
+    if "/pages/projects" in path:
+        pp = int(path.split("per_page=")[1].split("&")[0])
+        page = int(path.split("page=")[-1])
+        if pp > 10:
+            return 400, {"success": False, "errors": [{"code": 8000024, "message": "Invalid list options provided."}]}
+        allp = [{"name": "p%d" % i, "domains": ["p%d.pages.dev" % i], "latest_deployment": {"created_on": "2026-11-01T00:00:00Z"}} for i in range(13)]
+        return 200, {"success": True, "result": allp[(page - 1) * pp:page * pp], "result_info": {"total_pages": 2}}
+    if path.startswith("/zones?"):
+        return 200, {"success": True, "result": [], "result_info": {"total_pages": 1}}
+    return 404, {}
+
+
+m.api = fake_pages_api
+pd = m.fetch_pages("acct", "tok", str(ROOT))
+ok(len(pd["projects"]) == 13 and pd["errors"] == [], "fetch_pages reads every project with a per_page the endpoint accepts, over two pages", (len(pd["projects"]), pd["errors"]))
+ok(all(int(c.split("per_page=")[1].split("&")[0]) <= 10 for c in pages_calls if "/pages/projects" in c), "no Pages request asks for more than 10 per page", pages_calls)
+dd = m.fetch_dns("acct", "tok", str(ROOT))
+ok(len(dd["pages"]) == 13, "fetch_dns reads the Pages projects the same way", len(dd["pages"]))
 m.api, m.graphql = real_api, real_gql
 
 with tempfile.TemporaryDirectory() as tmp:

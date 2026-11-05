@@ -51,6 +51,7 @@ AUDIT_DB = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"  # qnfo-audit (public database
 MARKERS = ("RETIRED", "FOLDED")
 WORKER_CAP = 30  # metric_registry worker_count trigger (gt 30)
 PAGES_IDLE_DAYS = 30
+PAGES_PER_PAGE = 10  # the Pages list endpoint rejects a larger per_page with HTTP 400 code 8000024 (read live 2026-11-05)
 R2_IDLE_OPS_30D = 100
 SCAN_ROWS_PER_CALL = 100000
 # Buckets that are public on purpose, with the reason; any other bucket with r2.dev or a custom domain enabled is a finding.
@@ -420,7 +421,7 @@ def scan_pages_refs(root: str, names: list) -> dict:
 
 def fetch_pages(acct: str, token: str, root: str) -> dict:
     errors: list = []
-    res = api_list("/accounts/%s/pages/projects" % acct, token, "pages/projects", errors)
+    res = api_list("/accounts/%s/pages/projects" % acct, token, "pages/projects", errors, per_page=PAGES_PER_PAGE)
     projects = [{"name": p.get("name"), "domains": p.get("domains") or [], "created_on": p.get("created_on"),
                  "latest_deploy": (p.get("latest_deployment") or {}).get("created_on"), "source": bool(p.get("source"))} for p in res]
     zones = fetch_zones(token, errors, dns=False)
@@ -567,7 +568,7 @@ def fetch_dns(acct: str, token: str, root: str) -> dict:
     zones = fetch_zones(token, errors, dns=True)
     custom = [{"hostname": c.get("hostname"), "service": c.get("service")} for c in api_result("/accounts/%s/workers/domains" % acct, token, "workers/domains", errors) or []]
     scripts = [s.get("id") for s in api_list("/accounts/%s/workers/scripts" % acct, token, "workers/scripts", errors) if s.get("id")]
-    res = api_list("/accounts/%s/pages/projects" % acct, token, "pages/projects", errors)
+    res = api_list("/accounts/%s/pages/projects" % acct, token, "pages/projects", errors, per_page=PAGES_PER_PAGE)
     pages = [{"name": p.get("name"), "domains": p.get("domains") or []} for p in res]
     delegation = {z: doh_nameservers(z) for z in zones}
     return {"zones": zones, "custom_domains": custom, "scripts": scripts, "pages": pages, "delegation": delegation, "errors": errors}
