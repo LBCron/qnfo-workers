@@ -1,0 +1,17 @@
+-- W2C-SCOUT-ROWS-2 (2026-11-05, agent W2-C; charter pillars cost and research): live evidence read after the deploys of PR 7655 (qnfo-infra 1.13.0) and PR 7705 (cost_ledger meter fallback), appended to
+-- roadmap row 1694 (set built by PR 7640) and to the doer issue ATOMIC-CLAIMS-LIVE-1. Both UPDATEs are guarded by the text they add, so a replay changes nothing.
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: UPDATE roadmap_implementation SET evidence = (SELECT b.evidence FROM bak_20261105_w2c_rows3 b WHERE b.id = roadmap_implementation.id) WHERE id IN (SELECT id FROM bak_20261105_w2c_rows3); UPDATE agent_issues SET description = substr(description, 1, instr(description, char(10) || 'DELTA-NOTE (W2-C, 2026-11-05) real paper') - 1) WHERE instr(description, char(10) || 'DELTA-NOTE (W2-C, 2026-11-05) real paper') > 0
+-- BACKUP: bak_20261105_w2c_rows3
+
+CREATE TABLE IF NOT EXISTS bak_20261105_w2c_rows3 AS SELECT * FROM roadmap_implementation WHERE id = 1694;
+
+UPDATE roadmap_implementation
+SET evidence = evidence || ' | W2-C 2026-11-05 (PR 7655, 7705): the billing report answers 403 to every token in reach, so the snapshot of PR 7640 could only read pre-billing, then unavailable from 2026-12-01. qnfo-infra 1.13.0 reads the five meters Cloudflare bills on (GraphQL aiSearchSemanticQueriesAdaptiveGroups, aiSearchFulltextQueriesAdaptiveGroups, aiSearchStorageAdaptiveGroups, aiSearchIngestionTokensAdaptiveGroups, aiSearchImageProcessingTokensAdaptiveGroups) hourly into cost_usage_daily and prices them from cost_price_book (5 rows) into cost_vendor_month product ai_search, evidence meter; scripts/cost_ledger.py copies the month reading into the snapshot when the report is refused, so the state reads measured from 2026-12-01. Live reading, the first tick after the deploy (qnfo-infra 2026-11-05T04:30:54Z, 0 errors, 109 points): cost_vendor_month 2026-11 product ai_search, evidence meter, semantic_queries 141 to date (883 projected against 1,000 included, net USD 0), storage_gb 0.077 (10 included, net 0), ingestion_tokens 657,938 to date (5.87 M projected against 5 M included, net forecast USD 0.656); /api/cost all_in_lines shows cloudflare / ai_search / meter, forecast_month_usd 0.66. No full-text query and no image token in the window, so those two metrics write no row. Detector fm-ai-search-meter-silent (no ai_search storage row in 2 days, from 2026-11-08).'
+WHERE id = 1694 AND item = 'RM-AISEARCH-GA-MIGRATE-1' AND evidence NOT LIKE '%W2-C 2026-11-05 (PR 7655, 7705)%';
+
+UPDATE agent_issues
+SET description = description || char(10) || 'DELTA-NOTE (W2-C, 2026-11-05) real paper: extractAtomicClaims from qnfo-research-exec/worker.js (0.53.0) was run offline on an excerpt of a published paper body (living-paper papers, slug error-confinement-theorem-for-ultrametric-decoders-and-its-implications-for-quan, bullets, inline maths, numbered steps, a reference list): 14 sentences, headings and the reference list excluded, citations [8], [10], [11], [2] mapped to ref:8, ref:10, ref:11, ref:2 (state unverified), uncited sentences unsupported. The extractor is sound on real prose; what is unproven is the live write path (publishStageV2 after the queue row is marked published), which needs the next published paper.',
+    updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+WHERE title LIKE 'ATOMIC-CLAIMS-LIVE-1:%' AND status = 'open' AND description NOT LIKE '%DELTA-NOTE (W2-C, 2026-11-05) real paper%';
