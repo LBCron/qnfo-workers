@@ -1,4 +1,4 @@
-var VERSION = "1.19.1-codeagent";
+var VERSION = "1.19.2-evolve-c128";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1176,7 +1176,7 @@ async function runMetricFreshness(env) {
     var t = Date.parse(raw.indexOf("T") >= 0 ? raw : raw.replace(" ", "T") + "Z");
     if (isNaN(t)) { out.unparsed_cadence++; continue; }
     var ageMin = (nowMs - t) / 60000;
-    if (ageMin > cad * 2) {
+    if (ageMin > cad) {
       out.stale++;
       offenders.push(r.metric + " (" + Math.round(ageMin) + "m stale vs " + cad + "m cadence)");
       if (ageMin > worstAge) { worstAge = ageMin; worstMetric = r.metric; }
