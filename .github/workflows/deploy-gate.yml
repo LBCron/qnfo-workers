@@ -1047,6 +1047,10 @@ jobs:
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         if: ${{ !cancelled() }}
         run: python3 scripts/cf_ops_spare_domain_test.py
+      - name: EDGE-RULES-1 offline suite (cf_ops_actions edge-rules, secrets-inventory, obs-sampling)
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() }}
+        run: python3 scripts/cf_ops_edge_rules_test.py
       # MIGRATION-RUNNER-1 (T5.3): a migration that opts in with "-- APPLY-BY: ci" is applied by apply-migrations.yml when
       # it merges; here every added or changed migration must pass the same header checks (DB, Rollback, BACKUP for a
       # DELETE or DROP, complete statements) without touching D1.

@@ -44,12 +44,15 @@ on:
           - gen-activitypub-key
           - d1-restore-drill
           - kill-switch-drill
+          - edge-rules
+          - secrets-inventory
+          - obs-sampling
       target:
-        description: "worker name (worker-history, delete-worker), KV namespace id (kv-secret-scan), index name (delete-vectorize-index) ops-workspace path (r2-get) or zone (zaraz-remove-tool) or database name (d1-backup, delete-d1) or WORKER:BINDING (unbind-d1, unbind-service)"
+        description: "worker name (worker-history, delete-worker, obs-sampling), KV namespace id (kv-secret-scan), index name (delete-vectorize-index) ops-workspace path (r2-get) or zone (zaraz-remove-tool, edge-rules: comma list, empty means every zone) or database name (d1-backup, delete-d1) or WORKER:BINDING (unbind-d1, unbind-service)"
         required: false
         default: ""
       model:
-        description: "model filter (gateway-logs), tool match (zaraz-remove-tool), or dry|live for zaraz-set-ga4 and spare-domain-canon"
+        description: "model filter (gateway-logs), tool match (zaraz-remove-tool), or dry|live for zaraz-set-ga4 and spare-domain-canon, or dry|live|revert for edge-rules"
         required: false
         default: ""
       gateway:
