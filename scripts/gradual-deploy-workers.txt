@@ -2,6 +2,9 @@
 # One worker per line. Add a worker after a clean staged proof (gradual-deploy.yml); control-plane workers (qnfo-ops, qnfo-fleet-control, qnfo-deploy-guard) only after two clean proofs.
 # GRADUAL_DEPLOY=off in the workflow environment turns the whole path off without a deploy.
 # qnfo-model-eval was the proof worker until WORKER-COUNT-1.3 folded it into qnfo-ai-calibration (2026-11-05): a FOLDED directory is never deployed, so its line could not be exercised.
-# The proof moved to the host. The 1.8.0 deploy was verified live on 2026-11-05 (GET /health answered version 1.8.0, cron */30, D1 and AI bindings), so qnfo-ai-calibration is listed below (BP26-GRADUAL-PROOF-1):
-# the next push that changes only its code is the first staged rollout since the retry fix; a wrangler.toml change still takes the /ops/deploy path. Widen this list only after that run is clean.
-qnfo-ai-calibration
+# The proof moved to the host (PR 7622, 2026-11-05) and was paused the same morning (BP26-GRADUAL-PROOF-2): the first three staged pushes of qnfo-ai-calibration 1.8.1 (runs 41961867647,
+# 41962129843, 41962342074, 03:28-03:34Z) rolled back with "preview smoke test failed (HTTP 200, version 1.8.1 not seen)" and left main undeployed. Cloudflare applies a
+# Cloudflare-Workers-Version-Overrides header only to a version that is in the current deployment (docs: workers/versions-and-deployments/version-overrides), and scripts/gradual_deploy.py
+# uploads the Version without ever deploying it at 0 percent, so the override is not applied; a longer window does not help (the 2026-10-28 proofs re-deployed identical code, where the old
+# version already shows the expected VERSION, so the smoke test never tested the override). Re-list qnfo-ai-calibration here in the pull request that
+# makes the script deploy the new Version at 0 percent before the smoke test and has a selftest for it.
