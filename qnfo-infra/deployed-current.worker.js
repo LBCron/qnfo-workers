@@ -80,7 +80,7 @@ function infraManifestRoute(url, env) {
 }
 __name(infraManifestRoute, "infraManifestRoute");
 __name2(infraManifestRoute, "infraManifestRoute");
-var VERSION = "1.13.0-cost-ledger";
+var VERSION = "1.14.0-lake-spine";
 /* 1.11.1 COST-LEDGER-ALLVENDOR-1c: each cost ledger tick records its outcome (points, errors, note) as cost_usage_daily rows of vendor cost_ledger. */ /* 1.11.0 COST-LEDGER-ALLVENDOR-1 (pillar cost): hourly all-product Cloudflare cost ledger, usage meters priced into cost_usage_daily and cost_vendor_month. */ /* 1.10.3 QNFO.OPS #1 (issue 1000696): route deterministic infra embeddings through the existing AI Gateway with a one-day per-request cache; non-critical calls use their existing cheaper ladder rung, while critical retrieval preserves its model. */ /* 1.10.2 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work collection omits identifiers on the retired prefix; generic paper collection remains unchanged. */ /* 1.9.2 HANDOFFS-VZ-CATCHUP-1 (2026-10-26, pillar autonomy, agent_issues 1000176; patch): the producer indexed 100 handoffs an hour, and 707 handoffs older than 90 minutes were still unindexed on 2026-10-26 (the issue asks for the backlog within 24 hours and a new handoff within 60 minutes), so a fire takes 300 rows while more than one normal batch waits, and the normal 100 when the previous run left a FAILED note, so a batch that cannot finish inside the 120 second timeout cannot repeat itself for ever. prior 1.9.1-codeagent */ /* 1.9.0-handoffs-index HANDOFFS-VZ-PRODUCER-1 (2026-10-26, pillar autonomy, agent_issues 1000176): the handoffs vector index had no working producer. PR 4230 added one inside the 06:30 indexer member that selected handoffs.content, a column the table does not have (summary, pending_work, next_action are the text), so it threw into a catch and logged every night while semantic handoff search stayed frozen at 2026-07. The block is removed; indexHandoffs() runs on every hourly fire, reads the real columns, embeds in chunks of 1000 characters with the model the readers query with, upserts ids handoff:<id>:<chunk> with metadata {doc, id, session_id, ts, summary}, and moves the ops_config watermark handoffs_vz_last_id only after the upsert succeeded (100 handoffs per run, so the 1,706-row backfill is done in about 18 hours and a new handoff is indexed within the hour). A handoff of the personal plane (project, WBS or session label: personal, q08, twin, msgraph, owner-, email-strategic-) is skipped and the watermark moves past it, because scope=research retrieval reads this index (51 of 1,706 rows on 2026-10-26); a failure or a call stalled for 120 s is written to the watermark row's note and the state refresh still runs. */ /* 1.8.5-codeagent */ /* 1.8.3-analytics-untruncated MCP-ANALYTICS-TRUNCATION-1 (2026-10-25, pillar honest-measure): /analytics read aiInferenceAdaptiveGroups with limit 100 over {date, modelId}; the real group set is 437, so Workers AI usage under-reported 7.7x (3,438,429 neurons / $37.8 vs 26,345,487 / $286.5). Total now from a dimension-free aggregate, breakdown from {modelId}, with shown/groups/truncated and the 10k/day free-tier deduction so it matches cost_daily. */ /* 1.8.2-mcp-state-full-lists MCP-STATE-TRUNCATION-1 (2026-10-25, pillar honest-measure): /state returned count=35 with only 30 worker names and count=11 with only 10 D1 rows, so a caller could not tell that five workers and qnfo-audit were omitted -- a silent false census. The list caps are now 60 workers / 25 D1 and both carry shown + truncated, so an omission is visible instead of inferred. */ /* 1.8.1-null-doi-cursor CITATION-PAGINATION-NULL-CURSOR-1 (2026-10-25, pillar reach): stable DOI pagination now traverses legacy rows with NULL created_at using slug-only cursors; the offline test covers 217 records, including the null-timestamp boundary across five pages. */ /* 1.8.0-all-doi-impact CITATION-TRACKING-ALL-DOIS-1 (2026-10-25, pillar reach): the daily impact run queried only the newest 50 (at most 100) DOIs; stable keyset pagination now collects the entire third-party DOI set without changing the cron grid. qnfo-infra/impact.test.mjs covers 217 records across five pages. */ /* 1.7.0-no-registrar NO-REGISTRAR-1 (2026-10-21): the registrar is not named; dead DOIs are recognised by the 10.5281 prefix only */ // 1.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly :30 trigger. The 06:30 run (indexer member + state refresh) and the 18:00 refresh keep their slots on it and are retried hourly, at most 3 times, while their last good run is over 24.5 h old; every other hour runs the state refresh (it ran twice a day). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.5.1 WORKERS-BP-LOGGING-qnfo-infra-1 (2026-10-14, agent_issues 2534, child of 2342, pillar autonomy): the 3 swallowed catches in handleWebhook log as a structured console.error (worker, where, error); control flow unchanged. // 1.5.0 CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, pillar autonomy): scheduled() upserts its fleet_heartbeat row after the run, ok=0 when the work threw. // 1.4.0 SOURCE-VOICE-1 (agent_issues 2468, owner directive 2026-10-13 "Papers shall cite full texts, not merely reference work summaries"; pillar research): a PAPER_VZ hit in /context carries the passage of the paper's body that matched (the indexer's own chunk, from metadata.chunk), after the abstract when one is stored; it was title + status + abstract.slice(0, 220), so a paper with no abstract (269 of 575 published on 2026-10-13) reached qnfo-ai's retrieved context as its title alone. renderContext gives a paper hit up to 1300 characters (300 before). isDeadPrefixDoi was defined only inside the folded indexer member, so the /context enrichment and metaLine threw a ReferenceError on every paper hit and returned "slug <x> (enrich error)"; it is now defined at module scope too. // 1.3.4 WORKERS-STANDARDS-1 (2026-10-12, pillar security): the indexer member compares X-Index-Token in constant time (same accepted value). // 1.3.1 INDEXER-FOLD-1 (#1756): qnfo-paper-indexer runs here as a member (its two jobs on this worker's existing 06:30 trigger, no cron added; /indexer/* read routes).
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -1541,6 +1541,212 @@ async function collectReachAe(env) {
   return { rows: rows.length, loads: Math.round(loads) };
 }
 // ---- REACH-AE-1:END
+// ---- LAKE-SPINE-1:BEGIN (pillar reliability and cost; roadmap row 3258 RM-BS-DATA-SPINE-1, docs/D1-SPLIT-DESIGN-2026-11.md section 8; scripts/lake_spine.py is the second path): slice 1 of the data spine.
+// Append-only telemetry leaves D1 for an Iceberg lake: every hour the rows of fleet_probe_log that are new since the cursor (D1 table lake_spine_state) are sent to the Pipelines stream
+// telemetry_fleet_probe_log_stream, which lands them as Parquet in the R2 Data Catalog table telemetry.fleet_probe_log of bucket qnfo-audit. D1 stays authoritative and its writer is untouched in
+// this slice. A daily drift check compares the rows of each completed UTC day in D1 with the distinct ids the lake holds (Basin SQL); more than 0.1 percent missing for 24 hours pauses the copy
+// (ops_config lake_spine = paused) and files LAKE-SPINE-DRIFT-1. ops_config lake_spine: off (default when absent), shadow (copy on), paused (set by the drift kill). Every failure is recorded in
+// lake_spine_state.last_error and never fails the fire. Delivery is at least once: a crash between the stream's accept and the cursor write re-sends one batch, so the lake is read with count(DISTINCT id).
+var LAKE_BATCH = 500;
+var LAKE_TICK_ROWS = 20000;
+var LAKE_ROUTE_MAX_ROWS = 50000;
+var LAKE_START_DAYS_BACK = 1;
+var LAKE_DRIFT_MAX_PCT = 0.1;
+var LAKE_DRIFT_KILL_MS = 24 * 3600 * 1000;
+var LAKE_RECHECK_MS = 6 * 3600 * 1000;
+var LAKE_DRIFT_DAYS_PER_TICK = 2;
+var LAKE_UA = "qnfo-infra-lake/1.13 (+https://qnfo.org)";
+var LAKE_BUCKET = "qnfo-audit";
+var LAKE_TABLES = {
+  fleet_probe_log: {
+    endpoint: "https://c9f627df786c451e8cf3cf47d01185e8.ingest.cloudflare.com",
+    lake: "telemetry.fleet_probe_log",
+    fields: ["id", "ts", "source", "name", "url", "transport", "ok", "status", "ms", "body"]
+  }
+};
+async function lakeMode(env) {
+  const r = await env.AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'lake_spine'").first();
+  const v = r && String(r.value || "").toLowerCase();
+  return v === "shadow" || v === "paused" ? v : "off";
+}
+async function lakeState(env, tbl) {
+  return await env.AUDIT.prepare("SELECT tbl, cursor_id, start_id, start_day, rows_sent, batches, last_run_at, last_error, updated_at FROM lake_spine_state WHERE tbl = ?1").bind(tbl).first();
+}
+// The cursor starts at the first row of the previous UTC day, so the first drift check has one complete day to compare.
+async function lakeSeed(env, tbl) {
+  const day = new Date(Date.now() - LAKE_START_DAYS_BACK * 86400000).toISOString().slice(0, 10);
+  const first = await env.AUDIT.prepare("SELECT MIN(id) AS id FROM " + tbl + " WHERE ts >= ?1").bind(day + "T00:00:00").first();
+  let start = first && first.id != null ? Number(first.id) : null;
+  if (start == null) {
+    const mx = await env.AUDIT.prepare("SELECT MAX(id) AS id FROM " + tbl).first();
+    start = (mx && mx.id != null ? Number(mx.id) : 0) + 1;
+  }
+  await env.AUDIT.prepare("INSERT OR IGNORE INTO lake_spine_state (tbl, cursor_id, start_id, start_day, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)").bind(tbl, start - 1, start, day, new Date().toISOString()).run();
+  return await lakeState(env, tbl);
+}
+async function lakeToken(env) {
+  const token = await infraSecret(env, "CF_TOKEN_STORE", "CF_TOKEN");
+  if (!token) throw new Error("CF_TOKEN is not set");
+  return token;
+}
+async function lakeSend(env, cfg, rows) {
+  const token = await lakeToken(env);
+  const r = await fetch(cfg.endpoint, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", "User-Agent": LAKE_UA }, body: JSON.stringify(rows) });
+  const txt = await r.text();
+  if (!r.ok) throw new Error("stream " + r.status + ": " + txt.slice(0, 200));
+  let j = null;
+  try { j = JSON.parse(txt); } catch (e) { j = null; }
+  const got = j && j.result && j.result.committed;
+  if (got != null && Number(got) !== rows.length) throw new Error("stream committed " + got + " of " + rows.length);
+  return rows.length;
+}
+async function lakeTail(env, tbl, opts) {
+  const cfg = LAKE_TABLES[tbl];
+  if (!cfg) return { ok: false, error: "unknown table " + tbl };
+  const maxRows = Math.min(Math.max(1, Number(opts && opts.limit) || LAKE_TICK_ROWS), LAKE_ROUTE_MAX_ROWS);
+  let st = await lakeState(env, tbl);
+  if (!st) st = await lakeSeed(env, tbl);
+  let cursor = Number(st.cursor_id), sent = 0, batches = 0, firstTs = null;
+  const cols = cfg.fields.join(", ");
+  try {
+    while (sent < maxRows) {
+      const take = Math.min(LAKE_BATCH, maxRows - sent);
+      const rows = ((await env.AUDIT.prepare("SELECT " + cols + " FROM " + tbl + " WHERE id > ?1 ORDER BY id LIMIT ?2").bind(cursor, take).all()).results) || [];
+      if (!rows.length) break;
+      const at = new Date().toISOString();
+      for (const r of rows) r.exported_at = at;
+      await lakeSend(env, cfg, rows);
+      if (firstTs == null) firstTs = String(rows[0].ts || "");
+      cursor = Number(rows[rows.length - 1].id);
+      sent += rows.length;
+      batches += 1;
+      await env.AUDIT.prepare("UPDATE lake_spine_state SET cursor_id = ?2, rows_sent = rows_sent + ?3, batches = batches + 1, last_run_at = ?4, last_error = NULL, updated_at = ?4 WHERE tbl = ?1").bind(tbl, cursor, rows.length, at).run();
+      if (rows.length < take) break;
+    }
+    if (!batches) {
+      const now = new Date().toISOString();
+      await env.AUDIT.prepare("UPDATE lake_spine_state SET last_run_at = ?2, last_error = NULL, updated_at = ?2 WHERE tbl = ?1").bind(tbl, now).run();
+    }
+    const mx = await env.AUDIT.prepare("SELECT MAX(id) AS id FROM " + tbl).first();
+    return { ok: true, table: tbl, sent, batches, cursor, first_ts: firstTs, behind_ids: Math.max(0, (mx && mx.id != null ? Number(mx.id) : cursor) - cursor) };
+  } catch (e) {
+    const msg = String(e && e.message || e).slice(0, 300);
+    try { await env.AUDIT.prepare("UPDATE lake_spine_state SET last_error = ?2, last_run_at = ?3, updated_at = ?3 WHERE tbl = ?1").bind(tbl, msg, new Date().toISOString()).run(); } catch (e2) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "lakeTail last_error write", table: tbl, error: String(e2 && e2.message || e2).slice(0, 200), first_error: msg })); }
+    return { ok: false, table: tbl, sent, batches, cursor, error: msg };
+  }
+}
+async function lakeSql(env, sql) {
+  const token = await lakeToken(env);
+  if (!env.CF_ACCOUNT) throw new Error("CF_ACCOUNT is not set");
+  const r = await fetch("https://api.sql.cloudflarestorage.com/api/v1/accounts/" + env.CF_ACCOUNT + "/basin-sql/query/" + LAKE_BUCKET, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", "User-Agent": LAKE_UA }, body: JSON.stringify({ query: sql }) });
+  const txt = await r.text();
+  if (!r.ok) throw new Error("basin-sql " + r.status + ": " + txt.slice(0, 200));
+  const j = JSON.parse(txt);
+  const res = j && j.result || {};
+  return { rows: res.rows || [], bytes_scanned: res.metrics && res.metrics.bytes_scanned != null ? Number(res.metrics.bytes_scanned) : null };
+}
+function lakeNextDay(day) {
+  return new Date(Date.parse(day + "T00:00:00Z") + 86400000).toISOString().slice(0, 10);
+}
+// One completed UTC day: rows in D1 against the distinct ids in the lake, from the first row the copy owns (start_id).
+async function lakeDriftDay(env, tbl, day, st) {
+  const cfg = LAKE_TABLES[tbl];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("bad day " + day);
+  const lo = day + "T00:00:00", hi = lakeNextDay(day) + "T00:00:00", from = Number(st.start_id);
+  const d1 = await env.AUDIT.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(id), 0) AS s FROM " + tbl + " WHERE ts >= ?1 AND ts < ?2 AND id >= ?3").bind(lo, hi, from).first();
+  const where = "ts >= '" + lo + "' AND ts < '" + hi + "' AND id >= " + from;
+  const a = await lakeSql(env, "SELECT count(*) AS n, count(DISTINCT id) AS d FROM " + cfg.lake + " WHERE " + where);
+  const b = await lakeSql(env, "SELECT sum(id) AS s FROM (SELECT DISTINCT id FROM " + cfg.lake + " WHERE " + where + ") AS u");
+  const n1 = Number(d1 && d1.n) || 0, s1 = Number(d1 && d1.s) || 0;
+  const ln = Number(a.rows[0] && a.rows[0].n) || 0, ld = Number(a.rows[0] && a.rows[0].d) || 0, ls = Number(b.rows[0] && b.rows[0].s) || 0;
+  const missing = Math.max(0, n1 - ld), duplicates = Math.max(0, ln - ld);
+  const pct = n1 ? 100 * missing / n1 : 0;
+  const sumOff = n1 > 0 && ld === n1 && s1 !== ls;
+  const verdict = pct > LAKE_DRIFT_MAX_PCT || sumOff ? "breach" : "ok";
+  const note = (sumOff ? "same count, different ids; " : "") + (ld > n1 ? "lake holds " + (ld - n1) + " ids D1 no longer has (pruned); " : "") + "bytes_scanned=" + (a.bytes_scanned == null ? "?" : a.bytes_scanned);
+  const now = new Date().toISOString();
+  await env.AUDIT.prepare("INSERT INTO lake_spine_drift (tbl, day, d1_rows, lake_rows, lake_distinct, missing, duplicates, drift_pct, verdict, first_checked_at, checked_at, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11) ON CONFLICT(tbl, day) DO UPDATE SET d1_rows = excluded.d1_rows, lake_rows = excluded.lake_rows, lake_distinct = excluded.lake_distinct, missing = excluded.missing, duplicates = excluded.duplicates, drift_pct = excluded.drift_pct, first_checked_at = CASE WHEN excluded.verdict = 'breach' AND lake_spine_drift.verdict = 'breach' THEN lake_spine_drift.first_checked_at ELSE excluded.checked_at END, verdict = excluded.verdict, checked_at = excluded.checked_at, note = excluded.note").bind(tbl, day, n1, ln, ld, missing, duplicates, pct, verdict, now, note).run();
+  const row = await env.AUDIT.prepare("SELECT first_checked_at, checked_at FROM lake_spine_drift WHERE tbl = ?1 AND day = ?2").bind(tbl, day).first();
+  const killed = verdict === "breach" && row && Date.parse(row.checked_at) - Date.parse(row.first_checked_at) >= LAKE_DRIFT_KILL_MS;
+  return { day, d1_rows: n1, lake_rows: ln, lake_distinct: ld, missing, duplicates, drift_pct: pct, verdict, kill: !!killed };
+}
+async function lakePause(env, tbl, why) {
+  const now = new Date().toISOString();
+  await env.AUDIT.prepare("INSERT INTO ops_config (key, value, note, updated_at) VALUES ('lake_spine', 'paused', ?1, ?2) ON CONFLICT(key) DO UPDATE SET value = 'paused', note = excluded.note, updated_at = excluded.updated_at").bind("LAKE-SPINE-1: paused " + now + ": " + why, now).run();
+  const title = "LAKE-SPINE-DRIFT-1: the lake copy of " + tbl + " is missing rows D1 holds";
+  await env.AUDIT.prepare("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) SELECT ?1, ?2, 'worker:qnfo-infra', 'reliability', 'high', 'open', ?3, ?3 WHERE NOT EXISTS (SELECT 1 FROM agent_issues WHERE title = ?1 AND status = 'open')").bind(title, "Charter pillar reliability (program QNFO.INFRA). " + why + " The copy was paused (ops_config lake_spine = paused) by the drift kill of lake_spine_drift (more than " + LAKE_DRIFT_MAX_PCT + " percent of a day's rows missing for 24 hours). Read SELECT * FROM lake_spine_drift WHERE verdict = 'breach' and lake_spine_state; fix the cause (stream refusal in last_error, a pipeline that stopped, a token that lost a scope), re-run POST /lake/tail on qnfo-infra or python scripts/lake_spine.py --tail, then set ops_config lake_spine back to shadow. The issue closes when a later drift row for the day reads ok.", Date.now()).run();
+}
+// skipFrom: the first day this fire's tail sent rows for. The lake commits a minute or more after the stream accepts a batch, so a day the fire is still landing is checked on the next fire.
+async function lakeDriftTick(env, tbl, skipFrom) {
+  const st = await lakeState(env, tbl);
+  if (!st) return { skipped: "no cursor yet" };
+  const today = new Date().toISOString().slice(0, 10);
+  const have = {};
+  for (const r of ((await env.AUDIT.prepare("SELECT day, verdict, checked_at FROM lake_spine_drift WHERE tbl = ?1 ORDER BY day DESC LIMIT 14").bind(tbl).all()).results || [])) have[r.day] = r;
+  const todo = [];
+  for (let day = String(st.start_day); day < today && todo.length < 14; day = lakeNextDay(day)) {
+    if (skipFrom && day >= skipFrom) break;
+    const h = have[day];
+    if (!h || (h.verdict !== "ok" && Date.now() - Date.parse(h.checked_at) >= LAKE_RECHECK_MS)) todo.push(day);
+  }
+  const out = [];
+  for (const day of todo.slice(0, LAKE_DRIFT_DAYS_PER_TICK)) {
+    const r = await lakeDriftDay(env, tbl, day, st);
+    out.push(r);
+    if (r.kill) {
+      await lakePause(env, tbl, "day " + day + ": D1 " + r.d1_rows + " rows, lake " + r.lake_distinct + " distinct ids, " + r.missing + " missing (" + r.drift_pct.toFixed(3) + " percent).");
+      break;
+    }
+  }
+  return { checked: out };
+}
+async function lakeSpineTick(env) {
+  const mode = await lakeMode(env);
+  if (mode !== "shadow") return { mode, skipped: true };
+  const out = { mode, tail: {}, drift: {}, errors: [] };
+  for (const tbl of Object.keys(LAKE_TABLES)) {
+    try { out.tail[tbl] = await lakeTail(env, tbl, null); if (out.tail[tbl] && out.tail[tbl].ok === false) out.errors.push(tbl + " tail: " + out.tail[tbl].error); } catch (e) { out.errors.push(tbl + " tail: " + String(e && e.message || e).slice(0, 200)); }
+    try { const ft = out.tail[tbl] && out.tail[tbl].first_ts; out.drift[tbl] = await lakeDriftTick(env, tbl, ft ? String(ft).slice(0, 10) : null); } catch (e) { out.errors.push(tbl + " drift: " + String(e && e.message || e).slice(0, 200)); }
+  }
+  return out;
+}
+async function lakeStatus(env) {
+  const mode = await lakeMode(env);
+  const tables = {};
+  for (const tbl of Object.keys(LAKE_TABLES)) {
+    const st = await lakeState(env, tbl);
+    const mx = await env.AUDIT.prepare("SELECT MAX(id) AS id FROM " + tbl).first();
+    const drift = ((await env.AUDIT.prepare("SELECT day, d1_rows, lake_distinct, missing, duplicates, drift_pct, verdict, checked_at FROM lake_spine_drift WHERE tbl = ?1 ORDER BY day DESC LIMIT 7").bind(tbl).all()).results) || [];
+    tables[tbl] = { state: st || null, behind_ids: st && mx && mx.id != null ? Math.max(0, Number(mx.id) - Number(st.cursor_id)) : null, drift };
+  }
+  return { ok: true, mode, tables };
+}
+async function lakeRoute(request, env, url, path, method, cors) {
+  const json = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "Content-Type": "application/json", ...cors } });
+  const tbl = url.searchParams.get("table") || "fleet_probe_log";
+  if (path === "/lake/status" && method === "GET") return json(await lakeStatus(env));
+  if (path === "/lake/tail" && method === "POST") {
+    const mode = await lakeMode(env);
+    if (mode === "off" || (mode === "paused" && url.searchParams.get("force") !== "1")) return json({ ok: false, error: "ops_config lake_spine is " + mode + (mode === "paused" ? " (pass force=1 to run anyway)" : "") }, 409);
+    return json(await lakeTail(env, tbl, { limit: url.searchParams.get("limit") }));
+  }
+  if (path === "/lake/drift" && method === "POST") {
+    const st = await lakeState(env, tbl);
+    if (!st) return json({ ok: false, error: "no cursor yet" }, 409);
+    const day = url.searchParams.get("day");
+    if (day) return json({ ok: true, result: await lakeDriftDay(env, tbl, day, st) });
+    return json({ ok: true, result: await lakeDriftTick(env, tbl) });
+  }
+  if (path === "/lake/query" && method === "POST") {
+    let body = null;
+    try { body = await request.json(); } catch (e) { body = null; }
+    const sql = body && typeof body.sql === "string" ? body.sql.trim() : "";
+    if (!sql || sql.length > 2000 || sql.indexOf(";") >= 0 || !/^(select|with)\b/i.test(sql)) return json({ ok: false, error: "sql must be one SELECT or WITH statement of at most 2000 characters" }, 400);
+    try { return json({ ok: true, ...(await lakeSql(env, sql)) }); } catch (e) { return json({ ok: false, error: String(e && e.message || e).slice(0, 300) }, 502); }
+  }
+  return json({ error: "not found" }, 404);
+}
+// ---- LAKE-SPINE-1:END
 async function runScheduled(event, env, ctx) {
     // HANDOFFS-VZ-PRODUCER-1: every fire, so a new handoff is indexed within the hour. A failure or a stalled call (120 s, so the refresh below still runs)
     // is logged, written to the watermark row's note and leaves the watermark where it was.
@@ -1552,6 +1758,9 @@ async function runScheduled(event, env, ctx) {
     // REACH-AE-1: every fire (hourly :30), after the cost ledger; the read-back of the first-party reach events, a failure is logged and never fails the fire.
     try { const re = await withTimeout(collectReachAe(env), Number(env && env.REACH_AE_TIMEOUT_MS) || 60000, "collectReachAe"); if (re && re.error) console.log("[qnfo-infra] reach read-back: " + re.error); }
     catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "collectReachAe", error: String(e && e.message || e) })); }
+    // LAKE-SPINE-1: every fire (hourly :30), after the reach read-back; ops_config lake_spine off means nothing runs, a failure is logged and never fails the fire.
+    try { const lk = await withTimeout(lakeSpineTick(env), Number(env && env.LAKE_SPINE_TIMEOUT_MS) || 170000, "lakeSpineTick"); if (lk && lk.errors && lk.errors.length) console.log("[qnfo-infra] lake spine: " + JSON.stringify(lk.errors)); }
+    catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "lakeSpineTick", error: String(e && e.message || e) })); }
     // INDEXER-FOLD-1: the folded qnfo-paper-indexer member's two jobs (its old "0 4" impact collection and "5 6" render
     // metrics) run on this worker's existing 06:30 trigger, impact first, both after the gateway's 06:00 sweep. No cron is
     // added: a newly registered trigger was seen not to fire (PROBER-ON-CAL-TICK-1), and the cron count drops by two. A
@@ -1725,9 +1934,14 @@ var worker_default = {
       return indexerMod.fetch(new Request(iu.toString(), request), indexerEnv(env), {});
     }
     if (path === "/health" && method === "GET") {
-      return new Response(JSON.stringify({ ok: true, worker: "qnfo-infra", version: VERSION, capabilities: ["infra-retrieve", "context", "state-refresh", "analytics", "credential-expiry", "handoffs-index", "cost-ledger"], limitations: ["every route except /health needs a bearer token", "handoffs are embedded 100 per hourly fire from the ops_config watermark handoffs_vz_last_id (a backlog drains over hours)","state refreshes hourly at :30 (CRON-GRID-1); the indexer member runs on the 06:30 fire"], oracle: { retrieve: "GET /retrieve?q=&scope=&k=", context: "GET /context?q=&scope=&k=" }, bindings: { audit: !!env.AUDIT, graph: !!env.GRAPH, living: !!env.LIVING, personal: !!env.PERSONAL, portfolio: !!env.PORTFOLIO, paper_vz: !!env.PAPER_VZ, notes_vz: !!env.NOTES_VZ, tasks_vz: !!env.TASKS_VZ, log_vz: !!env.LOG_VZ, handoffs_vz: !!env.HANDOFFS_VZ, ipatent_vz: !!env.IPATENT_VZ, infra_vz: !!env.VZ, ai: !!env.AI } }), { headers: { "Content-Type": "application/json", ...cors } });
+      return new Response(JSON.stringify({ ok: true, worker: "qnfo-infra", version: VERSION, capabilities: ["infra-retrieve", "context", "state-refresh", "analytics", "credential-expiry", "handoffs-index", "cost-ledger", "lake-spine"], limitations: ["every route except /health needs a bearer token", "handoffs are embedded 100 per hourly fire from the ops_config watermark handoffs_vz_last_id (a backlog drains over hours)","state refreshes hourly at :30 (CRON-GRID-1); the indexer member runs on the 06:30 fire"], oracle: { retrieve: "GET /retrieve?q=&scope=&k=", context: "GET /context?q=&scope=&k=" }, bindings: { audit: !!env.AUDIT, graph: !!env.GRAPH, living: !!env.LIVING, personal: !!env.PERSONAL, portfolio: !!env.PORTFOLIO, paper_vz: !!env.PAPER_VZ, notes_vz: !!env.NOTES_VZ, tasks_vz: !!env.TASKS_VZ, log_vz: !!env.LOG_VZ, handoffs_vz: !!env.HANDOFFS_VZ, ipatent_vz: !!env.IPATENT_VZ, infra_vz: !!env.VZ, ai: !!env.AI } }), { headers: { "Content-Type": "application/json", ...cors } });
     }
     const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+    // LAKE-SPINE-1: these routes read and move telemetry, so they await the token check (the shared check below does not).
+    if (path.indexOf("/lake/") === 0) {
+      if (!(await auth(token, env))) return new Response("unauthorized", { status: 401, headers: cors });
+      return lakeRoute(request, env, url, path, method, cors);
+    }
     if (path === "/cred/status" && method === "GET") {
       const full = auth(token, env);
       const cred = await credentialStatus(env);
