@@ -8,12 +8,20 @@
       "contains": [
         "\"worker\":\"qnfo-research-exec\""
       ]
+    },
+    {
+      "url": "https://qnfo-research-exec.q08.workers.dev/precheck",
+      "contains": [
+        "data-page=\"precheck\"",
+        "Check a manuscript before you submit it"
+      ]
     }
   ],
   "d1": [
     {
       "binding": "QNFO_AUDIT",
       "explain": [
+        "INSERT INTO ask_rate (k, n, ts) VALUES ('pre-probe', 1, '2026-01-01T00:00:00.000Z') ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n",
         "INSERT INTO paper_claims (slug, version, claim_text, claim_kind, source_ref, verification_state, verified_by) SELECT 'probe', '0', 'probe', 'atomic', 'probe', 'unverified', 'probe' WHERE 1 ON CONFLICT(slug, claim_kind, source_ref) DO UPDATE SET claim_text = excluded.claim_text, verification_state = excluded.verification_state"
       ]
     }
