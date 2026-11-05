@@ -3,12 +3,13 @@
 // and the wiring into the page builders is checked in the source. Run: node personal-companion/reading-jsonld.test.mjs   (prints "N passed, 0 failed")
 import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+const shared = readFileSync(new URL("../_shared/analysis-form.js", import.meta.url), "utf8"); // EK-6: the credit sentence lives in the shared analysis form
 let passed = 0, failed = 0;
 const ok = (c, l, x) => { if (c) passed++; else { failed++; console.error("FAIL " + l + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 200) : "")); } };
 
 const a = src.indexOf("function pieceLd(p) {"), b = src.indexOf("function renderPiece(p, keyQS) {");
 ok(a > 0 && b > a, "the JSON-LD builders are present before renderPiece");
-const { pieceLd, readingIndexLd } = new Function(src.slice(a, b) + "\nreturn { pieceLd, readingIndexLd };")();
+const { pieceLd, readingIndexLd } = new Function(shared + "\n" + src.slice(a, b) + "\nreturn { pieceLd, readingIndexLd };")();
 const block = (s) => { const m = /^<script type="application\/ld\+json">([\s\S]*)<\/script>$/.exec(s); return m ? JSON.parse(m[1]) : null; };
 
 const j = block(pieceLd({ slug: "2026-10-26-essay-abc", title: "The </script><b>Vandalic</b> War", day: "2026-10-26" }));
@@ -23,7 +24,8 @@ ok(idx && idx["@type"] === "Blog" && idx.name === "Reading" && idx.url === "http
 
 ok(src.includes("return page(p.title, shell(body + fb + foot), pieceLd(p));"), "renderPiece puts the block in the head");
 ok(src.includes('return page("Reading", shell(body), readingIndexLd());'), "renderIndex puts the Blog block in the head");
-ok(/var AI_LABEL_HTML = "<span class=ai title=[^\n]*No human reviews pieces before they appear\.[^\n]*>AI-generated<\/span>";/.test(src), "the visible label is still there, with the same sentence");
+ok(/var AI_LABEL_HTML = afAiLabelHtml\(\);/.test(src) && /creditText: AF_AI_LABEL_TEXT/.test(src), "the visible label and the credit text both come from the one shared sentence");
+ok(/var AF_AI_LABEL_TEXT = "[^\n]*No human reviews pieces before they appear\.";/.test(shared), "the shared sentence says no human reviews pieces");
 ok(/var VERSION = "1\.(?:43\.(?:[6-9]|\d{2,})|(?:4[4-9]|[5-9]\d)\.\d+)[-"]/.test(src), "VERSION is at least 1.43.6");
 
 console.log(passed + " passed, " + failed + " failed");

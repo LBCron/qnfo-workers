@@ -9,10 +9,10 @@ const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " -- " + JSON.stringify(x).slice(0, 300) : "")); } };
 
-const a = src.indexOf("function extractSection(md, needle)"), b = src.indexOf("__name(findObjection");
-ok(a > 0 && b > a, "extractSection and findObjection are present");
+const shared = readFileSync(new URL("../_shared/analysis-form.js", import.meta.url), "utf8"); // EK-6: the finder lives in the shared analysis form
+ok(/function afFindObjection\(md\) \{/.test(shared) && /function findObjection\(md\) \{ return afFindObjection\(md\); \}/.test(src), "the shared finder is present and the worker delegates to it");
 const NL = "\n";
-const findObjection = new Function("NL", "__name", "__name2", "__name22", src.slice(a, b).replace(/__name2+\(/g, "__name(") + "; return findObjection;")(NL, () => {}, () => {}, () => {});
+const findObjection = new Function(shared + "; return afFindObjection;")();
 
 // 1. the classic heading still works
 const classic = "Lede.\n\n## The objection\n\nA careful reader might say the count itself was disputed, and that this weakens the claim.\n\n## End\n\nx";

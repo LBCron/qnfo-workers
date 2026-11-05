@@ -10,6 +10,31 @@
         "\"companion-writing\"",
         "\"subscriber-feed\""
       ]
+    },
+    {
+      "_note": "EK-6 / EK-1: the public index still renders after a change to the shared analysis form.",
+      "url": "https://reading.q08.org/",
+      "status": 200,
+      "contains": [
+        "Written for one reader. Private.",
+        "class=idx"
+      ],
+      "absent": [
+        "Internal Error"
+      ]
+    },
+    {
+      "_note": "EK-1: a published piece page keeps its set-apart lede, the AI label and the sources footer (piece 2026-10-27-notes-73c73cae08c3e06f, lede present since PR 5138).",
+      "url": "https://reading.q08.org/p/2026-10-27-notes-73c73cae08c3e06f",
+      "status": 200,
+      "contains": [
+        "class=lede",
+        "class=ai",
+        "class=src>Sources:"
+      ],
+      "absent": [
+        "Internal Error"
+      ]
     }
   ]
 }
