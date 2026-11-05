@@ -64,17 +64,44 @@ def is_d1_overload(it):
     return D1_OVERLOAD_MARK in str(it.get("title") or "").lower()
 
 
+# D1-OVERLOAD-UMBRELLA-PROBE-1 (2026-11-05, pillar autonomy): the umbrella issue (agent_issues 1001715) never had a probe that measures the condition.
+# Two causes, both read on 2026-11-05. (1) The contract is born through contract_probe_templates_family_birth, which sets module
+# 'issue-birth-probe-families' and the family probe for fingerprint 'cf-obs-d1-overload'; no such dispatch row exists (the umbrella is not a Cloudflare
+# group), so that probe reads 'missing' for ever. (2) The probe this bridge wrote over it lacked the closing 'ELSE ''missing'' END AS observed' clause,
+# so contract_probe_templates_family_reassert (AFTER UPDATE OF verify_probe, WHEN module = 'issue-birth-probe-families') wrote the family probe back at
+# once. The umbrella now leaves the family module in the same UPDATE that installs its probe, and the probe reads both places the condition shows:
+# observability groups seen in the last QUIET_H hours (a Cloudflare 'resolved' status does not count as quiet, RELAPSE-HOLD-1) and error events
+# (cloud_ops_events, the source of the LOOP-BREAKER-1 signatures) in the same window.
+UMBRELLA_MODULE = "d1-overload-umbrella"
+
+
 def umbrella_probe():
     return ("SELECT '1' AS expected, CASE WHEN NOT EXISTS (SELECT 1 FROM fleet_issue_dispatch d WHERE d.category = 'worker-observability' "
-            "AND d.state <> 'resolved' AND json_valid(d.payload) AND instr(lower(COALESCE(json_extract(d.payload, '$.title'), '')), '%s') > 0 "
+            "AND json_valid(d.payload) AND instr(lower(COALESCE(json_extract(d.payload, '$.title'), '')), '%s') > 0 "
             "AND CAST(json_extract(d.payload, '$.lastObserved') AS INTEGER) > (CAST(strftime('%%s', 'now') AS INTEGER) - %d) * 1000) "
-            "THEN '1' ELSE '0' END AS observed") % (D1_OVERLOAD_MARK, QUIET_H * 3600)
+            "AND NOT EXISTS (SELECT 1 FROM cloud_ops_events e WHERE e.status = 'error' AND e.ts > strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ', 'now', '-%d hours') "
+            "AND instr(lower(COALESCE(e.text, '') || ' ' || COALESCE(e.meta, '')), 'db is overloaded') > 0) "
+            "THEN '1' ELSE '0' END AS observed") % (D1_OVERLOAD_MARK, QUIET_H * 3600, QUIET_H)
+
+
+def reassert_umbrella_probe(d1, iid, res):
+    """Install the measuring probe on the umbrella's contract; touches the row only when the probe or the module differs, so a sweep that finds it
+    right writes nothing. Leaving the family module is what stops the family trigger from replacing the probe."""
+    try:
+        d1("UPDATE remediation_contracts SET verify_probe = ?1, verify_transport = 'd1-query', status = 'active', module = ?3, "
+           "next_due_at = datetime('now'), attempts = 0 WHERE class = ?2 AND (COALESCE(verify_probe, '') <> ?1 OR COALESCE(module, '') <> ?3)",
+           [umbrella_probe(), "issue-%d" % iid, UMBRELLA_MODULE])
+    except Exception as e:  # noqa: BLE001
+        res["errors"] += 1
+        print(json.dumps({"evt": "cf-obs-bridge:umbrella-probe", "error": str(e)[:200]}))
 
 
 def ensure_umbrella(d1, folded, now, res):
     """One open issue for every live D1-overload group. Returns without writing when it is already open."""
-    if d1("SELECT id FROM agent_issues WHERE status = 'open' AND lower(trim(title)) = lower(trim(?1)) LIMIT 1", [UMBRELLA_TITLE]):
+    open_row = d1("SELECT id FROM agent_issues WHERE status = 'open' AND lower(trim(title)) = lower(trim(?1)) ORDER BY id DESC LIMIT 1", [UMBRELLA_TITLE])
+    if open_row:
         res["already"] += 1
+        reassert_umbrella_probe(d1, int(open_row[0]["id"]), res)
         return
     services = sorted({str(g.get("service") or "?") for g in folded})
     occ = sum(int(g.get("count") or 0) for g in folded)
@@ -89,8 +116,7 @@ def ensure_umbrella(d1, folded, now, res):
         row = d1("SELECT id, created_at FROM agent_issues WHERE title = ?1 AND status = 'open' ORDER BY id DESC LIMIT 1", [UMBRELLA_TITLE])
         if row:
             iid = int(row[0]["id"])
-            d1("UPDATE remediation_contracts SET verify_probe = ?1, verify_transport = 'd1-query', status = 'active', next_due_at = datetime('now'), "
-               "attempts = 0 WHERE class = ?2", [umbrella_probe(), "issue-%d" % iid])
+            reassert_umbrella_probe(d1, iid, res)
             (res["filed"] if int(row[0]["created_at"] or 0) == now else res["relapsed"]).append(iid)
     except Exception as e:  # noqa: BLE001
         res["errors"] += 1

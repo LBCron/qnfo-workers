@@ -59,14 +59,42 @@ def file_issue(d1, title, description, probe, priority="high", category="reliabi
     return iid
 
 
-def loop_breakers(d1):
+# D1-OVERLOAD-REFILE-1 (2026-11-05, pillar autonomy; GitHub 6852, 6853, 6863, 6866, 6867, 6869, 6959, 6975, 7116, 7197 and the rest of the family).
+# "D1 DB is overloaded" is one shared-database condition seen by every worker; scripts/cf_obs_issue_bridge.py folds its observability groups into ONE
+# umbrella issue (D1-OVERLOAD-FOLD-1) and the hourly workflow issue-meta-fold supersedes the per-group issues by the umbrella's id. This runner kept
+# filing a LOOP-BREAKER-1 issue per producer and message variant for the same condition: the fold closed them at 18:56Z on 2026-11-04, the next hourly
+# run filed each title again, issue_refile_reopen (a title closed within 24 h is reopened, the insert dropped) reopened all ten at 19:53Z, and
+# FOLD-NO-PINGPONG-1 then had to leave them open for a day. A signature whose text says the database is overloaded is now counted, not filed, while the
+# umbrella is open; with no open umbrella it is filed as before so the condition is never untracked. The v_loop_breaker_signatures digit stripping turns
+# "D1 DB" into "D DB", so the mark is the part without the digit.
+D1_OVERLOAD_MARK = "db is overloaded"
+UMBRELLA_TITLE = "CF-OBS-ISSUE-1: fleet: D1 DB is overloaded, all workers [cf-obs:d1-overload]"
+
+
+def is_d1_overload(producer, sig, example=""):
+    return D1_OVERLOAD_MARK in (str(sig or "") + " " + str(example or "")).lower()
+
+
+def umbrella_open(d1):
+    return bool(d1("SELECT id FROM agent_issues WHERE status = 'open' AND lower(trim(title)) = lower(trim(?1)) LIMIT 1", [UMBRELLA_TITLE]))
+
+
+def loop_breakers(d1, stats=None):
     filed = []
+    stats = stats if stats is not None else {}
+    umbrella = None   # read once, only when a D1-overload signature is seen
     rows = d1("SELECT src, producer, sig, n, last_ts, example FROM v_loop_breaker_signatures "
               "WHERE datetime(last_ts) > datetime('now', '-2 hours') ORDER BY n DESC LIMIT 10")
     for r in rows:
         producer, sig = str(r.get("producer") or "?")[:60], str(r.get("sig") or "")
         if not sig.strip():
             continue
+        if is_d1_overload(producer, sig, r.get("example")):
+            if umbrella is None:
+                umbrella = umbrella_open(d1)
+            if umbrella:
+                stats["folded_d1_overload"] = stats.get("folded_d1_overload", 0) + 1
+                continue
         title = TITLE % (producer, sig)
         probe = ("SELECT '1' AS expected, CASE WHEN NOT EXISTS (SELECT 1 FROM v_loop_breaker_signatures WHERE producer = %s AND sig = %s "
                  "AND datetime(last_ts) > datetime('now', '-6 hours')) THEN '1' ELSE '0' END AS observed") % (q(producer), q(sig))
@@ -109,7 +137,9 @@ def main(d1=None):
     d1 = d1 or RC.d1
     out = {"loop_breaker": "ok"}
     try:
-        out["filed"] = loop_breakers(d1)
+        stats = {}
+        out["filed"] = loop_breakers(d1, stats)
+        out.update(stats)   # folded_d1_overload: signatures counted, not filed, because the umbrella issue tracks them
     except Exception as e:  # noqa: BLE001
         out["loop_breaker"] = "failed: " + str(e)[:200]
     try:
@@ -178,7 +208,67 @@ INSERT INTO card VALUES (0, 3, 90);
     c.execute("UPDATE sigs SET last_ts = '2020-01-01T00:00:00Z'")
     assert d1(probes["issue-1"])[0]["observed"] == "1"
     assert "failure_modes_unprobed_pct" in c.execute("SELECT description FROM agent_issues WHERE id = 2").fetchone()[0]
+    selftest_d1_overload()
     print("loop_breaker_runner selftest ok")
+
+
+def selftest_d1_overload():
+    """D1-OVERLOAD-REFILE-1: the producer must not refile what the fold closed. Models issue_refile_reopen (a title closed within 24 h is
+    reopened and the insert dropped) as production does, so a regression reproduces the close, refile and reopen cycle."""
+    import sqlite3
+    c = sqlite3.connect(":memory:")
+    c.executescript("""
+CREATE TABLE agent_issues (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);
+CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, verify_probe TEXT, verify_transport TEXT, status TEXT, issue_id INTEGER);
+CREATE TRIGGER birth AFTER INSERT ON agent_issues BEGIN INSERT INTO remediation_contracts VALUES ('issue-' || NEW.id, 'needs', 'd1-query', 'needs-machine-probe', NEW.id); END;
+CREATE TRIGGER issue_refile_reopen BEFORE INSERT ON agent_issues
+WHEN EXISTS (SELECT 1 FROM agent_issues t WHERE t.title = NEW.title AND t.status IN ('resolved', 'wontfix', 'closed') AND typeof(t.updated_at) = 'integer' AND t.updated_at > (strftime('%s', 'now') * 1000 - 86400000))
+BEGIN
+  UPDATE agent_issues SET status = 'open', updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE id = (SELECT t.id FROM agent_issues t WHERE t.title = NEW.title AND t.status IN ('resolved', 'wontfix', 'closed') AND typeof(t.updated_at) = 'integer' AND t.updated_at > (strftime('%s', 'now') * 1000 - 86400000) ORDER BY t.id DESC LIMIT 1);
+  SELECT RAISE(IGNORE);
+END;
+CREATE TABLE sigs (src TEXT, producer TEXT, sig TEXT, n INTEGER, last_ts TEXT, example TEXT);
+CREATE VIEW v_loop_breaker_signatures AS SELECT * FROM sigs;
+""")
+    # the exact shapes the live view produced on 2026-11-04: digits stripped from the signature, digits kept in the example
+    c.execute("INSERT INTO sigs VALUES ('event', 'qnfo-code-orchestrator', 'fleet_tick_heavy: D_ERROR: D DB is overloaded. Too many resources consumed within ', 5, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'fleet_tick_heavy: D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window')")
+    c.execute("INSERT INTO sigs VALUES ('event', 'BRANCH-HYGIENE-1', 'D_ERROR: D DB is overloaded. Too many resources consumed within a  second', 4, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'D1_ERROR: D1 DB is overloaded.')")
+    c.execute("INSERT INTO sigs VALUES ('event', 'qnfo-research-exec', 'slot : D_ERROR: no such column: legacy_flag', 11, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'x')")
+
+    def d1(sql, params=None):
+        cur = c.execute(sql, params or [])
+        cols = [d[0] for d in cur.description] if cur.description else []
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def rows():
+        return [(r[0], r[1]) for r in c.execute("SELECT title, status FROM agent_issues ORDER BY id")]
+
+    assert is_d1_overload("p", "fleet_tick: D_ERROR: D DB is overloaded.", "") and is_d1_overload("p", "x", "D1_ERROR: D1 DB is overloaded")
+    assert not is_d1_overload("p", "slot : D_ERROR: no such column: legacy_flag", "exceeded its CPU time limit")
+    # 1. no umbrella issue: the overload is still tracked, filed as before; the other error is filed too
+    stats = {}
+    filed = loop_breakers(d1, stats)
+    assert len(filed) == 3 and not stats.get("folded_d1_overload"), (filed, stats)
+    # 2. the fold closes the two overload issues and the umbrella opens (what the bridge and issue-meta-fold do)
+    now = int(time.time() * 1000)
+    c.execute("UPDATE agent_issues SET status = 'closed', updated_at = ?1 WHERE instr(lower(title), 'db is overloaded') > 0", [now])
+    c.execute("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) VALUES (?1, 'umbrella', 'cf-obs-bridge', 'reliability', 'high', 'open', ?2, ?2)", [UMBRELLA_TITLE, now])
+    before = rows()
+    stats = {}
+    assert loop_breakers(d1, stats) == [] and stats == {"folded_d1_overload": 2}, stats
+    assert loop_breakers(d1) == []
+    assert rows() == before, "the closed overload issues were reopened or refiled: %r" % (rows(),)
+    # 3. a different error still files (the non-overload family is untouched) and the umbrella itself is never counted as a signature
+    c.execute("INSERT INTO sigs VALUES ('event', 'qnfo-lifecycle', 'tick threw: exceeded its CPU time limit', 3, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'cpu')")
+    assert len(loop_breakers(d1)) == 1
+    # 4. the umbrella closes (the condition is over): a later overload signature is filed again, so the condition is never untracked
+    c.execute("UPDATE agent_issues SET status = 'closed' WHERE title = ?1", [UMBRELLA_TITLE])
+    stats = {}
+    loop_breakers(d1, stats)
+    assert not stats.get("folded_d1_overload"), stats
+    assert any(t.startswith("LOOP-BREAKER-1: ") and "DB is overloaded" in t and s == "open" for t, s in rows()), rows()
+    print("loop_breaker_runner d1-overload selftest ok")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cf_obs_issue_bridge as B  # noqa: E402
@@ -38,7 +39,7 @@ BEGIN
   SELECT RAISE(IGNORE);
 END;
 CREATE TABLE fleet_issue_dispatch (fingerprint TEXT PRIMARY KEY, category TEXT, payload TEXT, state TEXT);
-CREATE TABLE cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, text TEXT, job TEXT, status TEXT);
+CREATE TABLE cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, text TEXT, job TEXT, status TEXT, meta TEXT);
 CREATE TABLE metric_registry (metric TEXT PRIMARY KEY, last_value TEXT, last_refreshed TEXT, state TEXT);
 INSERT INTO metric_registry VALUES ('cf_obs_reopen_churn_24h', NULL, NULL, 'MEASURED');
 CREATE TABLE analytics_metric_triggers (id INTEGER PRIMARY KEY AUTOINCREMENT, metric_key TEXT UNIQUE, created_at TEXT DEFAULT (datetime('now')));
@@ -464,6 +465,70 @@ def test_umbrella_probe_fails_while_overload_is_live_and_passes_when_quiet():
     assert env.d1(pr)[0]["observed"] == "1"
 
 
+# D1-OVERLOAD-UMBRELLA-PROBE-1: the two production triggers that overwrote the umbrella's probe (contract_probe_templates_family_birth and
+# contract_probe_templates_family_reassert, migrations/2026-11-01-family-probe-at-birth.sql and 2026-11-04-relapse-hold-1.sql), reduced to what matters:
+# a CF-OBS contract is born into module issue-birth-probe-families with a probe on fingerprint cf-obs-<id>, and any later write of verify_probe that
+# lacks the closing "ELSE 'missing' END AS observed" is replaced by such a probe again.
+FAMILY_TRIGGERS = """
+CREATE TRIGGER family_birth AFTER INSERT ON remediation_contracts
+WHEN NEW.status = 'needs-machine-probe' AND EXISTS (SELECT 1 FROM agent_issues a WHERE a.id = NEW.issue_id AND a.title LIKE 'CF-OBS-ISSUE-1:%' AND instr(COALESCE(a.description, ''), 'cf-obs-id: ') > 0)
+BEGIN
+  UPDATE remediation_contracts SET status = 'active', module = 'issue-birth-probe-families',
+    verify_probe = 'SELECT 1 AS expected, CASE WHEN EXISTS (SELECT 1 FROM fleet_issue_dispatch WHERE fingerprint = ''cf-obs-d1-overload'') THEN ''1'' ELSE ''missing'' END AS observed'
+  WHERE class = NEW.class;
+END;
+CREATE TRIGGER family_reassert AFTER UPDATE OF verify_probe ON remediation_contracts
+WHEN NEW.module = 'issue-birth-probe-families' AND instr(NEW.verify_probe, 'ELSE ''missing'' END AS observed') = 0
+BEGIN
+  UPDATE remediation_contracts SET verify_probe = 'SELECT 1 AS expected, CASE WHEN EXISTS (SELECT 1 FROM fleet_issue_dispatch WHERE fingerprint = ''cf-obs-d1-overload'') THEN ''1'' ELSE ''missing'' END AS observed'
+  WHERE class = NEW.class;
+END;
+"""
+
+
+def umbrella_contract(env):
+    umb = [i for i in env.issues() if i["title"] == B.UMBRELLA_TITLE][0]
+    return umb["id"], env.d1("SELECT verify_probe, module, status, attempts FROM remediation_contracts WHERE class = 'issue-%d'" % umb["id"])[0]
+
+
+def test_umbrella_probe_survives_the_family_triggers_and_measures_both_sources():
+    now = B.now_ms()
+    env = Env([grp("g-a", "qnfo-social", 60e3, now, title=D1_TITLE)])
+    env.c.executescript(FAMILY_TRIGGERS)
+    env.sweep(now)
+    iid, k = umbrella_contract(env)
+    assert k["verify_probe"] == B.umbrella_probe() and k["module"] == B.UMBRELLA_MODULE and k["status"] == "active", k
+    assert "missing" not in k["verify_probe"]
+    # a sweep that finds the probe right writes nothing (attempts is reset only when the probe or module differs)
+    env.c.execute("UPDATE remediation_contracts SET attempts = 3 WHERE class = 'issue-%d'" % iid)
+    env.sweep(now)
+    assert umbrella_contract(env)[1]["attempts"] == 3
+    # the live drift of 2026-11-05: the family module and its probe on a fingerprint that is not a Cloudflare group; the next sweep repairs it
+    env.c.execute("UPDATE remediation_contracts SET module = 'issue-birth-probe-families', verify_probe = 'SELECT 1 AS expected, ''missing'' AS observed', attempts = 5 WHERE class = 'issue-%d'" % iid)
+    env.sweep(now)
+    k = umbrella_contract(env)[1]
+    assert k["verify_probe"] == B.umbrella_probe() and k["module"] == B.UMBRELLA_MODULE and k["attempts"] == 0, k
+    pr = k["verify_probe"]
+    ts = lambda ms: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ms / 1000))
+    # nothing seen anywhere: passes
+    assert env.d1(pr)[0]["observed"] == "1"
+    # an overload group seen 1 h ago keeps it open even though Cloudflare says resolved (a resolved status alone is not quiet)
+    env.c.execute("INSERT INTO fleet_issue_dispatch VALUES ('cf-obs-x', 'worker-observability', ?, 'resolved')", [json.dumps({"title": D1_TITLE, "lastObserved": now - 1 * H})])
+    assert env.d1(pr)[0]["observed"] == "0"
+    env.c.execute("UPDATE fleet_issue_dispatch SET payload = ?", [json.dumps({"title": D1_TITLE, "lastObserved": now - 7 * H})])
+    assert env.d1(pr)[0]["observed"] == "1"
+    # the LOOP-BREAKER-1 source: an error event with the overload text 1 h ago keeps it open, 7 h ago does not, another error never does
+    env.c.execute("INSERT INTO cloud_ops_events (id, ts, kind, text, job, status, meta) VALUES ('e1', ?, 'x', 'fleet_tick: D1_ERROR: D1 DB is overloaded. Too many', 'qnfo-code-orchestrator', 'error', NULL)", [ts(B.now_ms() - 1 * H)])
+    assert env.d1(pr)[0]["observed"] == "0"
+    env.c.execute("UPDATE cloud_ops_events SET ts = ?", [ts(B.now_ms() - 7 * H)])
+    assert env.d1(pr)[0]["observed"] == "1"
+    env.c.execute("INSERT INTO cloud_ops_events (id, ts, kind, text, job, status, meta) VALUES ('e2', ?, 'x', 'tick', 'w', 'error', ?)", [ts(B.now_ms() - 1 * H), json.dumps({"error": "D1_ERROR: D1 DB is overloaded."})])
+    assert env.d1(pr)[0]["observed"] == "0"
+    env.c.execute("UPDATE cloud_ops_events SET status = 'ok'")
+    env.c.execute("INSERT INTO cloud_ops_events (id, ts, kind, text, job, status) VALUES ('e3', ?, 'x', 'no such column: legacy_flag', 'w', 'error')", [ts(B.now_ms() - 1 * H)])
+    assert env.d1(pr)[0]["observed"] == "1"
+
+
 def test_quiet_overload_group_files_nothing():
     now = B.now_ms()
     env = Env([grp("g-q", "qnfo-pdf", 30 * H, now, title=D1_TITLE)])
@@ -474,6 +539,7 @@ def test_quiet_overload_group_files_nothing():
 TESTS = [
     test_d1_overload_groups_fold_into_one_umbrella_issue,
     test_umbrella_probe_fails_while_overload_is_live_and_passes_when_quiet,
+    test_umbrella_probe_survives_the_family_triggers_and_measures_both_sources,
     test_quiet_overload_group_files_nothing,
     test_quiet_group_with_closed_issue_is_resolved_not_refiled,
     test_quiet_group_without_issue_is_not_filed,
