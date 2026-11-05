@@ -17,6 +17,13 @@
       ]
     },
     {
+      "url": "https://ideas.qnfo.org/stream",
+      "contains": [
+        "data-page=\"idea-stream\"",
+        "The idea stream"
+      ]
+    },
+    {
       "url": "https://ideas.qnfo.org/sitemap.xml",
       "contains": [
         "<urlset"
