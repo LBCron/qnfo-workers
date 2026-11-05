@@ -26,5 +26,16 @@ const src = readFileSync(join(here, "worker.js"), "utf8");
 const doc = src.slice(src.indexOf("function generateHtmlDocument("), src.indexOf("\n}\n", src.indexOf("function generateHtmlDocument(")));
 ok(doc.length > 100 && !/fleetCtlLink|fleet-ctl|fleet\.qnfo\.org/.test(doc), "the generated disclosure document (saved and printed by the inventor) carries no fleet link");
 ok(!/[^\x00-\x7F]/.test(src.slice(src.indexOf("function fleetCtlLink("), src.indexOf("function escapeHtml("))), "the helper is ASCII");
+// BP26-AXE-1: the link is opaque and readable (axe-core color-contrast measured 1.78:1 with opacity .45; WCAG 2 AA needs 4.5:1 for 13px text)
+{
+  const html = (await get("/")).html;
+  const style = (html.match(/<a id="fleet-ctl"[^>]*style="([^"]+)"/) || [])[1] || "";
+  const hex = (prop) => (style.match(new RegExp("(?:^|;)" + prop + ":#([0-9a-f]{6})", "i")) || [])[1];
+  const lum = (h) => { const c = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4))); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const fg = hex("color"), bg = hex("background");
+  const ratio = fg && bg ? (Math.max(lum(fg), lum(bg)) + 0.05) / (Math.min(lum(fg), lum(bg)) + 0.05) : 0;
+  ok(fg && bg && ratio >= 4.5, "the fleet link text has at least 4.5:1 contrast on its own opaque background", { fg, bg, ratio });
+  ok(!/opacity\s*:/.test(style), "the fleet link is not faded with opacity (it composites the contrast away)", style);
+}
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
