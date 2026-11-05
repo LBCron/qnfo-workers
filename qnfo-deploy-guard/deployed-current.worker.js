@@ -3,7 +3,8 @@
 // Data: https://ops.qnfo.org/fleet (modified_on per worker) + https://ops.qnfo.org/cost (spend)
 // NOTE: source of truth is this file; GET /workers/scripts/<name> TRUNCATES large bodies - never patch from a GET.
 var LEDGER_GRACE_MS = 180000;
-var VERSION = "1.4.6"; /* SCHEDULED-FLEET-PROBE-SHARING-1 (#6669): reuse the same scheduled fleet probe across scan and capability snapshot. */ /* OPS-PROBE-TIMEOUT-RECOVERY-1 (#6429): bounded retry and request cleanup. */ /* 1.4.1 DEPLOY-LEDGER-EVENT-ORDER-1: use deploy event time, not ledger insertion order, when choosing the last code deploy. 1.4.0 BP26-LEASES-KILLSWITCH-1 (2026-10-28, pillar autonomy, agent_issues 1000361; minor: two capabilities and a decision this worker now takes on its own). (a) Global kill switch: ops_config fleet_kill_switch = on makes workAcquire (fresh claims and renewals) and POST /lock/acquire (deploy locks and secret leases) answer 503 reason kill-switch, so no new claim, deploy or secret write starts while it is on; releases, reads, the sweep and /health keep working; the first refusal in five minutes writes one cloud_ops_events row of kind kill-switch.observed; GET /kill-switch reads the state. The flag is read with a 30 second cache, off when the row or table is absent. (b) Fencing tokens: every fresh work claim takes the next fence number for its path (work_claims.fence, migration 2026-10-28-bp26-leases-killswitch.sql; the claim still works while the column is absent), acquire and renew return it, and POST /work-lock/check {key, token, fence} answers valid only when the token holds the live claim and the fence is the live one, so a writer that lost its lease cannot pass. docs/KILL-SWITCH-DRILL.md and docs/LEASES-FENCING.md. prior 1.3.34-codeagent */ /* LEASE-EXPIRY-SWEEP-1 (2026-10-26, orphaned_leases 215): a work_claims row past expires_at and never released is closed with outcome expired on every acquire and on the 20-minute tick, so the BP26 lease metric counts sessions that died holding a claim and then settles. */ /* COMPAT-RISK-TIMER-NAME-1 (2026-10-25, unblocks red main): the four fetch-timeout blocks named their setTimeout handle `t`, and a DIFFERENT `t` (a timestamp from ms(row.ts)) in another function is compared numerically within 60 lines, so scripts/compat-risk-scan.mjs linked them by name across function scopes and reported timer-ids for a worker that never reads a timer id as a number. Renamed to timerId; scan is clean and the guard keeps its full meaning. */ /* WORKERS-BUILDS-TOMBSTONE-1 (2026-10-25, agent_issues 1000142): a Workers Builds rebuild of the retired repository-root stub is ledgered, not filed. CLAIM-TERMINAL-RELEASE-1 (2026-10-18): CODE_TASK_DONE now includes superseded, so the guard stops counting a superseded task as live work on its file. */
+var VERSION = "1.4.7";
+/* SCHEDULED-FLEET-PROBE-SHARING-1 (#6669): reuse the same scheduled fleet probe across scan and capability snapshot. */ /* OPS-PROBE-TIMEOUT-RECOVERY-1 (#6429): bounded retry and request cleanup. */ /* 1.4.1 DEPLOY-LEDGER-EVENT-ORDER-1: use deploy event time, not ledger insertion order, when choosing the last code deploy. 1.4.0 BP26-LEASES-KILLSWITCH-1 (2026-10-28, pillar autonomy, agent_issues 1000361; minor: two capabilities and a decision this worker now takes on its own). (a) Global kill switch: ops_config fleet_kill_switch = on makes workAcquire (fresh claims and renewals) and POST /lock/acquire (deploy locks and secret leases) answer 503 reason kill-switch, so no new claim, deploy or secret write starts while it is on; releases, reads, the sweep and /health keep working; the first refusal in five minutes writes one cloud_ops_events row of kind kill-switch.observed; GET /kill-switch reads the state. The flag is read with a 30 second cache, off when the row or table is absent. (b) Fencing tokens: every fresh work claim takes the next fence number for its path (work_claims.fence, migration 2026-10-28-bp26-leases-killswitch.sql; the claim still works while the column is absent), acquire and renew return it, and POST /work-lock/check {key, token, fence} answers valid only when the token holds the live claim and the fence is the live one, so a writer that lost its lease cannot pass. docs/KILL-SWITCH-DRILL.md and docs/LEASES-FENCING.md. prior 1.3.34-codeagent */ /* LEASE-EXPIRY-SWEEP-1 (2026-10-26, orphaned_leases 215): a work_claims row past expires_at and never released is closed with outcome expired on every acquire and on the 20-minute tick, so the BP26 lease metric counts sessions that died holding a claim and then settles. */ /* COMPAT-RISK-TIMER-NAME-1 (2026-10-25, unblocks red main): the four fetch-timeout blocks named their setTimeout handle `t`, and a DIFFERENT `t` (a timestamp from ms(row.ts)) in another function is compared numerically within 60 lines, so scripts/compat-risk-scan.mjs linked them by name across function scopes and reported timer-ids for a worker that never reads a timer id as a number. Renamed to timerId; scan is clean and the guard keeps its full meaning. */ /* WORKERS-BUILDS-TOMBSTONE-1 (2026-10-25, agent_issues 1000142): a Workers Builds rebuild of the retired repository-root stub is ledgered, not filed. CLAIM-TERMINAL-RELEASE-1 (2026-10-18): CODE_TASK_DONE now includes superseded, so the guard stops counting a superseded task as live work on its file. */
 var WORKER = "qnfo-deploy-guard";
 var LOCK_PREFIX = "deploylock:";
 var DENY_PREFIX = "deploydeny:";
@@ -13,7 +14,11 @@ var THR_KEY = "guard:cost_thresholds";
 var DEFAULT_TTL = 900; var MAX_TTL = 7200;
 var FLEET_URLS = ["https://ops.qnfo.org/fleet", "https://qnfo-ops.q08.workers.dev/fleet"];
 var COST_URLS = ["https://ops.qnfo.org/cost", "https://qnfo-ops.q08.workers.dev/cost"];
-function json(o, s) { return new Response(JSON.stringify(o), { status: s || 200, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } }); }
+function json(o, s) {
+  var h = { "content-type": "application/json", "access-control-allow-origin": "*" };
+  if (s === 503 && o && o.retry_after_sec) h["retry-after"] = String(o.retry_after_sec); // D1-LOCK-OVERLOAD-1: a refused lock call says when to ask again
+  return new Response(JSON.stringify(o), { status: s || 200, headers: h });
+}
 function nowIso() { return new Date().toISOString(); }
 // LEASE-TOKEN-CSPRNG-1 (1.3.24, WORKERS-STANDARDS-1): a lease token is a bearer secret (whoever holds it can release or
 // renew the deploy lock, a secret lock or a work claim), so it comes from crypto.getRandomValues, not Math.random. Same
@@ -77,7 +82,24 @@ function getJson(urls, tout, probe) {
 // the stale lock and refuse (live-reproduced: acquire -> release(released:true) -> acquire REFUSED).
 async function sha256hex(s) { var b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(s))); var a = new Uint8Array(b), o = ""; for (var i = 0; i < a.length; i++) o += ("0" + a[i].toString(16)).slice(-2); return o; }
 async function readLock(env, w) { var rows = await auditAll(env, "SELECT worker, owner, since, expires_at, expected_version FROM deploy_locks WHERE worker=?1 AND typeof(expires_at) IN ('integer','real') AND expires_at > ?2 LIMIT 1", [w, Date.now()]); return (rows && rows.length) ? rows[0] : null; }
-async function auditRun(env, sql, params) { try { var st = env.AUDIT.prepare(sql); return await st.bind.apply(st, params || []).run(); } catch (e) { return { ok: false, error: String(e && e.message || e) }; } }
+// D1-LOCK-OVERLOAD-1 (1.4.7, pillar autonomy; GitHub 6456 and 6731, agent_issues 1001280 and 1001391, Cloudflare groups ef14ea93 and dd1704bf): qnfo-audit
+// is a single-writer database that the fleet tick saturates for seconds at a time ("D1 DB is overloaded. Too many resources consumed within a 10 second
+// window"). The lock routes answered that with HTTP 500 (acquire and release) or 503 (GET /work-locks) on the first refusal: 180 and 45 responses since
+// 2026-10-22, worker_logs rows for POST /work-lock/acquire and /work-lock/release at 22:21Z, 22:00Z, 21:51Z, 21:21Z and 20:41Z on 2026-11-04. A refusal
+// that D1 raises before it runs the statement is safe to repeat, so the lock INSERT, the release DELETE and the open read retry it three times (about 0.4 s, 1.2 s and 3 s later: the tick saturates D1 for 5 to 10 seconds, and a refused statement costs it nothing);
+// a refusal that survives is a 503 with Retry-After, never a 500; the open read (GET /work-locks) retries its SELECT the same way and stays a 503 on a lasting refusal, never a false list.
+var D1_RETRY_WAITS_MS = [400, 1200, 3000];
+function d1Transient(e) { return /D1 DB is overloaded|too many resources|too many requests|temporarily unavailable/i.test(String((e && e.message) || e || "")); }
+async function d1Attempt(fn) {
+  for (var i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i >= D1_RETRY_WAITS_MS.length || !d1Transient(e)) throw e;
+      await new Promise(function (resolve) { setTimeout(resolve, D1_RETRY_WAITS_MS[i] + (Date.now() % 100)); });
+    }
+  }
+}
+async function auditRun(env, sql, params, retry) { try { var go = function () { var st = env.AUDIT.prepare(sql); return st.bind.apply(st, params || []).run(); }; return await (retry ? d1Attempt(go) : go()); } catch (e) { return { ok: false, error: String(e && e.message || e), transient: d1Transient(e) }; } }
 async function auditAll(env, sql, params) { try { var st = env.AUDIT.prepare(sql); var b = params && params.length ? st.bind.apply(st, params) : st; var r = await b.all(); return (r && r.results) || []; } catch (e) { return []; } }
 async function fileIssue(env, title, desc, priority) {
   var ex = await auditAll(env, "SELECT id FROM agent_issues WHERE status=?1 AND title=?2 LIMIT 1", ["open", title]);
@@ -525,8 +547,8 @@ async function acquireLease(env, b, quiet) {
   var sid4 = b.session_id ? String(b.session_id) : null;
   await auditRun(env, "DELETE FROM deploy_locks WHERE (typeof(expires_at) IN ('integer','real') AND expires_at <= ?1) OR (typeof(expires_at)='text' AND datetime(expires_at) < datetime('now'))", [now4]);
   var raw4 = tok(); var th4 = await sha256hex(raw4);
-  var ins4 = await auditRun(env, "INSERT INTO deploy_locks (worker, token_hash, owner, actor, session_id, since, expires_at, expected_version) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE NOT EXISTS (SELECT 1 FROM deploy_locks WHERE worker=?1 AND expires_at > ?6)", [w4, th4, String(b.owner || "unknown"), actor4, sid4, now4, now4 + ttl * 1000, b.expected_version || null]);
-  if (ins4 && ins4.ok === false) return [500, { error: "lock_db_unavailable", detail: ins4.error }];
+  var ins4 = await auditRun(env, "INSERT INTO deploy_locks (worker, token_hash, owner, actor, session_id, since, expires_at, expected_version) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE NOT EXISTS (SELECT 1 FROM deploy_locks WHERE worker=?1 AND expires_at > ?6)", [w4, th4, String(b.owner || "unknown"), actor4, sid4, now4, now4 + ttl * 1000, b.expected_version || null], true);
+  if (ins4 && ins4.ok === false) return [503, { acquired: false, error: "lock_db_unavailable", reason: "lock_db_unavailable", retry_after_sec: 5, detail: ins4.error }];
   if (!changes(ins4)) {
     var cur = await readLock(env, w4);
     if (!quiet) { try { await env.FLEET_CONFIG.put(DENY_PREFIX + Date.now() + "-" + tok(), JSON.stringify({ worker: w4, owner: String(b.owner || "unknown"), held_by: cur ? cur.owner : null, at: nowIso() }), { expirationTtl: 3600 }); } catch (e) { console.error(JSON.stringify({ evt: "deploy-guard:acquireLease:caught", error: String((e && e.message) || e) })); } }
@@ -537,8 +559,8 @@ async function acquireLease(env, b, quiet) {
 async function releaseLease(env, w5, tk) {
   if (!w5 || !tk) return [400, { error: "worker and token required" }];
   var th5 = await sha256hex(tk);
-  var del5 = await auditRun(env, "DELETE FROM deploy_locks WHERE worker=?1 AND token_hash=?2", [w5, th5]);
-  if (del5 && del5.ok === false) return [500, { released: false, reason: "lock_db_unavailable" }];
+  var del5 = await auditRun(env, "DELETE FROM deploy_locks WHERE worker=?1 AND token_hash=?2", [w5, th5], true);
+  if (del5 && del5.ok === false) return [503, { released: false, reason: "lock_db_unavailable", retry_after_sec: 5 }];
   if (!changes(del5)) return [409, { released: false, reason: "token mismatch or no lock" }];
   return [200, { released: true }];
 }
@@ -691,9 +713,14 @@ async function workAcquire(env, b) {
 async function workList(env) {
   var now6 = Date.now(); var rows;
   try {
-    var st6 = env.AUDIT.prepare("SELECT worker, owner, since, expires_at FROM deploy_locks WHERE substr(worker,1,5)='work:' AND typeof(expires_at) IN ('integer','real') AND expires_at > ?1 ORDER BY expires_at");
-    rows = ((await st6.bind(now6).all()) || {}).results || [];
-  } catch (e) { return [503, { error: "lock_db_unavailable" }]; }
+    rows = await d1Attempt(async function () {
+      var st6 = env.AUDIT.prepare("SELECT worker, owner, since, expires_at FROM deploy_locks WHERE substr(worker,1,5)='work:' AND typeof(expires_at) IN ('integer','real') AND expires_at > ?1 ORDER BY expires_at");
+      return ((await st6.bind(now6).all()) || {}).results || [];
+    });
+  } catch (e) {
+    console.error(JSON.stringify({ evt: "deploy-guard:work-locks:caught", error: String((e && e.message) || e).slice(0, 300) }));
+    return [503, { error: "lock_db_unavailable", retry_after_sec: 5 }];
+  }
   var claims = rows.map(function (x) { return { key: String(x.worker).slice(WORK_PREFIX.length), holder: x.owner, since: isoMs(x.since), expires_at: isoMs(x.expires_at), ttl_left_sec: Math.max(0, Math.round((Number(x.expires_at) - now6) / 1000)) }; });
   // WORK-CLAIM-UNIFY-1: the ledger rows (including ones written straight into work_claims) and the code loop's tasks.
   var led = (await auditAll(env, "SELECT path, intent, holder, issue_id, pr, claimed_at, expires_at FROM work_claims WHERE released_at IS NULL AND expires_at > ?1 ORDER BY claimed_at", [isoS(now6)])).map(ledgerView);
@@ -705,6 +732,21 @@ async function workList(env) {
 export default {
   async scheduled(event, env, ctx) { var fleetProbe = getJson(FLEET_URLS, 15000, "scheduled-fleet"); ctx.waitUntil(sweepExpiredClaims(env, Date.now()).catch(function (e) { console.error(JSON.stringify({ evt: "deploy-guard:claim-sweep:caught", error: String((e && e.message) || e) })); })); ctx.waitUntil(scan(env, fleetProbe).catch(function (e) { console.error(JSON.stringify({ evt: "deploy-guard:workList:caught", error: String((e && e.message) || e) })); })); ctx.waitUntil(capabilitySnapshot(env, false, fleetProbe).catch(function (e) { console.error(JSON.stringify({ evt: "deploy-guard:workList:caught", error: String((e && e.message) || e) })); })); },
   async fetch(request, env, ctx) {
+    try { return await routeFetch(request, env, ctx); }
+    catch (e) { return fetchFailed(request, e); }
+  }
+};
+// D1-LOCK-OVERLOAD-1: a route that throws (a D1 call outside the lock statements that retry, a KV error) answered with the runtime's bare HTTP 500 and no
+// body, which callers cannot tell from a bug. It now answers 503 with a body and Retry-After for a database refusal and 500 with the error text for anything
+// else, and the log line names the route.
+function fetchFailed(request, e) {
+  var msg = String((e && e.message) || e || "").slice(0, 300), path = "?";
+  try { path = new URL(request.url).pathname; } catch (_) {} // standards-ok: the failure itself is logged on the next line
+  console.error(JSON.stringify({ evt: "deploy-guard:fetch:caught", path: path, error: msg }));
+  if (d1Transient(e)) return json({ error: "lock_db_unavailable", acquired: false, retry_after_sec: 5, path: path }, 503);
+  return json({ error: "internal", path: path, detail: msg }, 500);
+}
+async function routeFetch(request, env, ctx) {
     var url = new URL(request.url); var p = url.pathname;
     // CONCURRENT-SESSION-SHARED-SECRET-CLOBBER-1 (#1701): shared-secret mutations (rotate/PUT of a worker secret) are
     // serialized through the same D1 deploy_locks lease under the key "secrets:<worker>" (separate from deploy locks).
@@ -771,5 +813,4 @@ export default {
     if (p === "/capability-snapshot" && request.method === "GET") { var cs = await env.FLEET_CONFIG.get(CAP_KEY); return json(cs ? JSON.parse(cs) : { ts: null }); }
     if (p === "/capability-snapshot" && request.method === "POST") { return json(await capabilitySnapshot(env, true)); }
     return json({ error: "not_found", worker: WORKER }, 404);
-  }
-};
+}
