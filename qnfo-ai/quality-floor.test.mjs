@@ -285,8 +285,12 @@ const ledgerDowngrades = (db) => db.writes.filter((w) => /INSERT INTO ai_spend_l
 {
   const v = /var VERSION = "(\d+)\.(\d+)\.(\d+)/.exec(src);
   ok(v && (+v[1] > 5 || (+v[1] === 5 && (+v[2] > 40 || (+v[2] === 40 && +v[3] >= 1)))), "VERSION is at least 5.40.1 (QUALITY-FLOOR-RECORD-1)", v && v[0]);
-  ok(/QUALITY-FLOOR-RECORD-1/.test(src.slice(0, src.indexOf("\n", src.indexOf("var VERSION")))) && /which is only the in-memory decision/.test(src.slice(0, src.indexOf("\n", src.indexOf("var VERSION")))), "the VERSION line carries the record note and the correction of the ledger-reason claim");
-  ok(/COST-QUALITY-FLOOR-ENFORCE-1/.test(src.slice(0, src.indexOf("\n", src.indexOf("var VERSION")))), "the VERSION line carries the COST-QUALITY-FLOOR-ENFORCE-1 note");
+  // RELEASE-FRAGMENT-1 (scripts/worker_release.py) writes the VERSION line bare and moves the release comment to its own line below it, so the
+  // block that carries the notes is the VERSION line plus a /* ... */ line directly under it.
+  const vEol = src.indexOf("\n", src.indexOf("var VERSION"));
+  const vBlock = src.slice(0, src.slice(vEol, vEol + 4).startsWith("\n/*") ? src.indexOf("\n", vEol + 1) : vEol);
+  ok(/QUALITY-FLOOR-RECORD-1/.test(vBlock) && /which is only the in-memory decision/.test(vBlock), "the VERSION block carries the record note and the correction of the ledger-reason claim");
+  ok(/COST-QUALITY-FLOOR-ENFORCE-1/.test(vBlock), "the VERSION block carries the COST-QUALITY-FLOOR-ENFORCE-1 note");
   ok(src === mirror, "deployed-current.worker.js is identical to worker.js");
 }
 console.log(pass + " passed, " + fail + " failed");
