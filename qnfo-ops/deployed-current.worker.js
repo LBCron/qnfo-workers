@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.63.0-tool-arg-alias";
+var VERSION = "2.63.1-tool-arg-alias";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -2104,15 +2104,17 @@ async function opsPublicGate(env, ip) {
   } catch (e) {
     return { blocked: true, error: "public read mode is unavailable right now (usage ledger unreadable); please retry shortly" };
   }
-  if (env.OPS_CACHE_KV) {
-    try {
-      const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(ip || "unknown") + "|" + day + "|" + WORKER));
-      const vk = "opspub:" + Array.from(new Uint8Array(h)).slice(0, 8).map(function(b) { return b.toString(16).padStart(2, "0"); }).join("") + ":" + iso().slice(0, 13);
-      const n = Number(await env.OPS_CACHE_KV.get(vk)) || 0;
-      if (n >= perHour) return { blocked: true, error: "public read mode answers " + perHour + " questions per visitor per hour; please try again later" };
-      await env.OPS_CACHE_KV.put(vk, String(n + 1), { expirationTtl: 7200 });
-    } catch (e) { console.error(JSON.stringify({ evt: "ops:opsPublicGate:caught", error: String((e && e.message) || e) })); }
-  }
+  // BP26-R2-KV-USAGE-1 (agent_issues 1000350, roadmap row 1406): the per-visitor hourly count is one atomic D1 upsert. It was a KV get-then-put, and KV is eventually
+  // consistent, so two concurrent requests both read n and both wrote n + 1 (the static scan kv_used_for_locking found exactly this line). A failed write still serves: the daily cap above is the hard limit.
+  try {
+    const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(ip || "unknown") + "|" + day + "|" + WORKER));
+    const hour = iso().slice(0, 13);
+    const vk = "opspub:" + Array.from(new Uint8Array(h)).slice(0, 8).map(function(b) { return b.toString(16).padStart(2, "0"); }).join("") + ":" + hour;
+    const row = await env.QNFO_AUDIT.prepare("INSERT INTO ops_public_rate (k, hr, n) VALUES (?1, ?2, 1) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n").bind(vk, hour).first();
+    if (row && Number(row.n) > perHour) return { blocked: true, error: "public read mode answers " + perHour + " questions per visitor per hour; please try again later" };
+    // rows live for the hour they count; about one request in fifty sweeps the older ones
+    if (Math.random() < 0.02) await env.QNFO_AUDIT.prepare("DELETE FROM ops_public_rate WHERE hr < ?1").bind(new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 13)).run();
+  } catch (e) { console.error(JSON.stringify({ evt: "ops:opsPublicGate:caught", error: String((e && e.message) || e) })); }
   return { blocked: false };
 }
 __name(opsPublicGate, "opsPublicGate");
@@ -7109,12 +7111,13 @@ async function dsPaidBlocked(env, model) {
   return now < _ds402Until;
 }
 async function dsPaidTrip(env, model, status, where) {
-  if (status !== 402 || !/^deepseek\//i.test(String(model || ""))) return false;
+  // DS-429-BREAKER-1: a DeepSeek 429 opens the same shared breaker as a 402 (same window, same ds-402-breaker row), so a fresh isolate and the streamed path stop paying into a throttled upstream.
+  if ((status !== 402 && status !== 429) || !/^deepseek\//i.test(String(model || ""))) return false;
   const _wasOpen = Date.now() < _ds402Until;
   _ds402Until = Date.now() + DS_402_BREAKER_MS;
   if (!_wasOpen) {
     console.log("OPS_DS_402_BREAKER open " + Math.round(DS_402_BREAKER_MS / 6e4) + "m via " + where + " (" + model + ")");
-    try { await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'ds-402-breaker', ?3, ?4, 'qnfo-ops', 'open')").bind(randId("evt-"), iso(), "deepseek 402: paid path skipped for " + Math.round(DS_402_BREAKER_MS / 6e4) + " min", JSON.stringify({ where: where, model: model, until: new Date(_ds402Until).toISOString(), version: VERSION })).run(); } catch (_) { console.error(JSON.stringify({ evt: "ops:dsPaidTrip:caught", error: String((_ && _.message) || _) })); }
+    try { await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'ds-402-breaker', ?3, ?4, 'qnfo-ops', 'open')").bind(randId("evt-"), iso(), "deepseek " + status + ": paid path skipped for " + Math.round(DS_402_BREAKER_MS / 6e4) + " min", JSON.stringify({ where: where, model: model, until: new Date(_ds402Until).toISOString(), version: VERSION })).run(); } catch (_) { console.error(JSON.stringify({ evt: "ops:dsPaidTrip:caught", error: String((_ && _.message) || _) })); }
   }
   return true;
 }
@@ -7172,7 +7175,7 @@ async function callDeepSeek(env, messages, maxTokens, tools, opts) {
     // HTTP 429) is the Unified-Billing platform cap of 200 req/60s per gateway, shared by the whole
     // fleet on gateway 'default'. Retrying the capped paid route 3x only burns time; go straight to the
     // free Workers-AI binding (which bypasses AI Gateway entirely and is NOT subject to that cap).
-    if (resp.status === 429) { console.log("OPS_GW_429_FREE_FALLBACK " + _dsLastErr.slice(0, 120)); break; }
+    if (resp.status === 429) { console.log("OPS_GW_429_FREE_FALLBACK " + _dsLastErr.slice(0, 120)); await dsPaidTrip(env, body.model, 429, "callDeepSeek"); break; }
     // DEEPSEEK-402-BREAKER-1: a 402 is the shared DeepSeek balance; the pro fallback would 402 too, so go free now.
     if (await dsPaidTrip(env, body.model, resp.status, "callDeepSeek")) { const _fb402 = await budgetFallback(env, messages, maxTokens, tools, o); if (_fb402) return _fb402; throw new Error(_dsLastErr); }
     if (resp.status < 500 && resp.status !== 429) {

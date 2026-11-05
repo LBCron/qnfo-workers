@@ -70,7 +70,8 @@ function mk(opt = {}) {
   CREATE TABLE agent_issues (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at TEXT, updated_at TEXT);
   CREATE TABLE fleet_deploys (id INTEGER PRIMARY KEY AUTOINCREMENT, worker TEXT, actor TEXT, session_id TEXT, from_sha TEXT, to_sha TEXT, source_path TEXT, ok INTEGER, note TEXT, ts TEXT);
   CREATE TABLE issue_ledger (fingerprint TEXT PRIMARY KEY, source TEXT, level TEXT, category TEXT, title TEXT, status TEXT, first_seen TEXT, last_seen TEXT, occurrences INTEGER, last_detail TEXT, updated_at TEXT);
-  CREATE TABLE service_registry (service TEXT PRIMARY KEY, kind TEXT, version TEXT, base_url TEXT);`);
+  CREATE TABLE service_registry (service TEXT PRIMARY KEY, kind TEXT, version TEXT, base_url TEXT);
+  CREATE TABLE ops_public_rate (k TEXT PRIMARY KEY, hr TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0);`);
   audit.prepare("INSERT INTO agent_issues (title, priority, category, status) VALUES ('Call my doctor about the results', 'high', 'owner-task', 'open')").run();
   audit.prepare("INSERT INTO fleet_deploys (worker, actor, to_sha, ok, note, ts) VALUES ('qnfo-ai-search', 'qnfo-ops/ops-deploy', '2.0.2-ask-loop', 1, 'x', ?)").run(new Date().toISOString());
   for (let i = 0; i < (opt.publicRowsToday || 0); i++) audit.prepare("INSERT INTO ops_ai_log (id, ts, model, strategy, source, ok) VALUES (?, ?, 'ops', 'chat', 'public', 1)").run("seed-" + i, new Date().toISOString());
@@ -140,7 +141,10 @@ const toolResults = (t) => t.ai.seen.flatMap((s) => s.messages.filter((m) => m.r
   const row = t.audit.prepare("SELECT source FROM ops_ai_log WHERE id NOT LIKE 'seed-%' ORDER BY ts DESC LIMIT 1").get();
   ok(row && row.source === "public", "A logged to ops_ai_log with source=public");
   ok(!t.kvLog.some((k) => /opschat:/.test(k)), "A chat cache neither read nor written: " + JSON.stringify(t.kvLog));
-  ok(t.kvLog.some((k) => /^put opspub:/.test(k)), "A per-visitor counter recorded");
+  // BP26-R2-KV-USAGE-1: the per-visitor hourly counter is an atomic D1 upsert (ops_public_rate), never a KV get-then-put
+  const rate = t.audit.prepare("SELECT k, hr, n FROM ops_public_rate").all();
+  ok(rate.length === 1 && /^opspub:[0-9a-f]{16}:\d{4}-\d\d-\d\dT\d\d$/.test(rate[0].k) && rate[0].n === 1, "A per-visitor counter recorded in D1: " + JSON.stringify(rate));
+  ok(!t.kvLog.some((k) => /opspub:/.test(k)), "A the KV namespace holds no visitor counter: " + JSON.stringify(t.kvLog));
 }
 
 // B. ipatent_activity: the searches and page views, never the PII.
@@ -211,6 +215,13 @@ for (const m of ["deepseek-v4-flash", "ops-frontier", "gpt-5.5", "claude-sonnet-
   ok(a.res.status === 200 && b.res.status === 200, "G first two from one visitor answered");
   ok(c.res.status === 429 && /per visitor per hour/.test(c.text), "G third from the same visitor is 429: " + c.res.status + " " + c.text.slice(0, 160));
   ok(d.res.status === 200, "G another visitor still answered");
+  const counts = t.audit.prepare("SELECT n FROM ops_public_rate ORDER BY n DESC").all().map((r) => r.n);
+  ok(JSON.stringify(counts) === JSON.stringify([3, 1]), "G the counter counts every request of a visitor exactly once, including the refused one: " + JSON.stringify(counts));
+  // the counter is atomic: concurrent requests from one visitor cannot both read the same n (the defect of the old KV get-then-put)
+  const t2 = mk({ env: { OPS_PUBLIC_PER_IP_HOUR: "3" } });
+  const burst = await Promise.all([1, 2, 3, 4, 5, 6].map(() => call(t2, Q, { "CF-Connecting-IP": "198.51.100.40" })));
+  const served = burst.filter((x) => x.res.status === 200).length, refused = burst.filter((x) => x.res.status === 429).length;
+  ok(served === 3 && refused === 3, "G a burst of six concurrent requests against a cap of three serves exactly three: " + served + " served, " + refused + " refused");
 }
 
 // H. daily cap across all public visitors.

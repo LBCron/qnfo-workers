@@ -193,8 +193,9 @@ const breakerRows = (t) => t.audit.prepare("SELECT kind, status, meta FROM cloud
   const next = await call(W2, t2, Q(true));
   ok(next.res.status === 200 && /Free-tier answer/.test(next.text), "H fresh isolate answered from free tier while breaker is open");
   ok(gwCalls(t2).length === 0, "H another isolate skips the paid path after the shared 429 breaker opens, saw " + gwCalls(t2).length);
-  const errors = t.audit.prepare("SELECT status FROM cloud_ops_events WHERE kind = 'ops_upstream_error'").all();
-  ok(errors.length === 1 && errors[0].status === "error", "H the original 429 remains recorded as an upstream error: " + JSON.stringify(errors));
+  // OPS-UPSTREAM-429-HANDLED-1 (e4bffc31): a handled 429 (the free tier answered) is logged as an upstream throttle with status info, not as an error
+  const errors = t.audit.prepare("SELECT status FROM cloud_ops_events WHERE kind = 'ops_upstream_throttle'").all();
+  ok(errors.length === 1 && errors[0].status === "info", "H the original 429 is recorded once as an upstream throttle with status info: " + JSON.stringify(errors));
 }
 
 // I. a first streamed 429 also opens the shared breaker before falling back.
