@@ -872,8 +872,9 @@ def selftest():
     con.execute("INSERT INTO journey_runs (ts, runner, journey, ok) VALUES (?, 'cf', 'papers-path', 0)", [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t + 90))])
     r3 = record(d1, good, "selftest", now=t + 120)
     expect("stays open while the server-side newest run fails", q("SELECT status FROM agent_issues")[0]["status"] == "open" and "kept open" in r3["issues"].get("papers-path", ""))
-    con.execute("INSERT INTO journey_runs (ts, runner, journey, ok) VALUES (?, 'cf', 'papers-path', 1)", [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t + 150))])
-    r4 = record(d1, good, "selftest", now=t + 180)
+    # RELAPSE-HOLD-1 gha-journeys (PR 7380): a journey issue closes only on a second passing gha run at least 10 minutes after the first, so the fixture's two passes are 700 s apart
+    con.execute("INSERT INTO journey_runs (ts, runner, journey, ok) VALUES (?, 'cf', 'papers-path', 1)", [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t + 790))])
+    r4 = record(d1, good, "selftest", now=t + 820)
     row = q("SELECT a.status, t.close_evidence FROM agent_issues a JOIN issue_triage t ON t.issue_id = a.id")[0]
     expect("closes with evidence once both runners pass", row["status"] == "closed" and "passed all 3 steps" in row["close_evidence"] and "qnfo-gateway 200" in row["close_evidence"] and r4["issues"].get("papers-path") == "closed 1")
     expect("metric returns to 0", q("SELECT last_value v FROM metric_registry")[0]["v"] == "0")
