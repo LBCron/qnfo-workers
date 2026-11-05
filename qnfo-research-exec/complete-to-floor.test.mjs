@@ -5,7 +5,7 @@
 // Run: node qnfo-research-exec/complete-to-floor.test.mjs   -> prints "N passed, 0 failed"
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { stageComplete, stageVerify, stageRevise, floorShortfall, floorRearmTick, parkRearmTick, finalGates, paperCompleteness, FLOOR_EXTEND_TARGET } from "./worker.js";
+import { stageComplete, stageVerify, stageRevise, floorShortfall, legacyParkedSweep, finalGates, paperCompleteness, FLOOR_EXTEND_TARGET } from "./worker.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (d !== undefined ? " -- " + JSON.stringify(d).slice(0, 700) : "")); } };
@@ -201,11 +201,11 @@ const gateOk = (paper) => finalGates(paper, { bibCount: BIB, minChars: 20000, st
   ok(res && res.patch === 1 && up.length === 1 && /stage='complete'/.test(up[0].sql) && up[0].ctx.extendFor === "floor" && up[0].ctx.cycles === 2, "a patched paper still under the floor is extended, not reviewed short", { res, up });
 }
 
-// ---- 7. FLOOR-REARM-1: the fixed worker returns frozen candidates, five per run, once each ----
+// ---- 7. FLOOR-REARM-1 (retired by SINGLE-LANE-1, 0.54.0): the migration still freezes its candidates; the worker no longer has a sweep that re-arms them, legacyParkedSweep returns any row still parked ----
 function d1Over(db) {
   return { prepare(sql) { let args = []; const q = { bind(...x) { args = x; return q; }, async run() { const r = db.prepare(sql).run(...args); return { meta: { changes: Number(r.changes) } }; }, async first() { return db.prepare(sql).get(...args) || null; }, async all() { return { results: db.prepare(sql).all(...args) }; } }; return q; } };
 }
-const RQ = "CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT, stage TEXT, error TEXT, recover_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, attempt INTEGER DEFAULT 0, context TEXT, claimed_at TEXT, created_at TEXT, published_at TEXT, source TEXT)";
+const RQ = "CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT, stage TEXT, error TEXT, recover_count INTEGER DEFAULT 0, revise_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, attempt INTEGER DEFAULT 0, context TEXT, claimed_at TEXT, created_at TEXT, published_at TEXT, source TEXT)";
 const OTHER = "CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT); CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT)";
 const P = "PARKED-POISON-1: recover_count exhausted (3); last error: ";
 function seed(db) {
@@ -247,33 +247,22 @@ const BAK = "bak_20261019_research_parked";
   db.exec(migSql);
   ok(db.prepare("SELECT count(*) n FROM " + BAK).get().n === 7 && db.prepare("SELECT count(*) n FROM failure_modes").get().n === 2, "applying the file twice adds nothing");
 
-  // Worker side: the fixed worker re-arms five per run, newest first, once each.
+  // Worker side (SINGLE-LANE-1): floorRearmTick and parkRearmTick are gone. Every row the migration froze (and every other row still parked) goes back into the
+  // lane through legacyParkedSweep, ten a run, with its prior error in the text; rows that are not parked are never touched.
   const env = { QNFO_AUDIT: d1Over(db) };
-  const r1 = await floorRearmTick(env);
-  const queued = () => db.prepare("SELECT id FROM research_queue WHERE status = 'queued' ORDER BY id").all().map((r) => r.id);
-  ok(r1.rearmed === 5 && JSON.stringify(queued()) === JSON.stringify(["a2", "a3", "a4", "a5", "a6"]), "floorRearmTick returns the five newest candidates", { r1, queued: queued() });
+  const parkedLeft = () => db.prepare("SELECT count(*) n FROM research_queue WHERE stage = 'parked'").get().n;
+  ok(parkedLeft() === 11, "fixture: eleven rows are still parked", parkedLeft());
+  const r1 = await legacyParkedSweep(env);
+  ok(r1.reentered === 10 && parkedLeft() === 1, "legacyParkedSweep returns ten rows a run", { r1, left: parkedLeft() });
   const a3 = db.prepare("SELECT * FROM research_queue WHERE id = 'a3'").get();
-  ok(a3.stage === "complete" && a3.terminal_rearms === 1 && a3.recover_count === 0 && a3.claimed_at === null && /^FLOOR-REARM-1 .*Was: PARKED-POISON-1/.test(a3.error) && JSON.parse(a3.context).extendFor === "floor" && JSON.parse(a3.context).verifyPass === 0, "a re-armed row resumes at complete with a fresh budget and its prior error in the text", a3);
-  const r2 = await floorRearmTick(env);
-  ok(r2.rearmed === 2 && queued().length === 7, "the next run returns the rest", { r2, queued: queued() });
-  const r3 = await floorRearmTick(env);
-  ok(r3.rearmed === 0, "nothing is re-armed twice", r3);
-  const same = JSON.parse(before).filter((r) => r.id.startsWith("x")).every((r) => JSON.stringify(db.prepare("SELECT * FROM research_queue WHERE id = ?").get(r.id)) === JSON.stringify(r));
-  ok(same, "rows outside the frozen list are never touched");
-
-  // Without the backup table (migration not applied) the step is a no-op; park_rearm = off stops it with the sweep.
-  const db2 = new DatabaseSync(":memory:");
-  db2.exec(RQ + ";" + OTHER + ";");
-  seed(db2);
-  const n0 = await floorRearmTick({ QNFO_AUDIT: d1Over(db2) });
-  ok(n0.rearmed === 0 && db2.prepare("SELECT count(*) n FROM research_queue WHERE status = 'queued'").get().n === 0, "no backup table: the step is a quiet no-op");
-  db2.exec("CREATE TABLE " + BAK + " AS SELECT id FROM research_queue WHERE id IN ('a1','a2')");
-  db2.prepare("INSERT INTO ops_config (key, value) VALUES ('park_rearm', 'off')").run();
-  const off = await parkRearmTick({ QNFO_AUDIT: d1Over(db2) });
-  ok(off.enabled === false && db2.prepare("SELECT count(*) n FROM research_queue WHERE status = 'queued'").get().n === 0, "park_rearm = off stops the floor re-arm too");
-  db2.prepare("DELETE FROM ops_config").run();
-  const on = await parkRearmTick({ QNFO_AUDIT: d1Over(db2) });
-  ok(on.enabled === true && on.floor && on.floor.rearmed === 2, "the hourly sweep runs the floor re-arm", on);
+  ok(a3.status === "queued" && a3.stage === "ground" && a3.terminal_rearms === 1 && a3.recover_count === 0 && a3.claimed_at === null && /^SINGLE-LANE-1: re-entered at ground, no parked state\. Was: PARKED-POISON-1/.test(a3.error), "a returned row is queued at ground with a fresh budget and its prior error in the text", a3);
+  const x2 = db.prepare("SELECT * FROM research_queue WHERE id = 'x2'").get();
+  ok(x2.terminal_rearms === 2 && x2.status === "queued", "a row that had one earlier re-arm counts it", x2);
+  const r2 = await legacyParkedSweep(env);
+  ok(r2.reentered === 1 && parkedLeft() === 0, "the next run returns the rest", { r2 });
+  const r3 = await legacyParkedSweep(env);
+  ok(r3.reentered === 0, "nothing is returned twice", r3);
+  ok(db.prepare("SELECT status, stage FROM research_queue WHERE id = 'x4'").get().status === "researching", "a row that is not parked is never touched");
 
   // The failure-mode rows, controls and closing probe.
   const fms = db.prepare("SELECT fm_key, probe_class FROM failure_modes ORDER BY fm_key").all();

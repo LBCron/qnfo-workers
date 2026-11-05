@@ -52,10 +52,11 @@ ok(w.prepare("SELECT COUNT(*) n FROM bak_20261103_single_lane_parked").get().n =
 const iss = w.prepare("SELECT * FROM agent_issues WHERE title LIKE 'SINGLE-LANE-1:%'").all();
 ok(iss.length === 1 && /code-task: repo=qnfo-workers path=qnfo-research-exec\/worker\.js/.test(iss[0].description) && iss[0].description.includes("code-anchor: async function parkPoisonRow(env, row, msg) {") && iss[0].description.includes("WHERE stage = 'parked' expected 0"), "the code task is filed with its anchor and closing probe", iss.length);
 ok(w.prepare("SELECT COUNT(*) n FROM decision_log WHERE action LIKE 'SINGLE-LANE-1:%'").get().n === 1, "one decision_log row");
-// the code anchor occurs exactly once in the writer it names
+// the code task this file filed has been carried out (qnfo-research-exec 0.54.0): the anchored writer is gone and its one replacement, laneReenter, occurs once
 {
   const src = readFileSync(new URL("../qnfo-research-exec/worker.js", import.meta.url), "utf8");
-  ok(src.split("async function parkPoisonRow(env, row, msg) {").length === 2, "the code-anchor occurs once in qnfo-research-exec/worker.js");
+  ok(src.split("async function parkPoisonRow(env, row, msg) {").length === 1, "the anchored park writer is gone from qnfo-research-exec/worker.js");
+  ok(src.split("async function laneReenter(env, row, o) {").length === 2, "the one lane re-entry that replaces it occurs once");
 }
 const second = snap();
 w.exec(sql);

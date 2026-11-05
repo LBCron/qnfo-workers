@@ -229,7 +229,7 @@ for (const [name, edits, paper, why] of [
 // ---- 3. the loop is bounded: delete, extend, review asks for another deletion, ... ends at the review-cycle cap ----
 {
   const audit = new DatabaseSync(":memory:");
-  audit.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, context TEXT, error TEXT, recover_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, paper_slug TEXT, published_at TEXT, doi TEXT);
+  audit.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, context TEXT, error TEXT, recover_count INTEGER DEFAULT 0, revise_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, paper_slug TEXT, published_at TEXT, doi TEXT);
 CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);
 CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);
 CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);
@@ -274,7 +274,7 @@ INSERT INTO research_queue (id, source, source_id, idea, status, stage, context,
   const get = () => audit.prepare("SELECT * FROM research_queue WHERE id = 'loop1'").get();
   const trail = [];
   let first = null, last = null, steps = 0;
-  // Drive the real stages until the row leaves review / revise / complete; a HARD finding at the configured cap parks without an extra cycle.
+  // Drive the real stages until the row leaves review / revise / complete; a HARD finding at the configured cap re-enters the lane (SINGLE-LANE-1) without an extra cycle.
   for (; steps < 400; steps++) {
     const r = get();
     if (r.status !== "researching" || !["review", "revise", "complete"].includes(r.stage)) { last = r.status + "/" + r.stage; break; }
@@ -287,7 +287,7 @@ INSERT INTO research_queue (id, source, source_id, idea, status, stage, context,
   const capCycles = 6;
   if (process.env.REFS_EXTEND_DEBUG) console.log(audit.prepare("SELECT kind, status, substr(text,1,330) t FROM cloud_ops_events ORDER BY rowid").all().map((e) => e.kind + " " + e.status + " " + e.t).join("\n"));
   ok(first && first.withheld === "review-hard" && first.cycle === capCycles, "the alternation ends: review withholds the paper with its HARD finding at cycle 6 (MAX_REVIEW_CYCLES)", { first, steps, trail: trail.join(" ") });
-  ok(last === "wontfix/parked", "a paper still carrying a HARD finding at the review-cycle cap parks without a seventh revise/review cycle", { last, steps });
+  ok(last === "queued/revise", "a paper still carrying a HARD finding at the review-cycle cap re-enters the lane at revise (never parked, never published) without a seventh revise/review cycle in this pass", { last, steps });
   ok(steps < 100, "it ends well inside the step budget", steps);
   ok(tasks.REVISE_PATCH === capCycles && tasks.REVIEW === capCycles + 1 && evK("revise-refs-below-floor") === tasks.REVISE_PATCH && evK("revise-noop") === 0 && evK("revise-shrink-refused") === 0, "exactly the six configured revise cycles run, with a final quality-gate review and no refused patches", { tasks, refsBelow: evK("revise-refs-below-floor"), noop: evK("revise-noop"), refused: evK("revise-shrink-refused") });
   ok(evK("floor-extend") >= capCycles && evK("floor-extend") <= capCycles * 6, "every deletion was followed by at least one floor-extend, at most FLOOR_EXTEND_MAX_ROUNDS per cycle", evK("floor-extend"));

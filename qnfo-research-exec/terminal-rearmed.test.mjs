@@ -1,8 +1,10 @@
-// RESEARCH-TERMINAL-REARMED-1 + PARKED-REGROUND-1 + NOTICE-REPAIR-SKIP-BLOCKED-1 (qnfo-research-exec 0.29.0). Offline: node:sqlite as D1.
+// RESEARCH-TERMINAL-REARMED-1 + NOTICE-REPAIR-SKIP-BLOCKED-1 (qnfo-research-exec 0.29.0). Offline: node:sqlite as D1.
+// SINGLE-LANE-1 (0.54.0): PARKED-REGROUND-1 and the other re-arm sweeps are gone because nothing parks a row any more; the ceiling re-enters the lane itself, so the
+// RESEARCH-TERMINAL contract resolves at once, and the one tolerant read of the old state (legacyParkedSweep) is tested here in place of the re-ground sweep.
 // Run: node --no-warnings qnfo-research-exec/terminal-rearmed.test.mjs
 import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
-import { markError, parkedRegroundTick, parkRearmTick, noticeRepairTick } from "./worker.js";
+import { markError, legacyParkedSweep, noticeRepairTick } from "./worker.js";
 
 function d1(db) {
   return { prepare(sql) {
@@ -17,7 +19,7 @@ function d1(db) {
 
 // ---- terminal contract, resolution by re-arm, dedupe against open issues only -------------------------------------------------------
 const db = new DatabaseSync(":memory:");
-db.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, error TEXT, recover_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, context TEXT, created_at TEXT);
+db.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, error TEXT, recover_count INTEGER DEFAULT 0, revise_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, context TEXT, created_at TEXT);
 CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);
 CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);
@@ -35,20 +37,16 @@ let iss = db.prepare("SELECT * FROM agent_issues WHERE title LIKE 'RESEARCH-TERM
 assert.ok(c && iss && c.issue_id === iss.id && c.status === "active", "every terminal reason gets a contract on its issue");
 assert.ok(/^select /i.test(c.verify_probe) && !c.verify_probe.includes(";") && !/LIKE '[^']{50,}'/.test(c.verify_probe), "the probe is one SELECT, no LIKE literal near D1's 50 byte limit");
 assert.ok(!/agent_issues/.test(c.verify_probe), "the probe never reads the issue's own status");
-moving();
-assert.equal(db.prepare(c.verify_probe).get().observed, "pending", "parked with recoveries left: pending, even though the queue moves");
-// the sweep returns the row to the pipeline: resolved
-db.prepare("UPDATE research_queue SET status='deferred', stage='ground', terminal_rearms=1 WHERE id=?").run(NE);
+assert.equal(get(NE).status, "queued"); assert.equal(get(NE).stage, "ground"); assert.equal(get(NE).terminal_rearms, 1);
 let pr = db.prepare(c.verify_probe).get();
-assert.equal(pr.observed, pr.expected, "a row that left the terminal state resolves its issue");
-// it parks again with its recoveries still left: pending again (the closed issue's contract keeps watching)
+assert.equal(pr.observed, pr.expected, "the row re-entered the lane at the ceiling, so its issue resolves");
+// a row left in the old parked state (an older release, another writer) stays pending even though the queue moves, until legacyParkedSweep returns it
+moving();
 db.prepare("UPDATE research_queue SET status='wontfix', stage='parked' WHERE id=?").run(NE);
-assert.equal(db.prepare(c.verify_probe).get().observed, "pending");
-// every recovery spent and the queue moving: resolved with the row kept as evidence
-db.prepare("UPDATE research_queue SET terminal_rearms=2 WHERE id=?").run(NE);
+assert.equal(db.prepare(c.verify_probe).get().observed, "pending", "an old parked row keeps its issue pending");
+db.prepare("UPDATE research_queue SET status='deferred', stage='ground', terminal_rearms=1 WHERE id=?").run(NE);
 pr = db.prepare(c.verify_probe).get();
-assert.equal(pr.observed, pr.expected, "recoveries spent: the gate withholds the paper, the issue closes on the parked row");
-assert.equal(get(NE).status, "wontfix", "the row keeps its reason");
+assert.equal(pr.observed, pr.expected, "a row back in the lane resolves its issue");
 // published also resolves
 db.prepare("UPDATE research_queue SET status='published', stage='done', terminal_rearms=1 WHERE id=?").run(NE);
 assert.equal(db.prepare(c.verify_probe).get().observed, "resolved");
@@ -66,46 +64,39 @@ assert.equal(c.status, "active"); assert.equal(c.last_verdict, null); assert.equ
 await markError(env, get(NE), "revise: no applicable edit for 2 HARD fixes (H1,H2) from two models, strict retry included (not advanced unrevised)");
 assert.equal(db.prepare("SELECT count(*) n FROM agent_issues WHERE title LIKE 'RESEARCH-TERMINAL 11111111%' AND status='open'").get().n, 1, "an open issue is not filed twice");
 
-// ---- PARKED-REGROUND-1 -----------------------------------------------------------------------------------------------------------------
+// ---- legacyParkedSweep: the one tolerant read of the old parked state -----------------------------------------------------------------
 const r = new DatabaseSync(":memory:");
-r.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT, stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, error TEXT, recover_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, context TEXT, created_at TEXT);
+r.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT, stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, error TEXT, recover_count INTEGER DEFAULT 0, revise_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, context TEXT, created_at TEXT);
 CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);
 CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, status TEXT);`);
 const park = (id, err, rearms, created, st = "wontfix", stage = "parked") => r.prepare("INSERT INTO research_queue (id,status,stage,error,terminal_rearms,recover_count,context,created_at) VALUES (?,?,?,?,?,6,'{\"cycles\":6}',?)").run(id, st, stage, err, rearms, created);
 park("aaaaaaaa-1", "PARKED-POISON-1: x; last error: revise: no applicable edit for 5 HARD fixes", 0, "2026-10-01");
 park("bbbbbbbb-2", "REVIEW-UNRESOLVED-PARK-1: prior stage revise; revise: no applicable edit for 6 HARD fixes", 1, "2026-10-02");
-park("cccccccc-3", "PARKED-POISON-1: x; last error: verify: mismatch=true gates=gate-length", 0, "2026-09-01"); // oldest but no open issue
-park("dddddddd-4", "PARKED-POISON-1: x; last error: revise: no applicable edit for 1 HARD fixes", 2, "2026-08-01"); // recoveries spent
-park("rem-eeee-5", "PARKED-POISON-1: x; last error: revise: no applicable edit", 0, "2026-07-01"); // a remediation row is the sweep's own
-park("ffffffff-6", "PARKED-POISON-1: stale researching claim with recover_count exhausted (6); not re-armed", 0, "2026-07-02"); // not a content failure
-park("gggggggg-7", "revise: no applicable edit", 0, "2026-07-03", "queued", "ground"); // not parked
-park("hhhhhhhh-8", "PARKED-REVISE-NOOP-CEILING-1: revise_count=2; no applicable edit", 0, "2026-07-01"); // the no-op ceiling is terminal
-r.prepare("INSERT INTO agent_issues (id,title,status) VALUES (1,'RESEARCH-TERMINAL bbbbbbbb: revise: no applicable edit','open'),(2,'RESEARCH-TERMINAL aaaaaaaa: x','open')").run();
+park("cccccccc-3", "PARKED-POISON-1: x; last error: verify: mismatch=true gates=gate-length", 2, "2026-09-01");   // had its cycles: re-enters as deferred
+park("rem-eeee-5", "PARKED-POISON-1: x; last error: revise: no applicable edit", 0, "2026-07-01");   // a remediation row is in the lane like any other
+park("ffffffff-6", "PARKED-REVISE-NOOP-CEILING-1: revise_count=2", 0, "2026-07-02", "researching");   // the old no-op park wrote stage parked with status researching too
+park("gggggggg-7", "revise: no applicable edit", 0, "2026-07-03", "queued", "ground");   // not parked: untouched
+park("hhhhhhhh-8", "published row", 0, "2026-07-04", "published", "done");   // untouched
+for (let i = 0; i < 9; i++) park("batch-" + i, "PARKED-POISON-1: filler", 0, "2026-11-0" + (i + 1) + "T00:00:00Z");
 const renv = { QNFO_AUDIT: d1(r) };
-const g1 = await parkedRegroundTick(renv);
-assert.equal(g1.regrounded, 2, "two rows a run");
-const ids = (st) => r.prepare("SELECT id FROM research_queue WHERE status = ? ORDER BY id").all(st).map((x) => x.id);
-assert.deepEqual(ids("queued"), ["aaaaaaaa-1", "bbbbbbbb-2", "gggggggg-7"], "rows with an open RESEARCH-TERMINAL issue go first, oldest first among the rest");
-const a1 = r.prepare("SELECT * FROM research_queue WHERE id='aaaaaaaa-1'").get();
-assert.equal(a1.stage, "ground"); assert.equal(a1.terminal_rearms, 1); assert.equal(a1.recover_count, 0); assert.equal(a1.context, "{}"); assert.equal(a1.claimed_at, null);
-assert.match(a1.error, /^PARKED-REGROUND-1: fresh draft from ground\. Was: PARKED-POISON-1/);
-assert.equal(r.prepare("SELECT terminal_rearms n FROM research_queue WHERE id='bbbbbbbb-2'").get().n, 2, "a row that had one recovery gets its second and last");
-const g2 = await parkedRegroundTick(renv);
-assert.equal(g2.regrounded, 1, "the next run takes the oldest remaining candidate only");
-assert.equal(r.prepare("SELECT status FROM research_queue WHERE id='cccccccc-3'").get().status, "queued");
-const g3 = await parkedRegroundTick(renv);
-assert.equal(g3.regrounded, 0, "spent rows, remediation rows and non-content parks are never returned");
-for (const id of ["dddddddd-4", "rem-eeee-5", "ffffffff-6", "hhhhhhhh-8"]) assert.equal(r.prepare("SELECT status FROM research_queue WHERE id=?").get(id).status, "wontfix", id + " untouched");
-// park_rearm = off stops it with the other sweeps
-r.prepare("UPDATE research_queue SET status='wontfix', stage='parked', terminal_rearms=0 WHERE id='aaaaaaaa-1'").run();
-r.prepare("INSERT INTO ops_config (key, value) VALUES ('park_rearm','off')").run();
-const off = await parkRearmTick(renv);
-assert.equal(off.enabled, false); assert.equal(r.prepare("SELECT status FROM research_queue WHERE id='aaaaaaaa-1'").get().status, "wontfix");
-r.prepare("DELETE FROM ops_config").run();
-r.exec("CREATE TABLE bak_20261019_research_parked (id TEXT)");
-const on = await parkRearmTick(renv);
-assert.equal(on.enabled, true); assert.equal(on.reground.regrounded, 1, "the hourly park sweep runs the re-ground");
+const g1 = await legacyParkedSweep(renv);
+assert.equal(g1.reentered, 10, "ten rows a run, oldest first");
+const left1 = r.prepare("SELECT count(*) n FROM research_queue WHERE stage = 'parked'").get().n;
+assert.equal(left1, 4, "14 parked rows, 10 returned");
+const g2 = await legacyParkedSweep(renv);
+assert.equal(g2.reentered, 4); assert.equal(r.prepare("SELECT count(*) n FROM research_queue WHERE stage = 'parked'").get().n, 0, "no row is left parked");
+assert.equal((await legacyParkedSweep(renv)).reentered, 0, "a third run finds nothing");
+const row = (id) => r.prepare("SELECT * FROM research_queue WHERE id = ?").get(id);
+const a1 = row("aaaaaaaa-1");
+assert.equal(a1.status, "queued"); assert.equal(a1.stage, "ground"); assert.equal(a1.terminal_rearms, 1); assert.equal(a1.recover_count, 0); assert.equal(a1.claimed_at, null);
+assert.match(a1.error, /^SINGLE-LANE-1: re-entered at ground, no parked state\. Was: PARKED-POISON-1/);
+assert.equal(row("cccccccc-3").status, "deferred", "a row that already used its cycles re-enters as deferred, for the backpressure release to order");
+assert.equal(row("cccccccc-3").terminal_rearms, 3);
+assert.equal(row("ffffffff-6").status, "queued", "a researching row with the old parked stage is returned too");
+assert.equal(row("gggggggg-7").terminal_rearms, 0, "a queued row is not touched"); assert.equal(row("hhhhhhhh-8").status, "published", "a published row is not touched");
+assert.equal(r.prepare("SELECT count(*) n FROM cloud_ops_events WHERE kind = 'lane-reenter'").get().n, 14, "one event per returned row");
+assert.equal(r.prepare("SELECT count(*) n FROM research_queue WHERE status = 'wontfix'").get().n, 0, "no wontfix row remains");
 
 // ---- NOTICE-REPAIR-SKIP-BLOCKED-1 ------------------------------------------------------------------------------------------------------
 const lp = new DatabaseSync(":memory:");

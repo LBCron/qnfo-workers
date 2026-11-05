@@ -4,6 +4,8 @@
 // family, with the cached prefix (preamble + paper) unchanged; when the retry still applies nothing the row is NOT advanced
 // to review but handed to markError (re-queued from ground with recover_count+1, the recovery path); and an answer in the
 // {"edits": [...]} shape is applied and advances the row.
+// SINGLE-LANE-1 (0.54.0): the second no-op (revise_count 2) used to park the row (PARKED-REVISE-NOOP-CEILING-1); it re-enters the lane at ground now (laneReenter:
+// status queued, the reason in error, revise_count reset, one lane-reenter event). Cases 1b and 5 were rewritten for that; every other assertion is unchanged.
 // Run: node qnfo-research-exec/revise-noop.test.mjs   -> prints "N passed, 0 failed"
 import { stageRevise, paperCompleteness } from "./worker.js";
 
@@ -33,16 +35,16 @@ function mkEnv(answer, countOrOpts = 0) {
     if (/UPDATE research_queue SET status='researching', stage='revise'/.test(sql)) {
       state.status = "researching"; state.stage = "revise"; state.error = args[0]; state.recoverCount++;
     }
+    if (/UPDATE research_queue SET status = \?1, stage = \?2/.test(sql)) {
+      state.status = args[0]; state.stage = args[1]; state.error = args[2]; state.claimedAt = null; state.reviseCount = 0; state.recoverCount = 0; state.laneCtx = args[3];
+    }
     return { meta: { changes: 1 } };
   }, async first() {
     sqls.push({ sql, args });
     if (opts.failReviseCount && /SET revise_count/.test(sql)) throw new Error("simulated counter write failure");
     if (/UPDATE research_queue SET revise_count/.test(sql)) {
       state.reviseCount++;
-      if (state.reviseCount >= 2) {
-        state.status = "wontfix"; state.stage = "parked"; state.error = "REVISE-NOOP-BOUND-1 revise_count>=2; PARKED-REVISE-NOOP-CEILING-1"; state.claimedAt = null;
-      }
-      return { revise_count: state.reviseCount, status: state.status, stage: state.stage };
+      return { revise_count: state.reviseCount };
     }
     return null;
   }, async all() { return { results: [] }; } }; return q; } };
@@ -76,14 +78,16 @@ const row = { id: "r1", context: "{}", recover_count: 0, source: "idea-hub", sta
   ok(ev.some((e) => /^revise-noop: /.test(e) && /ids=h1/.test(e) && /strict_retry=yes/.test(e) && /revise failed, recover path/.test(e)), "the revise-noop event names the fix ids, the strict retry and the disposition", ev);
 }
 
-// 1b. A second non-parse revise-noop hits the explicit revise_count ceiling and parks with its own reason.
+// 1b. A second non-parse revise-noop hits the explicit revise_count ceiling and re-enters the lane with its own reason.
 {
   const t = mkEnv("[]", 1);
   const second = Object.assign({}, row, { recover_count: 1, revise_count: 1, error: "RERUN-ROUTE-1 revise-once: first no-op" });
   const res = await stageRevise(t.env, second);
   ok(res && res.withheld === "revise-noop", "the second no-op remains withheld", res);
-  const park = t.sqls.find((s) => /UPDATE research_queue SET revise_count/.test(s.sql));
-  ok(res && res.parked === true && res.revise_count === 2 && park && /PARKED-REVISE-NOOP-CEILING-1/.test(park.sql), "revise_count=2 parks explicitly instead of re-entering the loop", { result: res, sql: park && park.sql, state: t.state });
+  const count = t.sqls.find((s) => /UPDATE research_queue SET revise_count/.test(s.sql));
+  const lane = t.sqls.find((s) => /UPDATE research_queue SET status = \?1, stage = \?2/.test(s.sql));
+  ok(res && res.lane === true && res.revise_count === 2 && count && lane && !/parked|wontfix/.test(lane.sql), "revise_count=2 re-enters the lane (never a parked state) instead of re-entering the revise loop", { result: res, lane: lane && lane.sql, state: t.state });
+  ok(lane && lane.args[0] === "queued" && lane.args[1] === "ground" && /^SINGLE-LANE-1: re-entered at ground, no parked state\. Was: REVISE-NOOP-BOUND-1 revise_count>=2/.test(lane.args[2]), "the lane row is queued at ground with the no-op reason", lane && lane.args);
 }
 
 // 1c. A D1 counter failure is logged and does not replace the existing recover-route behavior.
@@ -139,14 +143,16 @@ const row = { id: "r1", context: "{}", recover_count: 0, source: "idea-hub", sta
   ok(t.store["pipeline/r1/reconciled.md"].includes("$0.5000$") && !t.store["pipeline/r1/reconciled.md"].includes(UNIQUE), "the strict retry's exact paper edit is stored");
 }
 
-// 5. A second no-op is parked durably without the recovery route overwriting it.
+// 5. A second no-op re-enters the lane durably without the recovery route overwriting it.
 {
   const t = mkEnv("[]", 1);
   const res = await stageRevise(t.env, Object.assign({}, row, { revise_count: 1 }));
-  ok(res && res.ok === false && res.withheld === "revise-noop" && res.parked === true && res.revise_count === 2, "the second no-op is reported as parked", res);
-  ok(t.state.reviseCount === 2 && t.state.status === "wontfix" && t.state.stage === "parked" && t.state.claimedAt === null, "the second no-op persists its count and terminal queue state", t.state);
-  ok(!t.sqls.some((s) => /status='researching', stage='revise'/.test(s.sql)), "the parked no-op is not requeued by markError");
+  ok(res && res.ok === false && res.withheld === "revise-noop" && res.lane === true && res.revise_count === 2, "the second no-op is reported as a lane re-entry with its count", res);
+  ok(t.state.status === "queued" && t.state.stage === "ground" && t.state.claimedAt === null && t.state.reviseCount === 0 && t.state.recoverCount === 0, "the row is back in the lane with fresh counters for the next cycle", t.state);
+  ok(!t.sqls.some((s) => /status='researching', stage='revise'/.test(s.sql)), "the lane re-entry is not requeued by markError");
   ok(!t.sqls.some((s) => /stage='review'/.test(s.sql)), "a paper with unresolved HARD fixes is never advanced to review");
+  const ev = t.sqls.filter((s) => /INSERT INTO cloud_ops_events/.test(s.sql)).map((s) => s.args[2] + ": " + s.args[3]);
+  ok(ev.filter((e) => /^lane-reenter: /.test(e)).length === 1 && ev.some((e) => /^lane-reenter: .*kind=noop prior=revise status=queued stage=ground cycle=1/.test(e)), "exactly one lane-reenter event names the kind, the prior stage and the cycle", ev);
 }
 
 // 6. An unreadable review is re-reviewed, not counted as an unapplied patch.

@@ -6,7 +6,7 @@
 //   VERIFY-EXTRACT-FAIL-CLOSED-1 (2502): an empty or unreadable claim extraction never reaches stage publish; it waits
 //     (verifyUnrunAt) and the third failure fails the pass; an extractor that answers "[]" still takes the qualitative path.
 //   RERUN-ROUTE-1 / REVIEW-UNRESOLVED-PARK-1 (2473): a review or revise failure re-enters once at revise with its findings, a
-//     second one parks the row with its revert line, other failures re-run from ground, and each decision is a rerun-route event.
+//     second one re-enters the lane (SINGLE-LANE-1: it parked the row before 0.54.0), other failures re-run from ground, and each decision is a rerun-route or lane-reenter event.
 //   ERRATA-INTERNAL-CONFIRM-1 (2494): an internal-open erratum older than 30 minutes moves to detected when a second model of
 //     another family confirms it and to rejected otherwise; RENDER-HEALTH needs no model; a missing paper is no-paper; a failed
 //     call or a fresh row stays internal-open.
@@ -143,8 +143,8 @@ ok(versionAtLeast((src.match(/var VERSION = "([^"]+)"/) || [])[1] || "0", "0.18.
 // ---- 2473 RERUN-ROUTE-1 / REVIEW-UNRESOLVED-PARK-1 ---------------------------------------------------------------------
 {
   ok(rerunRoute({}, "review: reviewer unavailable").stage === "revise" && rerunRoute({}, "revise: output too short").stage === "revise", "a non-cap review or revise failure routes to revise");
-  ok(rerunRoute({}, "review: 2 HARD findings unresolved after 6 revise cycles (H1,H2)").stage === "parked", "HARD findings at the configured cap park without an extra revise pass");
-  ok(rerunRoute({ error: "RERUN-ROUTE-1 revise-once: review: x" }, "review: 1 HARD").stage === "parked", "a second review/revise failure after the re-entry parks");
+  ok(rerunRoute({}, "review: 2 HARD findings unresolved after 6 revise cycles (H1,H2)").stage === "lane", "HARD findings at the configured cap leave the paid loop through the lane (SINGLE-LANE-1) without an extra revise pass");
+  ok(rerunRoute({ error: "RERUN-ROUTE-1 revise-once: review: x" }, "review: 1 HARD").stage === "lane", "a second review/revise failure after the re-entry goes to the lane");
   ok(["verify: mismatch", "ground: arXiv down", "ensemble: timeout", "publish: x", "paper row missing"].every((m) => rerunRoute({ error: "RERUN-ROUTE-1 revise-once: review: x" }, m).stage === "ground"), "infrastructure and content failures keep the full re-run from ground");
 
   let db = capDb();
@@ -157,14 +157,14 @@ ok(versionAtLeast((src.match(/var VERSION = "([^"]+)"/) || [])[1] || "0", "0.18.
   db = capDb();
   await markError({ QNFO_AUDIT: db }, { id: "r1", recover_count: 1, error: "RERUN-ROUTE-1 revise-once: review: reviewer unavailable", context: "{}" }, "review: reviewer unavailable");
   u = updates(db);
-  ok(u.length === 1 && /status='wontfix', stage='parked'/.test(u[0].sql) && /^REVIEW-UNRESOLVED-PARK-1: prior stage review; review: reviewer unavailable/.test(u[0].args[0]) && /Revert: status queued, stage ground/.test(u[0].args[0]) && u[0].args[0].length <= 300, "the second failure parks the row with the prior stage, the findings and the revert line", u.map((s) => s.args));
-  ok(events(db, "rerun-route").some((e) => /route=parked/.test(e)), "the park is a rerun-route event");
+  ok(u.length === 1 && /SET status = \?1, stage = \?2/.test(u[0].sql) && !/wontfix|parked/.test(u[0].sql) && u[0].args[0] === "queued" && u[0].args[1] === "revise" && /^SINGLE-LANE-1: re-entered at revise, no parked state\. Was: review: reviewer unavailable/.test(u[0].args[2]) && u[0].args[2].length <= 300 && JSON.parse(u[0].args[3]).verifyPass === 1 && JSON.parse(u[0].args[3]).laneCycle === 1, "the second failure re-enters the lane at revise with a fresh cycle budget, the findings in error, status queued (never wontfix or parked)", u.map((s) => s.args));
+  ok(events(db, "lane-reenter").some((e) => /prior=review status=queued stage=revise cycle=1/.test(e)) && events(db, "lane-reenter").length === 1, "the re-entry is exactly one lane-reenter event", events(db, "lane-reenter"));
 
   db = capDb();
   await markError({ QNFO_AUDIT: db }, { id: "r1", recover_count: 0, context: "{}" }, "review: 1 HARD findings unresolved after 6 revise cycles (H1)");
   u = updates(db);
-  ok(u.length === 1 && /status='wontfix', stage='parked'/.test(u[0].sql) && /^REVIEW-UNRESOLVED-PARK-1: prior stage review; review: 1 HARD/.test(u[0].args[0]), "a cap-exhausted review parks immediately even before the one-time recovery reroute", u.map((s) => s.args));
-  ok(events(db, "rerun-route").some((e) => /route=parked prior=review/.test(e)), "the cap park is recorded as a rerun-route event");
+  ok(u.length === 1 && u[0].args[0] === "queued" && u[0].args[1] === "revise" && /^SINGLE-LANE-1: re-entered at revise, no parked state\. Was: review: 1 HARD findings unresolved after 6 revise cycles \(H1\)/.test(u[0].args[2]), "a cap-exhausted review re-enters the lane immediately even before the one-time recovery reroute", u.map((s) => s.args));
+  ok(events(db, "lane-reenter").some((e) => /prior=review/.test(e)), "the cap re-entry is recorded as a lane-reenter event");
 
   db = capDb();
   await markError({ QNFO_AUDIT: db }, { id: "r2", recover_count: 0 }, "verify: unresolved after revision - gates=gate-refs");
@@ -173,7 +173,7 @@ ok(versionAtLeast((src.match(/var VERSION = "([^"]+)"/) || [])[1] || "0", "0.18.
 
   db = capDb();
   await markError({ QNFO_AUDIT: db }, { id: "r3", recover_count: 99 }, "review: 1 HARD");
-  ok(updates(db).some((s) => /stage='parked'/.test(s.sql) && /PARKED-POISON-1/.test(s.args[0])), "an exhausted recover_count still parks as PARKED-POISON-1");
+  ok(updates(db).some((s) => s.args[0] === "queued" && s.args[1] === "ground" && /^SINGLE-LANE-1: re-entered at ground, no parked state\. Was: recover_count exhausted \(99\); last error: review: 1 HARD/.test(s.args[2])), "an exhausted recover_count re-enters the lane at ground (it was PARKED-POISON-1)");
 }
 
 // ---- 2500 REVISER-REREAD-1 ---------------------------------------------------------------------------------------------

@@ -285,7 +285,7 @@ CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, i
   ok(/a mismatch between two passages of the paper = HARD/i.test(src) && /table of 16 rows described as 15/.test(src), "a mismatch is HARD and the 16-row table example is in the prompt");
   ok(src.indexOf("spot-check 2-3 derivations") < 0 && /check every headline number \(Abstract, Introduction, Results, Conclusion\)/.test(src), "item 3 checks every headline number, not 2-3 derivations");
   ok(src.indexOf("daily publication cap of 5 reached") < 0, "the dead 5-a-day publication cap is gone (code-probe absent)");
-  ok(/await logEvent\(env, "park-rearm-heartbeat"/.test(src) && /_sMin === 0\) await logEvent\(env, "park-rearm-heartbeat"/.test(src), "the hourly park sweep leaves a park-rearm-heartbeat event whether or not it re-armed a row");
+  ok(/await logEvent\(env, "lane-heartbeat"/.test(src) && /_sMin === 0\) await logEvent\(env, "lane-heartbeat"/.test(src), "the hourly lane sweep leaves a lane-heartbeat event whether or not it returned a row (SINGLE-LANE-1: the former park-rearm-heartbeat)");
   ok(versionAtLeast(src.match(/var VERSION = "([^"]+)"/)?.[1], "0.37.0"), "the host is 0.37.0 or later");
   ok(/ERRATA_VERSION = "1\.9\.\d+-folded"/.test(src) && /var VERSION = "1\.9\.\d+-[a-z-]+"/.test(hub), "the member is 1.9.x in the host and in errata-hub");
 }

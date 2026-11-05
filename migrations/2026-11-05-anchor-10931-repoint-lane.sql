@@ -1,0 +1,11 @@
+-- ANCHOR-REPOINT-10931-LANE (2026-11-05, charter pillar research; SINGLE-LANE-1, agent_issues 1001450, GitHub 6709, qnfo-research-exec 0.54.0).
+-- Trigger 10931 (research_neurons_per_publication_7d) names a code-task and a code-anchor in qnfo-research-exec/worker.js. Since migrations/2026-11-01-anchor-10931-repoint.sql its anchor was the line
+--   return { ok: false, stage: "revise", withheld: "revise-noop", fixes: _fx.length, fixIds: _hardIds.slice(0, 8), proposed: _p.proposed, parked: true, revise_count: _noopBound.revise_count };
+-- SINGLE-LANE-1 removes every parked state from the worker: the revise no-op ceiling re-enters the lane (reviseNoopBound returns lane: true), so that line now reads lane: true and the anchor occurs 0 times
+-- (migrations/code-anchor-once.test.mjs goes red on exactly this, as its header says: the PR that moves an anchored line adds the repoint in the same PR).
+-- The pair is repointed to the signature of the function that holds the revise no-op handling, async function stageRevise(env, row) {, which occurs exactly once and does not move when a body line does
+-- (the rule written after trigger 10931 broke twice). Only the anchor line changes: replace() leaves the rest of the action alone, and a second run finds no old anchor and changes nothing.
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: UPDATE analytics_metric_triggers SET action = replace(action, char(10) || 'code-anchor: async function stageRevise(env, row) {', char(10) || 'code-anchor: return { ok: false, stage: "revise", withheld: "revise-noop", fixes: _fx.length, fixIds: _hardIds.slice(0, 8), proposed: _p.proposed, parked: true, revise_count: _noopBound.revise_count };') WHERE id = 10931 AND metric_key = 'research_neurons_per_publication_7d';
+UPDATE analytics_metric_triggers SET action = replace(action, char(10) || 'code-anchor: return { ok: false, stage: "revise", withheld: "revise-noop", fixes: _fx.length, fixIds: _hardIds.slice(0, 8), proposed: _p.proposed, parked: true, revise_count: _noopBound.revise_count };', char(10) || 'code-anchor: async function stageRevise(env, row) {') WHERE id = 10931 AND metric_key = 'research_neurons_per_publication_7d';

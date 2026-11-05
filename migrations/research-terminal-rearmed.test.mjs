@@ -44,10 +44,14 @@ ok(bak && bak.action === "old", "the replaced contract is in the backup", bak);
 ok(cls("issue-1").status === "superseded" && /TERMINAL-REARMED-1/.test(cls("issue-1").last_verdict) && cls("issue-3").status === "superseded", "the unreachable published probes of issues that gained the contract are superseded");
 // the migration writes the same probe the worker writes
 const wid = (p) => d.prepare("SELECT id FROM research_queue WHERE id LIKE ?").get(p + "%").id;
-ok(a.verify_probe === terminalResolveProbe(wid("aaaa1111"), terminalContentKind(MM + "gate-length")), "A: migration probe equals the worker's");
-ok(b.verify_probe === terminalResolveProbe(wid("bbbb2222"), terminalContentKind(NE)), "B: migration probe equals the worker's");
-ok(c.verify_probe === terminalResolveProbe(wid("cccc3333"), terminalContentKind(HARD)), "C: migration probe equals the worker's (hard-review)");
-ok(g.verify_probe === terminalResolveProbe(wid("99997777"), terminalContentKind(MM)), "G: migration probe equals the worker's (mismatch)");
+// SINGLE-LANE-1 (qnfo-research-exec 0.54.0): the worker's probe is now only the "left the terminal state" clause (nothing is parked any more, so the parked and spent-recovery branches are gone).
+// The contracts this migration wrote keep their text; each must contain the worker's current clause, so the old probe resolves everything the new one does.
+const leftOf = (p) => (/WHEN (EXISTS \(SELECT 1 FROM research_queue WHERE id = '[^']+' AND status <> 'wontfix' AND COALESCE\(stage, ''\) <> 'parked'\))/.exec(p) || [])[1];
+const covers = (mig, cur) => !!leftOf(cur) && leftOf(cur) === leftOf(mig) && mig.startsWith("SELECT 'resolved' AS expected");
+ok(covers(a.verify_probe, terminalResolveProbe(wid("aaaa1111"), terminalContentKind(MM + "gate-length"))), "A: migration probe contains the worker's resolve clause");
+ok(covers(b.verify_probe, terminalResolveProbe(wid("bbbb2222"), terminalContentKind(NE))), "B: migration probe contains the worker's resolve clause");
+ok(covers(c.verify_probe, terminalResolveProbe(wid("cccc3333"), terminalContentKind(HARD))), "C: migration probe contains the worker's resolve clause (hard-review)");
+ok(covers(g.verify_probe, terminalResolveProbe(wid("99997777"), terminalContentKind(MM))), "G: migration probe contains the worker's resolve clause (mismatch)");
 for (const x of [a, b, c, g]) ok(/^SELECT /.test(x.verify_probe) && !x.verify_probe.includes(";") && !/LIKE '[^']{50,}'/.test(x.verify_probe) && !/agent_issues/.test(x.verify_probe), "probe is one SELECT, no long LIKE, never reads the issue", x.class);
 const probe = (x) => d.prepare(x.verify_probe).get().observed;
 ok(probe(a) === "resolved", "A: the row left the terminal state, resolved");

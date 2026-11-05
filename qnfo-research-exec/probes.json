@@ -29,7 +29,8 @@
       "binding": "QNFO_AUDIT",
       "explain": [
         "INSERT INTO ask_rate (k, n, ts) VALUES ('pre-probe', 1, '2026-01-01T00:00:00.000Z') ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n",
-        "INSERT INTO paper_claims (slug, version, claim_text, claim_kind, source_ref, verification_state, verified_by) SELECT 'probe', '0', 'probe', 'atomic', 'probe', 'unverified', 'probe' WHERE 1 ON CONFLICT(slug, claim_kind, source_ref) DO UPDATE SET claim_text = excluded.claim_text, verification_state = excluded.verification_state"
+        "INSERT INTO paper_claims (slug, version, claim_text, claim_kind, source_ref, verification_state, verified_by) SELECT 'probe', '0', 'probe', 'atomic', 'probe', 'unverified', 'probe' WHERE 1 ON CONFLICT(slug, claim_kind, source_ref) DO UPDATE SET claim_text = excluded.claim_text, verification_state = excluded.verification_state",
+        "UPDATE research_queue SET status = 'queued', stage = 'ground', error = 'probe', claimed_at = NULL, attempt = 0, recover_count = 0, revise_count = 0, terminal_rearms = COALESCE(terminal_rearms, 0) + 1, context = '{}' WHERE id = 'probe' AND status IN ('researching','queued','failed','review')"
       ]
     }
   ]

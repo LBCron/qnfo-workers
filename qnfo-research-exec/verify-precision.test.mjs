@@ -11,7 +11,7 @@
 // Run: node qnfo-research-exec/verify-precision.test.mjs   -> prints "N passed, 0 failed"
 import { DatabaseSync } from "node:sqlite";
 import { versionAtLeast } from "../scripts/version-at-least.mjs";
-import worker, { adjudicateVerification, numLit, statedLiterals, finalGates, stageVerify, stageReview, stageRevise, publishStageV2, runSlot, applyRevisePatch, parkPoisonRow, doneStatus, routerSecondPathDrill, routerDrillDue, VERIFY_GEN_PROMPT, REVISE_PATCH_PROMPT } from "./worker.js";
+import worker, { adjudicateVerification, numLit, statedLiterals, finalGates, stageVerify, stageReview, stageRevise, publishStageV2, runSlot, applyRevisePatch, laneReenter, doneStatus, routerSecondPathDrill, routerDrillDue, VERIFY_GEN_PROMPT, REVISE_PATCH_PROMPT } from "./worker.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 400) : "")); } };
@@ -59,7 +59,7 @@ ok(/adds no name, citation, identifier, link, number or finding from memory/.tes
 
 // ---- shared fixtures ------------------------------------------------------------------------------------------------
 const audit = new DatabaseSync(":memory:");
-audit.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, context TEXT, error TEXT, recover_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, paper_slug TEXT, published_at TEXT, doi TEXT);
+audit.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, context TEXT, error TEXT, recover_count INTEGER DEFAULT 0, revise_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0, paper_slug TEXT, published_at TEXT, doi TEXT);
 CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);
 CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);
 CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT);
@@ -153,8 +153,8 @@ ok(res.stage === "review->revise" && get("r-low").stage === "revise", "below the
 audit.prepare("INSERT INTO ops_config (key, value) VALUES ('research_max_review_cycles', '2')").run();
 put("r-cap");
 res = await stageReview(env, row("r-cap", "review", { cycles: 2 }));
-// The configured review-cycle cap is terminal for HARD findings; do not schedule an unbudgeted extra revise/review cycle.
-ok(res.ok === false && res.withheld === "review-hard" && res.hardLeft === 2 && get("r-cap").status === "wontfix" && get("r-cap").stage === "parked" && /^REVIEW-UNRESOLVED-PARK-1: prior stage review; review: 2 HARD findings unresolved after 2 revise cycles \(H1,H2\)/.test(get("r-cap").error), "at the cap a paper with unresolved HARD findings is withheld and parked without an extra revise pass", get("r-cap"));
+// The configured review-cycle cap ends this pass for HARD findings: the paper is withheld (never published) and, since SINGLE-LANE-1, re-enters the lane at revise with a fresh budget instead of being parked.
+ok(res.ok === false && res.withheld === "review-hard" && res.hardLeft === 2 && get("r-cap").status === "queued" && get("r-cap").stage === "revise" && /^SINGLE-LANE-1: re-entered at revise, no parked state\. Was: review: 2 HARD findings unresolved after 2 revise cycles \(H1,H2\)/.test(get("r-cap").error), "at the cap a paper with unresolved HARD findings is withheld and re-enters the lane at revise (never parked, never published)", get("r-cap"));
 audit.prepare("INSERT INTO ops_config (key, value) VALUES ('research_review_gate', 'measure')").run();
 put("r-measure");
 res = await stageReview(env, row("r-measure", "review", { cycles: 2 }));
@@ -215,10 +215,10 @@ ok(res.ok === false && res.held === true && res.withheld === "citation-unverifie
 ok(lp.prepare("SELECT status FROM papers WHERE slug = 'c1-slug'").get().status === "draft" && events("citation-hold").length === 1, "held, logged, still unpublished");
 globalThis.fetch = realFetch;
 
-// ---- 7. park, done status ----------------------------------------------------------------------------------------------
+// ---- 7. lane re-entry (was: park), done status ----------------------------------------------------------------------------------------------
 row("p-review", "publish", null, { status: "review", recover: 3 });
-await parkPoisonRow(env, get("p-review"), "publish: boom");
-ok(get("p-review").status === "wontfix" && get("p-review").stage === "parked" && /^PARKED-POISON-1: .*publish: boom/.test(get("p-review").error), "a failing publish-stage row in status review is parked (RESEARCH-PARK-REVIEW-1)", get("p-review"));
+await laneReenter(env, get("p-review"), { kind: "poison", prior: "publish", reason: "recover_count exhausted (3); last error: publish: boom" });
+ok(get("p-review").status === "queued" && get("p-review").stage === "ground" && /^SINGLE-LANE-1: re-entered at ground, no parked state\. Was: .*publish: boom/.test(get("p-review").error), "a failing publish-stage row in status review re-enters the lane (RESEARCH-PARK-REVIEW-1: it was parked)", get("p-review"));
 ok(doneStatus({ ok: false, stage: "verify", unrun: 1, cause: "script-error", retry: true }) === "warn" && doneStatus({ ok: false, stage: "verify", unrun: 3, cause: "script-error" }) === "error", "RETRY-NOT-ERROR-1: a retry still in budget is a warn; the exhausted pass is an error");
 ok(doneStatus({ ok: true }) === "ok" && doneStatus({ ok: false, withheld: "review-hard" }) === "warn" && doneStatus({ ok: false, stage: "verify" }) === "error", "a withheld paper is a warn event; a broken stage stays an error");
 

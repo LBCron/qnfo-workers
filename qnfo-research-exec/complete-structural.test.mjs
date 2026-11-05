@@ -192,5 +192,32 @@ function paperC() {
   ok(typeof fixed === "string" && /moved\)$/.test(info.note || ""), "E: info.note describes the repair", info);
 }
 
+// F. COMPLETE-STRUCTURAL-3: research_queue.error is cleared only at publish, so a row this stage rescued kept "complete: structural defects only, no writable section: ..."
+// for days (the contracts that count such rows could not read pass). Leaving for review clears that annotation (bare, or behind the stale-claim reaper's or the lane's prefix)
+// and only that one. Real SQL here (node:sqlite), not the recording mock: the statement is the subject.
+import { DatabaseSync } from "node:sqlite";
+{
+  const STRUCT = "complete: structural defects only, no writable section: skipped section numbers: 4";
+  const cases = [
+    ["bare", STRUCT, null],
+    ["reaper", "STALE-CLAIM-REAPER-1: reclaimed after 30 min claimed_at; previous error: " + STRUCT, null],
+    ["lane", "SINGLE-LANE-1: re-entered at ground, no parked state. Was: " + STRUCT, null],
+    ["unrelated", "verify: unresolved after revision - mismatch=true gates=", "verify: unresolved after revision - mismatch=true gates="],
+    ["reaper-other", "STALE-CLAIM-REAPER-1: reclaimed after 30 min claimed_at; previous error: ground: bibliography 2 < 5", "STALE-CLAIM-REAPER-1: reclaimed after 30 min claimed_at; previous error: ground: bibliography 2 < 5"],
+    ["none", null, null]
+  ];
+  for (const [name, before, after] of cases) {
+    const sdb = new DatabaseSync(":memory:");
+    sdb.exec("CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT, stage TEXT, error TEXT, context TEXT, recover_count INTEGER DEFAULT 0); CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);");
+    sdb.prepare("INSERT INTO ops_config (key, value) VALUES ('research_floor_extend', 'off')").run();
+    sdb.prepare("INSERT INTO research_queue (id, status, stage, error, context) VALUES ('r1', 'researching', 'complete', ?, '{}')").run(before);
+    const t = mkEnv({ paper: structuralPaper() });
+    const D1 = { prepare(sql) { let args = []; const q = { bind(...x) { args = x; return q; }, async run() { const r = sdb.prepare(sql).run(...args); return { meta: { changes: Number(r.changes) } }; }, async first() { return sdb.prepare(sql).get(...args) || null; }, async all() { return { results: sdb.prepare(sql).all(...args) }; } }; return q; } };
+    const res = await stageComplete({ AI: t.env.AI, MIRROR: t.env.MIRROR, QNFO_AUDIT: D1 }, Object.assign({}, row, { error: before }));
+    const r1 = sdb.prepare("SELECT stage, error FROM research_queue WHERE id = 'r1'").get();
+    ok(res && res.stage === "complete->review" && r1.stage === "review" && r1.error === after, "F: error after leaving for review (" + name + ")", { res, r1 });
+  }
+}
+
 console.log(pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);

@@ -26,7 +26,7 @@ assert.deepEqual(groundQueries("what is the", ""), []);
 
 // 2. stageGround end to end against fake arXiv, router search, living-paper, R2 and qnfo-audit.
 const audit = new DatabaseSync(":memory:");
-audit.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, context TEXT, error TEXT, recover_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0);
+audit.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, source TEXT, source_id TEXT, idea TEXT, summary TEXT, status TEXT DEFAULT 'queued', stage TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, context TEXT, error TEXT, recover_count INTEGER DEFAULT 0, revise_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0);
 CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);
 CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);`);
 const lp = new DatabaseSync(":memory:");
@@ -108,14 +108,14 @@ assert.match(t.error, /^ground: bibliography 2 < 5 entries with full text \(gate
 assert.equal(audit.prepare("SELECT count(*) n FROM cloud_ops_events WHERE kind = 'ground-thin'").get().n, 1);
 assert.ok(r2.has("pipeline/thin/grounding.md"), "the thin grounding is kept for diagnosis");
 
-// 2c. a thin pass with recover_count exhausted parks the row with the reason and files the terminal issue, as before.
+// 2c. a thin pass with recover_count exhausted re-enters the lane at ground with the reason (SINGLE-LANE-1: it was parked) and files the terminal issue, as before.
 // 99 rather than the old ceiling of 3: the ceiling is ops_config research_recover_max (default 6), so a literal 3 is no
 // longer exhausted and the assertion tested the default rather than the park.
 res = await stageGround(env, row("exhausted", 99));
 assert.equal(res.ok, false);
 t = get("exhausted");
-assert.equal(t.status, "wontfix"); assert.equal(t.stage, "parked");
-assert.match(t.error, /^PARKED-POISON-1: recover_count exhausted \(99\); last error: ground: bibliography 2 < 5/);
+assert.equal(t.status, "queued"); assert.equal(t.stage, "ground"); assert.equal(t.recover_count, 0); assert.equal(t.terminal_rearms, 1);
+assert.match(t.error, /^SINGLE-LANE-1: re-entered at ground, no parked state\. Was: recover_count exhausted \(99\); last error: ground: bibliography 2 < 5/);
 assert.equal(audit.prepare("SELECT count(*) n FROM agent_issues WHERE title LIKE 'RESEARCH-TERMINAL exhauste%'").get().n, 1);
 
 // 2d. arXiv refusing, DataCite answering: relevant arXiv records fill the bibliography, the row advances, and an

@@ -35,7 +35,7 @@ assert.ok(/LaTeX/.test(block("REVISE_PATCH_PROMPT")), "REVISE_PATCH_PROMPT asks 
 
 // shims
 const db = new DatabaseSync(":memory:");
-db.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT, stage TEXT, context TEXT, source TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, error TEXT, recover_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0);
+db.exec(`CREATE TABLE research_queue (id TEXT PRIMARY KEY, status TEXT, stage TEXT, context TEXT, source TEXT, claimed_at TEXT, attempt INTEGER DEFAULT 0, error TEXT, recover_count INTEGER DEFAULT 0, revise_count INTEGER DEFAULT 0, terminal_rearms INTEGER DEFAULT 0);
 CREATE TABLE cloud_ops_events (id TEXT, ts TEXT, kind TEXT, text TEXT, meta TEXT, job TEXT, status TEXT);
 CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT);
 CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);`);
@@ -112,8 +112,8 @@ out = await stageVerify(env, row("v2", { cycles: 2 }));
 assert.equal(out.stage, "verify->publish");
 assert.ok(events("math-scan").some((e) => /row=v2 pseudo_math=0 /.test(e.text) && e.status === "ok"), "a clean paper logs an ok math-scan");
 
-// 5. enforce mode: first failing pass -> revise; second math-only failing pass -> parked, not re-armed; convertible math
-// is no longer parked (the 8 rows parked from 2026-10-12 to 2026-10-19 were this case)
+// 5. enforce mode: first failing pass -> revise; second math-only failing pass -> back into the lane at ground (SINGLE-LANE-1: it was parked); convertible math
+// is no longer withheld at all (the 8 rows parked from 2026-10-12 to 2026-10-19 were this case)
 db.prepare("INSERT INTO ops_config (key, value) VALUES ('research_math_gate', 'enforce')").run();
 put("e1", BOX);
 out = await stageVerify(env, row("e1", { cycles: 2 }));
@@ -121,11 +121,11 @@ assert.equal(out.stage, "verify->revise", "enforce: first failing pass goes back
 assert.ok(JSON.parse(r2.get("pipeline/e1/fixes.json")).some((f) => f.id === "gate-math-latex"));
 put("e2", BOX);
 out = await stageVerify(env, row("e2", { cycles: 2, verifyPass: 1 }));
-assert.ok(out.parked && out.stage === "verify", "enforce: second math-only failure parks: " + JSON.stringify(out));
+assert.ok(out.lane && out.stage === "verify", "enforce: second math-only failure re-enters the lane: " + JSON.stringify(out));
 const e2 = get("e2");
-assert.equal(e2.stage, "parked"); assert.equal(e2.status, "wontfix"); assert.match(e2.error, /^PARKED-MATH-LATEX-2: \d+ plain-text math tokens/);
-assert.equal(e2.recover_count, 0, "not re-armed");
-assert.equal(events("math-park").length, 1);
+assert.equal(e2.stage, "ground"); assert.equal(e2.status, "queued"); assert.match(e2.error, /^SINGLE-LANE-1: re-entered at ground, no parked state\. Was: MATH-LATEX-2: \d+ plain-text math tokens/);
+assert.equal(e2.recover_count, 0, "a fresh recovery budget for the new cycle"); assert.equal(e2.terminal_rearms, 1, "the cycle is counted");
+assert.equal(events("lane-reenter").length, 1); assert.equal(events("math-park").length, 0, "nothing is parked any more");
 put("e4", PSEUDO);
 out = await stageVerify(env, row("e4", { cycles: 2, verifyPass: 1 }));
 assert.equal(out.stage, "verify->publish", "enforce: convertible math is converted and published, not parked: " + JSON.stringify(out));
