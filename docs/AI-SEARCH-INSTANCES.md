@@ -5,13 +5,31 @@ docs/SCOUT-ROADMAP-2026-10.md). Read on 2026-10-28 from the live worker (`GET ht
 `wrangler.toml` of every worker on `main`.
 
 Source of the change: Cloudflare changelog 2026-10-01, AI Search generally available (full text read when the roadmap item was filed). Usage billing
-begins 2026-11-01. Embedding and rerank calls move into AI Search pricing and no longer appear on Workers AI bills or in AI Gateway logs. Hybrid search is
+was announced for 2026-11-01 and **postponed to 2026-12-01** by the changelog of 2026-11-02 (read 2026-11-05; `scripts/cost_ledger.py`
+`AI_SEARCH_BILLING_START` already says 2026-12-01). Embedding and rerank calls move into AI Search pricing and no longer appear on Workers AI bills or in AI Gateway logs. Hybrid search is
 the default for new instances. File caps are 10 MiB (OCR and text) and 4 MiB.
 
 **Correction 2026-11-05 (BLUESKY-2026-11, full text of the changelog post read):** Cloudflare postponed usage billing by one month: it now begins
 **2026-12-01**, not 2026-11-01, and the default sync interval for new instances is 24 hours (was 6); pricing and included usage are unchanged
 (https://developers.cloudflare.com/changelog/post/2026-11-02-billing-postponed-default-sync-interval/). Every "2026-11-01" in this file reads 2026-12-01. The
 instance's own `sync_interval` is set explicitly, so the new default does not change `qnfo-corpus`; check that before creating any second instance.
+
+## Review of 2026-11-05 (AI-SEARCH-COST-1)
+
+- **Instances (live read 2026-11-05):** still exactly one, `qnfo-corpus` (namespace `default`, hybrid, rerank off, sync interval 86400 s, last activity 2026-11-04). No new instance since 2026-10-28.
+- **Rates are now readable** (https://developers.cloudflare.com/ai-search/platform/limits-pricing/, read 2026-11-05): per account and month 5 million ingestion tokens, 10 GB-month storage,
+  1,000 semantic and 1,000 full-text queries are included; beyond that ingestion USD 0.75 per million tokens, storage USD 2.00 per GB-month, semantic, vector and hybrid queries USD 0.75 per 1,000,
+  full-text queries USD 0.10 per 1,000, instances USD 0.10 per month above 5,000 (the fleet has one). Embedding and rerank calls are inside these lines.
+- **Expected bill, as a bound and not a reading:** the dominant line is the query line. At the upper bound of the volume table below (about 400 searches a day, 12,000 a month, hybrid, so priced as
+  semantic) it is (12,000 - 1,000) / 1,000 x 0.75 = **USD 8.25 a month**; ingestion stays inside the included 5 million tokens at the current rate of about 100 new papers a month; storage is far below 10 GB.
+  Against `ai_est_cost_30d` of 749.08 (2026-11-04) that is about 1 percent. The first invoice line replaces this bound after 2026-12-01.
+- **Cost telemetry (the failure mode of this item):** `write_ai_search_snapshot` (PR 6563) had no caller and its table `ai_search_cost_snapshots` no DDL, and `v_cost_lines_month` did not read the
+  `ai_search:usage` source, so the first AI Search charge would have reached no cost line (the Money card would have read a saving). `scripts/cost_ledger.py` now runs the snapshot on every hourly ledger run,
+  `migrations/2026-11-05-e-ai-search-cost.sql` creates the table and makes `v_cost_lines_month` read `ai_search:usage` as vendor `cloudflare`, product `ai_search`, evidence `invoice`, and an inventory that
+  cannot be read is stored as unknown (NULL), never as zero instances.
+- **Why `unified_cost_usd_30d` is not the comparison:** that key is the AI Gateway unified-billing share (`aiSpendByBilling(...).unified` in qnfo-fleet-control) and reads 0.00 because the fleet pays Workers AI by neuron
+  and BYOK by provider; it never summed the lines AI Search absorbs. The meters that did are `workers_ai_cost_30d_usd` (neurons) and `cost_usd_30d`; the before and after comparison belongs to them and to
+  `v_cost_all_in` (which now includes the AI Search line).
 
 ## Which workers bind AI Search
 
@@ -65,7 +83,7 @@ makes that claim testable.
 
 ## Checks to run (the definition of done)
 
-1. On 2026-11-01 and again on 2026-11-08, `GET /instances` lists exactly the instances in the table above (a new row is a finding).
+1. On 2026-11-01 and again on 2026-11-08 (billing moved to 2026-12-01: repeat on 2026-12-01 and 2026-12-08, now recorded hourly in `ai_search_cost_snapshots.inventory_json`), `GET /instances` lists exactly the instances in the table above (a new row is a finding).
 2. The AI Search line of the invoice, per instance, is recorded here next to the bound above. If it exceeds 10 percent of the 30 day AI spend, the lever is
    `reranking` off (already) and `cache` on (already), then fewer golden-set evaluations (`tuneRetrieval` cadence).
 3. `unified_cost_usd_30d` for the 30 days before and after 2026-11-01 are compared; a drop of more than 10 percent that is not explained by volume is

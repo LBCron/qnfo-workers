@@ -1,0 +1,61 @@
+// AI-SEARCH-COST-1 offline suite. Run: node migrations/e-ai-search-cost.test.mjs
+// The first AI Search charge must reach v_cost_lines_month / v_cost_all_in, and the closing probe must measure the telemetry, not a different quantity.
+import { DatabaseSync } from "node:sqlite"; import { readFileSync } from "node:fs";
+const db = new DatabaseSync(":memory:");
+const prior = readFileSync(new URL("./2026-11-04-vendor-cost-ledger.sql", import.meta.url), "utf8");
+const viewOf = (t, name) => { const i = t.indexOf("CREATE VIEW IF NOT EXISTS " + name + " AS"); const j = t.indexOf(";\n", i); return t.slice(i, j + 1).replace("IF NOT EXISTS ", ""); };
+db.exec(`CREATE TABLE cost_daily (date TEXT NOT NULL, source TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'fleet', usd REAL NOT NULL DEFAULT 0, requests INTEGER DEFAULT 0, note TEXT, PRIMARY KEY (date, source));
+CREATE TABLE cost_vendor_month (month TEXT, vendor TEXT, product TEXT, evidence TEXT, net_mtd_usd REAL, net_forecast_usd REAL, rate_daily_3d_usd REAL);
+CREATE TABLE cost_source_registry (source TEXT PRIMARY KEY, label TEXT NOT NULL, scope TEXT NOT NULL, payer TEXT NOT NULL, observable_via TEXT NOT NULL, notes TEXT);
+CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, verify_probe TEXT, action TEXT, status TEXT, attempts INTEGER, last_verdict TEXT, deferred_since TEXT, next_due_at TEXT);
+INSERT INTO remediation_contracts VALUES ('issue-1000651', 1000651, 'OLD', 'old', 'active', 5, 'fail', NULL, NULL);
+CREATE TABLE roadmap_implementation (id INTEGER PRIMARY KEY, item TEXT, status TEXT, evidence TEXT);
+INSERT INTO roadmap_implementation VALUES (1694, 'RM-AISEARCH-GA-MIGRATE-1', 'planned', 'docs/SCOUT-ROADMAP-2026-10.md');
+ALTER TABLE remediation_contracts ADD COLUMN precondition TEXT; ALTER TABLE remediation_contracts ADD COLUMN verify_transport TEXT; ALTER TABLE remediation_contracts ADD COLUMN max_attempts INTEGER; ALTER TABLE remediation_contracts ADD COLUMN escalate_to TEXT; ALTER TABLE remediation_contracts ADD COLUMN expected_cadence_h INTEGER; ALTER TABLE remediation_contracts ADD COLUMN module TEXT;`);
+db.exec(viewOf(prior, "v_cost_lines_month"));
+let fail = 0; const ok = (c, m) => { if (!c) { fail++; console.log("FAIL " + m); } };
+// a month of ledger rows: two days ago the first AI Search charge
+const iso = (d) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+const ins = db.prepare("INSERT INTO cost_daily (date, source, usd) VALUES (?, ?, ?)");
+for (let d = 1; d <= 6; d++) { ins.run(iso(d), "workers_ai", 10); ins.run(iso(d), "ai_search:usage", d <= 3 ? 2 : 0); }
+const lines = () => db.prepare("SELECT vendor, product, evidence, mtd_usd, forecast_month_usd, rate_daily_usd FROM v_cost_lines_month").all();
+ok(!lines().some((l) => l.product === "ai_search"), "before the migration the AI Search source is not a cost line (the failure mode)");
+const sql = readFileSync(new URL("./2026-11-05-e-ai-search-cost.sql", import.meta.url), "utf8");
+db.exec(sql);
+const after = lines();
+const as = after.find((l) => l.product === "ai_search");
+ok(as && as.vendor === "cloudflare" && as.evidence === "invoice", "after the migration ai_search:usage is a cloudflare / ai_search / invoice line: " + JSON.stringify(as));
+ok(Math.abs(as.rate_daily_usd - 2) < 1e-6, "the line carries the 3-day rate (three days of 2 USD): " + as.rate_daily_usd);
+const wai = after.find((l) => l.product === "workers_ai");
+ok(wai && wai.vendor === "cloudflare" && wai.evidence === "meter", "the other lines are unchanged: " + JSON.stringify(wai));
+const tables = db.prepare("SELECT name FROM sqlite_master WHERE name IN ('ai_search_cost_snapshots', 'bak_20261105_e_ai_search_cost')").all().map((r) => r.name).sort();
+ok(tables.length === 2, "snapshot table and view backup exist: " + tables);
+ok(db.prepare("SELECT COUNT(*) n FROM bak_20261105_e_ai_search_cost WHERE sql LIKE '%v_cost_lines_month%'").get().n === 1, "the previous view text is saved");
+ok(db.prepare("SELECT COUNT(*) n FROM cost_source_registry WHERE source = 'ai_search:usage'").get().n === 1, "the source is registered");
+db.exec(sql);
+ok(db.prepare("SELECT COUNT(*) n FROM bak_20261105_e_ai_search_cost WHERE sql LIKE '%v_cost_lines_month%'").get().n === 1, "re-running keeps the first backup of the view");
+ok(db.prepare("SELECT sql FROM bak_20261105_e_ai_search_cost WHERE name = 'roadmap:1694:status'").get().sql === "planned", "the previous roadmap status is saved once");
+const rm = db.prepare("SELECT status, evidence FROM roadmap_implementation WHERE id = 1694").get();
+ok(rm.status === "built" && /ai_search_summary/.test(rm.evidence), "roadmap 1694 is built with the evidence: " + JSON.stringify(rm).slice(0, 120));
+const rmc = db.prepare("SELECT class, status, module, verify_transport, verify_probe FROM remediation_contracts WHERE class = 'rm-1694'").all();
+ok(rmc.length === 1 && rmc[0].status === "active" && rmc[0].module === "roadmap-dod-v1" && rmc[0].verify_transport === "d1-query", "one active roadmap-dod-v1 contract rm-1694 after two runs");
+ok(rmc[0] && rmc[0].verify_probe === db.prepare("SELECT verify_probe p FROM remediation_contracts WHERE class = 'issue-1000651'").get().p, "rm-1694 carries the same probe as the issue contract");
+// the snapshot DDL accepts the exact statement scripts/cost_ledger.py writes, and an unread inventory is NULL
+const ledger = readFileSync(new URL("../scripts/cost_ledger.py", import.meta.url), "utf8");
+const cols = /INSERT INTO ai_search_cost_snapshots \(([^)]*)\)/.exec(ledger)[1].split(",").map((s) => s.trim());
+const have = db.prepare("SELECT name FROM pragma_table_info('ai_search_cost_snapshots')").all().map((r) => r.name);
+ok(cols.length === 10 && cols.every((c) => have.includes(c)), "every column cost_ledger.py writes exists: " + cols.filter((c) => !have.includes(c)));
+const probe = () => db.prepare(db.prepare("SELECT verify_probe p FROM remediation_contracts WHERE class = 'issue-1000651'").get().p).get();
+ok(probe().observed !== probe().expected, "no snapshot: the probe does not pass");
+const now = () => new Date(Date.now()).toISOString();
+const put = db.prepare("INSERT OR REPLACE INTO ai_search_cost_snapshots (snapshot_day, observed_at, instance_count, usage_state) VALUES ('d', ?, ?, ?)");
+put.run(now(), null, "pre-billing"); ok(probe().observed !== probe().expected, "an unread inventory (NULL instance_count) does not pass");
+put.run(now(), 1, "unavailable"); ok(probe().observed !== probe().expected, "an unavailable usage report does not pass");
+put.run(now(), 1, "unmeasured"); ok(probe().observed !== probe().expected, "an unmeasured billing period does not pass");
+put.run(new Date(Date.now() - 30 * 36e5).toISOString(), 1, "pre-billing"); ok(probe().observed !== probe().expected, "a 30-hour-old snapshot does not pass");
+put.run(now(), 1, "pre-billing"); ok(probe().observed === probe().expected, "a fresh readable pre-billing snapshot passes: " + JSON.stringify(probe()));
+put.run(now(), 2, "measured"); ok(probe().observed === probe().expected, "a fresh measured snapshot passes");
+const c = db.prepare("SELECT status, attempts, last_verdict FROM remediation_contracts WHERE class = 'issue-1000651'").get();
+ok(c.status === "active" && c.attempts === 0 && c.last_verdict === null, "the contract is re-armed");
+ok(/^-- APPLY-BY: ci$/m.test(sql) && /^-- DB: qnfo-audit$/m.test(sql) && /^-- Rollback: /m.test(sql) && /^-- BACKUP: /m.test(sql), "migration header lines");
+console.log(fail ? fail + " failed" : "all passed"); process.exit(fail ? 1 : 0);
