@@ -22,8 +22,9 @@ and the personal/research separation keep their precedence. Section 9 says exact
    a 3x cut needs fewer or cheaper stages: cascades, routers, distilled classifiers, a sealed eval that lets a cheap model replace an expensive one.
 3. **D1 should hold control state and nothing else.** Telemetry goes to a lake, locks go to Durable Objects, switches go to flags. Size is not the limit
    (10 GB per database, F); one query at a time per database is.
-4. **Nobody can say whether the fleet is getting better.** At 6.3 engaged readers a day a 3-point swing is below the noise floor (MEAS-01). Honest
-   measurement is a bet of its own because every other bet is judged by it.
+4. **Nobody can say whether the fleet is getting better.** Measured (R): the reader series has a standard deviation of 5.0 on a mean of 5.1 a day, so two 7-day windows
+   cannot tell a change smaller than +7.4 a day (more than double) from noise; two 28-day windows reach +3.7 (B4, first reading). Honest measurement is a bet of its
+   own because every other bet is judged by it.
 5. **Sixteen bets, three waves, four gates.** Wave 0 is small, reversible and has dated deadlines; later waves open on metrics, not on the calendar.
 6. **Verified defects found on the way, filed with doers:** `ideas.qnfo.org` publicly lists a raw prompt as a thread; `ask.qwav.org` declares
    `ask.qwav.tech` canonical; `qwav.org/llms.txt` redirects to the homepage; `fleet.qnfo.org` serves "Loading..." with no social tags; a paper's `.md`
@@ -119,6 +120,17 @@ Prediction lines are hypotheses to be logged in `decision_log` before the first 
   one-tap owner labels a month, with prediction-powered inference giving valid intervals for judge scores [MEAS-04]; human anchors re-scored by the current
   judge to separate judge drift from system drift [MEAS-02]; a 5 percent holdout on a frozen "fleet v0" [MEAS-07]; enter the q08 forecasts in an external bot
   tournament [MEAS-05].
+- **First reading (W0, R, 2026-11-05).** From `reader_yield_daily` (qnfo-audit, 11 complete days 2026-10-25 to 2026-11-04, the span GA4 has been ingested), externally
+  sourced engaged sessions a day (`ga4_engaged_external`, the series behind the North Star "readers" figure; the managers' 6.29 reproduces as the 7-day mean ending 11-03):
+  mean 5.1, standard deviation 5.0, variance 4.8 times the mean (spiky, not Poisson), range 0 to 15. Treating days as independent, a 7-day mean carries a standard error of
+  1.9 (a 95 percent band of about plus or minus 3.7); the five rolling 7-day means in the data span 5.4 to 7.6 with nothing changed on purpose. The smallest effect two
+  7-day windows can tell apart (alpha 0.05, power 0.8) is **+7.4 a day, 145 percent of the mean**; two 14-day windows +5.2; two 28-day windows +3.7 (73 percent). So a
+  keep-or-revert rule that compares a reader count across two 7-day windows (PLUSSING-4's seven-day outcome check, wherever a plus registers a reader count as its outcome)
+  will keep or revert most plusses on noise; a reader-outcome plus needs a 28-day read, or a measure with more events (per-page engaged rate, click-through on owned
+  surfaces). The target of 12 a day sits 3.7 standard errors above the current 7-day mean, so reaching it would be visible within a week; a drift from 6 to 8 would not.
+  Caveats: 11 days, one weekly cycle at most, a 15 on 11-01 inflates the deviation, days are not independent in practice (shared referrers), and the owner's own browsing is
+  still in the series until the GA4 internal-traffic filter (`ga4-internal-traffic-1`) is active. Papers published against next-day external engaged sessions correlate at
+  -0.7 on 10 pairs, which is descriptive only and consistent with READER-YIELD's finding that readers do not follow output.
 - **Measure.** Prediction: within 30 days every metric in `v_output_quality_headline` has a published noise floor, and the verdict names which movements
   are below it. Success is a claim the fleet withdraws because it was inside the noise.
 - **Failure mode.** At 6.3 readers a day nothing may be detectable; the honest result is then "unmeasurable at this volume", which redirects effort to B5 rather than
@@ -338,7 +350,9 @@ funding of a capped Cloudflare Wallet and any pay-per-crawl policy (money, a leg
   PAPER-META-1 (qnfo-gateway), FLEET-PUBLIC-SSR-1 (qnfo-fleet-dashboard), D1-RESULT-CAP-1 (qnfo-ops).
 - The AI Search billing date corrected in docs/AI-SEARCH-INSTANCES.md.
 - Not filed, and why: ideas resting on search excerpts or unpriced betas; items already owned (D1-SPLIT-1a to 1c, COST-D1-DRILL-1, BP26-OBSERVABILITY-1, RM-QWAV-CROSS-SIMULATOR-1, RM-CITE-EXISTENCE-GATE-1, RM-PAPER-PROVENANCE-TRACE-1, RM-MEMORY-TIERING-1, RM-CODEMODE-MCP-SURFACE-1).
-- Next originated item: **B4 W0 (MEAS-01)**, the A/A noise floor, because every other bet is judged by it; it is the first row to take a doer when W0 closes.
+- B4 W0 started in this PR: the first noise-floor reading of the reader series is in B4 (R). Next originated item: extend it to the other north-star and outcome measures
+  (cost per day, external visits per paper, `v_output_quality_headline`), and size the keep-or-revert window of every count-valued plus outcome from its minimum detectable
+  effect; that is the first row of `RM-BS-HONEST-MEASURE-1` to take a doer.
 
 ## Appendix A. Scout index
 
