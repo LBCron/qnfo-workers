@@ -14,7 +14,7 @@ const block = (BLOCK_RX.exec(snippet) || [])[0];
 ok(!!block, "the snippet file carries the marked block");
 
 // every worker that serves a public form carries the block verbatim, and its deployed mirror is identical
-const WORKERS = ["idea-hub", "qnfo-ipatent", "qnfo-ai-search", "qnfo-fleet-dashboard", "personal-companion"];
+const WORKERS = ["idea-hub", "qnfo-ipatent", "qnfo-ai-search", "qnfo-fleet-dashboard", "personal-companion", "q08-signal-engine"];
 for (const w of WORKERS) {
   const src = read(w + "/worker.js");
   ok(src.includes(block), w + ": carries the shared Turnstile block unchanged");

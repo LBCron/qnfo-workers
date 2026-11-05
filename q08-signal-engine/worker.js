@@ -37,7 +37,7 @@
 // Q08-ASCII-SOURCE-1 (2026-10-01): this file is ASCII-only; every typographic character is a \uXXXX escape. The deploy path
 // double-encoded raw UTF-8, so live pages read "... \u00e2 q08" and posts "\u00e2\u0080\u0094". Keep new literals escaped.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "0.43.0";
+var VERSION = "0.44.0";
 /* 0.43.0 Q08-TICK-ALLOWANCE-1 (2026-11-04, pillar cost; minor: the engine now decides on its own whether a tick starts an attempt; BUDGET-SOFT-ROUTE-1, attempts slow down and never stop): ai_call_counters showed 119,552, 129,547 and 110,450 neurons on 2026-11-01..03 against the 50,000 target (ops_config q08_daily_neurons) because q08Budget() only steered the first writer model and nothing bounded the attempts a tick starts (40 a day, the attempt cap, at about 2,760 neurons each). Now the :00 cron and the :30 stall retry go through governedGenerate: tick k of 48 starts an attempt only while the day is under the pace line budget x (k + 1) / 48, an essay after a forecast attempt that spent model calls starts only while the day is still under it, and 150 minutes without an attempt starts one whatever the line says (8 a day at least). No row is written for a tick that waits. The writer gate, reader panels, fact-check, final read and accuracy audit are unchanged, and an attempt already started runs all its rounds. ops_config q08_tick_governor = off restores the old behaviour. tick-allowance.test.mjs replays a UTC day. */
 /* 0.42.0 RM-FORECAST-UPDATE-SCORING-1 (#5578; research): score the last valid update before the horizon with the resolved outcome. */
 /* 0.41.6 FORECAST-CALIBRATION-BUCKET-COVERAGE-1 (#5576, charter pillar research; patch): calibration buckets include probabilities across the full [0,1] range, including the tails, rather than silently omitting forecasts below 5% or above 96%. */
@@ -986,6 +986,115 @@ async function scrapeArxiv(env) {
   out.sort(function(a,b){ return b.volatility_score - a.volatility_score; });
   return out.slice(0, 12);
 }
+// Q08-DOMAIN-FORM-1 (roadmap EK-4 and EK-5, agent_issues 1000715; pillar reach). The writer prompt, the reader panel and the final read all ask for
+// "the system behind the story: components, data flows, the design decision" - the right form for software and the wrong one for a council vote, a
+// ballot measure or a study. Measured on q08.org 2026-11-04: 0 of about 70 attempts of 2026-11-03/04 published, and the panel's own fix lines for
+// the failed drafts read "open with the concrete event" and "cut the invented procedural details" on stories about a street-safety scheme and a
+// data-centre ballot measure; the writer had no technical system to explain in the source, so it invented one and the fact-check or the panel
+// refused the draft after three writer calls. Now a story that is clearly about policy or science is read in the form the owner asked for
+// (2026-10-28): structural reading, bargaining and incentive framing, the strongest objection where the argument needs it, and a close on what the
+// counting leaves out. The classifier is deterministic (no model call): it runs before the first writer call, and a story it cannot place stays
+// technology, which keeps today's prompt byte for byte. Every gate (FACTS, grounding pre-check, fact-check, panel bar, final read bar, caps) is unchanged.
+// ops_config q08_domains lists the enabled domains (default tech,science,policy; "tech" alone restores the earlier behaviour for every story).
+var DOMAINS_KEY = "q08_domains", DOMAINS_DEFAULT = "tech,science,policy";
+var DOMAIN_ROTATE = 3;
+var DOMAIN_ARXIV_POOL = 60, DOMAIN_ARXIV_KEEP = 6;
+var DOMAIN_ARXIV_CATS = { policy: ["cs.CY", "econ.GN", "physics.soc-ph"], science: ["physics.ao-ph", "q-bio.PE", "cs.DL", "physics.med-ph", "stat.AP"] };
+var DOMAIN_ARXIV_KEYWORDS = ["policy", "regulat", "governance", "incentive", "funding", "public health", "climate", "emission", "energy", "institution", "legislat", "market", "welfare", "inequality", "reproducib", "peer review", "open science", "trial", "vaccin", "epidemic", "labor", "labour", "wage", "tax", "subsid", "carbon", "court", "election", "platform", "moderation", "copyright"];
+var DOMAIN_POLICY_RE = /\b(city council|council members?|mayor|ballot|referendum|legislat\w+|lawmakers?|congress|senate|parliament|statute|ordinance|zoning|regulat\w+|regulators?|attorney general|supreme court|court|judge|lawsuit|sanctions?|tariffs?|subsid\w+|taxes|taxation|election\w*|voters?|governor|government|policy|policies|treaty|embargo|export controls?|antitrust|permits?|police|municipal|federal|ministry|commission)\b/gi;
+var DOMAIN_SCIENCE_RE = /\b(study|studies|researchers?|scientists?|trials?|clinical|patients?|species|ecolog\w+|climate|emissions?|carbon|vaccin\w+|virus\w*|disease|epidemic|genom\w+|protein|neuro\w+|cancer|physics|astronom\w+|telescope|asteroid|planets?|fossil|biolog\w+|chemi\w+|peer[- ]review\w*|journal|meta-analysis|randomi[sz]ed|mice|cells?)\b/gi;
+var DOMAIN_TECH_RE = /\b(kernel|compiler|database|protocol|apis?|software|firmware|gpus?|cpus?|llms?|runtime|linux|rust|python|javascript|typescript|servers?|cloud|kubernetes|docker|encryption|cryptograph\w+|vulnerabilit\w+|exploit\w*|open[- ]source|github|repository|algorithms?|network|latency|cache|postgres\w*|sql|http|dns|browser|chips?|semiconductors?|ai|agents?|code|apps?|startup)\b/gi;
+function parseDomains(v) {
+  var out = { tech: true, science: false, policy: false };
+  var s = v == null ? "" : String(v).trim();
+  if (!s) s = DOMAINS_DEFAULT;
+  s.toLowerCase().split(/[\s,;+]+/).forEach(function (t) {
+    if (t === "science") out.science = true;
+    else if (t === "policy") out.policy = true;
+    else if (t === "all") { out.science = true; out.policy = true; }
+  });
+  return out;
+}
+var __domains = { at: 0, d: parseDomains(null) };
+async function q08Domains(env) {
+  if (!env || !env.AUDIT || typeof env.AUDIT.prepare !== "function") return parseDomains(null);
+  var now = Date.now();
+  if (__domains.at && now - __domains.at < 60000) return __domains.d;
+  try {
+    var r = await env.AUDIT.prepare("SELECT value FROM ops_config WHERE key = ?1").bind(DOMAINS_KEY).first();
+    __domains = { at: now, d: parseDomains(r && r.value) };
+  } catch (e) {
+    console.error("q08 q08Domains read failed: " + String(e && e.message || e).slice(0, 160));
+    __domains = { at: now, d: parseDomains(null) };
+  }
+  return __domains.d;
+}
+// "policy", "science" or "tech" for a block of text: a non-technology domain needs at least two of its markers and more of them than the technology markers.
+function classifyDomain(text) {
+  var t = String(text || "");
+  var p = (t.match(DOMAIN_POLICY_RE) || []).length, s = (t.match(DOMAIN_SCIENCE_RE) || []).length, k = (t.match(DOMAIN_TECH_RE) || []).length;
+  var n = Math.max(p, s);
+  return n >= 2 && n > k ? (p >= s ? "policy" : "science") : "tech";
+}
+// The domain a story is written in. An arXiv candidate from the policy or science lane carries its domain; a Hacker News story is classified from its
+// title, the discussion's core concept and the friction text; repositories and technology papers stay technology. A disabled domain reads as technology.
+function storyDomain(story, friction, domains) {
+  var d = domains || parseDomains(null);
+  if (story && (story.domain === "policy" || story.domain === "science")) return d[story.domain] ? story.domain : "tech";
+  if (!story || (story.source || "hn") !== "hn") return "tech";
+  var c = classifyDomain([story.title || "", friction && friction.core_concept || "", String(friction && friction.friction_point || "").slice(0, 2400)].join(" "));
+  return d[c] ? c : "tech";
+}
+// Every DOMAIN_ROTATE-th attempt of the day starts with the best policy or science candidate, so the lane is exercised even while technology candidates are plentiful.
+function preferNonTech(list, domains) {
+  var rows = list || [];
+  var i = rows.findIndex(function (c) { return storyDomain(c, { core_concept: c && c.title, friction_point: c && c.abstract || "" }, domains) !== "tech"; });
+  return i <= 0 ? rows : [rows[i]].concat(rows.slice(0, i), rows.slice(i + 1));
+}
+// A second arXiv request for the policy and science categories; the technology request in scrapeArxiv is untouched. A paper is kept only when its
+// title or abstract carries one of the domain keywords, and its domain is policy for the economics and society categories and science for the rest.
+async function scrapeArxivDomain(env, domains) {
+  var d = domains || parseDomains(null), cats = [].concat(d.policy ? DOMAIN_ARXIV_CATS.policy : [], d.science ? DOMAIN_ARXIV_CATS.science : []);
+  if (!cats.length) return [];
+  var q = cats.map(function (c) { return "cat:" + c; }).join(" OR ");
+  var url = "http://export.arxiv.org/api/query?search_query=" + encodeURIComponent(q) + "&sortBy=submittedDate&sortOrder=descending&max_results=" + DOMAIN_ARXIV_POOL;
+  var resp = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) });
+  if (!resp.ok) throw new Error("arxiv " + resp.status);
+  var xml = await resp.text();
+  var out = [];
+  for (var e of xml.split("<entry>").slice(1)) {
+    var title = ((e.match(/<title>([\s\S]*?)<\/title>/) || [, ""])[1] || "").replace(/\s+/g, " ").trim();
+    var abs = ((e.match(/<summary>([\s\S]*?)<\/summary>/) || [, ""])[1] || "").replace(/\s+/g, " ").trim();
+    var idm = (e.match(/<id>([\s\S]*?)<\/id>/) || [, ""])[1] || "";
+    var arxid = idm.split("/abs/")[1] || idm.trim();
+    var prim = (e.match(/<arxiv:primary_category[^>]*term="([^"]+)"/) || [, ""])[1] || "";
+    var domain = DOMAIN_ARXIV_CATS.policy.indexOf(prim) >= 0 ? "policy" : (DOMAIN_ARXIV_CATS.science.indexOf(prim) >= 0 ? "science" : "");
+    if (!arxid || !domain || !d[domain]) continue;
+    var low = (title + " " + abs).toLowerCase();
+    var hits = 0;
+    for (var k of DOMAIN_ARXIV_KEYWORDS) if (low.includes(k)) hits++;
+    if (hits === 0) continue;
+    out.push({ source: "arxiv", id: arxid, title: title, url: "https://arxiv.org/abs/" + arxid, points: hits, num_comments: 0, ratio: 0, volatility_score: hits * 20, abstract: abs, domain: domain });
+  }
+  out.sort(function (a, b) { return b.volatility_score - a.volatility_score; });
+  return out.slice(0, DOMAIN_ARXIV_KEEP);
+}
+// The form for a policy or science story. It replaces the technical systems analysis, items 4 and 5 of the structure and the ending of Q08_DIRECTIVE
+// for this story only; the FACTS rule, the general-claims rule, the plain-wording rule and the constraints apply unchanged.
+function domainForm(domain) {
+  if (domain !== "policy" && domain !== "science") return "";
+  var what = domain === "policy" ? "a decision, a rule or a dispute among institutions and people" : "a research finding or a research practice";
+  var lines = [
+    "\n--- FORM FOR THIS STORY: " + domain + " (this form replaces the technical SYSTEMS ANALYSIS, items 4 and 5 of STRUCTURE and the ENDING above; every FACTS, GENERAL CLAIMS, NO BORROWED HISTORY, PLAIN WORDING and CONSTRAINTS rule above applies unchanged) ---",
+    "This story is about " + what + ", not about software. Do not invent a technical system, components or data flows that the source does not describe: the system here is the set of parties, rules and rewards the source names.",
+    "STRUCTURAL READING: after the key facts, read the case as a structure. Name the parties the source names, what each can do, what each wants as the source states it, who decides and who pays. Say which rule, choice or measure in the source produced this outcome and what would have had to be different for another outcome. Concrete parties and actions only: 'the dynamic', 'the structure', 'the incentive' or 'the feedback loop' may never do the explaining.",
+    "BARGAINING AND INCENTIVES: frame the case as an exchange between the named parties: what each gives up, what each gets, and what each is rewarded or penalised for according to the source. Where the source states no motive, say the motive is not stated and reason only from the stated positions, as conditional reasoning ('if the agency is judged on X, it prefers Y')."
+  ];
+  if (domain === "science") lines.push("WHAT WAS MEASURED: state what the study measured, in whom or what, how large the sample or the effect is, and what the authors themselves say it cannot show. Never turn a correlation into a cause the source does not claim.");
+  lines.push("THE STRONGEST OBJECTION: state, in your own words and without quotation marks or an unnamed critic, the strongest objection to your reading, as a careful reader would raise it, and weigh it honestly. Place it where the argument needs it, in the paragraph where your reading is most exposed, not as a closing ritual. It may rest on the source or on pure logic, never on outside facts.");
+  lines.push("WHAT THE COUNTING LEAVES OUT (the close): end on what the numbers, categories or measures in the source do not capture: who or what falls outside the count, what the measure rewards, what it hides. State it as a fact about the measure, in one or two sentences, and stop. No summary, no moral, no call to action.");
+  return lines.join("\n");
+}
 async function extractGitHubFriction(fullName, description) {
   var parts = [];
   if (description) parts.push(description);
@@ -1599,7 +1708,10 @@ function buildPrompt(friction, fewShot, recentStructures, opts) {
   parts.push("Remember: start your response with a single H1 title line '# <title>' before the essay body. Use sentence case (capitalize only the first word and names), keep it under 90 characters, and do not output the title as code or a labelled block.");
   parts.push("Remember: your final output line must be the verdict: 'worth your time: yes|flat|no \u2014 justification'.");
   parts.push("Begin with exactly one Markdown H1 title line '# <title>' before the lede; do not omit it.");
-  if (fewShot && fewShot.length > 0) {
+  var domForm = domainForm(opts && opts.domain);
+  if (domForm) {
+    // Q08-DOMAIN-FORM-1: the proven exemplars and the register exemplar describe a technical system; a policy or science story is shown the form below instead.
+  } else if (fewShot && fewShot.length > 0) {
     parts.push("\n--- PROVEN EXEMPLAR STRUCTURES (quality floor, not templates to copy) ---");
     for (var ex of fewShot.slice(0, 2)) {
       parts.push(ex.structure_md.slice(0, 400));
@@ -1642,6 +1754,7 @@ function buildPrompt(friction, fewShot, recentStructures, opts) {
   if (bg) { parts.push("\n--- BACKGROUND (verified reference text for context and the wider system; state its facts with attribution, only where they bear on this story) ---"); parts.push(String(bg).slice(0, BACKGROUND_PROMPT_MAX)); }
   var ledger = ledgerBlock(friction, art, src); // Q08-FACT-LEDGER-1
   if (ledger) parts.push(ledger);
+  if (domForm) parts.push(domForm); // last, so it is the final instruction the writer reads
   return parts.join("\n");
 }
 
@@ -2437,13 +2550,28 @@ var FINAL_READER_PROMPT = [
   "Scores: 5 = I learned something non-obvious about how this system works and would send it to a colleague; 4 = a reader who knows only the headline comes away understanding why it happened, in concrete technical terms; 3 = accurate but adds little beyond the headline; 2 = mostly abstract restatement; 1 = empty.",
   "Score at most 2 when: the opening does not say plainly what happened, to whom, and where it was reported; or the piece never names the actual people or organisations and what each wants; or its analysis is abstract nouns instead of who does what and why; or a paragraph exists only to restate the previous one. Score at most 3 when a reader would learn nothing they could not guess from the title. A 4 must be earned with concrete reasoning a newcomer can follow."
 ].join("\n");
+// Q08-DOMAIN-FORM-1: the reader panel and the final read judge a policy or science draft on the form it was asked for. Both are the technology prompts with
+// the one criterion that asks for components and data flows swapped for the structural reading; the score scale, the opening test, the slop test and the
+// "never ask for outside facts" rule are the same words. A prompt that cannot be derived (its anchor text moved) falls back to the technology prompt, and
+// domain-form.test.mjs fails then.
+function swapSpan(text, from, to, replacement) {
+  var a = text.indexOf(from), b = to ? text.indexOf(to, a + 1) : text.length;
+  return a >= 0 && b > a ? text.slice(0, a) + replacement + text.slice(b) : text;
+}
+var READER_PROMPT_DOMAIN = swapSpan(READER_PROMPT, "Second: does it explain the system behind the story", " Then: does it open with something concrete",
+  "Second: does it read the case as a structure: the parties the source names, what each can do and wants, who decides and who pays, and which rule or choice produced the outcome, in the source's own concrete terms and without inventing a technical system the source does not describe? A piece that only retells its source scores at most 3, and the fix names the structure it should have read. Abstract words standing in for that reading ('the loop', 'the coupling', 'the structure', 'the dynamic') score at most 3. Third: does it state the strongest objection to its own reading, fairly and in its own words, in the place where the argument is most exposed, and does it end on what the counting or the measure in the source leaves out? A piece with no such objection, or one that ends on a summary or a moral, scores at most 3.");
+var FINAL_READER_PROMPT_DOMAIN = swapSpan(FINAL_READER_PROMPT, "The bar is the best system-design writing for engineers", "Score at most 2 when:",
+  "The bar is the best explanatory writing on policy and science: after reading, a reader who missed the story understands who decided what, what each party wanted and gave up, which rule or measure produced the outcome, how the piece's own strongest objection fares, and what the counting leaves out.\nScores: 5 = I learned something non-obvious about how this case is structured and would send it to a colleague; 4 = a reader who knows only the headline comes away understanding why it happened, in concrete terms of parties and rewards; 3 = accurate but adds little beyond the headline; 2 = mostly abstract restatement; 1 = empty.\n");
+function readerPromptFor(domain) { return domain === "policy" || domain === "science" ? READER_PROMPT_DOMAIN : undefined; }
+function finalReaderPromptFor(domain) { return domain === "policy" || domain === "science" ? FINAL_READER_PROMPT_DOMAIN : FINAL_READER_PROMPT; }
 function publishBody(text) { return stripAnalysisMark(String(text || "").replace(/\n?worth your time:[^\n]*$/im, "").replace(/^#\s.*$/m, "")).replace(/\s+/g, " ").trim(); }
-async function finalRead(env, text, writerModel, seedText) {
+async function finalRead(env, text, writerModel, seedText, domain) {
   var n = publishBody(text).length;
   if (n < PUBLISH_MIN_CHARS) return { ok: false, rows: [], problems: ["final read: too short to publish (" + n + " chars of body; floor " + PUBLISH_MIN_CHARS + ")"] };
   var finalSeed = seedOf(seedText) + 7;
-  var p = await panelRead(env, text, [familyOf(writerModel)], finalSeed, 2, FINAL_READER_PROMPT);
-  if (!p) p = await panelRead(env, text, [familyOf(writerModel)], finalSeed + 1, 2, FINAL_READER_PROMPT, "final-read-retry-1");
+  var frPrompt = finalReaderPromptFor(domain);
+  var p = await panelRead(env, text, [familyOf(writerModel)], finalSeed, 2, frPrompt);
+  if (!p) p = await panelRead(env, text, [familyOf(writerModel)], finalSeed + 1, 2, frPrompt, "final-read-retry-1");
   if (!p) return { ok: false, rows: [{ round: 9, role: "panel_unavailable", model: "", family: "", pass: 0 }], problems: ["final read: no reader verdict (fails closed)"] };
   var ok = p.mean >= FINAL_PASS_MEAN && p.judges.every(function (j) { return j.score >= 3; });
   var rows = panelRows(p, 9);
@@ -2524,6 +2652,15 @@ async function generate(env) {
   try { stories = stories.concat(await scrapeHN()); } catch (e) { console.error(JSON.stringify({ evt: "q08-signal-engine:quit:caught", error: String((e && e.message) || e) })); }
   try { stories = stories.concat(await scrapeGitHub()); } catch (e) { console.error(JSON.stringify({ evt: "q08-signal-engine:quit:caught", error: String((e && e.message) || e) })); }
   try { stories = stories.concat(await scrapeArxiv(env)); } catch (e) { console.error(JSON.stringify({ evt: "q08-signal-engine:quit:caught", error: String((e && e.message) || e) })); }
+  // Q08-DOMAIN-FORM-1: a second arXiv request for the policy and science categories (ops_config q08_domains); a failure leaves the technology candidates as they were.
+  var domains = await q08Domains(env);
+  if (domains.science || domains.policy) {
+    try {
+      var domainStories = await scrapeArxivDomain(env, domains);
+      var seenIds = new Set(stories.map(function (s) { return String((s.source || "hn") + ":" + s.id); }));
+      stories = stories.concat(domainStories.filter(function (s) { return !seenIds.has("arxiv:" + s.id); }));
+    } catch (e) { console.error(JSON.stringify({ evt: "q08-signal-engine:scrapeArxivDomain:caught", error: String((e && e.message) || e) })); }
+  }
   if (!stories.length) return await quit("skipped", "no signals scraped");
   // Skip already-processed signal IDs (source-scoped). Q08-SIGNAL-RETRY-1 (2026-10-17): a 7-day window over EVERY
   // status exhausted the candidate pool (15:00Z run: "all signals already processed") because ~30 runs/day mark
@@ -2542,6 +2679,7 @@ async function generate(env) {
   // failed; readers asked for the bigger conflict, not install steps). Stories and papers come first, alternating so the last source is not
   // repeated; a repository is written about only when no story or paper ahead of it has enough source material.
   var ordered = orderCandidates(candidates, lastSource);
+  if ((domains.science || domains.policy) && ((attempts && attempts.n) || 0) % DOMAIN_ROTATE === DOMAIN_ROTATE - 1) ordered = preferNonTech(ordered, domains);
   // Try candidates until one yields sufficient friction (sparse GitHub/arXiv fall through)
   var story = null, friction = null, prefetched = null, bestThin = null, storyGlen = 0, evaluated = [];
   for (var ci = 0; ci < Math.min(ordered.length, 8); ci++) {
@@ -2586,6 +2724,9 @@ async function generate(env) {
   // window puts the next paper ahead on the next turn.
   var passedOver = thinPassedOver(evaluated, story);
   if (passedOver.length) await markThinSkipped(env, passedOver);
+  // Q08-DOMAIN-FORM-1: a story that is clearly about policy or science is written and judged in the policy and science form (a deterministic check, before the first writer call).
+  var domain = storyDomain(story, friction, domains);
+  if (domain !== "tech") story.domain = domain;
   // Few-shot only from pieces with proven reader value (reads or verdicts); otherwise none.
   var exemplars = await env.DB.prepare(
     "SELECT pp.structure_md FROM prompt_pool pp JOIN published_pieces p ON p.id = pp.piece_id WHERE pp.active = 2 AND p.slug NOT IN (SELECT slug FROM q08_retractions) AND (p.reads > 0 OR p.feedback_score > 0) ORDER BY pp.performance_score DESC, p.feedback_score DESC LIMIT 2"
@@ -2603,7 +2744,7 @@ async function generate(env) {
   var article = prefetched !== null ? prefetched : await fetchArticleText(articleUrlFor(story));
   var srcCtx = { source: story.source || "hn", title: story.title || "", url: story.url || "" };
   var background = await backgroundPack(story);
-  var prompt = buildPrompt(friction, fewShot, recentStructures, { banned: banned, ownerNotes: ownerNotes, article: article, source: srcCtx, background: background });
+  var prompt = buildPrompt(friction, fewShot, recentStructures, { banned: banned, ownerNotes: ownerNotes, article: article, source: srcCtx, background: background, domain: domain });
   // Q08-LEDE-1: every writer draft is gated with the lede check as well
   function gateW(t) { return withLede(gate(t, banned), t, srcCtx); }
   var piece  = await compose(env, prompt, banned, undefined, undefined, TITLE_REPAIR_ON);
@@ -2681,7 +2822,7 @@ async function generate(env) {
       else gateResult = { ok: false, problems: ["accuracy: " + pre.problems.join("; "), "pre-check: " + pre.trail] };
     }
   }
-  var lv = await runLevels(env, { piece: piece, prompt: prompt, banned: banned, seedText: story.title || "", gateResult: gateResult });
+  var lv = await runLevels(env, { piece: piece, prompt: prompt, banned: banned, seedText: story.title || "", gateResult: gateResult, readerPrompt: readerPromptFor(domain) });
   piece = lv.piece; gateResult = lv.gateResult;
   var readerRows = repairRows.concat(lv.rows);
   // Q08-VERIFY-1: nothing is published until its names, years and figures are in the source material and two reviewers from
@@ -2692,7 +2833,7 @@ async function generate(env) {
     piece = ev.piece; essayVr = ev.vr;
     if (!ev.ok) gateResult = { ok: false, problems: ["accuracy: " + ev.problems.join("; ")] };
     else {
-      var fin = await finalRead(env, piece.text, piece.model, String(story.id || story.title || ""));
+      var fin = await finalRead(env, piece.text, piece.model, String(story.id || story.title || ""), domain);
       readerRows = readerRows.concat(fin.rows);
       if (!fin.ok) gateResult = { ok: false, problems: fin.problems };
     }
@@ -3156,7 +3297,7 @@ function thinSourceVerdict(bestThin, floor) {
   return { ok: true, alen: alen };
 }
 // source_kind for engine_runs: where the signal came from and whether the writer had the full article or only the summary.
-function sourceKindOf(story, artLen) { return String(story && story.source || "hn") + (artLen >= THIN_MIN_ARTICLE ? "+fulltext" : "+summary"); }
+function sourceKindOf(story, artLen) { return String(story && story.source || "hn") + (story && (story.domain === "policy" || story.domain === "science") ? "-" + story.domain : "") + (artLen >= THIN_MIN_ARTICLE ? "+fulltext" : "+summary"); }
 // Q08-THIN-PASSED-OVER-1: the measured-thin candidates a later, richer one was chosen over (the chosen one and any candidate at or above
 // MIN_GROUND_CHARS are never in the list).
 function thinPassedOver(evaluated, story) {
@@ -4494,21 +4635,27 @@ var Q08_QDS = "1.0.0";
 var Q08_FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap">';
 var Q08_FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23182042'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Georgia,serif' font-size='14' fill='%23F2906A'%3Eq08%3C/text%3E%3C/svg%3E";
 // BEGIN TURNSTILE-EDGE-1
+var TURNSTILE_SITEKEY_DEFAULT = "0x4AAAAAAFpf2WdSG4-h5mu_";
 var TURNSTILE_SCRIPT = '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
 function turnstileWidget(env, action) {
-  var e = env || {};
-  var sitekey = q08Attr(e.TURNSTILE_SITEKEY || "");
-  return '<div class="cf-turnstile" data-sitekey="' + sitekey + '" data-action="' + q08Attr(action) + '"></div>';
+  var key = (env && env.TURNSTILE_SITEKEY) || TURNSTILE_SITEKEY_DEFAULT;
+  return '<div class="cf-turnstile" data-sitekey="' + key + '" data-action="' + String(action || "form").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) + '" data-appearance="interaction-only" data-theme="auto"></div>';
 }
 async function turnstileVerify(env, token, ip, action) {
-  var e = env || {};
-  var secret = e.TURNSTILE_SECRET || "";
-  var res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-    method: "POST",
-    body: new URLSearchParams({ secret: secret, response: token, remoteip: ip, action: action })
-  });
-  var data = await res.json();
-  return data.success === true && data.action === action;
+  if (!env || !env.TURNSTILE_SECRET) return { ok: true, skipped: true, reason: "no-secret" };
+  if (typeof token !== "string" || token.length === 0 || token.length > 2048) return { ok: false, reason: "missing-token" };
+  try {
+    var body = new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token });
+    if (ip) body.set("remoteip", ip);
+    var r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: body, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return { ok: false, reason: "siteverify-" + r.status };
+    var j = await r.json();
+    if (!j || j.success !== true) return { ok: false, reason: "rejected:" + String((j && j["error-codes"]) || "").slice(0, 80) };
+    if (action && j.action && j.action !== action) return { ok: false, reason: "action-mismatch" };
+    return { ok: true, reason: "verified" };
+  } catch (e) {
+    return { ok: false, reason: "siteverify-error" };
+  }
 }
 // END TURNSTILE-EDGE-1
 var Q08_CSS = '<style>.q08-mark{font:600 1.15rem/1 var(--q-serif);letter-spacing:-.01em;text-decoration:none;color:var(--q-ink);display:flex;align-items:baseline;gap:10px}.q08-mark b{color:var(--q-accent);font-weight:600}.q08-mark small{font:400 var(--q-fs-sm)/1 var(--q-sans);color:var(--q-muted)}.q08-hero{padding:56px 0 24px;max-width:760px}.q08-hero h1{font:500 clamp(2rem,4.2vw,3.1rem)/1.08 var(--q-serif);letter-spacing:-.02em;margin:0 0 16px}.q08-feed{max-width:760px}.q08-piece{max-width:var(--q-measure);padding:40px 0 24px}.q08-piece h1.q08-t{font:500 clamp(1.85rem,3.4vw,2.6rem)/1.12 var(--q-serif);letter-spacing:-.015em;margin:0 0 14px;text-wrap:balance}.q08-fb{margin:40px 0 0;padding:20px 0 0;border-top:1px solid var(--q-rule);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:var(--q-fs-sm);color:var(--q-muted)}.q08-fb span{margin-right:6px}.q08-refs{margin:40px 0 0;padding-top:20px;border-top:1px solid var(--q-rule)}.q08-refs h2{font:600 var(--q-fs-sm)/1.3 var(--q-sans);color:var(--q-muted);margin:0 0 12px}.q08-refs ul{margin:0;padding-left:1.2em;font-size:var(--q-fs-sm)}.q08-refs li{margin-bottom:6px}.q08-refs a{color:var(--q-accent)}.q08-msg{padding:72px 0;max-width:620px}.q08-sub form{display:flex;gap:8px;flex-wrap:wrap}.q08-sub .q-input{flex:1;min-width:220px}</style>';
@@ -4533,12 +4680,12 @@ function q08Page(o, body) {
     '<nav class="q-nav q-nav-wide" aria-label="Main"><a href="/"' + (o.active === "index" ? ' aria-current="page"' : "") + '>Index</a><a href="/forecasts"' + (o.active === "forecasts" ? ' aria-current="page"' : "") + '>Forecasts</a><a href="/subscribe"' + (o.active === "subscribe" ? ' aria-current="page"' : "") + '>Subscribe</a><a href="/feed.xml">RSS</a></nav>' +
     '<details class="q-menu"><summary aria-label="Menu"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></summary><nav class="q-nav" aria-label="Main"><a href="/">Index</a><a href="/forecasts">Forecasts</a><a href="/subscribe">Subscribe</a><a href="/feed.xml">RSS</a></nav></details>' +
     '<button class="q-theme" type="button" data-q-theme aria-label="Switch between light and dark theme"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg></button></div></header>' +
-    '<main id="main"><div class="q-wrap">' + body + "</div></main>" +
+    '<main id="main"><div class="q-wrap">' + body + "</div></main>" + (body.indexOf("cf-turnstile") >= 0 ? TURNSTILE_SCRIPT : "") +
     '<footer class="q-foot"><div class="q-wrap"><div class="q-foot-base" style="border-top:0;padding-top:0;margin-top:0"><span>q08: an autonomous signal engine, updated continuously</span><span>Pieces are machine-written and gated before publication. <a href="/feed.xml">RSS</a> \u00b7 <a href="/subscribe">Daily digest</a> \u00b7 <a href="/health">Status</a></span></div></div></footer><script src="https://fleet.qnfo.org/ctl.js" defer><\/script></body></html>';
 }
 function q08Sub(compact) {
   return '<section class="q-panel q08-sub" style="margin:48px 0 64px' + (compact ? ";max-width:760px" : "") + '"><h2 class="q-h3" style="margin:0 0 6px">The daily digest</h2><p class="q-meta" style="margin:0 0 14px">One email a day with that day\u2019s pieces. Confirm by email; unsubscribe from any digest.</p>' +
-    '<form method="post" action="/subscribe"><label class="q-sr" for="q08-e">Email address</label><input class="q-input" id="q08-e" type="email" name="email" placeholder="you@example.com" autocomplete="email" required><button class="q-btn q-btn-accent" type="submit">Subscribe</button></form></section>';
+    '<form method="post" action="/subscribe"><label class="q-sr" for="q08-e">Email address</label><input class="q-input" id="q08-e" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>' + turnstileWidget(null, "q08_subscribe") + '<button class="q-btn q-btn-accent" type="submit">Subscribe</button></form></section>';
 }
 function q08Short(t, n) { t = String(t || ""); if (t.length <= n) return t; var c = t.slice(0, n), sp = c.lastIndexOf(" "); return (sp > n * 0.5 ? c.slice(0, sp) : c).replace(/[\s,;:.\-]+$/, "") + "\u2026"; }
 function q08Lede(md) { return q08Plain(String(md || "").replace(/^#+\s*.+\n?/m, "").replace(/^[ \t]*(?:#{1,6}|[-*]|>|\d+[.)])[ \t]+/gm, "")); }
@@ -4623,6 +4770,7 @@ var Q08_FEEDBACK_SCRIPT = `<script>
       status.textContent = result.updated === false ? "Your vote was already recorded." : "Thanks \u2014 your vote is recorded.";
     } catch (e) {
       status.textContent = "Your vote could not be saved. Please try again.";
+      if (typeof turnstile !== "undefined" && turnstile && typeof turnstile.reset === "function") { try { turnstile.reset(); } catch (e2) { console.error(JSON.stringify({ evt: "q08.vote.turnstile-reset-failed", error: String(e2) })); } }
       buttons.forEach(function (button) { button.disabled = false; });
     }
   });
@@ -4631,7 +4779,7 @@ var Q08_FEEDBACK_SCRIPT = `<script>
 function renderPiece(p, fr) {
   var body = mdToHtml(p.body_md || "").replace(/^\s*<h1>[\s\S]*?<\/h1>\s*/, "");
   var refs = renderSources(p.sources_json);
-  var fb = '<form class="q08-fb" method="post"><span>Was this worth your time?</span><textarea class="q-input" name="note" maxlength="280" rows="2" style="flex-basis:100%;order:2" placeholder="Optional: what was missing?" aria-label="Optional note: what was missing?"></textarea><button class="q-btn q-btn-ghost" formaction="/api/f?slug=' + escHtml(p.slug) + '&amp;s=good">Yes</button> <button class="q-btn q-btn-ghost" formaction="/api/f?slug=' + escHtml(p.slug) + '&amp;s=flat">Flat</button> <button class="q-btn q-btn-ghost" formaction="/api/f?slug=' + escHtml(p.slug) + '&amp;s=no">No</button><span class="q08-fb-status" role="status" style="flex-basis:100%;order:3"></span></form>' + Q08_FEEDBACK_SCRIPT;
+  var fb = '<form class="q08-fb" method="post"><span>Was this worth your time?</span><textarea class="q-input" name="note" maxlength="280" rows="2" style="flex-basis:100%;order:2" placeholder="Optional: what was missing?" aria-label="Optional note: what was missing?"></textarea><button class="q-btn q-btn-ghost" formaction="/api/f?slug=' + escHtml(p.slug) + '&amp;s=good">Yes</button> <button class="q-btn q-btn-ghost" formaction="/api/f?slug=' + escHtml(p.slug) + '&amp;s=flat">Flat</button> <button class="q-btn q-btn-ghost" formaction="/api/f?slug=' + escHtml(p.slug) + '&amp;s=no">No</button><span class="q08-fb-status" role="status" style="flex-basis:100%;order:3"></span>' + turnstileWidget(null, "q08_feedback") + '</form>' + Q08_FEEDBACK_SCRIPT;
   var date = (p.published_at || "").slice(0, 10);
   var desc = q08Short(q08Lede(p.body_md), 160);
   var html = '<article class="q08-piece"><p class="q-eyebrow"><a href="/" style="text-decoration:none;color:inherit">\u2190 Index</a></p><h1 class="q08-t">' + q08Inline(p.title) + '</h1><p class="q-meta" style="margin:0 0 28px"><time datetime="' + escHtml(p.published_at || "") + '">' + date + "</time>" + (p.kind === "forecast" ? ' \u00b7 <span class="q-badge">Forecast</span>' : (p.core_concept ? ' \u00b7 <span class="q-badge">' + escHtml(q08Short(p.core_concept, 44)) + "</span>" : "")) + " \u00b7 " + aiLabelHtml() + "</p>" +
@@ -4643,7 +4791,7 @@ function renderPiece(p, fr) {
 function q08Wrap(fragment, title) {
   if (/^\s*<!doctype/i.test(fragment)) return fragment;
   var t = title || ((/<h[12][^>]*>([^<]{1,80})<\/h[12]>/.exec(fragment) || [])[1] || "q08");
-  var f = String(fragment).replace(/<form method=post action=\/subscribe><input type=email name=email required><button>Subscribe<\/button><\/form>/, '<form method="post" action="/subscribe" class="q08-sub" style="margin:20px 0"><label class="q-sr" for="q08-e2">Email address</label><input class="q-input" id="q08-e2" type="email" name="email" placeholder="you@example.com" autocomplete="email" required><button class="q-btn q-btn-accent" type="submit">Subscribe</button></form>')
+  var f = String(fragment).replace(/<form method=post action=\/subscribe><input type=email name=email required><button>Subscribe<\/button><\/form>/, '<form method="post" action="/subscribe" class="q08-sub" style="margin:20px 0"><label class="q-sr" for="q08-e2">Email address</label><input class="q-input" id="q08-e2" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>' + turnstileWidget(null, "q08_subscribe") + '<button class="q-btn q-btn-accent" type="submit">Subscribe</button></form>')
     .replace(/<h[12]>/, '<h1 class="q-h1">').replace(/<\/h[12]>/, "</h1>");
   return q08Page({ title: t + " \u00b7 q08", active: /subscri/i.test(t) ? "subscribe" : "", robots: "noindex" }, '<section class="q08-msg">' + f + "</section>");
 }
@@ -4777,18 +4925,25 @@ function forecastPostText(fc, url) {
   return head + claim + tail;
 }
 async function handleSubscribe(req, env, url) {
-  var email = "";
+  var email = "", tsToken = "";
   if (req.method === "POST") {
     try {
       var ct = req.headers.get("Content-Type") || "";
-      if (ct.indexOf("application/json") >= 0) { var b = await req.json(); email = b && b.email || ""; }
-      else if (ct.indexOf("form") >= 0) { var fd = await req.formData(); email = fd.get("email") || ""; }
+      if (ct.indexOf("application/json") >= 0) { var b = await req.json(); email = b && b.email || ""; tsToken = b && b["cf-turnstile-response"] || ""; }
+      else if (ct.indexOf("form") >= 0) { var fd = await req.formData(); email = fd.get("email") || ""; tsToken = fd.get("cf-turnstile-response") || ""; }
     } catch (e) { console.error(JSON.stringify({ evt: "q08-signal-engine:handleSubscribe:caught", error: String((e && e.message) || e) })); }
   }
   email = String(email || url.searchParams.get("email") || "").trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     var bad = req.method === "POST";
     return html('<h2>Subscribe</h2><form method=post action=/subscribe><input type=email name=email required><button>Subscribe</button></form>' + (bad ? '<p>Enter a valid email address.</p>' : '<p>One email a day \u2014 the daily digest. No spam.</p>'), bad ? 400 : 200);
+  }
+  // BP26-EDGE-TURNSTILE-Q08-1: the widget token is verified before anything is stored or mailed, on POST and on the GET that carries an e-mail address
+  // alike (that GET subscribes too). turnstileVerify is fail-open only while TURNSTILE_SECRET is unbound; once bound, no token means no subscription.
+  var human = await turnstileVerify(env, String(tsToken || ""), req.headers.get("CF-Connecting-IP") || "", "q08_subscribe");
+  if (!human.ok) {
+    console.error(JSON.stringify({ evt: "q08-signal-engine:handleSubscribe:turnstile-refused", reason: human.reason }));
+    return html('<h2>Subscribe</h2><form method=post action=/subscribe><input type=email name=email required><button>Subscribe</button></form><p>Verification failed. Reload the page and try again.</p>', 403);
   }
   var token = await sha16(email + ":q08:sub");
   await env.DB.prepare("INSERT INTO subscribers(email, status, token, created_at) VALUES(?, 'pending', ?, ?) ON CONFLICT(email) DO UPDATE SET token=excluded.token, status=CASE WHEN status='confirmed' THEN 'confirmed' ELSE 'pending' END").bind(email, token, nowIso()).run();
@@ -4870,6 +5025,7 @@ function cleanNote(v) {
 }
 // Q08-QUALITY-1: pure helpers exposed for the offline suite (quality.test.mjs); no route uses this export.
 export const __forecast = { forecastResolutionGaps: forecastResolutionGaps, recordForecastUpdate: recordForecastUpdate, renderCalibration: renderCalibration, forecastPostText: forecastPostText, gatherEvidence: gatherEvidence, forecastDue: forecastDue, resolveForecasts: resolveForecasts, ensureForecastSchema: ensureForecastSchema, generateForecast: generateForecast, forecastStats: forecastStats, parseForecastBlock: parseForecastBlock, validateForecast: validateForecast, forecastXform: forecastXform, forecastProblems: forecastProblems, buildForecastPrompt: buildForecastPrompt, calibration: calibration, lastForecastUpdateScore: lastForecastUpdateScore, parseJudgeVerdict: parseJudgeVerdict, aggregateJudges: aggregateJudges, parseForecastCap: parseForecastCap, publicHttpsUrl: publicHttpsUrl, fcStatus: fcStatus, renderForecastBox: renderForecastBox, renderForecasts: renderForecasts, FORECAST_DIRECTIVE: FORECAST_DIRECTIVE, FORECAST_EVERY: FORECAST_EVERY, FORECAST_MAX_CHECKS: FORECAST_MAX_CHECKS };
+export const __domain = { parseDomains: parseDomains, q08Domains: q08Domains, resetDomains: function () { __domains = { at: 0, d: parseDomains(null) }; }, classifyDomain: classifyDomain, storyDomain: storyDomain, preferNonTech: preferNonTech, scrapeArxivDomain: scrapeArxivDomain, domainForm: domainForm, buildPrompt: buildPrompt, READER_PROMPT: READER_PROMPT, READER_PROMPT_DOMAIN: READER_PROMPT_DOMAIN, FINAL_READER_PROMPT: FINAL_READER_PROMPT, FINAL_READER_PROMPT_DOMAIN: FINAL_READER_PROMPT_DOMAIN, readerPromptFor: readerPromptFor, finalReaderPromptFor: finalReaderPromptFor, sourceKindOf: sourceKindOf, DOMAIN_ROTATE: DOMAIN_ROTATE, Q08_DIRECTIVE: Q08_DIRECTIVE };
 export const __gen = { thinPassedOver: thinPassedOver, parseArxivPool: parseArxivPool, arxivPoolSize: arxivPoolSize, resetArxivPool: function () { __arxivPool = { at: 0, n: ARXIV_POOL_DEFAULT }; }, scrapeArxiv: scrapeArxiv, ARXIV_POOL_DEFAULT: ARXIV_POOL_DEFAULT, parseComposeOrder: parseComposeOrder, q08Budget: q08Budget, Q08_DAILY_NEURONS_DEFAULT: Q08_DAILY_NEURONS_DEFAULT, resetRunColumns: function () { __runColsOk = false; __runColsTried = 0; }, sourceFloorFrom: sourceFloorFrom, learnedSourceFloor: learnedSourceFloor, thinSourceVerdict: thinSourceVerdict, sourceKindOf: sourceKindOf, markThinSkipped: markThinSkipped, ensureRunColumns: ensureRunColumns, insertRun: insertRun, meterCall: meterCall, claimClassesOf: claimClassesOf, get SOURCE_FLOOR_MIN_OK() { return SOURCE_FLOOR_MIN_OK; }, get THIN_MIN_ARTICLE() { return THIN_MIN_ARTICLE; }, get MIN_GROUND_CHARS() { return MIN_GROUND_CHARS; }, composeOrder: composeOrder, COMPOSE_MODELS: COMPOSE_MODELS, COMPOSE_MODELS_AT_CAP: COMPOSE_MODELS_AT_CAP, generate: generate, get TICK_BUDGET_MS() { return TICK_BUDGET_MS; }, get ESSAY_AFTER_FORECAST_MS() { return ESSAY_AFTER_FORECAST_MS; }, q08TickAllowance: q08TickAllowance, q08TickConfig: q08TickConfig, q08LastAttemptMs: q08LastAttemptMs, q08TickMore: q08TickMore, governedGenerate: governedGenerate };
 export const __stall = { stallRetryDue: stallRetryDue, stallDetector: stallDetector, stallDigest: stallDigest, stallStage: stallStage, get STALL_RETRY_H() { return STALL_RETRY_H; } };
 export const __factledger = { groundPreCheck: groundPreCheck, sourceLedger: sourceLedger, ledgerBlock: ledgerBlock, stripLedgerTags: stripLedgerTags, groundPreCheckMode: groundPreCheckMode, resetGroundPreCheck: function () { __groundPre = { at: 0, mode: "on" }; __groundPreCalls = 0; }, get groundPreCalls() { return __groundPreCalls; }, stallStage: stallStage, buildPrompt: buildPrompt, labelledGround: labelledGround, groundingProblems: groundingProblems, normalizeDraft: normalizeDraft, runLevels: runLevels, generate: generate, generateForecast: generateForecast, Q08_DIRECTIVE: Q08_DIRECTIVE, get LEDGER_MAX_LINES() { return LEDGER_MAX_LINES; }, get LEDGER_MAX_CHARS() { return LEDGER_MAX_CHARS; } };
@@ -5090,7 +5246,7 @@ async function q08Fetch(req, env, ctx) {
       var cnt = await env.DB.prepare("SELECT COUNT(*) n FROM published_pieces").first().catch(() => ({n:0}));
       var last = await env.DB.prepare("SELECT slug, title, published_at FROM published_pieces WHERE slug NOT IN (SELECT slug FROM q08_retractions) ORDER BY published_at DESC LIMIT 1").first().catch(() => null);
       var runs = await env.DB.prepare("SELECT status, COUNT(*) n FROM engine_runs GROUP BY status").all().catch(() => ({results:[]}));
-      return json({ ok: true, worker: WORKER, version: VERSION, capabilities: ["signal-scrape", "llm-compose", "essay-publish", "essay-regen", "rss", "mathjax-render", "sources-footer", "email-digest", "indexnow", "reader-verdict-vote", "self-verdict-gate", "feedback-calibration", "cross-day-signal-dedup", "fabrication-gate", "self-referential-signal-emit", "reader-test", "owner-editorial-directives", "owner-verdict-weight", "forecast-scenarios", "forecast-resolution", "forecast-calibration", "citation-files", "edge-cache", "stall-retry"], limitations: ["publisher/composer only - does NOT run a general agent tool loop and does not execute arbitrary code", "not a general-purpose model endpoint; use qnfo-ai for inference", "POST /run and POST /regen need x-loop-token (they spend model calls and change published essays; OPEN-ACCESS-1); every read stays open", "writes only to its own q08-signal D1; never writes research or personal stores", "no streaming"], metrics_7d: m7, pieces: cnt.n, daily_cap: await dailyCap(env), daily_cap_key: "ops_config " + CAP_KEY, last, runs: runs.results });
+      return json({ ok: true, worker: WORKER, version: VERSION, capabilities: ["signal-scrape", "llm-compose", "essay-publish", "essay-regen", "rss", "mathjax-render", "sources-footer", "email-digest", "indexnow", "reader-verdict-vote", "self-verdict-gate", "feedback-calibration", "cross-day-signal-dedup", "fabrication-gate", "self-referential-signal-emit", "reader-test", "owner-editorial-directives", "owner-verdict-weight", "forecast-scenarios", "forecast-resolution", "forecast-calibration", "citation-files", "edge-cache", "stall-retry", "turnstile-forms", "policy-science-form"], limitations: ["publisher/composer only - does NOT run a general agent tool loop and does not execute arbitrary code", "not a general-purpose model endpoint; use qnfo-ai for inference", "POST /run and POST /regen need x-loop-token (they spend model calls and change published essays; OPEN-ACCESS-1); every read stays open", "writes only to its own q08-signal D1; never writes research or personal stores", "no streaming"], metrics_7d: m7, pieces: cnt.n, daily_cap: await dailyCap(env), daily_cap_key: "ops_config " + CAP_KEY, last, runs: runs.results, turnstile: env.TURNSTILE_SECRET ? "enforcing" : "widget-only", domains: await q08Domains(env) });
     }
 
     // Q08-WRITE-ROUTES-TOKEN-1 (v0.8.6, agent_issues 1995): /run starts a full generation (model calls, a publication) and
@@ -5204,10 +5360,13 @@ async function q08Fetch(req, env, ctx) {
       if (prev) return json({ ok: true, updated: false, note: "vote already recorded" });
       var rate = await env.DB.prepare("SELECT COUNT(*) n FROM q08_feedback WHERE ip_key = ? AND created_at > datetime('now','-1 hour')").bind(ipKey).first().catch(function(){ return { n: 0 }; });
       if ((rate && rate.n || 0) >= 5) return json({ ok: false, error: "rate limited" }, 429);
-      var fnote = null;
+      var fnote = null, fToken = "";
       try {
-        if (String(req.headers.get("Content-Type") || "").indexOf("form") >= 0) fnote = cleanNote((await req.formData()).get("note"));
+        if (String(req.headers.get("Content-Type") || "").indexOf("form") >= 0) { var ffd = await req.formData(); fnote = cleanNote(ffd.get("note")); fToken = ffd.get("cf-turnstile-response") || ""; }
       } catch (e) { fnote = null; }
+      // BP26-EDGE-TURNSTILE-Q08-1: after the cheap refusals above (already voted, rate limit) so a token is spent only on a vote that would be stored; fail-open only while TURNSTILE_SECRET is unbound.
+      var fHuman = await turnstileVerify(env, String(fToken || ""), ip === "anon" ? "" : ip, "q08_feedback");
+      if (!fHuman.ok) return json({ ok: false, error: "verification failed: reload the page and vote again", reason: fHuman.reason }, 403);
       await env.DB.prepare("INSERT OR IGNORE INTO q08_feedback (slug, signal, ip_key, note, created_at) VALUES (?,?,?,?,?)").bind(fslug, s, ipKey, fnote, nowIso()).run();
       if ((req.headers.get("Accept") || "").includes("text/html")) {
         const location = `/p/${encodeURIComponent(fslug)}?voted=${encodeURIComponent(s)}`;
