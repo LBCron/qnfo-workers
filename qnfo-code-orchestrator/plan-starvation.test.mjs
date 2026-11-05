@@ -90,6 +90,32 @@ const gatedEvents = (env) => env.AUDIT_DB._db.prepare("SELECT COUNT(*) n FROM cl
   ok(gatedEvents(env) === 1, "2d a second gated call inside 30 minutes writes no second event", gatedEvents(env));
 }
 
+// 2e. a full queue still writes the verdicts that need no slot (untrusted origin), and defers the trusted issue without a verdict
+{
+  const { env, prompts } = mkEnv();
+  await W.__schema(env);
+  addTasks(env, 49, 3);
+  const trusted = addIssue(env);
+  const d = env.AUDIT_DB._db;
+  const untrusted = Number(d.prepare("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at) VALUES ('Feed note', 'change qnfo-ai-search', 'radar-hub', '', 'critical', 'open', ?)").run(old).lastInsertRowid);
+  const r = await W.__plan(env);
+  const row = (id) => d.prepare("SELECT outcome FROM issue_plans WHERE issue_id = ?").get(id);
+  ok(row(untrusted) && row(untrusted).outcome === "untrusted", "2e an untrusted verdict is still written while the queue is full", { r, row: row(untrusted) });
+  ok(!row(trusted) && prompts.length === 0 && r.planned === true, "2f the trusted issue gets no verdict and no model call while the queue is full (it is planned when a slot frees)", { r, row: row(trusted), prompts: prompts.length });
+}
+
+// 2g. the queue fills between the gate and the enqueue (a direct enqueue by a session): a wait, not a verdict
+{
+  const prompts = [];
+  const env = { ORCH_TOKEN: "t0ken", AUDIT_DB: makeD1(), AI: { run: async (model, input) => { prompts.push(model); env.AUDIT_DB._db.exec("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, created_at, updated_at) VALUES ('ct_race', 'qnfo-workers', 'race/worker.js', 'g', 'queued', 'read', 0, 'n', 'n')"); return { response: FIX }; } } };
+  await W.__schema(env);
+  addTasks(env, 47, 3);
+  const id = addIssue(env);
+  const r = await W.__plan(env);
+  ok(prompts.length === 1 && r.planned === false && /enqueue deferred: queue full/.test(r.why), "2g a 429 at enqueue is reported as a wait", r);
+  ok(!env.AUDIT_DB._db.prepare("SELECT 1 FROM issue_plans WHERE issue_id = ?").get(id), "2h and the issue gets no invalid verdict (it is planned again on the next tick)");
+}
+
 // 3. 41 queued rows on 41 files: the work-in-progress gate itself is kept (code_plan_wip default 12 would shut it earlier; ops_config absent -> PLAN_WIP 12, so seed the cap)
 {
   const { env, prompts } = mkEnv();
