@@ -17,7 +17,8 @@ ok(!!snip, "the snippet file carries the marked block");
 
 // worker -> the call site that runs the self-test without visitor traffic
 const WORKERS = {
-  "qnfo-ipatent": /if \(ctx && ctx\.waitUntil\) ctx\.waitUntil\(turnstileSelfTest\(env\)\);/
+  "qnfo-ipatent": /if \(ctx && ctx\.waitUntil\) ctx\.waitUntil\(turnstileSelfTest\(env\)\);/,
+  "idea-hub": /async scheduled\(event,env,ctx\)\{ctx\.waitUntil\(ideationCycle\(env\)\);ctx\.waitUntil\(turnstileSelfTest\(env\)\)\}/
 };
 for (const [w, callRx] of Object.entries(WORKERS)) {
   const src = read(w + "/worker.js");
