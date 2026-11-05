@@ -206,6 +206,8 @@ def render(job, out):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(silent), "-i", str(out / "audio.wav"), "-vf", "subtitles=cap.ass",
                     "-af", "highpass=f=80,acompressor=threshold=0.125:ratio=3:attack=5:release=80,loudnorm=I=-16:TP=-1.5:LRA=7",
                     "-metadata", "comment=AI-generated: synthetic narration (text-to-speech) and generated animation from a QNFO plain-language paper summary",
+                    "-metadata", "description=AI-generated content: synthetic narration and generated animation. Source: a QNFO plain-language paper summary (https://papers.qnfo.org).",   # YT-13: standard mp4 tags a player or a platform can read
+                    "-metadata", "copyright=QNFO. AI-generated content.",
                     "-metadata", "title=" + str(job.get("title", ""))[:80], "-metadata", "artist=QNFO", "-c:v", "libx264",
                     "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(final)],
                    check=True, cwd=out)

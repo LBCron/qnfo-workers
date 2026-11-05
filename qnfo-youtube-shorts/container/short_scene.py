@@ -5,7 +5,7 @@ slowly (a gentle zoom) until the narration ends. Every Text is fitted to the saf
 (palette + animated background style) is chosen per paper by make_short.py, so two papers do not look alike.
 Layout: top 1.6 units kept clear for the Shorts UI, bottom 4.3 units (caption + Shorts UI) kept clear; content lives between y=+5.4 and y=-3.3.
 """
-import json, math, os, re
+import json, math, os, re, sys
 from manim import *
 
 config.frame_width, config.frame_height = 9, 16
@@ -39,6 +39,25 @@ def fit(m, w=SAFE_W, h=None):
     return m
 
 
+# --- layout helper (pure python: container/test_layout.py runs it without manim) ---
+def centre_dy(top, bottom, band_top=5.4, band_bottom=-3.3, max_move=2.0, min_move=0.05):
+    """YT-10: how far (frame units, up is positive) a beat whose content spans [bottom, top] moves to sit in the middle of the content band.
+    The 2026-10-28 renders clustered content in the upper half; the tag sits above the band and the captions below it, so the middle of the band is the optical centre.
+    Never pushes the content out of the band, never moves a group taller than the band, and ignores a move under min_move (no wobble for nothing)."""
+    try:
+        top, bottom = float(top), float(bottom)
+    except (TypeError, ValueError):
+        return 0.0
+    h = top - bottom
+    if not (h > 0) or h > (band_top - band_bottom):
+        return 0.0
+    want = (band_top + band_bottom) / 2 - (top + bottom) / 2
+    want = max(band_bottom - bottom, min(band_top - top, want))
+    want = max(-max_move, min(max_move, want))
+    return 0.0 if abs(want) < min_move else want
+# --- end layout helper ---
+
+
 def T(s, size=40, color=None, bold=True, maxw=SAFE_W, **k):
     t = Text(s, font=FONT, font_size=size, color=color or INK, weight=BOLD if bold else NORMAL, **k)
     return fit(t, maxw)
@@ -60,6 +79,12 @@ class ShortScene(Scene):
             t0 = self.time
             grp = getattr(self, "beat_" + b["kind"])(b)
             fit(grp, SAFE_W + 0.4)
+            try:      # YT-10: centre the beat between the tag and the captions; any failure leaves the beat where the template put it
+                dy = centre_dy(grp.get_top()[1], grp.get_bottom()[1]) if len(grp.submobjects) else 0.0
+                if dy:
+                    self.play(grp.animate.shift(UP * dy), run_time=0.25)
+            except Exception as e:
+                print("centre_dy skipped: %r" % (e,), file=sys.stderr)
             used = self.time - t0
             hold = max(0.0, b["dur"] - used - 0.35)
             if hold > 0.05:
