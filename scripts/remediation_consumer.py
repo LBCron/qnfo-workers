@@ -231,6 +231,26 @@ def _list_dbs():
 # consume_one stamps the same value afterwards. A fail, a deferral and a contract that is no longer active or holding are untouched, and a refused
 # stamp is logged and changes nothing (the row and the later stamp are unchanged).
 REFUSAL_VERDICTS = ("fail", "vacuous-probe-result", "probe-error", "probe-not-machine-executable", "probe-same-account-host")
+# PROBE-TRANSIENT-1 (2026-11-05, pillar autonomy; metric contracts_unexecutable_open). Measured over 24 h on cloud_ops_events kind remediation.probe-error: 184 events on 171
+# contracts from this runner were "HTTP 429 from api.cloudflare.com" and 74 events on 70 contracts from qnfo-fleet-control were "D1 DB is overloaded": 258 of 267 were the
+# shared database or its REST front refusing the read, not a probe that cannot decide. Each wrote last_verdict = 'probe-error' (counted by contracts_unexecutable_open, a
+# refusal verdict the close triggers read), bumped attempts, and filed an error-shaped event the Observability bridge groups into issues. A read the platform refused is not a
+# verdict. It now leaves the contract's verdict and attempts alone, retries in TRANSIENT_RETRY_MIN minutes, and only a contract that was refused TRANSIENT_STREAK_MAX times
+# in a row (a probe too heavy to ever finish) takes the probe-error verdict, so a broken probe is still surfaced. The marker 'transient:d1:<n>' counts the streak; it is
+# not in REFUSAL_VERDICTS, so no reader counts it as a failure, and a real 'pass' or 'fail' is never overwritten by it.
+TRANSIENT_ERR = re.compile(r"HTTP (?:429|502|503|504)\b|D1 DB is overloaded|Too many resources consumed|Network connection lost|exceeded timeout|object to be reset|timed out", re.I)
+TRANSIENT_STREAK_MAX = 5
+TRANSIENT_RETRY_MIN = 10
+
+
+def transient_error(err):
+    """True when err is the platform refusing or dropping the read (rate limit, overload, connection), not a verdict about the probe."""
+    return bool(TRANSIENT_ERR.search(str(err or "")))
+
+
+def transient_streak(last_verdict):
+    m = re.match(r"^transient:d1:(\d+)$", str(last_verdict or ""))
+    return int(m.group(1)) if m else 0
 
 
 def stamp_pass_before_row(cls, passed):
@@ -1330,25 +1350,42 @@ def consume_one(c, trusted):
         else:
             consume_d1(c, rec, local, trusted)
     except Exception as e:  # noqa: BLE001 - one bad contract must not kill the run
-        rec["verdict"] = "probe-error"
+        streak = transient_streak(c.get("last_verdict")) + 1
         rec["reason"] = str(e)[:300]
         local["skipped"] += 1
-        log("contract %s error: %s" % (cls, e))
-        # CONSUMER-ERROR-BODY-1 (2026-10-17): the run log is ephemeral and the fleet reads D1, so the same message also
-        # lands in cloud_ops_events, deduped per (class, message) for an hour. 529 contracts sat at probe-error with
-        # nothing to attribute it to; an unreadable failure is a blind spot, not a verdict.
+        if transient_error(e) and streak < TRANSIENT_STREAK_MAX:
+            # PROBE-TRANSIENT-1: the platform refused the read; no verdict, no attempt, no error event (see TRANSIENT_ERR)
+            rec["verdict"] = "transient:d1:%d" % streak
+            rec["transient"] = True
+            log("contract %s transient (%d of %d): %s" % (cls, streak, TRANSIENT_STREAK_MAX, str(e)[:120]))
+        else:
+            rec["verdict"] = "probe-error"
+            log("contract %s error: %s" % (cls, e))
+            # CONSUMER-ERROR-BODY-1 (2026-10-17): the run log is ephemeral and the fleet reads D1, so the same message also
+            # lands in cloud_ops_events, deduped per (class, message) for an hour. 529 contracts sat at probe-error with
+            # nothing to attribute it to; an unreadable failure is a blind spot, not a verdict.
+            try:
+                detail = "class=%s transport=%s error=%s" % (cls, c.get("verify_transport"), str(e)[:300])
+                d1(
+                    "INSERT INTO cloud_ops_events (id, ts, kind, text, job, status) "
+                    "SELECT ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'remediation.probe-error', ?, "
+                    "'remediation-consumer', 'error' "
+                    "WHERE NOT EXISTS (SELECT 1 FROM cloud_ops_events WHERE kind = 'remediation.probe-error' "
+                    "AND text = ? AND ts > strftime('%Y-%m-%dT%H:%M:%fZ','now','-60 minutes'))",
+                    ["pe-c-%s-%d" % (cls, int(time.time())), detail, detail],
+                )
+            except Exception:  # noqa: BLE001 - the ledger write never changes the verdict
+                pass
+    if rec.get("transient"):
+        # PROBE-TRANSIENT-1: a real 'pass' or 'fail' stays the contract's verdict; the streak marker only replaces a missing or refusal verdict
+        prior = str(c.get("last_verdict") or "")
+        marker = prior if prior in ("pass", "fail") else rec["verdict"]
         try:
-            detail = "class=%s transport=%s error=%s" % (cls, c.get("verify_transport"), str(e)[:300])
-            d1(
-                "INSERT INTO cloud_ops_events (id, ts, kind, text, job, status) "
-                "SELECT ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'remediation.probe-error', ?, "
-                "'remediation-consumer', 'error' "
-                "WHERE NOT EXISTS (SELECT 1 FROM cloud_ops_events WHERE kind = 'remediation.probe-error' "
-                "AND text = ? AND ts > strftime('%Y-%m-%dT%H:%M:%fZ','now','-60 minutes'))",
-                ["pe-c-%s-%d" % (cls, int(time.time())), detail, detail],
-            )
-        except Exception:  # noqa: BLE001 - the ledger write never changes the verdict
-            pass
+            d1("UPDATE remediation_contracts SET last_attempt_at = datetime('now'), last_verdict = ?, next_due_at = datetime('now', ?) "
+               "WHERE class = ? AND status IN ('active', 'holding')", [marker, "+%d minutes" % TRANSIENT_RETRY_MIN, cls])
+        except Exception as e2:  # noqa: BLE001
+            log("contract %s transient stamp failed: %s" % (cls, e2))
+        return rec, local
     if cadence is None:
         cadence = c.get("expected_cadence_h") or 1
     steady_backoff = False
