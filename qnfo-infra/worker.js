@@ -80,7 +80,7 @@ function infraManifestRoute(url, env) {
 }
 __name(infraManifestRoute, "infraManifestRoute");
 __name2(infraManifestRoute, "infraManifestRoute");
-var VERSION = "1.16.0-lake-spine";
+var VERSION = "1.16.1-lake-spine";
 /* 1.11.1 COST-LEDGER-ALLVENDOR-1c: each cost ledger tick records its outcome (points, errors, note) as cost_usage_daily rows of vendor cost_ledger. */ /* 1.11.0 COST-LEDGER-ALLVENDOR-1 (pillar cost): hourly all-product Cloudflare cost ledger, usage meters priced into cost_usage_daily and cost_vendor_month. */ /* 1.10.3 QNFO.OPS #1 (issue 1000696): route deterministic infra embeddings through the existing AI Gateway with a one-day per-request cache; non-critical calls use their existing cheaper ladder rung, while critical retrieval preserves its model. */ /* 1.10.2 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work collection omits identifiers on the retired prefix; generic paper collection remains unchanged. */ /* 1.9.2 HANDOFFS-VZ-CATCHUP-1 (2026-10-26, pillar autonomy, agent_issues 1000176; patch): the producer indexed 100 handoffs an hour, and 707 handoffs older than 90 minutes were still unindexed on 2026-10-26 (the issue asks for the backlog within 24 hours and a new handoff within 60 minutes), so a fire takes 300 rows while more than one normal batch waits, and the normal 100 when the previous run left a FAILED note, so a batch that cannot finish inside the 120 second timeout cannot repeat itself for ever. prior 1.9.1-codeagent */ /* 1.9.0-handoffs-index HANDOFFS-VZ-PRODUCER-1 (2026-10-26, pillar autonomy, agent_issues 1000176): the handoffs vector index had no working producer. PR 4230 added one inside the 06:30 indexer member that selected handoffs.content, a column the table does not have (summary, pending_work, next_action are the text), so it threw into a catch and logged every night while semantic handoff search stayed frozen at 2026-07. The block is removed; indexHandoffs() runs on every hourly fire, reads the real columns, embeds in chunks of 1000 characters with the model the readers query with, upserts ids handoff:<id>:<chunk> with metadata {doc, id, session_id, ts, summary}, and moves the ops_config watermark handoffs_vz_last_id only after the upsert succeeded (100 handoffs per run, so the 1,706-row backfill is done in about 18 hours and a new handoff is indexed within the hour). A handoff of the personal plane (project, WBS or session label: personal, q08, twin, msgraph, owner-, email-strategic-) is skipped and the watermark moves past it, because scope=research retrieval reads this index (51 of 1,706 rows on 2026-10-26); a failure or a call stalled for 120 s is written to the watermark row's note and the state refresh still runs. */ /* 1.8.5-codeagent */ /* 1.8.3-analytics-untruncated MCP-ANALYTICS-TRUNCATION-1 (2026-10-25, pillar honest-measure): /analytics read aiInferenceAdaptiveGroups with limit 100 over {date, modelId}; the real group set is 437, so Workers AI usage under-reported 7.7x (3,438,429 neurons / $37.8 vs 26,345,487 / $286.5). Total now from a dimension-free aggregate, breakdown from {modelId}, with shown/groups/truncated and the 10k/day free-tier deduction so it matches cost_daily. */ /* 1.8.2-mcp-state-full-lists MCP-STATE-TRUNCATION-1 (2026-10-25, pillar honest-measure): /state returned count=35 with only 30 worker names and count=11 with only 10 D1 rows, so a caller could not tell that five workers and qnfo-audit were omitted -- a silent false census. The list caps are now 60 workers / 25 D1 and both carry shown + truncated, so an omission is visible instead of inferred. */ /* 1.8.1-null-doi-cursor CITATION-PAGINATION-NULL-CURSOR-1 (2026-10-25, pillar reach): stable DOI pagination now traverses legacy rows with NULL created_at using slug-only cursors; the offline test covers 217 records, including the null-timestamp boundary across five pages. */ /* 1.8.0-all-doi-impact CITATION-TRACKING-ALL-DOIS-1 (2026-10-25, pillar reach): the daily impact run queried only the newest 50 (at most 100) DOIs; stable keyset pagination now collects the entire third-party DOI set without changing the cron grid. qnfo-infra/impact.test.mjs covers 217 records across five pages. */ /* 1.7.0-no-registrar NO-REGISTRAR-1 (2026-10-21): the registrar is not named; dead DOIs are recognised by the 10.5281 prefix only */ // 1.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly :30 trigger. The 06:30 run (indexer member + state refresh) and the 18:00 refresh keep their slots on it and are retried hourly, at most 3 times, while their last good run is over 24.5 h old; every other hour runs the state refresh (it ran twice a day). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.5.1 WORKERS-BP-LOGGING-qnfo-infra-1 (2026-10-14, agent_issues 2534, child of 2342, pillar autonomy): the 3 swallowed catches in handleWebhook log as a structured console.error (worker, where, error); control flow unchanged. // 1.5.0 CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, pillar autonomy): scheduled() upserts its fleet_heartbeat row after the run, ok=0 when the work threw. // 1.4.0 SOURCE-VOICE-1 (agent_issues 2468, owner directive 2026-10-13 "Papers shall cite full texts, not merely reference work summaries"; pillar research): a PAPER_VZ hit in /context carries the passage of the paper's body that matched (the indexer's own chunk, from metadata.chunk), after the abstract when one is stored; it was title + status + abstract.slice(0, 220), so a paper with no abstract (269 of 575 published on 2026-10-13) reached qnfo-ai's retrieved context as its title alone. renderContext gives a paper hit up to 1300 characters (300 before). isDeadPrefixDoi was defined only inside the folded indexer member, so the /context enrichment and metaLine threw a ReferenceError on every paper hit and returned "slug <x> (enrich error)"; it is now defined at module scope too. // 1.3.4 WORKERS-STANDARDS-1 (2026-10-12, pillar security): the indexer member compares X-Index-Token in constant time (same accepted value). // 1.3.1 INDEXER-FOLD-1 (#1756): qnfo-paper-indexer runs here as a member (its two jobs on this worker's existing 06:30 trigger, no cron added; /indexer/* read routes).
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -679,22 +679,29 @@ var indexerMod = (function() {
     await env.QNFO_AUDIT.prepare("CREATE TABLE IF NOT EXISTS citation_stats (id TEXT PRIMARY KEY, doi TEXT, source TEXT, metric TEXT, value REAL, collected_at TEXT)").run();
     await env.QNFO_AUDIT.prepare("CREATE TABLE IF NOT EXISTS impact_scores (doi TEXT PRIMARY KEY, score REAL, updated_at TEXT)").run();
   }
-  async function fetchJson(url, timeoutMs = 2e4) {
+  // CITATION-TRACKING-1 (RM-CITATION-TRACKING-ALL-DOIS-1, 2026-11-05): `stat`, when given, counts what a null answer was (the HTTP status, or "error" for a timeout or network failure),
+  // so a rate limit is a number in the run's result and not a silent null.
+  async function fetchJson(url, timeoutMs = 2e4, stat) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": "QNFO/qnfo-impact/0.1 (mailto:rowan@qnfo.org)" } });
-      if (!r.ok) return null;
+      if (!r.ok) { if (stat) stat[r.status] = (stat[r.status] || 0) + 1; return null; }
       return await r.json();
     } catch (e) {
+      if (stat) stat.error = (stat.error || 0) + 1;
       return null;
     } finally {
       clearTimeout(t);
     }
   }
+  // A transient answer (429, a 5xx, a timeout) says nothing about the citation count; a 404 or a plain 200 does.
+  function transientAnswer(stat) {
+    return Object.keys(stat).some((k) => k === "error" || k === "429" || Number(k) >= 500);
+  }
   async function runImpact(env, commit, limit) {
     await ensureSchema(env);
-    const out = { papers: 0, stats: [], errors: [] };
+    const out = { papers: 0, stats: [], errors: [], unavailable: { crossref: {}, openalex: {} }, skipped_unavailable: 0 };
     if (!commit) {
       const n2 = await env.LIVING_PAPER.prepare("SELECT COUNT(*) c FROM papers WHERE doi IS NOT NULL AND doi NOT LIKE '10.5281/%'").first();
       return { preview: true, papersWithDoi: n2 ? n2.c : 0 };
@@ -717,15 +724,24 @@ var indexerMod = (function() {
         out.papers++;
         const entry = { slug: p.slug, doi, sources: {} };
         let crCited;
+        const crStat = {}, oaStat = {};
         {
-          const cr = await fetchJson("https://api.crossref.org/works/" + encodeURIComponent(doi));
+          const cr = await fetchJson("https://api.crossref.org/works/" + encodeURIComponent(doi), 2e4, crStat);
           crCited = cr?.message && cr.message["is-referenced-by-count"];
         }
         const crCited2 = typeof crCited === "number" ? crCited : void 0;
         if (typeof crCited2 === "number") entry.sources.crossref = crCited2;
-        const oa = await fetchJson("https://api.openalex.org/works/doi:" + encodeURIComponent(doi));
+        // OpenAlex rate-limits anonymous use and asks for a key (read 2026-11-05); the key is a Worker secret, never minted here.
+        const oa = await fetchJson("https://api.openalex.org/works/doi:" + encodeURIComponent(doi) + (env.OPENALEX_API_KEY ? "?api_key=" + encodeURIComponent(env.OPENALEX_API_KEY) : ""), 2e4, oaStat);
         const oaCited = oa?.cited_by_count;
         if (typeof oaCited === "number") entry.sources.openalex = oaCited;
+        for (const [name, st] of [["crossref", crStat], ["openalex", oaStat]]) for (const k of Object.keys(st)) out.unavailable[name][k] = (out.unavailable[name][k] || 0) + st[k];
+        // No source answered and one of them was cut off: keep the earlier score instead of overwriting it with a 0 that is not a measurement.
+        if (typeof entry.sources.crossref !== "number" && typeof entry.sources.openalex !== "number" && (transientAnswer(crStat) || transientAnswer(oaStat))) {
+          out.skipped_unavailable++;
+          out.stats.push(entry);
+          continue;
+        }
         const cited = (entry.sources.openalex || 0) + (entry.sources.crossref || 0);
         const score = Math.round(cited * 1e3) / 1e3;
         try {
@@ -1120,8 +1136,17 @@ var indexerMod = (function() {
             return json(await runImpact(env, commit, parseInt(url.searchParams.get("limit") || "50", 10)));
           }
           case "/stats": {
-            const rows = await env.QNFO_AUDIT.prepare("SELECT doi, score, updated_at FROM impact_scores ORDER BY score DESC LIMIT 20").all();
-            return json({ top: rows.results });
+            // NOZ-DOI-1 (owner directive 2026-10-10): the deposit registrar is closed and no output may carry a DOI under 10.5281; the stored rows stay as records (DOI-ZENODO-INVENTORY-1).
+            const rows = await env.QNFO_AUDIT.prepare("SELECT doi, score, updated_at FROM impact_scores WHERE doi NOT LIKE '10.5281/%' ORDER BY score DESC LIMIT 20").all();
+            const stats = { top: rows.results };
+            // CITATION-TRACKING-1: how much of the public corpus a DOI source can measure at all (1 of 726 on 2026-11-05).
+            try {
+              const pub = await env.LIVING_PAPER.prepare("SELECT (SELECT COUNT(*) FROM papers WHERE status IN " + CORPUS_IN + " AND slug IS NOT NULL) AS public_papers, (SELECT COUNT(*) FROM papers WHERE doi IS NOT NULL AND doi NOT LIKE '10.5281/%') AS eligible_dois").first();
+              const since = new Date(Date.now() - 3 * 864e5).toISOString();
+              const sc = await env.QNFO_AUDIT.prepare("SELECT COUNT(*) AS scored, MAX(updated_at) AS last FROM impact_scores WHERE doi NOT LIKE '10.5281/%' AND updated_at >= ?1").bind(since).first();
+              stats.coverage = { public_papers: pub ? pub.public_papers : null, eligible_dois: pub ? pub.eligible_dois : null, scored_dois: sc ? sc.scored : null, last_collected: sc ? sc.last : null, scored_window_days: 3 };
+            } catch (e) { stats.coverage = { error: "coverage unavailable" }; }
+            return json(stats);
           }
           default: return json({ error: "not found" }, 404);
         }
@@ -1133,7 +1158,7 @@ var indexerMod = (function() {
       try {
         if (cron === "0 4 * * *") {
           const r = await runImpact(env, true, 50);
-          console.log("[qnfo-impact] scheduled:", JSON.stringify({ papers: r.papers, errors: r.errors.length }));
+          console.log("[qnfo-impact] scheduled:", JSON.stringify({ papers: r.papers, errors: r.errors.length, skipped_unavailable: r.skipped_unavailable, unavailable: r.unavailable }));
         } else {
           // RENDER-HEALTH-1 (3.0.11, pillar reach): the gateway's 06:00 cron renders every public paper and writes
           // papers.render_defects; this publishes the count of pages with defects as metric paper_render_defect_pages
