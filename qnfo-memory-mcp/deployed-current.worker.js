@@ -6,7 +6,7 @@ var PROTOCOL_VERSION = "2024-11-05";
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var NL = String.fromCharCode(10);
 var SERVER_NAME = "qnfo-memory-mcp";
-var VERSION = "2.8.0";
+var VERSION = "2.9.0";
 /* 2.7.2: Batch semantic memory D1 enrichment to one query per search. */ /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -59,7 +59,7 @@ var TOOLS = [
   { name: "search_papers", description: "Semantic search across QWAV research papers using Vectorize.", inputSchema: { type: "object", properties: { query: { type: "string", description: "Natural language search query" }, limit: { type: "number", description: "Maximum results (1-20, default 10)", default: 10 } }, required: ["query"] }, annotations: { readOnlyHint: true } },
   { name: "search_papers_enriched", description: "Semantic search papers AND return full body content. Searches Vectorize then enriches with D1 body_md, doi, authors.", inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number", default: 5 }, includeBody: { type: "boolean", default: true }, bodyLimitChars: { type: "number", default: 3e3 } }, required: ["query"] }, annotations: { readOnlyHint: true } },
   { name: "resolve_paper_id", description: "Resolve a paper identifier (slug, Vectorize ID, KG ID, DOI) into ALL cross-system identifiers.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] }, annotations: { readOnlyHint: true } },
-  { name: "search_memories", description: "Semantic search across persistent agent memories with age-decay and outcome-weighted ranking.", inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number", default: 5 }, category: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
+  { name: "search_memories", description: "Semantic search across persistent agent memories. rank=similarity (default) keeps the vector order; rank=weighted applies a mild age decay and the outcome factor from memory_outcome. Each result carries its tier and role.", inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number", default: 5 }, category: { type: "string" }, rank: { type: "string", enum: ["similarity", "weighted"], default: "similarity" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
   { name: "remember_fact", description: "Store an episodic memory with vector embedding, provenance, and role.", inputSchema: { type: "object", properties: { content: { type: "string" }, category: { type: "string", enum: ["user_preference", "project_fact", "task_outcome", "heuristic", "anti_pattern"] }, importance: { type: "number", default: 0.7 }, summary: { type: "string" }, session_id: { type: "string" }, tier: { type: "string", enum: ["episodic"] }, role: { type: "string" }, provenance: { type: "string" } }, required: ["content", "category"] }, annotations: { readOnlyHint: false, destructiveHint: false } },
   { name: "memory_outcome", description: "Record an idempotent success or failure outcome for a retrieved memory.", inputSchema: { type: "object", properties: { memory_id: { type: "string" }, outcome: { type: "string", enum: ["success", "failure"] }, feedback_id: { type: "string" }, provenance: { type: "string" } }, required: ["memory_id", "outcome", "feedback_id"] }, annotations: { readOnlyHint: false, destructiveHint: false } },
   { name: "memory_tiering_metrics", description: "Read episodic/semantic counts, consolidation runs, and 7/30-day outcome hit rates.", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } },
@@ -83,6 +83,10 @@ var TOOLS = [
 // grants read tools only, the same split as qnfo-tools-mcp (MCP-TOKEN-NO-SCOPE-SEPARATION, 954).
 var WRITE_TOOLS = ["remember_fact", "memory_outcome", "exuvia_publish_paper", "exuvia_engage"];
 var MEM_CATEGORIES = ["user_preference", "project_fact", "task_outcome", "heuristic", "anti_pattern"];
+// MEMORY-TIERING-1 (agent_issues 1000637): a memory row is episodic (what an agent wrote) or semantic (distilled from episodic rows by consolidation, which is
+// not built yet). remember_fact writes episodic rows only; a row with no tier (everything written before 2026-10-28) is read as episodic.
+var MEM_TIERS = ["episodic", "semantic"];
+var MEM_TIERS_WRITABLE = ["episodic"];
 function corsHeaders() {
   return { "Access-Control-Allow-Origin": "https://qnfo.org", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id" };
 }
@@ -202,22 +206,45 @@ async function tool_search_memories(args, env) {
   const query = sanitize(args.query);
   const limit = Math.min(parseInt(args.limit) || 5, 20);
   const category = sanitize(args.category);
+  // MEMORY-TIERING-1: rank=similarity (default) keeps the vector order, as before. rank=weighted reads every candidate (at most 50) and orders them by
+  // score x age factor x outcome factor, both factors mild so relevance still dominates: the age factor falls from 1 to 0.85 with a 90-day half-life of the
+  // difference, the outcome factor is 1 + 0.15 x (successes - failures) / (successes + failures + 3), in (0.85, 1.15), from memory_outcome records.
+  const weighted = String(args.rank || "similarity") === "weighted";
   if (!query) return { content: [{ type: "text", text: JSON.stringify({ error: "query required" }) }], isError: true };
   const vec = await embed(env, query);
   const res = await env.PAPER_VZ.query(vec, { topK: Math.min(limit * 5, 50), returnMetadata: "all", returnValues: false });
   let matches = (res.matches || []).filter((m) => m.id.startsWith("mem:"));
   if (category) matches = matches.filter((m) => m.id.startsWith("mem:" + category + ":"));
-  const selected = matches.slice(0, limit);
+  const pool = weighted ? matches : matches.slice(0, limit);
   const records = new Map();
-  if (selected.length) {
+  if (pool.length) {
     const rec = await env.GRAPH_DB.prepare(
-      "SELECT id, category, content, summary, importance, session_id, created_at FROM agent_memories WHERE id IN (SELECT value FROM json_each(?1))"
-    ).bind(JSON.stringify(selected.map((m) => m.id))).all().catch(() => ({ results: [] }));
+      "SELECT id, category, content, summary, importance, session_id, created_at, CASE WHEN json_valid(metadata_json) THEN json_extract(metadata_json, '$.tier') END AS tier, CASE WHEN json_valid(metadata_json) THEN json_extract(metadata_json, '$.role') END AS role FROM agent_memories WHERE id IN (SELECT value FROM json_each(?1))"
+    ).bind(JSON.stringify(pool.map((m) => m.id))).all().catch(() => ({ results: [] }));
     for (const row of rec.results || []) records.set(row.id, row);
   }
-  const results = selected.map((m) => {
+  let ranked = pool.map((m) => ({ m }));
+  if (weighted && pool.length) {
+    const outcomes = new Map();
+    if (env.AUDIT) {
+      const oc = await env.AUDIT.prepare(
+        "SELECT memory_id, SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS s, SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS f FROM memory_outcomes WHERE memory_id IN (SELECT value FROM json_each(?1)) GROUP BY memory_id"
+      ).bind(JSON.stringify(pool.map((m) => m.id))).all().catch(() => ({ results: [] }));
+      for (const row of oc.results || []) outcomes.set(row.memory_id, { s: Number(row.s) || 0, f: Number(row.f) || 0 });
+    }
+    const now = Date.now();
+    ranked = pool.map((m) => {
+      const t = Date.parse(records.get(m.id)?.created_at || "");
+      const age_days = Number.isFinite(t) ? Math.max(0, (now - t) / 864e5) : null;
+      const o = outcomes.get(m.id) || { s: 0, f: 0 };
+      const rank_score = (m.score || 0) * (age_days === null ? 1 : 0.85 + 0.15 * Math.pow(0.5, age_days / 90)) * (1 + 0.15 * (o.s - o.f) / (o.s + o.f + 3));
+      return { m, rank_score: Math.round(rank_score * 1e6) / 1e6, age_days: age_days === null ? null : Math.round(age_days * 10) / 10, outcomes: { success: o.s, failure: o.f } };
+    }).sort((a, b) => b.rank_score - a.rank_score).slice(0, limit);
+  }
+  const results = ranked.map((x) => {
+    const m = x.m;
     const rec = records.get(m.id);
-    return {
+    const row = {
       id: m.id,
       score: m.score,
       category: rec?.category || m.metadata?.category || null,
@@ -225,10 +252,15 @@ async function tool_search_memories(args, env) {
       summary: rec?.summary || null,
       importance: rec?.importance || null,
       session_id: rec?.session_id || null,
-      created_at: rec?.created_at || null
+      created_at: rec?.created_at || null,
+      tier: rec?.tier || (rec ? "episodic" : null),
+      role: rec?.role || null
     };
+    if (weighted) { row.rank_score = x.rank_score; row.age_days = x.age_days; row.outcomes = x.outcomes; }
+    return row;
   });
-  return { content: [{ type: "text", text: JSON.stringify({ count: results.length, results }) }] };
+  // the default reply keeps its old shape; only a weighted reply names its ranking
+  return { content: [{ type: "text", text: JSON.stringify(weighted ? { count: results.length, rank: "weighted", results } : { count: results.length, results }) }] };
 }
 __name(tool_search_memories, "tool_search_memories");
 async function tool_remember_fact(args, env) {
@@ -245,9 +277,13 @@ async function tool_remember_fact(args, env) {
   const ts = Date.now();
   const id = "mem:" + category + ":" + ts + ":" + (await sha256hex(content)).slice(0, 8);
   const created_at = (/* @__PURE__ */ new Date()).toISOString();
+  // MEMORY-TIERING-1: tier (episodic by default), role (who wrote it, agent by default) and a provenance note sit next to source in metadata_json, so the
+  // consolidation step that comes later has a field to select on. Only episodic can be written here: semantic rows come from consolidation.
   const tier = args.tier ? sanitize(args.tier) : "episodic";
-  const role = args.role ? sanitize(args.role) : "agent";
-  const metadata_json = JSON.stringify({ source: "qnfo-memory-mcp", timestamp: created_at, tier, role });
+  if (MEM_TIERS_WRITABLE.indexOf(tier) < 0) return { content: [{ type: "text", text: JSON.stringify({ error: "tier must be one of " + MEM_TIERS_WRITABLE.join(", ") + " (semantic rows are written by consolidation)" }) }], isError: true };
+  const role = args.role ? sanitize(args.role).slice(0, 40) : "agent";
+  const provenance = args.provenance ? sanitize(args.provenance).slice(0, 200) : null;
+  const metadata_json = JSON.stringify({ source: "qnfo-memory-mcp", timestamp: created_at, tier, role, provenance });
   await env.GRAPH_DB.prepare(
     "INSERT OR REPLACE INTO agent_memories (id, category, content, summary, importance, session_id, created_at, expires_at, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)"
   ).bind(id, category, content, summary, importance, session_id, created_at, metadata_json).run();
@@ -257,9 +293,88 @@ async function tool_remember_fact(args, env) {
     values: vec,
     metadata: { kind: "memory", category, content: content.slice(0, 800) }
   }]);
-  return { content: [{ type: "text", text: JSON.stringify({ success: true, id, category, importance, created_at, tier }) }] };
+  return { content: [{ type: "text", text: JSON.stringify({ success: true, id, category, importance, created_at, tier, role }) }] };
 }
 __name(tool_remember_fact, "tool_remember_fact");
+// MEMORY-TIERING-1 (agent_issues 1000637): outcome records and the numbers the consolidation work will be judged on. memory_outcome stores one success or
+// failure per (memory_id, feedback_id) in qnfo-audit.memory_outcomes (migrations/2026-11-05-memory-tiering-store.sql); memory_tiering_metrics reads the tier
+// counts from agent_memories, the consolidation runs (none yet: consolidation is not built) and the 7 and 30 day outcome hit rates (successes over successes
+// plus failures). A row with no tier counts as episodic in episodic_effective, so the figure is the same before and after the first tiered write.
+async function tool_memory_outcome(args, env) {
+  const fail = (message) => ({ content: [{ type: "text", text: JSON.stringify({ error: message }) }], isError: true });
+  const memory_id = sanitize(args.memory_id);
+  const outcome = sanitize(args.outcome);
+  const feedback_id = sanitize(args.feedback_id).slice(0, 120);
+  const provenance = args.provenance ? sanitize(args.provenance).slice(0, 200) : null;
+  if (!/^mem:[a-z_]+:\d+:[0-9a-f]{8}$/.test(memory_id)) return fail("memory_id must be a mem:<category>:<time>:<hash> id returned by remember_fact or search_memories");
+  if (outcome !== "success" && outcome !== "failure") return fail("outcome must be success or failure");
+  if (!feedback_id) return fail("feedback_id required: the same memory_id and feedback_id is recorded once");
+  if (!env.AUDIT) return fail("outcome store unavailable: AUDIT binding absent");
+  const known = await env.GRAPH_DB.prepare("SELECT id FROM agent_memories WHERE id = ?1").bind(memory_id).first();
+  if (!known) return fail("unknown memory " + memory_id);
+  try {
+    const ins = await env.AUDIT.prepare("INSERT OR IGNORE INTO memory_outcomes (memory_id, outcome, feedback_id, provenance, ts) VALUES (?1, ?2, ?3, ?4, ?5)")
+      .bind(memory_id, outcome, feedback_id, provenance, new Date().toISOString()).run();
+    const recorded = Number(ins && ins.meta && ins.meta.changes) > 0;
+    let stored = outcome;
+    if (!recorded) {
+      const prior = await env.AUDIT.prepare("SELECT outcome FROM memory_outcomes WHERE memory_id = ?1 AND feedback_id = ?2").bind(memory_id, feedback_id).first();
+      stored = prior ? prior.outcome : outcome;
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ success: true, memory_id, feedback_id, recorded, duplicate: !recorded, outcome: stored, conflict: stored !== outcome }) }] };
+  } catch (e) {
+    return fail("outcome store unavailable: " + String(e && e.message || e).slice(0, 200));
+  }
+}
+__name(tool_memory_outcome, "tool_memory_outcome");
+async function memoryTierRows(env) {
+  const rows = await env.GRAPH_DB.prepare(
+    "SELECT CASE WHEN json_valid(metadata_json) THEN COALESCE(json_extract(metadata_json, '$.tier'), 'untiered') ELSE 'untiered' END AS tier, CASE WHEN json_valid(metadata_json) THEN COALESCE(json_extract(metadata_json, '$.role'), 'unknown') ELSE 'unknown' END AS role, COUNT(*) AS n, MIN(created_at) AS oldest, MAX(created_at) AS newest FROM agent_memories GROUP BY 1, 2"
+  ).all();
+  return rows.results || [];
+}
+async function tool_memory_tiering_metrics(args, env) {
+  const out = { generated_at: new Date().toISOString(), tiers: [], episodic_effective: 0, semantic: 0, consolidation: null, outcomes: null };
+  out.tiers = await memoryTierRows(env);
+  for (const r of out.tiers) {
+    if (r.tier === "semantic") out.semantic += Number(r.n) || 0;
+    else out.episodic_effective += Number(r.n) || 0;
+  }
+  if (!env.AUDIT) { out.consolidation = { error: "AUDIT binding absent" }; out.outcomes = { error: "AUDIT binding absent" }; return { content: [{ type: "text", text: JSON.stringify(out) }] }; }
+  try {
+    const c = await env.AUDIT.prepare("SELECT COUNT(*) AS runs, COALESCE(SUM(episodic_in), 0) AS episodic_in, COALESCE(SUM(semantic_out), 0) AS semantic_out, MAX(ts) AS last_run FROM memory_consolidation_runs").first();
+    out.consolidation = { runs: Number(c && c.runs) || 0, episodic_in: Number(c && c.episodic_in) || 0, semantic_out: Number(c && c.semantic_out) || 0, last_run: (c && c.last_run) || null };
+  } catch (e) { out.consolidation = { error: String(e && e.message || e).slice(0, 200) }; }
+  try {
+    out.outcomes = {};
+    for (const days of [7, 30]) {
+      const since = new Date(Date.now() - days * 864e5).toISOString();
+      const o = await env.AUDIT.prepare("SELECT COALESCE(SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END), 0) AS s, COALESCE(SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END), 0) AS f FROM memory_outcomes WHERE ts >= ?1").bind(since).first();
+      const s = Number(o && o.s) || 0, f = Number(o && o.f) || 0;
+      out.outcomes["d" + days] = { success: s, failure: f, hit_rate: s + f > 0 ? Math.round(s / (s + f) * 1e4) / 1e4 : null };
+    }
+  } catch (e) { out.outcomes = { error: String(e && e.message || e).slice(0, 200) }; }
+  return { content: [{ type: "text", text: JSON.stringify(out) }] };
+}
+__name(tool_memory_tiering_metrics, "tool_memory_tiering_metrics");
+// Hourly: one snapshot of the tier counts into qnfo-audit.memory_tier_counts, so the counts have a history (v_memory_tier_latest, v_memory_tiering) next to the
+// outcome hit rates. A failed snapshot is logged and never stops the Exuvia tick that shares the cron.
+async function memoryTierSnapshot(env) {
+  if (!env.AUDIT) return { skipped: "AUDIT binding absent" };
+  try {
+    const rows = await memoryTierRows(env);
+    const ts = new Date().toISOString().slice(0, 13) + ":00:00Z";
+    for (const r of rows) {
+      await env.AUDIT.prepare("INSERT OR REPLACE INTO memory_tier_counts (ts, tier, role, n, oldest, newest) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+        .bind(ts, String(r.tier), String(r.role), Number(r.n) || 0, r.oldest || null, r.newest || null).run();
+    }
+    return { ts, rows: rows.length };
+  } catch (e) {
+    const error = String(e && e.message || e).slice(0, 200);
+    console.error(JSON.stringify({ worker: SERVER_NAME, where: "memory-tier-snapshot", error }));
+    return { error };
+  }
+}
 async function tool_recall_facts(args, env) {
   const category = args.category ? sanitize(args.category) : null;
   const keyword = args.keyword ? sanitize(args.keyword) : null;
@@ -811,6 +926,8 @@ async function callTool(name, args, env) {
     resolve_paper_id: tool_resolve_paper_id,
     search_memories: tool_search_memories,
     remember_fact: tool_remember_fact,
+    memory_outcome: tool_memory_outcome,
+    memory_tiering_metrics: tool_memory_tiering_metrics,
     recall_facts: tool_recall_facts,
     query_graph: tool_query_graph,
     get_paper_context: tool_get_paper_context,
@@ -924,7 +1041,9 @@ var sessions = /* @__PURE__ */ new Map();
 var worker_default = {
   // EXUVIA-ENGAGE-1 (2.8.0): hourly cron, see exuviaCron.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(exuviaCron(__aiAttrEnv(env, "qnfo-memory-mcp", "AI", "AUDIT")));
+    const attributed = __aiAttrEnv(env, "qnfo-memory-mcp", "AI", "AUDIT");
+    ctx.waitUntil(exuviaCron(attributed));
+    ctx.waitUntil(memoryTierSnapshot(attributed)); // MEMORY-TIERING-1
   },
   async fetch(request, env) {
     env = __aiAttrEnv(env, "qnfo-memory-mcp", "AI", "AUDIT");

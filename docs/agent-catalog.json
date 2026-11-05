@@ -526,6 +526,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/MAIN-PUSH-POLICY.md"
     },
     {
+      "path": "docs/MEMORY-TIERING-EVAL.md",
+      "title": "Tiered agent memory: how it is measured (RM-MEMORY-TIERING-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/MEMORY-TIERING-EVAL.md"
+    },
+    {
       "path": "docs/MODEL-MATRIX.md",
       "title": "MODEL-MATRIX-1: which Cloudflare model for which job",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/MODEL-MATRIX.md"
