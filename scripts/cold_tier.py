@@ -256,6 +256,20 @@ def archive_chunk(d1, r2, t, rows, now=None, sleep=time.sleep):
     return out
 
 
+def brief(tiers):
+    """One short clause per tier for the cloud_ops_events line. The line used to be the whole JSON cut at 400 characters, which lost every tier after the third
+    (COLD-TIER-OBS-1: the 04:32Z run of 2026-11-05 showed cron_fire_log and then nothing)."""
+    parts = []
+    for name, v in tiers.items():
+        s = "%s rolled=%d chunks=%d rows=%d deleted=%d" % (name, len(v.get("rolled") or []), v.get("chunks", 0), v.get("rows", 0), v.get("deleted", 0))
+        if v.get("stopped"):
+            s += " stopped=" + str(v["stopped"])
+        if v.get("error"):
+            s += " error=" + str(v["error"])[:60]
+        parts.append(s)
+    return "; ".join(parts)
+
+
 def run(d1, r2=None, now=None, sleep=time.sleep, tiers=None, deadline=None):
     out = {"tiers": {}}
     try:
@@ -301,7 +315,7 @@ def run(d1, r2=None, now=None, sleep=time.sleep, tiers=None, deadline=None):
         if any(v["rows"] or v["rolled"] for v in out["tiers"].values()):
             try:
                 d1("INSERT INTO cloud_ops_events (id, ts, kind, status, text, job) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), 'cold-tier', 'ok', ?2, 'continuity-snapshot')",
-                   ["cold-tier-%d" % int(time.time()), ("COLD-TIER-1: " + json.dumps(out["tiers"]))[:400]])
+                   ["cold-tier-%d" % int(time.time()), ("COLD-TIER-1: " + brief(out["tiers"]))[:900]])
             except Exception as e:  # noqa: BLE001
                 out["event_error"] = str(e)[:120]
     except Exception as e:  # noqa: BLE001
@@ -525,6 +539,10 @@ CREATE TABLE remediation_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, cl
     st.corrupt = False
     selftest_tier2(c, d1, st, now, pauses)
     selftest_blob(c, d1, st, now, pauses)
+    # the event line names every tier (7 of them, none cut) and carries an error
+    line = brief({"a": {"rolled": ["d"], "chunks": 2, "rows": 5, "deleted": 5}, "b": {"rolled": [], "chunks": 0, "rows": 0, "deleted": 0, "stopped": "budget"}, "c": {"error": "verify-sha-mismatch"}})
+    assert "a rolled=1 chunks=2 rows=5 deleted=5" in line and "b rolled=0" in line and "stopped=budget" in line and "c rolled=0" in line and "error=verify-sha-mismatch" in line, line
+    assert len(brief({t["table"]: {"rolled": [], "chunks": 6, "rows": 4800, "deleted": 4800} for t in TIERS})) < 900, "all tiers fit in the event text"
     # kill switch
     d1("INSERT INTO ops_config VALUES ('cold_tier', 'off')")
     assert run(d1, st, now, pauses.append, tiers)["status"] == "off" and d1("SELECT COUNT(*) n FROM fleet_probe_log")[0]["n"] == n_rows
