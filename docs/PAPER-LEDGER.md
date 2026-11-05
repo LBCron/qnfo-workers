@@ -47,6 +47,45 @@ it writes the text unchanged to the `qnfo-releases` bucket as `paper-ledger/<seq
 `paper_change_body_archive` names the object, and `paperLedgerBody(env, seq)` in qnfo-cloud-ops returns either with the fingerprint checked. Ledger rows themselves are never removed.
 Detector `fm-paper-ledger-bodies-unbounded` fails above 330 MB.
 
+## Tamper evidence and authorship at publish (PAPER-LEDGER-CHAIN-1, RM-ADR-013-014-ENFORCEMENT-1)
+
+The ledger refuses edits with triggers, which a writer with schema rights can drop. Since qnfo-lifecycle 1.19.0 each hourly tick also seals every new ledger row into `paper_ledger_chain`
+(living-paper): `row_hash = sha256(previous row_hash + newline + canonical JSON of the ledger row + the sha256 of the body kept for that row)`, the first row starting from `genesis`. A
+`BEFORE INSERT` trigger accepts only the next ledger row (no gap, no repeat) with the previous row's hash, so two sealers racing leave one clean chain; chain rows can never be updated or
+deleted. The head is copied to qnfo-audit `paper_ledger_seals` (a second database, append-only, `head_seq` only grows), so a chain rebuilt over a rewritten ledger in living-paper alone no
+longer matches its anchor. The chain is tamper-evident, not signed: the HMAC slice is `PAPER-LEDGER-SIGN-1` and waits on the signing-key step (`human_actions` bp26-provenance-signing-key).
+
+```sql
+SELECT * FROM v_paper_ledger_chain_status;          -- chain_rows, head_seq, head_hash, unsealed_rows, unsealed_min, sql_breaks (living-paper)
+SELECT * FROM v_paper_ledger_chain_breaks;          -- link, genesis, ledger-row-missing, ledger-row-unsealed-below-head
+SELECT * FROM v_paper_ledger_chain_body_breaks;     -- body-archive-mismatch, body-added-after-seal
+SELECT * FROM paper_ledger_seals ORDER BY id DESC LIMIT 5;   -- qnfo-audit: the anchors
+```
+
+`GET https://qnfo-lifecycle.q08.workers.dev/paper-ledger/chain` (open, cached 60 s) returns the head, the lag and the newest seals; `?verify=1` re-computes the newest 50 rows and the anchors on the spot.
+Each tick also re-computes a rotating window of 100 rows (every row within a day at the current size), the newest 25, the newest three seals and one older seal; a row whose hash differs becomes a
+`plc-break-*` event in `cloud_ops_events`, stays open until the row hashes true again, and counts in the metric `paper_ledger_chain_breaks` (trigger at above 0). `paper_ledger_unsealed_min`
+(trigger at above 120) is the minutes since the chain head was sealed while ledger rows wait (0 when none wait), so a backlog being worked off does not alarm and a stopped sealer does. Detector: `fm-paper-ledger-chain-broken`. Never edit or delete a chain row or a seal; a wrong finding is answered by a new one.
+
+### Authorship (ADR-014)
+
+The R2 objects of ADR-013 and ADR-014 hold the output of a failed download (310 bytes each), so the rule enforced is the one the fleet's own code states: the individual author, Rowan
+Brad Quni-Gudzinas, is named in `authors`; an organisation byline is not an author (`human_actions` adr-013-014-text-restore asks for the originals). Read live 2026-11-05: 276 of 726 published or
+distributed papers carry an organisation byline, all first published 2025-01-01 to 2026-08-04; the 296 first published since 2026-09-01 all name the owner.
+
+```sql
+SELECT * FROM v_adr014_authorship_status;                        -- public papers, violations, since-adr and legacy counts, observed publishes in 7 days, mode
+SELECT slug, authors, first_public_at FROM v_adr014_authorship_violations WHERE era = 'legacy';
+SELECT * FROM adr014_publish_audit ORDER BY id DESC LIMIT 20;    -- who published a paper that does not name the owner (actor)
+UPDATE adr_enforcement SET mode = 'enforce' WHERE rule = 'adr014-publish-authorship';   -- observe (shipped) | enforce | off
+```
+
+At publish (an insert as published or distributed, the first move into either from a non-public status, or an authors change on a public paper) a paper that does not name the owner is
+recorded in `adr014_publish_audit` (observe) or refused with `ADR-014-AUTHORSHIP-BLOCKED` (enforce). A restore from quarantine, retraction or supersession is not a first publication. A published
+version is not edited in place for its byline (ADR-013): a legacy paper takes the owner byline when it is next revised, through the path above (`ADR014-LEGACY-BYLINE-1`). Metrics:
+`adr014_new_publication_violations` (trigger at above 0), `adr014_legacy_byline_papers` (observational). Detector: `fm-adr014-authorship-violated`. Suite: `node qnfo-lifecycle/paper-ledger-chain.test.mjs`.
+Rollback: `DROP TRIGGER paper_ledger_chain_valid` stops sealing; `UPDATE adr_enforcement SET mode = 'off'` stops the publish check; no data is dropped.
+
 ## Rollback
 
 `DROP TRIGGER paper_ledger_ai, paper_ledger_au, paper_ledger_ad, trg_papers_mass_withdraw_guard, trg_papers_mass_delete_guard` (one statement each). The tables, views and data stay.

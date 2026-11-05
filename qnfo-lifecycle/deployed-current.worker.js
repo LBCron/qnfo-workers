@@ -1,4 +1,4 @@
-var VERSION = "1.18.1-codeagent";
+var VERSION = "1.19.0-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -3278,10 +3278,229 @@ async function plRetriage(env, o, mechs, now, out) {
     }
   }
 }
+// ---- PAPER-LEDGER-CHAIN-1:BEGIN (RM-ADR-013-014-ENFORCEMENT-1, roadmap_implementation 115, charter pillar security, 2026-11-05) ----
+// ADR-013 (legal immutability) wants a published artifact that cannot be changed without a trace. living-paper's paper_change_ledger already refuses UPDATE and DELETE of its own rows, but a
+// reader could not tell whether the ledger itself had been rewritten by someone who drops the triggers. Every hourly tick this step (1) seals each new ledger row into paper_ledger_chain:
+// row_hash = sha256(previous row_hash + "\n" + canonical JSON of the ledger row + the sha256 of the body kept for it); SQLite has no sha256, so the worker computes it, and a BEFORE INSERT trigger
+// accepts only the next ledger row with the previous row's hash (a concurrent sealer or a gap aborts the whole page); (2) anchors the head in qnfo-audit paper_ledger_seals, a second database,
+// so rewriting the chain table alone is caught; (3) re-computes a rotating window of rows (and the newest ones) plus one older anchor, and records a hash mismatch in cloud_ops_events
+// (plc-break-*, resolved only when the row hashes true again); (4) publishes metrics paper_ledger_chain_breaks, paper_ledger_unsealed_min and the ADR-014 authorship counts.
+// ADR-014 (authorship mandate) is checked at publish by living-paper triggers (observe mode) and counted here from v_adr014_authorship_status. No signing key is used: the chain is
+// tamper-evident, not signed; the HMAC slice is filed as its own issue (an HMAC key must be minted under the secret lock).
+var PLC_COLS = ["seq", "ts", "slug", "slug_before", "identifier", "kind", "fields_changed", "actor", "reason", "withdrawal", "backfilled", "version_before", "version_after", "status_before", "status_after", "gate_reason_before", "gate_reason_after", "title_before", "abstract_before", "body_len_before", "body_fp_before", "body_len_after", "body_fp_after", "meta_before"];
+var PLC_MAX_ROWS = 500;
+var PLC_PAGE = 25;
+var PLC_VERIFY_ROWS = 100;
+var PLC_VERIFY_NEWEST = 25;
+var PLC_SEALER = "qnfo-lifecycle";
+async function plcSha(text) {
+  var d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
+  return "sha256:" + Array.from(new Uint8Array(d)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+}
+function plcCanonical(row, bodySha) {
+  return JSON.stringify(PLC_COLS.map(function (c) { return row[c] === undefined ? null : row[c]; }).concat([bodySha || null]));
+}
+async function plcHash(prev, row, bodySha) { return plcSha(prev + "\n" + plcCanonical(row, bodySha)); }
+async function plcBodyShas(db, lo, hi) {
+  var sha = {};
+  var bodies = (await db.prepare("SELECT seq, body_md FROM paper_change_bodies WHERE seq >= ?1 AND seq <= ?2").bind(lo, hi).all()).results || [];
+  for (var i = 0; i < bodies.length; i++) sha[bodies[i].seq] = await plcSha(bodies[i].body_md);
+  var arch = (await db.prepare("SELECT seq, fingerprint FROM paper_change_body_archive WHERE seq >= ?1 AND seq <= ?2").bind(lo, hi).all()).results || [];
+  for (var j = 0; j < arch.length; j++) if (!sha[arch[j].seq]) sha[arch[j].seq] = arch[j].fingerprint;
+  return sha;
+}
+function plcMissingTable(e) { return /no such (table|view)/i.test(String(e && e.message || e)); }
+// Seals every ledger row after the chain head, at most maxRows per call, one atomic page at a time.
+async function plcSeal(env, opts) {
+  var db = env && env.LIVING_PAPER;
+  if (!db) return { status: "skipped", reason: "no LIVING_PAPER binding", sealed: 0 };
+  var maxRows = opts && Number(opts.maxRows) > 0 ? Number(opts.maxRows) : PLC_MAX_ROWS, page = opts && Number(opts.page) > 0 ? Number(opts.page) : PLC_PAGE, sealer = (opts && opts.sealer) || PLC_SEALER;
+  var head;
+  try { head = await db.prepare("SELECT seq, row_hash FROM paper_ledger_chain ORDER BY seq DESC LIMIT 1").first(); }
+  catch (e) { if (plcMissingTable(e)) return { status: "skipped", reason: "the chain table is not installed", sealed: 0 }; throw e; }
+  var prev = head ? head.row_hash : "genesis", last = head ? Number(head.seq) : 0, sealed = 0, started = last;
+  while (sealed < maxRows) {
+    var want = Math.min(page, maxRows - sealed);
+    var rows = (await db.prepare("SELECT " + PLC_COLS.join(", ") + " FROM paper_change_ledger WHERE seq > ?1 ORDER BY seq LIMIT ?2").bind(last, want).all()).results || [];
+    if (!rows.length) break;
+    var sha = await plcBodyShas(db, rows[0].seq, rows[rows.length - 1].seq), stmts = [];
+    for (var i = 0; i < rows.length; i++) {
+      var bs = sha[rows[i].seq] || null, h = await plcHash(prev, rows[i], bs);
+      stmts.push(db.prepare("INSERT INTO paper_ledger_chain (seq, prev_hash, row_hash, body_sha256, sealed_by) VALUES (?1, ?2, ?3, ?4, ?5)").bind(rows[i].seq, prev, h, bs, sealer));
+      prev = h;
+      last = Number(rows[i].seq);
+    }
+    await db.batch(stmts);
+    sealed += rows.length;
+    if (rows.length < want) break;
+  }
+  return { status: "ok", sealed: sealed, started_after: started, head_seq: last, head_hash: sealed || head ? prev : null };
+}
+// Re-computes rows [offset, offset + count) of the chain (and optionally one body per row) against the ledger as it stands now.
+async function plcVerifyRows(db, offset, count) {
+  var bad = [], checked = 0;
+  for (var done = 0; done < count; done += PLC_PAGE) {
+    var n = Math.min(PLC_PAGE, count - done);
+    var rows = (await db.prepare("SELECT c.prev_hash AS c_prev, c.row_hash AS c_hash, c.body_sha256 AS c_body, " + PLC_COLS.map(function (k) { return "l." + k + " AS " + k; }).join(", ") + " FROM (SELECT seq, prev_hash, row_hash, body_sha256 FROM paper_ledger_chain ORDER BY seq LIMIT ?1 OFFSET ?2) c JOIN paper_change_ledger l ON l.seq = c.seq ORDER BY c.seq").bind(n, offset + done).all()).results || [];
+    if (!rows.length) break;
+    var sha = await plcBodyShas(db, rows[0].seq, rows[rows.length - 1].seq);
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i], h = await plcHash(r.c_prev, r, r.c_body);
+      checked++;
+      if (h !== r.c_hash) bad.push({ seq: Number(r.seq), kind: "hash-mismatch" });
+      else if (r.c_body && sha[r.seq] && sha[r.seq] !== r.c_body) bad.push({ seq: Number(r.seq), kind: "body-hash-mismatch" });
+    }
+    if (rows.length < n) break;
+  }
+  return { checked: checked, bad: bad };
+}
+// The rotating window is a function of the hour, so no cursor is stored: the window moves PLC_VERIFY_ROWS rows each hour and wraps.
+function plcWindowOffset(nowMs, chainRows, size) {
+  if (chainRows <= size) return 0;
+  return (Math.floor(nowMs / 36e5) * size) % chainRows;
+}
+// One older anchor each hour, rotating over every seal ever written; the newest three are always checked.
+async function plcCheckAnchors(env, nowMs) {
+  var db = env.LIVING_PAPER, audit = env.QNFO_AUDIT, out = { checked: 0, bad: [], missing_table: false };
+  if (!audit) return out;
+  var seals;
+  try {
+    var cnt = await audit.prepare("SELECT COUNT(*) AS n FROM paper_ledger_seals").first();
+    var n = cnt ? Number(cnt.n) : 0;
+    if (!n) return out;
+    seals = ((await audit.prepare("SELECT id, head_seq, head_hash FROM paper_ledger_seals ORDER BY id DESC LIMIT 3").all()).results) || [];
+    if (n > 3) {
+      var old = await audit.prepare("SELECT id, head_seq, head_hash FROM paper_ledger_seals ORDER BY id LIMIT 1 OFFSET ?1").bind(Math.floor(nowMs / 36e5) % (n - 3)).first();
+      if (old) seals.push(old);
+    }
+  } catch (e) { if (plcMissingTable(e)) { out.missing_table = true; return out; } throw e; }
+  for (var i = 0; i < seals.length; i++) {
+    var c = await db.prepare("SELECT row_hash FROM paper_ledger_chain WHERE seq = ?1").bind(seals[i].head_seq).first();
+    out.checked++;
+    if (!c) out.bad.push({ seq: Number(seals[i].head_seq), kind: "anchor-row-missing" });
+    else if (c.row_hash !== seals[i].head_hash) out.bad.push({ seq: Number(seals[i].head_seq), kind: "anchor-hash-mismatch" });
+  }
+  return out;
+}
+async function plcSetMetric(audit, metric, value, nowIso) {
+  try { await audit.prepare("UPDATE metric_registry SET last_value = ?1, last_refreshed = ?2, state = 'MEASURED' WHERE metric = ?3").bind(String(value), nowIso, metric).run(); }
+  catch (e) { console.error("[qnfo-lifecycle] paper-ledger-chain metric " + metric + ": " + String(e && e.message || e).slice(0, 200)); }
+}
+// The whole tick. Every step has its own try so that a verification problem never stops sealing and the reverse.
+async function paperLedgerChainTick(env, opts) {
+  var nowMs = opts && opts.nowMs || Date.now(), nowIso = new Date(nowMs).toISOString();
+  var out = { marker: "PAPER-LEDGER-CHAIN-1", at: nowIso, sealed: 0, errors: [] };
+  var db = env && env.LIVING_PAPER, audit = env && env.QNFO_AUDIT;
+  if (!db) { out.skipped = "no LIVING_PAPER binding"; return out; }
+  var seal;
+  try { seal = await plcSeal(env, opts); } catch (e) { seal = { status: "error", sealed: 0 }; out.errors.push("seal: " + String(e && e.message || e).slice(0, 200)); }
+  if (seal.status === "skipped") { out.skipped = seal.reason; return out; }
+  out.sealed = seal.sealed || 0;
+  if (seal.head_seq !== undefined) out.head_seq = seal.head_seq;
+  var anchored = false;
+  if (audit && out.sealed > 0 && seal.head_hash) {
+    try {
+      var tot = await db.prepare("SELECT COUNT(*) AS n FROM paper_ledger_chain").first();
+      await audit.prepare("INSERT INTO paper_ledger_seals (head_seq, head_hash, chain_rows, sealed_by) VALUES (?1, ?2, ?3, ?4)").bind(seal.head_seq, seal.head_hash, tot ? Number(tot.n) : 0, PLC_SEALER).run();
+      anchored = true;
+    } catch (e) { out.errors.push("anchor: " + String(e && e.message || e).slice(0, 200)); }
+  }
+  out.anchored = anchored;
+  // verification
+  var breaks = [], status = null;
+  try {
+    status = await db.prepare("SELECT chain_rows, head_seq, unsealed_rows, unsealed_min, sql_breaks FROM v_paper_ledger_chain_status").first();
+  } catch (e) { out.errors.push("status: " + String(e && e.message || e).slice(0, 200)); }
+  if (status) {
+    out.chain_rows = Number(status.chain_rows) || 0;
+    out.unsealed_rows = Number(status.unsealed_rows) || 0;
+    out.unsealed_min = Number(status.unsealed_min) || 0;
+    out.sql_breaks = Number(status.sql_breaks) || 0;
+    try {
+      var size = opts && Number(opts.verifyRows) > 0 ? Number(opts.verifyRows) : PLC_VERIFY_ROWS;
+      var w = await plcVerifyRows(db, plcWindowOffset(nowMs, out.chain_rows, size), size);
+      var nw = await plcVerifyRows(db, Math.max(0, out.chain_rows - PLC_VERIFY_NEWEST), PLC_VERIFY_NEWEST);
+      out.verified = w.checked + nw.checked;
+      breaks = breaks.concat(w.bad, nw.bad);
+    } catch (e) { out.errors.push("verify: " + String(e && e.message || e).slice(0, 200)); }
+    try {
+      var an = await plcCheckAnchors(env, nowMs);
+      out.anchors_checked = an.checked;
+      out.anchor_breaks = an.bad.length;
+    } catch (e) { out.errors.push("anchors: " + String(e && e.message || e).slice(0, 200)); }
+  }
+  // sticky hash findings: written once as events, rechecked each tick, resolved only when the row hashes true again
+  var openBreaks = 0;
+  if (audit) {
+    try {
+      for (var i = 0; i < breaks.length; i++) {
+        await audit.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'paper-ledger-chain', ?3, ?4, 'paper-ledger-chain', 'break') ON CONFLICT(id) DO UPDATE SET status = 'break', ts = excluded.ts, text = excluded.text, meta = excluded.meta")
+          .bind("plc-break-" + breaks[i].kind + "-" + breaks[i].seq, nowIso, "PAPER-LEDGER-CHAIN-1: " + breaks[i].kind + " at ledger seq " + breaks[i].seq, JSON.stringify(breaks[i])).run();
+      }
+      var open = ((await audit.prepare("SELECT id, meta FROM cloud_ops_events WHERE id >= 'plc-break-' AND id < 'plc-break.' AND status = 'break' LIMIT 100").all()).results) || [];
+      for (var k = 0; k < open.length; k++) {
+        var m = {}; try { m = JSON.parse(open[k].meta); } catch (e) { m = {}; }
+        var still = breaks.some(function (b) { return b.kind === m.kind && b.seq === m.seq; });
+        if (!still && m.kind && (m.kind === "hash-mismatch" || m.kind === "body-hash-mismatch")) {
+          var rc = await plcVerifyRowsAt(db, m.seq);
+          if (rc && rc.ok) { await audit.prepare("UPDATE cloud_ops_events SET status = 'resolved', ts = ?2 WHERE id = ?1").bind(open[k].id, nowIso).run(); continue; }
+        }
+        openBreaks++;
+      }
+    } catch (e) { out.errors.push("events: " + String(e && e.message || e).slice(0, 200)); openBreaks = breaks.length; }
+  } else { openBreaks = breaks.length; }
+  out.hash_breaks = openBreaks;
+  out.breaks = (out.sql_breaks || 0) + openBreaks + (out.anchor_breaks || 0);
+  if (audit && status) {
+    await plcSetMetric(audit, "paper_ledger_chain_breaks", out.breaks, nowIso);
+    await plcSetMetric(audit, "paper_ledger_unsealed_min", out.unsealed_min, nowIso);
+  }
+  // ADR-014 authorship counts
+  try {
+    var a = await db.prepare("SELECT public_papers, violations_since_adr, violations_legacy, observed_publish_7d, publish_mode FROM v_adr014_authorship_status").first();
+    if (a) {
+      out.adr014 = { public: Number(a.public_papers), since_adr: Number(a.violations_since_adr), legacy: Number(a.violations_legacy), observed_7d: Number(a.observed_publish_7d), mode: a.publish_mode };
+      if (audit) {
+        await plcSetMetric(audit, "adr014_new_publication_violations", out.adr014.since_adr, nowIso);
+        await plcSetMetric(audit, "adr014_legacy_byline_papers", out.adr014.legacy, nowIso);
+      }
+    }
+  } catch (e) { if (!plcMissingTable(e)) out.errors.push("adr014: " + String(e && e.message || e).slice(0, 200)); }
+  out.status = out.errors.length ? "degraded" : "ok";
+  return out;
+}
+async function plcVerifyRowsAt(db, seq) {
+  var rows = (await db.prepare("SELECT c.prev_hash AS c_prev, c.row_hash AS c_hash, c.body_sha256 AS c_body, " + PLC_COLS.map(function (k) { return "l." + k + " AS " + k; }).join(", ") + " FROM paper_ledger_chain c JOIN paper_change_ledger l ON l.seq = c.seq WHERE c.seq = ?1").bind(seq).all()).results || [];
+  if (!rows.length) return { ok: false };
+  return { ok: (await plcHash(rows[0].c_prev, rows[0], rows[0].c_body)) === rows[0].c_hash };
+}
+// Open read for GET /paper-ledger/chain: the chain's head, the sealing lag, the anchors and (with ?verify=1) a fresh re-computation of the newest rows and the anchors.
+async function paperLedgerChainStatus(env, verify) {
+  var db = env && env.LIVING_PAPER, out = { marker: "PAPER-LEDGER-CHAIN-1", at: new Date().toISOString() };
+  if (!db) return { error: "no LIVING_PAPER binding" };
+  var s = await db.prepare("SELECT chain_rows, head_seq, head_hash, unsealed_rows, unsealed_min, sql_breaks FROM v_paper_ledger_chain_status").first();
+  Object.assign(out, s || {});
+  if (env.QNFO_AUDIT) {
+    try { out.seals = ((await env.QNFO_AUDIT.prepare("SELECT id, head_seq, head_hash, chain_rows, sealed_at FROM paper_ledger_seals ORDER BY id DESC LIMIT 5").all()).results) || []; } catch (e) { out.seals = []; }
+  }
+  if (verify) {
+    var v = await plcVerifyRows(db, Math.max(0, (Number(out.chain_rows) || 0) - 50), 50);
+    var an = await plcCheckAnchors(env, Date.now());
+    out.verified = { rows: v.checked, hash_breaks: v.bad.length, anchors: an.checked, anchor_breaks: an.bad.length };
+  }
+  return out;
+}
+// ---- PAPER-LEDGER-CHAIN-1:END ----
 function withPaperLearn(inner) {
   var out = Object.assign({}, inner, {
     async fetch(request, env, ctx) {
       var u = new URL(request.url);
+      if (u.pathname === "/paper-ledger/chain" && request.method === "GET") {
+        var cs;
+        try { cs = await paperLedgerChainStatus(env, u.searchParams.get("verify") === "1"); }
+        catch (e) { console.error("[qnfo-lifecycle] paper-ledger chain status failed: " + String(e && e.message || e).slice(0, 300)); cs = { error: "status unavailable (logged)" }; }
+        return new Response(JSON.stringify(cs), { status: cs.error ? 500 : 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=60" } });
+      }
       if ((u.pathname === "/paper-learn/status" || u.pathname === "/paper-learn/learnings") && request.method === "GET") {
         var st;
         try { st = await paperLearnStatus(env, u.pathname === "/paper-learn/learnings" ? (u.searchParams.get("slug") || "").slice(0, 200) || null : null); }
@@ -3306,11 +3525,23 @@ function withPaperLearn(inner) {
         } catch (e) {
           console.error("[qnfo-lifecycle] paper-learn error:", String(e && e.message || e));
         }
+        // PAPER-LEDGER-CHAIN-1: its own try, after PAPER-LEARN-1, so neither step can stop the other.
+        try {
+          var pc = await paperLedgerChainTick(env);
+          console.log("[qnfo-lifecycle] paper-ledger-chain:", JSON.stringify(pc).slice(0, 1500));
+          if (env.QNFO_AUDIT && (pc.sealed > 0 || pc.breaks > 0 || (pc.errors && pc.errors.length))) {
+            await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'job-run', ?3, ?4, 'paper-ledger-chain', ?5)")
+              .bind("jr-paper-ledger-chain-" + Date.now().toString(36), pc.at, "PAPER-LEDGER-CHAIN-1: sealed " + pc.sealed + ", head " + pc.head_seq + ", breaks " + pc.breaks + ", unsealed " + pc.unsealed_rows + (pc.errors && pc.errors.length ? ", errors " + pc.errors.length : ""), JSON.stringify(pc).slice(0, 1500), pc.status === "ok" ? "ok" : "degraded").run();
+          }
+        } catch (e) {
+          console.error("[qnfo-lifecycle] paper-ledger-chain error:", String(e && e.message || e));
+        }
       }
       if (first) throw first;
     }
   });
   ["__foldHost", "__foldMember"].forEach(function (k) { if (inner[k] !== undefined) Object.defineProperty(out, k, { value: inner[k], enumerable: false }); });
+  Object.defineProperty(out, "__paperLedgerChain", { value: { tick: paperLedgerChainTick, seal: plcSeal, verifyRows: plcVerifyRows, checkAnchors: plcCheckAnchors, status: paperLedgerChainStatus, hash: plcHash, canonical: plcCanonical, sha: plcSha, windowOffset: plcWindowOffset }, enumerable: false });
   Object.defineProperty(out, "__paperLearn", { value: { tick: paperLearnTick, triage: plTriageTick, stripNotices: plStripNotices, matchMechanisms: plMatchMechanisms, status: paperLearnStatus, normalize: plNormalize, json: plJson, verification: plVerification, prompt: plPrompt, anchorClaim: plAnchorClaim, quotedPassages: plQuotedPassages, ddl: PL_DDL }, enumerable: false });
   return out;
 }
