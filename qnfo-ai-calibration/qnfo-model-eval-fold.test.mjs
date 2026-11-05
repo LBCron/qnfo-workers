@@ -52,7 +52,9 @@ const env = { QNFO_AUDIT: { tag: "QNFO_AUDIT" }, __HOST_ONLY__: { tag: "__HOST_O
   let memberDone = false, hostRan = false; const seen = [];
   M.scheduled = async (ev, e, c) => { seen.push(ev); c.waitUntil(new Promise((r) => setTimeout(() => { memberDone = true; r(); }, 30))); };
   H.scheduled = async () => { hostRan = true; };
-  const at = 0;
+  // SUITE-CLOCK-1: scheduledTime 0 is falsy, so the host fell back to Date.now() and the member's due(), which is minute < 30, made this assertion pass only in
+  // the first half of every hour (deploy-gate red at 03:35Z to 03:41Z on 2026-11-05, ci-watchdog 7642). A fixed instant at minute 0 pins it.
+  const at = Date.UTC(2026, 9, 6, 9, 0, 3);
   await W.scheduled({ cron: "*/30 * * * *", scheduledTime: at }, env, { waitUntil(p) { Promise.resolve(p).catch(() => {}); } });
   ok(seen.length === 1 && seen[0].cron === "20 * * * *" && seen[0].tickEntry === true, "the host tick at its due time runs the member's job as a table entry", seen);
   ok(memberDone && hostRan, "the handler awaits the member's waitUntil work and runs the host's own scheduled work");
