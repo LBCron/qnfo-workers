@@ -9,19 +9,51 @@ export function isDynamicRoute(model) {
   return typeof model === "string" && /^dynamic\/[a-z0-9][a-z0-9._-]{0,119}$/.test(model);
 }
 
+// RM-DURABLE-INTERRUPT-1: the actions that pause for approval and the suffix of their Computer execution id (computer_<run id>_<suffix>).
+// send_email is the one real identity-bound step; staged_action is the staging path that sends nothing (it proves the pause, the restart and the resume).
+export const APPROVAL_SUFFIX = { send_email: "email", staged_action: "staged" };
+
+export function approvalPayload(action, runId, caller, args) {
+  return { kind: "approval", action: String(action), run_id: String(runId), caller: String(caller), arguments: args };
+}
+
+export function pendingApprovalMatches(call, runId, callId, caller, action) {
+  const payload = call && call.payload && typeof call.payload === "object" ? call.payload : null;
+  const act = String(payload && payload.action || "");
+  const suffix = APPROVAL_SUFFIX[act];
+  if (!payload || !suffix || (action && act !== action)) return false;
+  return call.id === "computer_" + runId + "_" + suffix && call.callId === callId &&
+    payload.kind === "approval" && payload.run_id === runId && payload.caller === caller;
+}
+
 export function emailApprovalPayload(runId, caller, args) {
-  return { kind: "approval", action: "send_email", run_id: String(runId), caller: String(caller), arguments: args };
+  return approvalPayload("send_email", runId, caller, args);
 }
 
 export function pendingEmailApprovalMatches(call, runId, callId, caller) {
-  const payload = call && call.payload && typeof call.payload === "object" ? call.payload : null;
-  return !!payload && call.id === "computer_" + runId + "_email" && call.callId === callId &&
-    payload.kind === "approval" && payload.action === "send_email" &&
-    payload.run_id === runId && payload.caller === caller;
+  return pendingApprovalMatches(call, runId, callId, caller, "send_email");
 }
 
 export function emailApprovalGranted(answer) {
   return !!answer && typeof answer === "object" && answer.approved === true;
+}
+
+// The staging step's own arguments: a label and a note the approver sees. Nothing else reaches the payload.
+export function stagedActionArgs(args) {
+  const a = args && typeof args === "object" ? args : {};
+  const label = String(a.label == null ? "" : a.label).replace(/\s+/g, " ").trim();
+  const note = String(a.note == null ? "" : a.note).replace(/\s+/g, " ").trim();
+  if (label.length < 4 || label.length > 120) return { error: "label must be 4 to 120 characters naming the step that needs approval" };
+  return { args: { label, note: note.slice(0, 400) } };
+}
+
+// One cf_agent_approvals row per (run, action): the lifecycle awaiting -> approved|rejected -> executed|failed. next() refuses a step backwards.
+export const APPROVAL_STATES = ["awaiting", "approved", "rejected", "executed", "failed"];
+export function approvalNext(from, to) {
+  const order = { awaiting: 0, approved: 1, rejected: 1, executed: 2, failed: 2 };
+  if (!(from in order) || !(to in order)) return false;
+  if (from === to) return true;
+  return order[to] > order[from] && !(from === "rejected" && to === "executed");
 }
 
 export function callerOf(ctx) {
@@ -200,7 +232,7 @@ export function runId() {
 
 // CF-AGENTS-LOOPS-1: a cf_agent_requests row a fleet loop wrote. The loop scope is read plus fleet issues, code-task proposals and
 // loop-scope schedules on the requester's own instance; it never gets mutating ops tools or MCP connections.
-export const REQUEST_KINDS = ["run", "sandbox", "schedule"];
+export const REQUEST_KINDS = ["run", "sandbox", "schedule", "code_session", "approval_selftest"];
 export const DRAIN_PER_TICK = 3;
 
 // QNFO-AGENTS-BUDGET-1 (0.7.0, 2026-11-04, pillar cost; BUDGET-SOFT-ROUTE-1: slower, never stopped). The loop drain started up to DRAIN_PER_TICK requests every
@@ -255,8 +287,9 @@ export function loopInstance(requester, instance) {
 
 export function validateRequest(row) {
   const kind = String(row && row.kind || "run");
-  if (REQUEST_KINDS.indexOf(kind) < 0) return { error: "kind must be run, sandbox or schedule" };
+  if (REQUEST_KINDS.indexOf(kind) < 0) return { error: "kind must be run, sandbox, schedule, code_session or approval_selftest" };
   if (!requesterOk(row && row.requester)) return { error: "requester must name the loop (letters, digits, : . _ -)" };
+  if (kind === "approval_selftest") return { kind };
   if (kind === "sandbox") {
     if (String(row.code || "").trim().length < 5) return { error: "a sandbox request needs code" };
     return { kind };

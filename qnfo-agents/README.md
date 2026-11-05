@@ -47,7 +47,7 @@ The read-only ops tool list (`OPS_READ_ONLY` in src/lib.js) equals `CMD_TOOL_REA
 ## Routes
 
 Open: `GET /`, `GET /health`, `GET /tools`, `POST /mcp`.
-Trusted: `POST /code-sessions {text}`, `POST /code-sessions/<id>/turns {text}`, `GET /code-sessions/<id>/events?after=<seq>` (replayable SSE), `GET /code-sessions/<id>`,
+Trusted: `POST /code-sessions {text}`, `POST /code-sessions/<id>/turns {text}`, `GET /code-sessions/<id>/events?after=<seq>` (replayable SSE), `GET /code-sessions/<id>`, `GET|POST /code-sessions/<id>/plan {approved}` (POST needs the write scope), `GET /approvals`, `POST /approvals/<run id>/<call id> {approved}` (write scope),
 `POST /run {text, instance?, wait_ms?}`, `GET /runs`, `GET /runs/<id>`, `GET|POST /schedules`, `DELETE /schedules/<id>`,
 `GET|POST /mcp-servers`, `DELETE /mcp-servers/<id>`, `POST /sandbox {code}`, `/agents/fleet-code-agent/<instance>`.
 
@@ -81,3 +81,13 @@ The 5-minute cron drains up to 3 rows per tick, critical first, and writes `stat
 The loop scope gives a request the read-only ops tools, D1 reads, the repository, Code Mode, and the MCP tools of servers the console connected. It can also file fleet issues (source `qnfo-agents`), propose code tasks (returned in `result`) and create schedules on its own instance. It has no mutating ops tools and cannot connect MCP servers.
 
 `v_cf_agent_requests_health`, `queue_sla` row `cf-agent-request` and metric `cf_agent_requests_over_120m` watch the queue. `cfagent requests [requester]` lists the queue in `/cmd`.
+
+## CodeSession budget, plan gate and approval pause (0.8.0)
+
+**Budget (RM-CODE-SESSION-1).** Each `CodeSession` has a neuron budget (`POST /code-sessions {text, budget?}`, 1,000 to 1,000,000, default 100,000). Before each step the session replaces earlier tool results with a short head (1,200 characters; 240 past 60 percent of the budget), a session past 60 percent runs at most 10 steps, and a spent one runs at most 6 steps on `dynamic/value`: downgraded, never stopped (BUDGET-SOFT-ROUTE-1). `POST /code-sessions/<id>/turns {text, escalate:true}` runs one turn on `dynamic/premium` while the budget is ok. The stream announces the state in a `budget` event, a `complete` event carries tokens, neurons and cost, and every turn, done or failed, is one `cf_agent_session_usage` row. Measured before: the two completed sessions took 252,213 and 359,603 input tokens for one turn.
+
+A loop starts a read-only session with `INSERT INTO cf_agent_requests (requester, kind, prompt) VALUES ('<loop>', 'code_session', '<request>')`; the drain gives it a 30,000-neuron session and writes the turn's tokens and cost back to the row. The worker seeds ten read-only replay turns (requester `rm-code-session-1`) once, because RM-CODE-SESSION-1 is done when ten turns have completed through the stream with tokens and cost recorded; `ops_config qnfo_agents_replay = off` stops the seeding.
+
+**Plan gate (RM-CODE-SANDBOX-1).** A session started with the write scope (the console sends `x-agent-scope: write` only after a fresh code) reads freely. Every tool that changes something is refused until the model has called `propose_plan {title, steps, files}` and the owner has approved it (`POST /code-sessions/<id>/plan {approved:true}`, write scope). An edit (`workspace_write|edit|patch|delete`, `github_file_write`) then takes a work claim on its file through the `GUARD` service binding to qnfo-deploy-guard (owner `code-session:<id>`, one hour; a refusal names the holder; an unreachable service is recorded and the edit proceeds, CLAIM-UNREACHABLE-FALLBACK-1), and `github_pr` is refused until some edit has been claimed. Plan, denial, claim, edit and pull request are `plan`, `gate`, `claim`, `edit`, `pr` events on the stream and rows in `cf_agent_sandbox_log`. Merges stay with the lane.
+
+**Approval pause (RM-DURABLE-INTERRUPT-1).** `send_email` (and `stage_irreversible_step`, which sends nothing) run as a `@cloudflare/computer` execution with `onInterrupt: "replay"`: the run pauses at the interrupt, survives a Durable Object restart, and resumes the same run when `POST /approvals/<run id>/<call id> {approved}` answers it (write scope; `GET /approvals` lists the pauses of the caller's runs). `cf_agent_approvals` holds one row per run and action: `awaiting`, `approved` or `rejected`, `executed` or `failed`, and `restart_survived`. The `approval_selftest` request (seeded once, no model call) stages a step, resets the object with `ctx.abort()`, finds the pause in the fresh instance, approves it as `selftest` and waits for `executed`.

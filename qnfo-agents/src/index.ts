@@ -36,7 +36,8 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, emailApprovalPayload, pendingEmailApprovalMatches, emailApprovalGranted } from "./lib.js";
+import { trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, emailApprovalGranted, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
+import { sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS } from "./session.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
 declare var VERSION: string;
@@ -65,12 +66,17 @@ interface Env {
   OPS: Fetcher;
   FleetCodeAgent: DurableObjectNamespace<FleetCodeAgent>;
   CodeSession: DurableObjectNamespace<CodeSession>;
+  // RM-CODE-SANDBOX-1: qnfo-deploy-guard by service binding (a Worker cannot reach another workers.dev host of its own account over HTTP); optional, a missing binding is recorded as an unreachable claim service.
+  GUARD?: Fetcher;
 }
 interface RunInput { text: string; scope: Scope; caller: string; instance?: string; wait_ms?: number }
 interface State { runs: number; last_run: string | null; last_status: string | null; version: string }
 
 const CAPABILITIES = [
   "Agent Durable Objects with SQLite state (FleetCodeAgent and resumable CodeSession)",
+  "CodeSession budget: a per-session neuron budget compacts earlier tool results, drops a spent session to the cheapest route and never stops it; a turn may escalate to the premium route",
+  "CodeSession plan gate (write scope): propose_plan, owner approval, a work claim per edited file, then a pull request; every step is mirrored to cf_agent_sandbox_log",
+  "durable approval pause (@cloudflare/computer replay): send_email and a staging step that sends nothing pause for an owner answer, survive a restart and resume the same run (cf_agent_approvals)",
   "durable turns and replayable CodeSession SSE streams (runFiber)",
   "schedules: cron or delay (schedule, getSchedules, cancelSchedule)",
   "callable methods over WebSocket (/agents/fleet-code-agent/<instance>, trusted callers)",
@@ -124,9 +130,24 @@ async function opsTools(env: Env): Promise<Array<{ name: string; description: st
     return tools;
   } catch (e) { logErr("opsTools", e); return opsCatalog ? opsCatalog.tools : []; }
 }
-async function opsCall(env: Env, scope: Scope, name: string, args: unknown, approval?: typeof APPROVED_SEND_EMAIL): Promise<any> {
+// RM-CODE-SANDBOX-1: a CodeSession of write scope carries a gate; every ops tool it calls passes through gate.check first and gate.after when it succeeds.
+interface SandboxGate {
+  check(name: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
+  after(name: string, args: unknown, res: any): Promise<void>;
+  propose(input: unknown): Promise<any>;
+}
+async function opsCall(env: Env, scope: Scope, name: string, args: unknown, approval?: typeof APPROVED_SEND_EMAIL, gate?: SandboxGate): Promise<any> {
   if (!opsToolAllowed(name, scope)) return { ok: false, error: "'" + name + "' changes the fleet: it needs the write scope (on the console: cfagent! <request>, which asks for a fresh code)" };
   if (name === "send_email" && approval !== APPROVED_SEND_EMAIL) return { ok: false, error: "send_email requires the durable approval step; call codemode.ops_send_email" };
+  if (gate) {
+    const g = await gate.check(name, args);
+    if (!g.ok) return { ok: false, gated: true, error: g.error };
+  }
+  const out = await opsCallRaw(env, name, args);
+  if (gate && out && out.ok) { try { await gate.after(name, args, out); } catch (e) { logErr("sandbox-after", e); } }
+  return out;
+}
+async function opsCallRaw(env: Env, name: string, args: unknown): Promise<any> {
   try {
     const r = await env.OPS.fetch("https://qnfo-ops/v1/tools/call", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, arguments: args || {} }), signal: AbortSignal.timeout(120000) });
     const t = await r.text();
@@ -174,7 +195,7 @@ async function fileIssue(env: Env, input: { title: string; description: string; 
   } catch (e) { return { ok: false, error: errText(e) }; }
 }
 
-interface ToolCtx { env: Env; scope: Scope; caller: string; agent: FleetCodeAgent | null; runId?: string; proposals: any[]; lean?: boolean }
+interface ToolCtx { env: Env; scope: Scope; caller: string; agent: FleetCodeAgent | null; runId?: string; proposals: any[]; lean?: boolean; gate?: SandboxGate }
 
 function directTools(c: ToolCtx): Record<string, any> {
   const t: Record<string, any> = {
@@ -203,7 +224,7 @@ function directTools(c: ToolCtx): Record<string, any> {
   t.ops_call = tool({
     description: "Call one qnfo-ops tool by name with its JSON arguments (see ops_catalog). Tools that change the fleet need the write scope.",
     inputSchema: z.object({ name: z.string(), arguments: z.record(z.string(), z.any()).optional() }),
-    execute: async (i: any) => opsCall(c.env, c.scope, i.name, i.arguments || {})
+    execute: async (i: any) => opsCall(c.env, c.scope, i.name, i.arguments || {}, undefined, c.gate)
   });
   t.propose_code_task = tool({
     description: "Propose a code change for the fleet's code loop: one repository file, what the change does, and a verbatim anchor that occurs once in that file near the edit. The owner files it with one tap; the code loop writes the patch, opens the PR and merges it on green checks.",
@@ -221,8 +242,24 @@ function directTools(c: ToolCtx): Record<string, any> {
     inputSchema: z.object({ title: z.string(), description: z.string(), priority: z.enum(["critical", "high", "medium", "low"]).optional(), category: z.string().optional() }),
     execute: async (i: any) => fileIssue(c.env, i, c.caller)
   });
+  if (c.gate) {
+    const gate = c.gate;
+    t.propose_plan = tool({
+      description: "Propose the plan for a change before making it: a title, the steps and the repository files you will touch. The owner approves it in the page; until then every tool that changes something is refused and only reads work. After proposing, end your answer with the plan and wait.",
+      inputSchema: z.object({ title: z.string(), steps: z.array(z.string()), files: z.array(z.string()).optional() }),
+      execute: async (i: any) => gate.propose(i)
+    });
+  }
   if (c.agent) {
     const agent = c.agent;
+    if (c.scope === "write" && c.runId) {
+      const runId = c.runId;
+      t.stage_irreversible_step = tool({
+        description: "Staging path for an irreversible, identity-bound step (RM-DURABLE-INTERRUPT-1): pauses this run until the owner approves it, survives a restart while paused, resumes the same run after the answer, and sends nothing. Use it to rehearse a publish or an email send.",
+        inputSchema: z.object({ label: z.string().describe("the step that needs approval, 4 to 120 characters"), note: z.string().optional() }),
+        execute: async (i: any) => agent.stageAction(i, runId, c.caller)
+      });
+    }
     t.schedule_turn = tool({
       description: "Schedule a later agent turn on this agent: a five-field cron (at most every 5 minutes) or a delay in seconds.",
       inputSchema: z.object({ text: z.string(), cron: z.string().optional(), delay_s: z.number().optional() }),
@@ -253,7 +290,7 @@ async function codeModeTool(c: ToolCtx, direct: Record<string, any>) {
       inputSchema: jsonSchema(o.parameters || { type: "object", properties: {} }) as any,
       execute: async (args: any) => o.name === "send_email"
         ? c.agent!.sendEmail(args, c.runId!, c.caller)
-        : opsCall(c.env, c.scope, o.name, args)
+        : opsCall(c.env, c.scope, o.name, args, undefined, c.gate)
     });
   }
   const executor = new DynamicWorkerExecutor({ loader: c.env.LOADER, timeout: 120000, globalOutbound: null } as any);
@@ -284,19 +321,20 @@ const SYSTEM = [
 ].join("\n");
 
 const CODE_SESSION_NEURON_BASELINE = "@cf/deepseek-ai/deepseek-v4-flash-0731";
-const CODE_SESSION_NEURON_BUDGET = 100000;
 const CODE_SESSION_SYSTEM = SYSTEM;
 
 // PREFIX-CACHE-AGENTS-1 (#7067, pillar cost): every step of a turn resends the whole context (system prompt, the qnfo-ops tool catalog and the growing
 // messages: about 22k to 32k input tokens a call, 27.6M tokens and 1,268 calls on 2026-11-04 with cached_tok 0 in ai_spend_ledger). Workers AI keeps a
 // prefix cache and bills cached tokens at a discount, but only when requests of one session reach the same instance, which the x-session-affinity header
 // asks for (createAI option sessionAffinity). A turn's run id (or a code session's name) is the session key: all steps of one turn share it.
-async function modelFor(env: Env, purpose?: string, affinity?: string) {
+async function modelFor(env: Env, purpose?: string, affinity?: string, route?: string | null) {
   let id = DEFAULT_MODEL;
   try {
     const row: any = await env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_model'").first();
     if (row && isDynamicRoute(row.value)) id = row.value;
   } catch (e) { /* ops_config unreadable: the default model */ }
+  // RM-CODE-SESSION-1: a CodeSession names its route when its budget downgrades it or the owner escalates a turn; a name that is not a dynamic route is ignored.
+  if (route && isDynamicRoute(route)) id = route;
   const metadata = purpose ? { worker: WORKER, purpose } : { worker: WORKER };
   const ses = affinity ? String(affinity).replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 64) : "";
   const ai = createAI({ binding: env.AI, id: "default", metadata, ...(ses ? { sessionAffinity: "qnfo-agents:" + ses } : {}) } as any);
@@ -443,15 +481,27 @@ export class FleetCodeAgent extends Agent<Env, State> {
           modules: {
             "codemode:approval": {
               requestApproval: async ([input]: any[], call: any) => {
-                if (!input || input.action !== "send_email") throw new Error("unsupported approval action");
+                if (!input || !APPROVAL_SUFFIX[String(input.action)]) throw new Error("unsupported approval action");
                 return emailApprovalGranted(await call.interrupt(input));
               },
               sendEmail: unsafeToRepeat(async ([input]: any[]) => {
                 const row = this.row(String(input && input.run_id || ""));
                 if (!row || row.scope !== "write" || row.caller !== input.caller || input.action !== "send_email") throw new Error("the approved email no longer matches its run");
                 const result = await opsCall(this.env, "write", "send_email", input.arguments, APPROVED_SEND_EMAIL);
-                if (!result || !result.ok) throw new Error(String(result && result.error || "send_email failed"));
-                await this.finishApprovedEmail(String(input.run_id), row, result);
+                if (!result || !result.ok) {
+                  await this.recordApproval(String(input.run_id), "send_email", "failed", { note: String(result && result.error || "send_email failed") });
+                  throw new Error(String(result && result.error || "send_email failed"));
+                }
+                await this.finishApproved(String(input.run_id), "send_email", row, result);
+                return result;
+              }),
+              // The staging step sends nothing: it only completes the run, so the pause, the restart and the resume can be proved without an identity-bound side effect.
+              stagedAction: unsafeToRepeat(async ([input]: any[]) => {
+                const row = this.row(String(input && input.run_id || ""));
+                if (!row || row.scope !== "write" || row.caller !== input.caller || input.action !== "staged_action") throw new Error("the approved step no longer matches its run");
+                const a = input.arguments || {};
+                const result = { ok: true, staged: true, sent: false, label: String(a.label || "").slice(0, 120), note: String(a.note || "").slice(0, 400) };
+                await this.finishApproved(String(input.run_id), "staged_action", row, result);
                 return result;
               })
             }
@@ -464,41 +514,73 @@ export class FleetCodeAgent extends Agent<Env, State> {
     return this.approvalWorkspace;
   }
 
+  // RM-DURABLE-INTERRUPT-1: one cf_agent_approvals row per (run, action) in D1 records awaiting -> approved|rejected -> executed|failed, so a pause that outlives
+  // the Durable Object (restart, deploy) is visible to the fleet and a probe can read the proof. A write failure is logged and never fails the approval itself.
+  private async recordApproval(runId: string, action: string, to: string, f: { callId?: string; payloadSha?: string; decidedBy?: string; note?: string; restartSurvived?: boolean } = {}) {
+    try {
+      const db = this.env.AUDIT_DB, now = Date.now();
+      const cur: any = await db.prepare("SELECT status FROM cf_agent_approvals WHERE run_id = ?1 AND action = ?2").bind(runId, action).first();
+      if (!cur) {
+        const row = this.row(runId);
+        await db.prepare("INSERT OR IGNORE INTO cf_agent_approvals (run_id, instance, caller, action, call_id, status, payload_sha, restart_survived, decided_by, note, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)")
+          .bind(runId, this.name, row ? row.caller : "", action, f.callId || null, to, f.payloadSha || null, f.restartSurvived ? 1 : 0, f.decidedBy || null, f.note ? clip(f.note, 400) : null, now).run();
+        return;
+      }
+      if (!approvalNext(String(cur.status), to)) return;
+      await db.prepare("UPDATE cf_agent_approvals SET status = ?3, call_id = COALESCE(?4, call_id), decided_by = COALESCE(?5, decided_by), note = COALESCE(?6, note), restart_survived = MAX(restart_survived, ?7), decided_ms = CASE WHEN ?3 IN ('approved', 'rejected') THEN ?8 ELSE decided_ms END, executed_ms = CASE WHEN ?3 IN ('executed', 'failed') THEN ?8 ELSE executed_ms END WHERE run_id = ?1 AND action = ?2")
+        .bind(runId, action, to, f.callId || null, f.decidedBy || null, f.note ? clip(f.note, 400) : null, f.restartSurvived ? 1 : 0, now).run();
+    } catch (e) { logErr("approval-ledger", e); }
+  }
+
   private async markApprovalPending(call: any) {
     const input = call && call.payload;
-    if (!input || input.kind !== "approval" || input.action !== "send_email") return;
+    if (!input || input.kind !== "approval" || !APPROVAL_SUFFIX[String(input.action)]) return;
     const row = this.row(String(input.run_id || ""));
     if (!row || row.scope !== "write" || row.caller !== input.caller) return;
     this.sql`UPDATE runs SET status = 'awaiting_approval' WHERE id = ${row.id} AND status = 'running'`;
     await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'awaiting_approval' WHERE id = ?1 AND caller = ?2 AND status = 'running'")
       .bind(row.id, row.caller).run();
+    await this.recordApproval(row.id, String(input.action), "awaiting", { callId: String(call.callId || "") });
   }
 
-  private async finishApprovedEmail(id: string, row: any, result: any) {
+  private async finishApproved(id: string, action: string, row: any, result: any) {
     const now = Date.now(), text = clip(JSON.stringify(result), 8000);
     this.sql`UPDATE runs SET status = 'done', result = ${text}, finished_ms = ${now} WHERE id = ${id} AND status IN ('running', 'awaiting_approval')`;
     await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'done', result = ?2, finished_ms = ?3 WHERE id = ?1 AND status IN ('running', 'awaiting_approval')")
       .bind(id, text, now).run();
+    await this.recordApproval(id, action, "executed");
+  }
+
+  // The durable pause for one identity-bound step. The Computer execution replays to the interrupt and waits; the answer (respondToApproval) resumes the same run.
+  private async runApproval(action: "send_email" | "staged_action", args: unknown, id: string, caller: string) {
+    const row = this.row(id);
+    if (!row || row.scope !== "write" || row.caller !== caller) throw new Error(action + " needs the originating write-scoped run");
+    const serialized = JSON.stringify(args || {});
+    if (serialized.length > 12000) throw new Error(action + " arguments exceed the approval limit");
+    const input = approvalPayload(action, id, caller, JSON.parse(serialized));
+    const payload = JSON.stringify(input).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+    const fn = action === "send_email" ? "sendEmail" : "stagedAction";
+    const source = `import { requestApproval, ${fn} } from "codemode:approval";
+export default async function() {
+  const request = ${payload};
+  if (!(await requestApproval(request))) throw new Error("${action} was not approved");
+  return await ${fn}(request);
+}`;
+    const workspace = await this.computerWorkspace();
+    const execution = await workspace.runtime.exec(source, { backend: "worker-javascript", id: "computer_" + id + "_" + APPROVAL_SUFFIX[action], onInterrupt: "replay" });
+    const result = await execution.result();
+    if (result.status !== "completed" || result.exitCode !== 0) throw new Error(String(result.stderr || action + " approval execution failed"));
+    return result.value;
   }
 
   async sendEmail(args: unknown, id: string, caller: string) {
-    const row = this.row(id);
-    if (!row || row.scope !== "write" || row.caller !== caller) throw new Error("send_email needs the originating write-scoped run");
-    const serialized = JSON.stringify(args || {});
-    if (serialized.length > 12000) throw new Error("send_email arguments exceed the approval limit");
-    const input = emailApprovalPayload(id, caller, JSON.parse(serialized));
-    const payload = JSON.stringify(input).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-    const source = `import { requestApproval, sendEmail } from "codemode:approval";
-export default async function() {
-  const request = ${payload};
-  if (!(await requestApproval(request))) throw new Error("email send was not approved");
-  return await sendEmail(request);
-}`;
-    const workspace = await this.computerWorkspace();
-    const execution = await workspace.runtime.exec(source, { backend: "worker-javascript", id: "computer_" + id + "_email", onInterrupt: "replay" });
-    const result = await execution.result();
-    if (result.status !== "completed" || result.exitCode !== 0) throw new Error(String(result.stderr || "email approval execution failed"));
-    return result.value;
+    return this.runApproval("send_email", args, id, caller);
+  }
+
+  async stageAction(args: unknown, id: string, caller: string) {
+    const a = stagedActionArgs(args);
+    if (a.error) return { ok: false, error: a.error };
+    return this.runApproval("staged_action", a.args, id, caller);
   }
 
   async pendingApprovals(caller: string) {
@@ -510,21 +592,23 @@ export default async function() {
         const input = call && call.payload;
         const row = input && this.row(String(input.run_id || ""));
         return !!row && row.scope === "write" && row.caller === caller &&
-          pendingEmailApprovalMatches(call, String(row.id), String(call.callId), caller);
-      }).map((call: any) => ({ id: call.id, callId: call.callId, payload: call.payload, since: call.since }))
+          pendingApprovalMatches(call, String(row.id), String(call.callId), caller);
+      }).map((call: any) => ({ id: call.id, callId: call.callId, action: call.payload && call.payload.action, payload: call.payload, since: call.since }))
     };
   }
 
-  async respondToApproval(id: string, callId: string, caller: string, approved: boolean) {
+  async respondToApproval(id: string, callId: string, caller: string, approved: boolean, decidedBy?: string) {
     const row = this.row(id);
     if (!row || row.scope !== "write" || row.caller !== caller) return { ok: false, error: "no such pending approval" };
     const workspace = await this.computerWorkspace();
     const pending = await workspace.runtime.pending();
-    const call = pending.find((item: any) => pendingEmailApprovalMatches(item, id, callId, caller));
+    const call: any = pending.find((item: any) => pendingApprovalMatches(item, id, callId, caller));
     if (!call) return { ok: false, error: "no such pending approval" };
+    const action = String(call.payload && call.payload.action || "send_email");
     this.sql`UPDATE runs SET status = 'running' WHERE id = ${id} AND status = 'awaiting_approval'`;
     await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'running' WHERE id = ?1 AND caller = ?2 AND status = 'awaiting_approval'")
       .bind(id, caller).run();
+    await this.recordApproval(id, action, approved ? "approved" : "rejected", { decidedBy: decidedBy || caller });
     try {
       await workspace.runtime.respond(call.id, call.callId, { approved });
     } catch (e) {
@@ -534,12 +618,43 @@ export default async function() {
       return { ok: false, error: errText(e) };
     }
     if (!approved) {
-      const now = Date.now();
-      this.sql`UPDATE runs SET status = 'failed', error = 'send_email approval rejected', finished_ms = ${now} WHERE id = ${id} AND status = 'running'`;
-      await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'failed', error = 'send_email approval rejected', finished_ms = ?3 WHERE id = ?1 AND caller = ?2 AND status = 'running'")
-        .bind(id, caller, now).run();
+      const now = Date.now(), why = action + " approval rejected";
+      this.sql`UPDATE runs SET status = 'failed', error = ${why}, finished_ms = ${now} WHERE id = ${id} AND status = 'running'`;
+      await this.env.AUDIT_DB.prepare("UPDATE cf_agent_runs SET status = 'failed', error = ?4, finished_ms = ?3 WHERE id = ?1 AND caller = ?2 AND status = 'running'")
+        .bind(id, caller, now, why).run();
     }
-    return { ok: true, run_id: id, status: approved ? "resuming" : "rejected" };
+    return { ok: true, run_id: id, action, status: approved ? "resuming" : "rejected" };
+  }
+
+  // RM-DURABLE-INTERRUPT-1 selftest, step 1: a write-scoped run that stages one irreversible step and pauses at the interrupt. No model is called and nothing is sent.
+  async selftestStart(caller: string) {
+    const id = runId(), now = Date.now();
+    this.sql`INSERT INTO runs (id, prompt, scope, caller, status, created_ms) VALUES (${id}, ${"approval selftest (RM-DURABLE-INTERRUPT-1): stage one step, pause, restart, resume"}, 'write', ${caller}, 'running', ${now})`;
+    await ledger(this.env, { id, instance: this.name, caller, scope: "write", status: "running", prompt: "approval selftest (RM-DURABLE-INTERRUPT-1)", created_ms: now });
+    // not awaited: the step waits for the answer; a forced restart ends this promise and the Computer runtime keeps the pending call in storage
+    void this.runApproval("staged_action", { label: "approval selftest", note: "RM-DURABLE-INTERRUPT-1 staging proof; sends nothing" }, id, caller).catch((e) => logErr("selftest-approval", e));
+    for (let i = 0; i < 40; i++) {
+      const p = await this.pendingApprovals(caller);
+      const mine: any = p.approvals.find((a: any) => a.payload && a.payload.run_id === id);
+      if (mine) return { ok: true, run_id: id, call_id: mine.callId };
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return { ok: false, run_id: id, error: "the staged step never reached its interrupt" };
+  }
+
+  // Step 2: reset the Durable Object (as an eviction or deploy does). The caller's own RPC fails; the next call gets a fresh instance whose storage still holds the pause.
+  async selftestRestart() {
+    this.ctx.abort("RM-DURABLE-INTERRUPT-1 selftest: forced restart");
+  }
+
+  // Step 3 (fresh instance): the pause must still be listed; mark that it survived, then answer it.
+  async selftestResume(caller: string, runId0: string, approved: boolean) {
+    const p = await this.pendingApprovals(caller);
+    const mine: any = p.approvals.find((a: any) => a.payload && a.payload.run_id === runId0);
+    if (!mine) return { ok: false, survived: false, error: "the pending approval did not survive the restart" };
+    await this.recordApproval(runId0, "staged_action", "awaiting", { restartSurvived: true });
+    const r = await this.respondToApproval(runId0, String(mine.callId), caller, approved, "selftest");
+    return Object.assign({ survived: true }, r);
   }
 
   // Schedules: each fires scheduledTurn with the stored request.
@@ -588,6 +703,22 @@ export default async function() {
   @callable() schedules() { return this.listSchedules(); }
 }
 
+// RM-CODE-SANDBOX-1: every gate decision and edit/PR step of a write-scope CodeSession is mirrored to D1 (cf_agent_sandbox_log) so the fleet can read the chain
+// plan -> plan_approved -> claim -> edit -> pr without opening a Durable Object. Best effort: a write failure is logged and never blocks the session.
+async function sandboxLog(env: Env, sessionId: string, turn: number, kind: string, tool: string | null, path: string | null, detail: unknown) {
+  try {
+    await env.AUDIT_DB.prepare("INSERT INTO cf_agent_sandbox_log (session_id, turn, kind, tool, path, detail, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+      .bind(sessionId, turn, kind, tool, path, detail == null ? null : clip(typeof detail === "string" ? detail : JSON.stringify(detail), 1500), Date.now()).run();
+  } catch (e) { logErr("sandbox-log", e); }
+}
+
+const SANDBOX_NOTE = [
+  "This is a write-scope code session with a plan gate.",
+  "Reading is always open. Before any tool that changes something, call propose_plan (title, steps, files), end your answer with the plan, and wait: the owner approves it in the page and sends the next message. Until then changing tools are refused with the reason.",
+  "After approval, an edit takes a work claim on its file automatically (a refusal names the holder: edit another file or stop). Create a branch with github_create_branch, write the file with github_file_write, open the pull request with github_pr against main. Never merge: the lane merges green pull requests.",
+  "If a claim says it is unreachable, write 'work-claim: unreachable (<error>)' in the pull request body."
+].join("\n");
+
 export class CodeSession extends Agent<Env, State> {
   initialState: State = { runs: 0, last_run: null, last_status: null, version: VERSION };
 
@@ -595,10 +726,24 @@ export class CodeSession extends Agent<Env, State> {
     this.sql`CREATE TABLE IF NOT EXISTS code_session (id TEXT PRIMARY KEY, caller TEXT NOT NULL, scope TEXT NOT NULL, status TEXT NOT NULL, neuron_budget REAL NOT NULL, neurons_used REAL NOT NULL DEFAULT 0, current_turn INTEGER NOT NULL DEFAULT 0, error TEXT, created_ms INTEGER NOT NULL, finished_ms INTEGER)`;
     this.sql`CREATE TABLE IF NOT EXISTS code_session_turns (turn INTEGER PRIMARY KEY, prompt TEXT NOT NULL, answer TEXT, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, model TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, neurons REAL NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0, error TEXT, created_ms INTEGER NOT NULL, finished_ms INTEGER)`;
     this.sql`CREATE TABLE IF NOT EXISTS code_session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, data TEXT NOT NULL, created_ms INTEGER NOT NULL)`;
+    this.sql`CREATE TABLE IF NOT EXISTS code_session_plan (id INTEGER PRIMARY KEY CHECK (id = 1), title TEXT NOT NULL, steps TEXT NOT NULL, files TEXT NOT NULL, status TEXT NOT NULL, proposed_ms INTEGER NOT NULL, decided_ms INTEGER, decided_by TEXT)`;
+    this.sql`CREATE TABLE IF NOT EXISTS code_session_claims (key TEXT PRIMARY KEY, token TEXT NOT NULL DEFAULT '', holder TEXT, note TEXT, pr INTEGER, url TEXT, created_ms INTEGER NOT NULL)`;
+    // RM-CODE-SESSION-1: a turn may ask for the premium route; the column is added once to a table that predates it.
+    try { this.sql`ALTER TABLE code_session_turns ADD COLUMN escalate INTEGER NOT NULL DEFAULT 0`; } catch (e) { /* already there */ }
   }
 
   private sessionRow(): any {
     return this.sql`SELECT * FROM code_session LIMIT 1`[0] || null;
+  }
+
+  private planRow(): any { // standards-ok: a method definition with a return type, not a call
+    const r: any = this.sql`SELECT * FROM code_session_plan WHERE id = 1`;
+    const x = r[0];
+    if (!x) return null;
+    let steps: any = [], files: any = [];
+    try { steps = JSON.parse(x.steps); } catch (e) { steps = []; }
+    try { files = JSON.parse(x.files); } catch (e) { files = []; }
+    return Object.assign({}, x, { steps, files });
   }
 
   private event(type: string, data: unknown) {
@@ -607,17 +752,17 @@ export class CodeSession extends Agent<Env, State> {
     return Number(r[0] && r[0].seq) || 0;
   }
 
-  async startSession(input: { text: string; scope: Scope; caller: string }) {
+  async startSession(input: { text: string; scope: Scope; caller: string; budget?: number }) {
     const text = String(input.text || "").trim().slice(0, 8000);
     if (!text) return { ok: false, error: "empty request" };
     const now = Date.now();
     const scope: Scope = input.scope === "write" ? "write" : "read";
-    this.sql`INSERT INTO code_session (id, caller, scope, status, neuron_budget, created_ms) VALUES (${this.name}, ${input.caller}, ${scope}, 'idle', ${CODE_SESSION_NEURON_BUDGET}, ${now})`;
+    this.sql`INSERT INTO code_session (id, caller, scope, status, neuron_budget, created_ms) VALUES (${this.name}, ${input.caller}, ${scope}, 'idle', ${sessionBudgetFrom(input.budget)}, ${now})`;
     this.event("status", { status: "queued", turn: 1 });
     return this.startTurn(text, input.caller);
   }
 
-  async startTurn(text: string, caller = "") {
+  async startTurn(text: string, caller = "", opts: { escalate?: boolean } = {}) {
     const session = this.sessionRow();
     if (!session || session.caller !== caller) return { ok: false, error: "no such code session" };
     if (session.status === "running" || (session.status === "queued" && Number(session.current_turn) > 0)) return { ok: false, error: "this code session is already running" };
@@ -625,7 +770,7 @@ export class CodeSession extends Agent<Env, State> {
     if (!prompt) return { ok: false, error: "empty request" };
     const turn = Number(session.current_turn || 0) + 1;
     const now = Date.now();
-    this.sql`INSERT INTO code_session_turns (turn, prompt, status, created_ms) VALUES (${turn}, ${prompt}, 'queued', ${now})`;
+    this.sql`INSERT INTO code_session_turns (turn, prompt, status, escalate, created_ms) VALUES (${turn}, ${prompt}, 'queued', ${opts.escalate ? 1 : 0}, ${now})`;
     this.sql`UPDATE code_session SET status = 'queued', current_turn = ${turn}, error = NULL, finished_ms = NULL WHERE id = ${this.name}`;
     if (turn > 1) this.event("status", { status: "queued", turn });
     void this.runFiber("code-session:" + turn, async (fctx: any) => {
@@ -654,13 +799,121 @@ export class CodeSession extends Agent<Env, State> {
     this.sql`UPDATE code_session_turns SET status = 'failed', error = ${error.slice(0, 600)}, finished_ms = ${now} WHERE turn = ${turn}`;
     this.sql`UPDATE code_session SET status = 'failed', error = ${error.slice(0, 600)}, finished_ms = ${now} WHERE id = ${this.name}`;
     this.event("error", { turn, error: error.slice(0, 600) });
+    // RM-CODE-SESSION-1: a failed turn is a measured turn too (cf_agent_session_usage status 'failed'); a row a done turn already wrote is kept.
+    try {
+      const s = this.sessionRow();
+      const t: any = this.sql`SELECT model, created_ms FROM code_session_turns WHERE turn = ${turn}`;
+      await this.env.AUDIT_DB.prepare("INSERT OR IGNORE INTO cf_agent_session_usage (session_id, turn, caller, model, input_tokens, output_tokens, neurons, cost_usd, status, created_ms, finished_ms) VALUES (?1, ?2, ?3, ?4, 0, 0, 0, 0, 'failed', ?5, ?6)")
+        .bind(this.name, turn, s ? s.caller : "", String(t[0] && t[0].model || "unknown"), Number(t[0] && t[0].created_ms) || now, now).run();
+    } catch (e) { logErr("code-session-usage-failed", e); }
+  }
+
+  // ---- RM-CODE-SANDBOX-1: the plan gate, the work claim and the ledger of a write-scope session.
+  private gate(turn: number): SandboxGate | undefined {
+    const session = this.sessionRow();
+    if (!session || session.scope !== "write") return undefined;
+    return {
+      check: (name, args) => this.gateCheck(turn, name, args),
+      after: (name, args, res) => this.gateAfter(turn, name, args, res),
+      propose: (input) => this.proposePlan(turn, input)
+    };
+  }
+
+  private claimKeys(): string[] { // standards-ok: a method definition with a return type, not a call
+    const r: any = this.sql`SELECT key FROM code_session_claims`;
+    return (r || []).map((x: any) => String(x.key));
+  }
+
+  private async gateCheck(turn: number, name: string, args: any): Promise<{ ok: true } | { ok: false; error: string }> { // standards-ok: a method definition with a return type, not a call
+    const plan = this.planRow();
+    const claims = this.claimKeys();
+    const d: any = sandboxGate(name, args, { planApproved: !!plan && plan.status === "approved", claims, claimed: claims.length });
+    if (!d.allow) {
+      this.event("gate", { turn, tool: name, need: d.need, error: d.error });
+      await sandboxLog(this.env, this.name, turn, "denied", name, null, { need: d.need });
+      return { ok: false, error: d.error };
+    }
+    if (d.claim) return this.takeClaim(turn, d.claim, name);
+    return { ok: true };
+  }
+
+  // The work claim goes through qnfo-deploy-guard by service binding. A refusal names the holder; a claim service that cannot be reached is recorded and the edit
+  // proceeds (CLAIM-UNREACHABLE-FALLBACK-1: the pull request body then says so).
+  private async takeClaim(turn: number, key: string, tool: string): Promise<{ ok: true } | { ok: false; error: string }> { // standards-ok: a method definition with a return type, not a call
+    const now = Date.now();
+    const unreachable = async (why: string) => {
+      this.sql`INSERT OR REPLACE INTO code_session_claims (key, token, holder, note, created_ms) VALUES (${key}, '', 'unreachable', ${why.slice(0, 300)}, ${now})`;
+      this.event("claim", { turn, key, unreachable: true, error: why.slice(0, 300) });
+      await sandboxLog(this.env, this.name, turn, "claim", tool, key, { unreachable: why.slice(0, 300) });
+      return { ok: true as const };
+    };
+    if (!this.env.GUARD) return unreachable("GUARD service binding missing");
+    try {
+      const r = await this.env.GUARD.fetch("https://qnfo-deploy-guard/work-lock/acquire", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, owner: "code-session:" + this.name, intent: "CodeSession " + this.name + " turn " + turn + " edits via " + tool, ttl_sec: 3600 }), signal: AbortSignal.timeout(10000) });
+      const j: any = await r.json().catch(() => null);
+      if (!r.ok || !j || typeof j.acquired !== "boolean") return unreachable("claim endpoint answered HTTP " + r.status);
+      if (j.acquired === false) {
+        const why = key + " is claimed by " + String(j.holder || "another session") + (j.expires_at ? " until " + j.expires_at : "") + (j.intent ? " (" + clip(j.intent, 120) + ")" : "") + ": edit another file or wait";
+        this.event("claim", { turn, key, refused: true, holder: j.holder || null });
+        await sandboxLog(this.env, this.name, turn, "claim_refused", tool, key, { holder: j.holder || null, expires_at: j.expires_at || null });
+        return { ok: false, error: why };
+      }
+      this.sql`INSERT OR REPLACE INTO code_session_claims (key, token, holder, note, created_ms) VALUES (${key}, ${String(j.token || "")}, ${String(j.holder || "code-session:" + this.name)}, ${String(j.expires_at || "")}, ${now})`;
+      this.event("claim", { turn, key, expires_at: j.expires_at || null });
+      await sandboxLog(this.env, this.name, turn, "claim", tool, key, { expires_at: j.expires_at || null });
+      return { ok: true };
+    } catch (e) { return unreachable(errText(e)); }
+  }
+
+  private async gateAfter(turn: number, name: string, args: any, res: any) {
+    const cls = sandboxGate(name, args, { planApproved: true, claims: this.claimKeys(), claimed: 1 }).cls;
+    if (cls === "edit") {
+      const p = String(args && args.path || "").slice(0, 200);
+      this.event("edit", { turn, tool: name, path: p });
+      await sandboxLog(this.env, this.name, turn, "edit", name, p, null);
+    } else if (name === "github_pr") {
+      const ref = sandboxPrRef(res);
+      this.sql`UPDATE code_session_claims SET pr = ${ref.number || null}, url = ${ref.url || null}`;
+      this.event("pr", { turn, number: ref.number, url: ref.url });
+      await sandboxLog(this.env, this.name, turn, "pr", name, null, ref);
+      // hold the claims until the pull request merges: attach the PR number so the claim ledger shows what the claim is for
+      if (this.env.GUARD && ref.number) {
+        const held: any = this.sql`SELECT key, token FROM code_session_claims WHERE token != ''`;
+        for (const c of held || []) {
+          try { await this.env.GUARD.fetch("https://qnfo-deploy-guard/work-lock/acquire", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: c.key, owner: "code-session:" + this.name, intent: "CodeSession " + this.name + " pull request " + ref.number, ttl_sec: 7200, token: c.token, pr: ref.number }), signal: AbortSignal.timeout(10000) }); } catch (e) { logErr("claim-attach", e); }
+        }
+      }
+    }
+  }
+
+  private async proposePlan(turn: number, input: unknown) {
+    const p = sandboxPlan(input);
+    if (p.error || !p.plan) return { ok: false, error: p.error || "invalid plan" };
+    const now = Date.now();
+    this.sql`INSERT OR REPLACE INTO code_session_plan (id, title, steps, files, status, proposed_ms, decided_ms, decided_by) VALUES (1, ${p.plan.title}, ${JSON.stringify(p.plan.steps)}, ${JSON.stringify(p.plan.files)}, 'pending', ${now}, NULL, NULL)`;
+    this.event("plan", { turn, status: "pending", title: p.plan.title, steps: p.plan.steps, files: p.plan.files });
+    await sandboxLog(this.env, this.name, turn, "plan", null, null, { title: p.plan.title, steps: p.plan.steps.length, files: p.plan.files.length });
+    return { ok: true, status: "awaiting_approval", note: "The plan is shown to the owner. End your answer with the plan and wait: changing tools stay refused until it is approved." };
+  }
+
+  // The owner's answer to the plan (the console sends it only with a fresh code, so the route requires the write scope).
+  async decidePlan(approved: boolean, caller = "") {
+    const session = this.sessionRow();
+    if (!session || session.caller !== caller || session.scope !== "write") return { ok: false, error: "no such write-scope code session" };
+    const plan = this.planRow();
+    if (!plan || plan.status !== "pending") return { ok: false, error: "no pending plan to decide" };
+    const now = Date.now(), status = approved ? "approved" : "rejected";
+    this.sql`UPDATE code_session_plan SET status = ${status}, decided_ms = ${now}, decided_by = ${caller} WHERE id = 1 AND status = 'pending'`;
+    this.event("plan_decision", { status, title: plan.title });
+    await sandboxLog(this.env, this.name, Number(session.current_turn) || 0, approved ? "plan_approved" : "plan_rejected", null, null, { title: plan.title });
+    return { ok: true, status };
   }
 
   private async executeTurn(turn: number) {
     const rows: any = this.sql`SELECT * FROM code_session WHERE id = ${this.name}`;
     const session = rows[0];
     const turns: any = this.sql`SELECT turn, prompt, answer FROM code_session_turns WHERE status = 'done' AND turn < ${turn} ORDER BY turn DESC LIMIT 8`;
-    const current: any = this.sql`SELECT prompt FROM code_session_turns WHERE turn = ${turn}`;
+    const current: any = this.sql`SELECT prompt, escalate FROM code_session_turns WHERE turn = ${turn}`;
     if (!session || !current[0]) return;
     const row = current[0];
     const now = Date.now();
@@ -671,15 +924,21 @@ export class CodeSession extends Agent<Env, State> {
     let routeId = DEFAULT_MODEL;
     let inputTokens = 0, outputTokens = 0, neurons = 0, costUsd = 0, steps = 0;
     try {
+      // RM-CODE-SESSION-1: the session's budget decides the route and the step cap; a spent session is downgraded, never stopped.
+      const step = sessionBudgetStep(session.neurons_used, session.neuron_budget);
       const history = (turns || []).slice().reverse().map((x: any) => "User: " + clip(x.prompt, 1200) + "\nAssistant: " + clip(x.answer || "", 1800)).join("\n\n");
-      const prompt = (history ? "Conversation so far:\n" + history + "\n\n" : "") + "Scope: " + session.scope + "\nCurrent request:\n" + row.prompt;
-      const routed = await modelFor(this.env, "code-session", this.name + "-t" + turn);
+      const gate = this.gate(turn);
+      const plan = gate ? this.planRow() : null;
+      const prompt = (history ? "Conversation so far:\n" + history + "\n\n" : "") + "Scope: " + session.scope + (gate ? "\nPlan status: " + (plan ? plan.status + " (" + plan.title + ")" : "none") : "") + "\nCurrent request:\n" + row.prompt;
+      const routed = await modelFor(this.env, "code-session", this.name + "-t" + turn, sessionTurnRoute(step, Number(row.escalate) === 1, null));
       routeId = routed.id;
       modelId = routeId;
       const model = routed.model;
-      const tools = await allTools({ env: this.env, scope: session.scope, caller: session.caller, agent: null, proposals: [] });
+      this.event("budget", { turn, state: step.state, neurons_used: Number(session.neurons_used) || 0, neuron_budget: Number(session.neuron_budget) || 0, route: routeId, max_steps: step.maxSteps, escalated: Number(row.escalate) === 1 && routeId !== DEFAULT_MODEL });
+      const tools = await allTools({ env: this.env, scope: session.scope, caller: session.caller, agent: null, proposals: [], gate });
       const out: any = streamText({
-        model, system: CODE_SESSION_SYSTEM, prompt, tools, stopWhen: stepCountIs(MAX_STEPS),
+        model, system: gate ? CODE_SESSION_SYSTEM + "\n" + SANDBOX_NOTE : CODE_SESSION_SYSTEM, prompt, tools, stopWhen: stepCountIs(step.maxSteps),
+        prepareStep: ({ messages }: any) => ({ messages: compactMessages(messages, step.stubChars) }),
         timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS }
       } as any);
       for await (const part of out.fullStream) {
@@ -700,6 +959,8 @@ export class CodeSession extends Agent<Env, State> {
       outputTokens = Number(usage && usage.outputTokens) || 0;
       const response = await out.response;
       modelId = String(response && response.modelId || routeId);
+      // AI-METER-1: a CodeSession's tokens belong in ai_spend_ledger too, or the daily neuron budget of the loop drain (agentPlan) never sees them.
+      await meter(this.env, routeId, { i: inputTokens, o: outputTokens, n: steps + 1, c: Number((usage && usage.inputTokenDetails && usage.inputTokenDetails.cacheReadTokens) ?? (usage && usage.cachedInputTokens) ?? 0) || 0 });
       neurons = codeSessionNeurons(modelId, inputTokens, outputTokens);
       if (!neurons) neurons = codeSessionNeurons(CODE_SESSION_NEURON_BASELINE, inputTokens, outputTokens);
       costUsd = codeSessionCost(neurons);
@@ -710,7 +971,7 @@ export class CodeSession extends Agent<Env, State> {
         await this.env.AUDIT_DB.prepare("INSERT OR REPLACE INTO cf_agent_session_usage (session_id, turn, caller, model, input_tokens, output_tokens, neurons, cost_usd, status, created_ms, finished_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'done', ?9, ?10)")
           .bind(this.name, turn, session.caller, modelId, inputTokens, outputTokens, neurons, costUsd, now, finish).run();
       } catch (e) { logErr("code-session-usage", e); }
-      this.event("complete", { turn, answer: answer.slice(0, 16000), model: modelId, input_tokens: inputTokens, output_tokens: outputTokens, neurons, cost_usd: costUsd, neuron_budget: session.neuron_budget, neurons_remaining: Math.max(0, Number(session.neuron_budget) - Number(session.neurons_used || 0) - neurons), steps });
+      this.event("complete", { turn, answer: answer.slice(0, 16000), model: modelId, input_tokens: inputTokens, output_tokens: outputTokens, neurons, cost_usd: costUsd, neuron_budget: session.neuron_budget, neurons_remaining: Math.max(0, Number(session.neuron_budget) - Number(session.neurons_used || 0) - neurons), steps, budget_state: step.state });
       this.setState({ runs: (this.state.runs || 0) + 1, last_run: this.name + ":" + turn, last_status: "done", version: VERSION });
     } catch (e) {
       error = errText(e);
@@ -730,7 +991,8 @@ export class CodeSession extends Agent<Env, State> {
     const session = this.sessionRow();
     if (!session || session.caller !== caller) return { ok: false, error: "no such code session" };
     const turns: any = this.sql`SELECT turn, prompt, answer, status, model, input_tokens, output_tokens, neurons, cost_usd, error, created_ms, finished_ms FROM code_session_turns ORDER BY turn`;
-    return { ok: true, session: { id: session.id, status: session.status, neuron_budget: session.neuron_budget, neurons_used: session.neurons_used, turns } };
+    const claims: any = this.sql`SELECT key, holder, note, pr, url FROM code_session_claims`;
+    return { ok: true, session: { id: session.id, status: session.status, scope: session.scope, neuron_budget: session.neuron_budget, neurons_used: session.neurons_used, budget: sessionBudgetStep(session.neurons_used, session.neuron_budget).state, plan: this.planRow(), claims: claims || [], turns } };
   }
 }
 
@@ -760,13 +1022,74 @@ async function agentPlan(env: Env) {
   }
 }
 
+// RM-CODE-SESSION-1 and RM-DURABLE-INTERRUPT-1 seed their own measurements once, from the version that can run them: a migration inserting these rows would race the
+// deploy (the previous version fails an unknown kind for good). Idempotent (a requester with any row of the kind is never seeded again, finished or not) and switched
+// off by ops_config qnfo_agents_replay = off. The ten replay turns are read-only, low priority, and run on 30,000-neuron sessions; the selftest calls no model.
+async function seedMeasurements(env: Env) {
+  try {
+    const off: any = await env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_replay'").first();
+    if (off && String(off.value).trim().toLowerCase() === "off") return 0;
+    let seeded = 0;
+    const have = async (requester: string, kind: string) => Number(((await env.AUDIT_DB.prepare("SELECT COUNT(*) AS n FROM cf_agent_requests WHERE requester = ?1 AND kind = ?2").bind(requester, kind).first()) as any || {}).n) > 0;
+    if (!(await have(CODE_SESSION_REPLAY_REQUESTER, "code_session"))) {
+      // one atomic batch: all ten turns or none, so a fault half-way cannot leave a replay that never completes
+      await env.AUDIT_DB.batch(CODE_SESSION_REPLAY_TURNS.map((text) => env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES (?1, 'code_session', ?2, 'low')").bind(CODE_SESSION_REPLAY_REQUESTER, text)));
+      seeded += CODE_SESSION_REPLAY_TURNS.length;
+    }
+    // the selftest writes cf_agent_approvals rows: wait (this tick only) until that table exists, so a deploy that lands before its migration cannot burn the one request
+    let approvalsReady = true;
+    try { await env.AUDIT_DB.prepare("SELECT 1 FROM cf_agent_approvals LIMIT 1").first(); } catch (e) { approvalsReady = false; }
+    if (approvalsReady && !(await have("rm-durable-interrupt-1", "approval_selftest"))) {
+      await env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES ('rm-durable-interrupt-1', 'approval_selftest', 'stage one irreversible step, pause, force a restart, approve, resume (sends nothing)', 'medium')").run();
+      seeded++;
+    }
+    return seeded;
+  } catch (e) { logErr("seed-measurements", e); return 0; }
+}
+
+// RM-DURABLE-INTERRUPT-1: stage one irreversible step, pause it at the interrupt, reset the Durable Object, find the pause in the fresh instance, approve it, and see the
+// same run finish. The approver is the selftest (decided_by 'selftest'); the staged step sends nothing. Every transition is a cf_agent_approvals row.
+async function approvalSelftest(env: Env, caller: string) {
+  const out: any = { ok: false, steps: [] };
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const a: any = await getAgentByName(env.FleetCodeAgent as any, "approval-selftest");
+  const started = await a.selftestStart(caller);
+  out.steps.push({ step: "start", ok: started.ok, run_id: started.run_id, error: started.error });
+  if (!started.ok) { out.error = started.error; return out; }
+  try { await a.selftestRestart(); out.steps.push({ step: "restart", note: "no error raised" }); } catch (e) { out.steps.push({ step: "restart", note: "object reset: " + errText(e).slice(0, 120) }); }
+  await sleep(500);
+  const b: any = await getAgentByName(env.FleetCodeAgent as any, "approval-selftest");
+  const resumed = await b.selftestResume(caller, started.run_id, true);
+  out.steps.push({ step: "resume", ok: resumed.ok, survived: resumed.survived, error: resumed.error });
+  if (!resumed.ok) { out.error = resumed.error || "resume failed"; return out; }
+  for (let i = 0; i < 30; i++) {
+    const r: any = await env.AUDIT_DB.prepare("SELECT status, restart_survived FROM cf_agent_approvals WHERE run_id = ?1 AND action = 'staged_action'").bind(started.run_id).first();
+    if (r && r.status === "executed") { out.ok = true; out.run_id = started.run_id; out.restart_survived = Number(r.restart_survived) === 1; return out; }
+    await sleep(500);
+  }
+  out.error = "the approved step did not execute within 15 s";
+  return out;
+}
+
 async function drainRequests(env: Env) {
   const db = env.AUDIT_DB;
   const out: any = { reconciled: 0, started: 0, failed: 0, deferred: 0 };
+  out.seeded = await seedMeasurements(env);
   // 1. A running turn is finished when its cf_agent_runs row is; one with no result after REQUEST_STALE_MIN is re-queued (twice at
   //    most) and then failed with the reason, so nothing waits silently.
-  const running: any = await db.prepare("SELECT q.id, q.attempts, q.started_at, a.status AS run_status, a.result AS run_result, a.error AS run_error FROM cf_agent_requests q LEFT JOIN cf_agent_runs a ON a.id = q.run_id WHERE q.status = 'running' LIMIT 50").all();
+  const running: any = await db.prepare("SELECT q.id, q.kind, q.attempts, q.started_at, a.status AS run_status, a.result AS run_result, a.error AS run_error, u.status AS use_status, u.model AS use_model, u.input_tokens AS use_in, u.output_tokens AS use_out, u.cost_usd AS use_cost FROM cf_agent_requests q LEFT JOIN cf_agent_runs a ON a.id = q.run_id LEFT JOIN cf_agent_session_usage u ON u.session_id = q.run_id AND u.turn = 1 WHERE q.status = 'running' LIMIT 50").all();
   for (const r of running.results || []) {
+    // RM-CODE-SESSION-1: a code_session request is finished by its CodeSession turn's usage row (cf_agent_session_usage), done or failed.
+    if (r.kind === "code_session") {
+      if (r.use_status === "done" || r.use_status === "failed") {
+        await finishRequest(env, r.id, r.use_status, { model: r.use_model, input_tokens: r.use_in, output_tokens: r.use_out, cost_usd: r.use_cost }, r.use_status === "failed" ? "the code session turn failed" : null);
+        out.reconciled++;
+        continue;
+      }
+      const sAge = (Date.now() - Date.parse(String(r.started_at || ""))) / 60000;
+      if (sAge > REQUEST_STALE_MIN) { await finishRequest(env, r.id, "failed", null, "no code session turn result after " + REQUEST_STALE_MIN + " minutes"); out.failed++; }
+      continue;
+    }
     if (r.run_status === "done" || r.run_status === "failed") { await finishRequest(env, r.id, r.run_status, r.run_result, r.run_error); out.reconciled++; continue; }
     const age = (Date.now() - Date.parse(String(r.started_at || ""))) / 60000;
     if (!(age > REQUEST_STALE_MIN)) continue;
@@ -780,13 +1103,13 @@ async function drainRequests(env: Env) {
   let modelSlots = gov.plan.take;
   out.governor = { limited: gov.plan.limited, spent: gov.spent, budget: gov.budget, duty: gov.plan.duty };
   if (gov.plan.limited) {
-    const old: any = await db.prepare("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND COALESCE(instance, '') NOT LIKE 'lever-%' AND COALESCE(kind, 'run') = 'run' AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-" + AGENT_SHED_MIN + " minutes') LIMIT 25").all();
+    const old: any = await db.prepare("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND COALESCE(instance, '') NOT LIKE 'lever-%' AND COALESCE(kind, 'run') IN ('run', 'code_session') AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-" + AGENT_SHED_MIN + " minutes') LIMIT 25").all();
     for (const o of old.results || []) { await finishRequest(env, o.id, "failed", null, "shed: waited over " + AGENT_SHED_MIN + " minutes under the daily neuron budget (QNFO-AGENTS-BUDGET-1)"); out.shed = (out.shed || 0) + 1; }
   }
   const queued: any = await db.prepare("SELECT * FROM cf_agent_requests WHERE status = 'queued' ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, id LIMIT ?1").bind(DRAIN_PER_TICK).all();
   for (const q of queued.results || []) {
     // A critical request, a request on a lever-* instance (cf_agent_requests.instance; the requester is program-manager:QNFO.*; the agents_lever_usable_share_48h verdict window, decision 1552, needs every lever row) and a request that calls no model (sandbox, schedule) are never deferred; the rest take the tick's model slots.
-    if (q.priority !== "critical" && !/^lever-/.test(String(q.instance || "")) && String(q.kind || "run") === "run") {
+    if (q.priority !== "critical" && !/^lever-/.test(String(q.instance || "")) && ["run", "code_session"].indexOf(String(q.kind || "run")) >= 0) {
       if (modelSlots <= 0) { out.deferred++; continue; }
       modelSlots--;
     }
@@ -796,6 +1119,21 @@ async function drainRequests(env: Env) {
     if (v.error) { await finishRequest(env, q.id, "failed", null, v.error); out.failed++; continue; }
     const caller = "loop:" + q.requester;
     try {
+      if (v.kind === "code_session") {
+        const sid = runId();
+        const session: any = await getAgentByName(env.CodeSession as any, sid);
+        const r = await session.startSession({ text: q.prompt, scope: "read", caller, budget: CODE_SESSION_REPLAY_BUDGET });
+        if (!r.ok) { await finishRequest(env, q.id, "failed", null, String(r.error || "the code session did not start")); out.failed++; continue; }
+        await db.prepare("UPDATE cf_agent_requests SET run_id = ?2 WHERE id = ?1").bind(q.id, sid).run();
+        out.started++;
+        continue;
+      }
+      if (v.kind === "approval_selftest") {
+        const r = await approvalSelftest(env, caller);
+        await finishRequest(env, q.id, r.ok ? "done" : "failed", r, r.ok ? null : String(r.error || "approval selftest failed"));
+        if (r.ok) out.started++; else out.failed++;
+        continue;
+      }
       const stub: any = await getAgentByName(env.FleetCodeAgent as any, loopInstance(q.requester, q.instance));
       if (v.kind === "run") {
         const r = await stub.startRun({ text: q.prompt, scope: "loop", caller, wait_ms: 0 });
@@ -903,8 +1241,8 @@ function selfDoc(caller: string, scope: Scope) {
     model: { route: DEFAULT_MODEL, via: "Workers AI binding through AI Gateway 'default'", override: "ops_config qnfo_agents_model (dynamic routes only; invalid values use dynamic/standard)" },
     routes: {
       open: ["GET /", "GET /health", "GET /tools", "POST /mcp (public: repo_read_file)"],
-      loops: ["INSERT INTO qnfo-audit.cf_agent_requests (requester, kind run|sandbox|schedule, prompt | code, cron | delay_s, instance?, priority?): drained every 5 minutes, outcome written back to the row"],
-      trusted: ["POST /code-sessions {text}", "POST /code-sessions/<id>/turns {text}", "GET /code-sessions/<id>/events?after=<seq> (replayable SSE)", "GET /code-sessions/<id>", "GET /requests?status=&requester=", "POST /requests/drain", "POST /run {text, instance?, wait_ms?}", "GET /runs", "GET /runs/<id>", "GET /schedules", "POST /schedules {text, cron|delay_s}", "DELETE /schedules/<id>", "GET /mcp-servers", "POST /mcp-servers {name, url}", "DELETE /mcp-servers/<id>", "POST /sandbox {code}", "/agents/fleet-code-agent/<instance> (WebSocket, callable methods)"]
+      loops: ["INSERT INTO qnfo-audit.cf_agent_requests (requester, kind run|sandbox|schedule|code_session|approval_selftest, prompt | code, cron | delay_s, instance?, priority?): drained every 5 minutes, outcome written back to the row"],
+      trusted: ["POST /code-sessions {text}", "POST /code-sessions/<id>/turns {text}", "GET /code-sessions/<id>/events?after=<seq> (replayable SSE)", "GET /code-sessions/<id>", "GET|POST /code-sessions/<id>/plan {approved} (POST: write scope)", "GET /approvals", "POST /approvals/<run id>/<call id> {approved} (write scope)", "GET /requests?status=&requester=", "POST /requests/drain", "POST /run {text, instance?, wait_ms?}", "GET /runs", "GET /runs/<id>", "GET /schedules", "POST /schedules {text, cron|delay_s}", "DELETE /schedules/<id>", "GET /mcp-servers", "POST /mcp-servers {name, url}", "DELETE /mcp-servers/<id>", "POST /sandbox {code}", "/agents/fleet-code-agent/<instance> (WebSocket, callable methods)"]
     },
     surfaces: { console: "https://fleet.qnfo.org/cmd (cfagent <request>, cfagent! <request> for the write scope)", ops: "https://ops.qnfo.org/v1/agents/..." }
   };
@@ -935,17 +1273,27 @@ export default {
         if (text.length < 1 || text.length > 8000) return json({ ok: false, error: "text must contain 1 to 8000 characters" }, 400);
         const id = runId();
         const session: any = await getAgentByName(env.CodeSession as any, id);
-        return json(await session.startSession({ text, scope, caller }), 202);
+        return json(await session.startSession({ text, scope, caller, budget: b.budget }), 202);
       }
       let sessionMatch: RegExpExecArray | null;
-      if ((sessionMatch = /^\/code-sessions\/(run_[a-z0-9_]{8,60})(?:\/(events|turns))?$/.exec(path))) {
+      if ((sessionMatch = /^\/code-sessions\/(run_[a-z0-9_]{8,60})(?:\/(events|turns|plan))?$/.exec(path))) {
         const session: any = await getAgentByName(env.CodeSession as any, sessionMatch[1]);
         if (sessionMatch[2] === "events" && request.method === "GET") return codeSessionStream(request, session, caller);
         if (sessionMatch[2] === "turns" && request.method === "POST") {
           const text = String(b.text || "").trim();
           if (text.length < 1 || text.length > 8000) return json({ ok: false, error: "text must contain 1 to 8000 characters" }, 400);
-          const result = await session.startTurn(text, caller);
+          const result = await session.startTurn(text, caller, { escalate: b.escalate === true });
           return json(result, result.ok ? 202 : 409);
+        }
+        if (sessionMatch[2] === "plan") {
+          // RM-CODE-SANDBOX-1: the plan the model proposed, and the owner's answer to it. Approving lets the session's changing tools run, so it needs the write scope (a fresh code).
+          if (request.method === "GET") { const st: any = await session.sessionStatus(caller); return json(st.ok ? { ok: true, plan: st.session.plan, claims: st.session.claims } : st, st.ok ? 200 : 404); }
+          if (request.method === "POST") {
+            if (scope !== "write") return json({ ok: false, error: "approving a plan lets the session change things: it needs the write scope (on the console: a fresh code)" }, 403);
+            if (typeof b.approved !== "boolean") return json({ ok: false, error: "send {approved: true|false}" }, 400);
+            const result: any = await session.decidePlan(b.approved, caller);
+            return json(result, result.ok ? 200 : 409);
+          }
         }
         if (!sessionMatch[2] && request.method === "GET") return json(await session.sessionStatus(caller));
         return json({ ok: false, error: "no such route" }, 404);
@@ -953,6 +1301,15 @@ export default {
       const stub: any = await getAgentByName(env.FleetCodeAgent as any, instanceName(b.instance || url.searchParams.get("instance")));
       if (path === "/run" && request.method === "POST") return json(await stub.startRun({ text: b.text, scope, caller, wait_ms: b.wait_ms }));
       if (path === "/runs" && request.method === "GET") return json({ ok: true, runs: await stub.listRuns(Number(url.searchParams.get("limit")) || 20) });
+      // RM-DURABLE-INTERRUPT-1: the paused identity-bound steps of this caller's write-scope runs, and the answer that resumes one. Answering needs the write scope (a fresh code).
+      if (path === "/approvals" && request.method === "GET") return scope === "write" ? json(await stub.pendingApprovals(caller)) : json({ ok: false, error: "approvals need the write scope (on the console: a fresh code)" }, 403);
+      let ap: RegExpExecArray | null;
+      if ((ap = /^\/approvals\/(run_[a-z0-9_]{6,60})\/([A-Za-z0-9_.:-]{4,120})$/.exec(path)) && request.method === "POST") {
+        if (scope !== "write") return json({ ok: false, error: "answering an approval needs the write scope (on the console: a fresh code)" }, 403);
+        if (typeof b.approved !== "boolean") return json({ ok: false, error: "send {approved: true|false}" }, 400);
+        const result: any = await stub.respondToApproval(ap[1], ap[2], caller, b.approved);
+        return json(result, result.ok ? 200 : 409);
+      }
       let m: RegExpExecArray | null;
       if ((m = /^\/runs\/(run_[a-z0-9_]{6,60})$/.exec(path)) && request.method === "GET") { const r = await stub.getRun(m[1]); return r ? json({ ok: true, run: r }) : json({ ok: false, error: "no such run" }, 404); }
       if (path === "/schedules" && request.method === "GET") return json({ ok: true, schedules: await stub.listSchedules() });

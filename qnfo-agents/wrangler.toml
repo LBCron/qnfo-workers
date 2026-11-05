@@ -52,6 +52,12 @@ binding = "OPS"
 service = "qnfo-ops"
 props = { caller = "qnfo-agents" }
 
+# RM-CODE-SANDBOX-1: a write-scope CodeSession takes a work claim (POST /work-lock/acquire) on each file it edits. A Worker cannot reach another workers.dev host of
+# its own account over HTTP, so the claim goes by service binding, the way qnfo-ops (DEPLOY_GUARD) and qnfo-fleet-control (SVC_DEPLOY_GUARD) reach the same worker.
+[[services]]
+binding = "GUARD"
+service = "qnfo-deploy-guard"
+
 [[durable_objects.bindings]]
 name = "FleetCodeAgent"
 class_name = "FleetCodeAgent"
