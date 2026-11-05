@@ -9,7 +9,7 @@
 // JOBSEARCH-CV-1 (1.5.0): the CV is part of this worker (page /cv): a yes/no interview that builds the claim bank, review of unconfirmed claims, roles, achievements and publications edited in D1, a resume per job (summary, roles, selected work, education, skills) and a cover note, history and backup. The search is tied to that bank (evidence the owner can back up weighs more; what the CV lacks is shown as a gap), decided postings (rejected, applied, approved) never come back under another id, rejections carry a reason the search learns from, and a wider net: stretch matches outside the stated preferences, more boards and aggregators.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.6.5-codeagent";
+var VERSION = "1.6.6-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -357,7 +357,19 @@ async function ensure(env) {
   if (ensured) return;
   for (const q of DDL) await env.JOBS_DB.prepare(q).run();
   try { await env.JOBS_DB.prepare("ALTER TABLE jobsearch_feedback ADD COLUMN reason TEXT").run(); } catch (e) { if (!/duplicate column/i.test(String((e && e.message) || e))) throw e; }   // why a posting was rejected: the search learns from it
-  ensured = true;
+  ensured = true; await generateWeeklyDossier(env);
+}
+// REACH-FOCUS-1.7: weekly dossier of five named people/organizations
+async function generateWeeklyDossier(env) {
+  // Run only on Monday UTC
+  const now = new Date();
+  if (now.getUTCDay() !== 1) return;
+  // Select up to five distinct employers from recent non‑stretch matches
+  const rows = await env.JOBS_DB.prepare(
+    "SELECT DISTINCT employer FROM jobsearch_matches WHERE employer IS NOT NULL AND tier <> 'C' ORDER BY last_seen DESC LIMIT 5"
+  ).all();
+  const dossier = (rows.results || []).map(r => r.employer).filter(Boolean);
+  if (dossier.length) await setMeta(env, "weekly_dossier", JSON.stringify(dossier));
 }
 const iso = (ms) => new Date(ms).toISOString();
 const log = (event, o) => console.log(JSON.stringify({ worker: WORKER, event, ...o }));
