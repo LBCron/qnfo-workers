@@ -142,7 +142,7 @@ check(lines.error.length === 1 && lines.warn.length === 0, "any other line stays
   reset(); calls = 0; thrown = null;
   try { await jw(async () => { calls++; throw new Error("D1_ERROR: no such table: journey_runs"); }); } catch (e) { thrown = e; }
   check(thrown && calls === 1 && delays.length === 0, "any other error is thrown at once, without a wait", { calls, delays });
-  check(/await jrnWaitOutOverload\(function \(\) \{\s*return db\.prepare\("INSERT INTO journey_runs/.test(src), "the journey_runs insert goes through the wait");
+  check(/2500 \* a : 600 \* a/.test(src) && /async function jrnWriteRows/.test(src), "the journey_runs batch waits out an overload at 2.5 s and 5 s before it is retried");
   check(/await jrnWaitOutOverload\(function \(\) \{ return jrnIssue\(db, j, ok, failed, at, now\); \}\)/.test(src), "the journey issue update goes through the wait");
 }
 

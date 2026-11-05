@@ -16,13 +16,14 @@ globalThis.__tel = [];
 globalThis.__tf = async (url, opts) => {
   if (/telemetry\/query$/.test(url)) return new Response(JSON.stringify({ success: true, result: { events: globalThis.__tel } })); const m = /qnfo-workers\/main\/([a-z0-9-]+)\/worker\.js/.exec(url); try { return new Response(readFileSync(new URL("../" + m[1] + "/worker.js", import.meta.url), "utf8")); } catch (e) { return new Response("", { status: 404 }); } };
 const closeGuard = src.slice(src.indexOf("async function closeBlockedByContract("), src.indexOf("async function improvementLoopTick("));
-const M = new Function("var VERSION = '0.27.0-test'; var timedFetch = globalThis.__tf;\n" + closeGuard + "\n" + src.slice(a, b) + "\nreturn { journeyTick, journeysStatus, jrnParseSse, jrnAgeMin, jrnAnchor };")();
+const M = new Function("var VERSION = '0.27.0-test'; var timedFetch = globalThis.__tf;\n" + closeGuard + "\n" + src.slice(a, b) + "\nreturn { journeyTick, journeysStatus, jrnParseSse, jrnAgeMin, jrnAnchor, jrnDashErrors };")();
 
 let pass = 0, fail = 0;
 const ok = (c, m, d) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (d === undefined ? "" : " :: " + JSON.stringify(d).slice(0, 400))); } };
 const vm = /var VERSION = "(\d+)\.(\d+)\.(\d+)/.exec(src);
 ok(vm && (Number(vm[1]) > 0 || Number(vm[2]) >= 27), "VERSION is at least 0.27.0");
-ok(/onTwentyGrid\) ctx\.waitUntil\(journeyTick\(/.test(src), "journeyTick runs on the 20-minute grid");
+ok(/var journeyRun = onTwentyGrid \? journeyTick\(/.test(src) && /ctx\.waitUntil\(journeyRun\)/.test(src), "journeyTick runs on the 20-minute grid");
+ok(/var advisorRun = advisorMod\.default\.scheduled\(event, env, ctx\);\s+await journeyRun;\s+return advisorRun;/.test(src), "JOURNEY-RECORD-DURABLE-1: the cron handler awaits the journeys (a waitUntil task ends 30 s after the handler returns)");
 ok(src.indexOf('p === "/journeys" && request.method === "GET"') > 0, "GET /journeys is routed");
 const toml = readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
 for (const bnd of ["SVC_QNFO_GATEWAY", "SVC_QNFO_AI_SEARCH", "SVC_DEPLOY_GUARD", "SVC_QNFO_DASH", "SVC_QNFO_OPS", "SVC_QNFO_AI", "SVC_QNFO_PDF"]) ok(toml.indexOf('binding = "' + bnd + '"') > 0, "wrangler.toml declares " + bnd);
@@ -60,12 +61,14 @@ function mkDb() {
       all: async () => ({ results: st.all(...args) }), first: async () => st.get(...args) || null, run: async () => { const r = st.run(...args); return { meta: { changes: r.changes } }; } };
     return o;
   };
-  return { raw: s, prepare: wrap };
+  // db.batch as D1 does it: the statements run in one transaction, all or none.
+  return { raw: s, prepare: wrap, batch: async (stmts) => { s.exec("BEGIN"); try { for (const st of stmts) await st.run(); s.exec("COMMIT"); return []; } catch (e) { s.exec("ROLLBACK"); throw e; } } };
 }
 const iso = (minAgo, now) => new Date(now - minAgo * 60000).toISOString();
 
 function mkEnv(db, now, broken = {}) {
   const claims = [];
+  const calls = {};
   const svc = (handler) => ({ fetch: async (url, init) => { const r = await handler(new URL(url), init || {}); return new Response(typeof r.body === "string" ? r.body : JSON.stringify(r.body), { status: r.status || 200 }); } });
   const sse = 'event: meta\ndata: {"sources":[{"url":"https://papers.qnfo.org/papers/p1"}]}\n\nevent: token\ndata: {"t":"A long enough answer to the question that the journey accepts as a real answer to it [1]."}\n\nevent: done\ndata: {"id":"a"}\n\n';
   return {
@@ -90,8 +93,19 @@ function mkEnv(db, now, broken = {}) {
       { name: "idea-hub", healthy: true, version: "1.10.0-topic-clusters-derived", probe: "binding:CH_IDEA_HUB" },
       { name: "qnfo-ai", healthy: true, version: "5.36.2-log-catches" },
       { name: "personal-api", healthy: broken.blind || broken.retired ? null : true, retired: broken.retired ? true : undefined, version: "4.9.1" }] } })),
-    SVC_QNFO_DASH: svc((u) => u.pathname === "/api/loop" ? { body: { last_sync: iso(broken.stale ? 300 : 5, now), last_execute: iso(5, now), last_execute_summary: { failed: 0 } } } : { body: { generated_at: iso(5, now), issue_counts: { err: 0 } } }),
-    SVC_QNFO_AI_SEARCH: svc((u) => u.pathname === "/api/loop" ? { body: { runs: [{ ts: iso(20, now) }] } } : { body: sse }),
+    __calls: calls,
+    SVC_QNFO_DASH: svc((u) => {
+      const n = (calls[u.pathname] = (calls[u.pathname] || 0) + 1);
+      if (u.pathname === "/api/loop") {
+        if (broken.loop500 && n <= broken.loop500) return { status: 500, body: "boom" };
+        if (broken.loopThrows && n <= broken.loopThrows) throw new Error("Network connection lost");
+        if (broken.loopAbort) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+        return { body: { last_sync: iso(broken.stale ? 300 : 5, now), last_execute: iso(5, now), last_execute_summary: { failed: 0 } } };
+      }
+      const di = broken.dashIssues;
+      return { body: Object.assign({ generated_at: iso(5, now), issue_counts: { err: di ? di.filter((i) => i.sev === "err").length : 0 } }, di ? { issues: di } : {}) };
+    }),
+    SVC_QNFO_AI_SEARCH: svc((u) => { calls[u.pathname] = (calls[u.pathname] || 0) + 1; return u.pathname === "/api/loop" ? { body: { runs: [{ ts: iso(20, now) }] } } : broken.ask500 ? { status: 500, body: "boom" } : { body: sse }; }),
     SVC_QNFO_AI: svc((u) => u.pathname === "/health" ? { body: { bindings: { ai: true, auth: true, query_db: true, qnfo_infra: true, qnfo_intent: true } } } : { body: { data: [{ id: "qnfo" }] } }),
     SVC_QNFO_PDF: svc(() => ({ body: { ok: true } })),
   };
@@ -265,6 +279,77 @@ let st;
 try { st = await M.journeysStatus(env7); } finally { Date.now = realNow; }
 ok(st.ok && st.journeys.length === 8 && st.graph.some((e) => e.from === "qnfo-fleet-control" && e.to === "qnfo-gateway" && e.calls === 6 && e.errors === 0) && st.graph.some((e) => e.to === "qnfo-ops" && e.calls === 1), "GET /journeys returns the newest runs and the hop graph", st.graph);
 ok(M.jrnAgeMin("2026-10-14 01:10:00", NOW) === 10 && M.jrnAgeMin(null, NOW) === null, "age parses the D1 datetime form");
+
+
+// 8. JOURNEY-RECORD-DURABLE-1: the rows of a tick are written in one batch before any issue work, and a transient D1 failure does not lose them.
+{
+  const eight = ["ai-router", "binding-census", "deploy-coherence", "lock-roundtrip", "loop-heartbeats", "negative-control", "papers-path", "traffic-health"];
+  const names8 = (d) => q(d, "SELECT journey FROM journey_runs ORDER BY journey").map((x) => x.journey);
+  const flaky = (d, n) => { const real = d.batch; let c = 0; d.batch = async (st) => { c++; if (c <= n) throw new Error("D1_ERROR: D1 DB is overloaded. Too many resources consumed"); return real(st); }; return () => c; };
+  const errors = [];
+  const oldError = console.error;
+  console.error = (...a) => errors.push(a.join(" "));
+  const realST = globalThis.setTimeout, delays = [];
+  globalThis.setTimeout = (f, ms, ...r) => { delays.push(ms); return realST(f, 0, ...r); };
+  try {
+    let d = mkDb(); let calls = flaky(d, 2);
+    await M.journeyTick(mkEnv(d, NOW), { now: NOW });
+    ok(JSON.stringify(names8(d)) === JSON.stringify(eight) && calls() === 3, "a batch that fails twice with a D1 overload is retried and writes all eight rows", { rows: names8(d), calls: calls() });
+    ok(errors.filter((e) => /fleet-control:journeys:record/.test(e)).length === 2, "each failed attempt is logged", errors);
+    ok(JSON.stringify(delays.filter((x) => x === 2500 || x === 5000)) === JSON.stringify([2500, 5000]), "an overload is waited out at 2.5 s and 5 s between attempts", delays);
+    errors.length = 0;
+    d = mkDb(); calls = flaky(d, 99);
+    await M.journeyTick(mkEnv(d, NOW), { now: NOW });
+    ok(JSON.stringify(names8(d)) === JSON.stringify(eight) && calls() === 3, "when the batch keeps failing the rows are written one by one", { rows: names8(d), calls: calls() });
+    errors.length = 0;
+    d = mkDb(); d.batch = undefined;
+    await M.journeyTick(mkEnv(d, NOW), { now: NOW });
+    ok(names8(d).length === 8, "a database handle with no batch still records every row");
+    // the rows are in before the issue work: a journey whose issue handling throws does not cost the rows after it
+    d = mkDb(); d.raw.exec("DROP TABLE agent_issues");
+    await M.journeyTick(mkEnv(d, NOW, { page: true }), { now: NOW });
+    ok(names8(d).length === 8 && q(d, "SELECT ok FROM journey_runs WHERE journey = 'papers-path'")[0].ok === 0, "all eight rows are recorded even when issue handling fails for the failing journey", names8(d));
+  } finally { console.error = oldError; globalThis.setTimeout = realST; }
+}
+
+// 9. JOURNEY-HOP-RETRY-1: a GET that answered 5xx or failed before an answer is tried once more; a timeout and a POST are not.
+{
+  // another journey reads /api/loop too: the server-side call count is compared with a healthy tick's, not with a constant
+  const baseEnv = mkEnv(mkDb(), NOW); await M.journeyTick(baseEnv, { now: NOW });
+  const base = baseEnv.__calls["/api/loop"];
+  let d = mkDb(); let env = mkEnv(d, NOW, { loop500: 1 });
+  let rr = await M.journeyTick(env, { now: NOW });
+  let hops = JSON.parse(q(d, "SELECT path_json p FROM journey_runs WHERE journey = 'loop-heartbeats'")[0].p);
+  ok(!rr.failing.includes("loop-heartbeats") && env.__calls["/api/loop"] === base + 1 && hops[0].status === 200 && hops[0].retried === 1, "a 500 from /api/loop that answers on the second try passes loop-heartbeats and records the retry", { calls: env.__calls, hop: hops[0] });
+  d = mkDb(); env = mkEnv(d, NOW, { loop500: 9 });
+  rr = await M.journeyTick(env, { now: NOW });
+  hops = JSON.parse(q(d, "SELECT path_json p FROM journey_runs WHERE journey = 'loop-heartbeats'")[0].p);
+  ok(rr.failing.includes("loop-heartbeats") && env.__calls["/api/loop"] === base + 1 && hops[0].status === 500 && hops[0].retried === 1, "a hop that keeps answering 500 still fails, after exactly one retry", { calls: env.__calls });
+  d = mkDb(); env = mkEnv(d, NOW, { loopThrows: 1 });
+  rr = await M.journeyTick(env, { now: NOW });
+  ok(!rr.failing.includes("loop-heartbeats") && env.__calls["/api/loop"] === base + 1, "a transport error before any answer is retried", env.__calls);
+  d = mkDb(); env = mkEnv(d, NOW, { loopAbort: true });
+  rr = await M.journeyTick(env, { now: NOW });
+  hops = JSON.parse(q(d, "SELECT path_json p FROM journey_runs WHERE journey = 'loop-heartbeats'")[0].p);
+  ok(rr.failing.includes("loop-heartbeats") && env.__calls["/api/loop"] === base && hops[0].error === "timeout" && !hops[0].retried, "a timeout is a finding and is never retried", { calls: env.__calls, hop: hops[0], base });
+  d = mkDb(); env = mkEnv(d, T6, { ask500: true });
+  rr = await M.journeyTick(env, { now: T6 });
+  ok(rr.failing.includes("ask-path") && env.__calls["/api/ask"] === 1, "a POST is never retried", env.__calls);
+}
+
+// 10. LOOP-ERR-COVERED-1: an error-level dashboard issue in a category traffic-health judges (worker-errors) does not fail loop-heartbeats; any other error-level issue does.
+{
+  let d = mkDb();
+  let rr = await M.journeyTick(mkEnv(d, NOW, { dashIssues: [{ sev: "err", category: "worker-errors" }, { sev: "warn", category: "general" }] }), { now: NOW });
+  ok(!rr.failing.includes("loop-heartbeats"), "an error-level worker-errors issue is left to traffic-health", rr);
+  d = mkDb();
+  rr = await M.journeyTick(mkEnv(d, NOW, { dashIssues: [{ sev: "err", category: "worker-errors" }, { sev: "err", category: "stale-loop" }] }), { now: NOW });
+  const f = JSON.parse(q(d, "SELECT failed_json f FROM journey_runs WHERE journey = 'loop-heartbeats'")[0].f);
+  ok(rr.failing.includes("loop-heartbeats") && f.length === 1 && /error-level issues outside worker-errors: 1/.test(f[0].detail), "an error-level issue of another category fails it and the detail counts only those", f);
+  d = mkDb();
+  rr = await M.journeyTick(mkEnv(d, NOW), { now: NOW });
+  ok(!rr.failing.includes("loop-heartbeats") && M.jrnDashErrors({ issue_counts: { err: 2 } }) === 2 && M.jrnDashErrors({}) === 1 && M.jrnDashErrors({ issues: [], issue_counts: { err: 5 } }) === 0, "an answer with no issues list falls back to issue_counts.err; an unreadable one counts as an error");
+}
 
 console.log(`journeys: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -43,7 +43,7 @@ const loadApi = () => {
 ok(src.split("async function breachDoctorTick(env, opts) {").length === 2, "the engine anchor occurs once");
 const slot = src.slice(src.indexOf('if (cron === "*/10 * * * *") {'), src.indexOf('if (cron === "0 3 * * *") {'));
 const callLine = slot.split("\n").find((l) => l.includes("breachDoctorTick(env"));
-ok(callLine && !/onTwentyGrid/.test(callLine) && slot.indexOf("breachDoctorTick(env") < slot.indexOf("if (onTwentyGrid) return advisorMod"), "the call site is on every */10 tick, not behind onTwentyGrid, and before the advisor return");
+ok(callLine && !/onTwentyGrid/.test(callLine) && slot.indexOf("breachDoctorTick(env") < slot.indexOf("advisorMod.default.scheduled(event, env, ctx)"), "the call site is on every */10 tick, not behind onTwentyGrid, and before the advisor return");
 ok(slot.indexOf("remediationContractsTick(env") > 0 && Math.abs(slot.indexOf("breachDoctorTick(env") - slot.indexOf("remediationContractsTick(env")) < 2500, "it sits next to remediationContractsTick");
 const ver = (src.match(/^var VERSION = "([^"]*)"/m) || [])[1] || "";
 const vn = ver.split("-")[0].split(".").map(Number);
