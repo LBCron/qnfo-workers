@@ -170,7 +170,8 @@ const WIP = Number((/^const PLAN_WIP = (\d+);/m.exec(fs.readFileSync(new URL("./
   const { env, prompts } = envWith([]);
   const d = env.AUDIT_DB._db;
   await plan(env); // creates the schema
-  for (let i = 0; i < WIP; i++) d.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, created_at, updated_at) VALUES (?, 'qnfo-workers', 'x/worker.js', 'g', 'queued', 'read', 0, 'n', 'n')").run("ct_w" + i);
+  // PLAN-STARVATION-1 (0.48.3): work in progress counts FILES in motion (rows queued behind a task on the same file carry no work), so the PLAN_WIP tasks sit on PLAN_WIP files.
+  for (let i = 0; i < WIP; i++) d.prepare("INSERT INTO code_tasks (id, repo, path, goal, status, step, attempts, created_at, updated_at) VALUES (?, 'qnfo-workers', ?, 'g', 'queued', 'read', 0, 'n', 'n')").run("ct_w" + i, "x" + i + "/worker.js");
   issue(env, { title: "METRIC-TRIGGER-12-C: q08-signal-engine", description: "/api/f" });
   let r = await plan(env);
   ok(!r.planned && /work in progress/.test(r.why) && prompts.length === 0, "7a no planning while PLAN_WIP code tasks are unfinished", r);
