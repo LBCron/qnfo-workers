@@ -44,6 +44,20 @@ ok(/accountTag: "ACC"/.test(q) && /d1AnalyticsAdaptiveGroups\(limit: 10000, filt
 const q2 = L.costQuery("ACC", spec("workers"), L.costWindow(30, Date.UTC(2026, 10, 5, 12)));
 ok(/datetime_geq: "2026-10-06T00:00:00Z", datetime_lt: "2026-11-06T00:00:00Z"/.test(q2), "the 30 day backfill window is 31 days, inside the API's 32 day limit", q2);
 
+// AI-SEARCH-COST-1: the five AI Search meters. Queries are counted, storage is the day's largest level summed over instances (decimal GB), ingestion tokens are summed.
+pts = L.costPoints(spec("ai_search_semantic"), [{ dimensions: { date: "2026-11-03" }, count: 36 }, { dimensions: { date: "2026-11-03" }, count: 11 }, { dimensions: { date: "2026-11-04" }, count: 6 }]);
+ok(pts.length === 2 && pts[0].metric === "semantic_queries" && pts[0].quantity === 47 && pts[0].product === "ai_search" && pts[0].unit === "queries", "AI Search semantic queries are summed per day", pts);
+pts = L.costPoints(spec("ai_search_fulltext"), [{ dimensions: { date: "2026-11-03" }, count: 4 }]);
+ok(pts.length === 1 && pts[0].metric === "fulltext_queries" && pts[0].quantity === 4, "AI Search full-text queries map to their own priced metric", pts);
+pts = L.costPoints(spec("ai_search_storage"), [{ dimensions: { date: "2026-11-04", instanceId: "a" }, max: { bytes: 76694794 } }, { dimensions: { date: "2026-11-04", instanceId: "b" }, max: { bytes: 5305206 } }]);
+ok(pts.length === 1 && pts[0].metric === "storage_gb" && near(pts[0].quantity, 0.082) && pts[0].product === "ai_search", "AI Search storage is summed over instances in decimal GB", pts);
+pts = L.costPoints(spec("ai_search_ingest"), [{ dimensions: { date: "2026-11-03" }, sum: { tokens: 267599 } }, { dimensions: { date: "2026-11-03" }, sum: { tokens: 1 } }]);
+ok(pts.length === 1 && pts[0].metric === "ingestion_tokens" && pts[0].quantity === 267600, "AI Search ingestion tokens are summed per day", pts);
+pts = L.costPoints(spec("ai_search_image"), [{ dimensions: { date: "2026-11-03" }, sum: { tokens: 90 } }]);
+ok(pts.length === 1 && pts[0].metric === "image_tokens", "AI Search image tokens map to their own priced metric", pts);
+const qs = L.costQuery("ACC", spec("ai_search_semantic"), L.costWindow(30, Date.UTC(2026, 10, 5, 12)));
+ok(/aiSearchSemanticQueriesAdaptiveGroups\(limit: 10000, filter: \{datetime_geq: "2026-10-06T00:00:00Z"/.test(qs) && /\{ count dimensions \{ date \} \}/.test(qs), "the AI Search query reads the semantic dataset over a datetime window and asks for count by date", qs);
+
 // ---- 2. month roll-up
 const book = [
   { vendor: "cloudflare", product: "d1", metric: "rows_read", kind: "flow", unit: "rows", included_per_month: 25e9, usd_per_block: 0.001, block_size: 1e6 },
@@ -69,15 +83,17 @@ ok(L.costRollup([{ date: "2026-11-03", product: "nope", metric: "nothing", quant
 
 // ---- 3. the hourly tick against a real sqlite built from the migration
 const mig = readFileSync(new URL("../migrations/2026-11-04-vendor-cost-ledger.sql", import.meta.url), "utf8");
+const migAiSearch = readFileSync(new URL("../migrations/2026-11-05-ai-search-cost-meters.sql", import.meta.url), "utf8");
 function freshDb() {
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE cost_daily (date TEXT NOT NULL, source TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'fleet', usd REAL NOT NULL DEFAULT 0, requests INTEGER DEFAULT 0, tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0, note TEXT, updated_at TEXT, PRIMARY KEY (date, source));" +
     "CREATE TABLE ops_config (key TEXT PRIMARY KEY, value TEXT, note TEXT, updated_at TEXT);" +
     "CREATE TABLE cost_source_registry (source TEXT PRIMARY KEY, label TEXT NOT NULL, scope TEXT NOT NULL, payer TEXT NOT NULL, observable_via TEXT, unit TEXT NOT NULL DEFAULT 'USD', notes TEXT, updated_at TEXT);" +
     "CREATE TABLE failure_modes (fm_key TEXT PRIMARY KEY, failure_mode TEXT, root_cause TEXT, remediation TEXT, detector TEXT, probe_class TEXT, first_seen TEXT, issue_id INTEGER, trigger_condition TEXT, symptom TEXT, blast_radius TEXT);" +
-    "CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, precondition TEXT, action TEXT, verify_probe TEXT, verify_transport TEXT, max_attempts INTEGER, escalate_to TEXT, expected_cadence_h INTEGER, status TEXT);" +
+    "CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, precondition TEXT, action TEXT, verify_probe TEXT, verify_transport TEXT, max_attempts INTEGER, escalate_to TEXT, expected_cadence_h INTEGER, status TEXT, module TEXT, budget_ms INTEGER, max_items INTEGER, requires_container INTEGER);" +
     "CREATE TABLE capability_ledger (capability TEXT PRIMARY KEY, provenance TEXT, prerequisites TEXT, reliability TEXT, acquired_at TEXT, last_exercised_at TEXT, evidence TEXT);");
   db.exec(mig);
+  db.exec(migAiSearch);
   return db;
 }
 const wrap = (db) => ({
@@ -93,7 +109,8 @@ sandbox.gqlImpl = async (e, query) => {
   const field = (query.match(/accounts\(filter: \{accountTag: "[^"]+"\}\) \{ (\w+)\(/) || [])[1];
   if (sandbox.failField === field) return { errors: [{ message: sandbox.failMessage || "boom" }] };
   const d = day(sandbox.now), prev = day(sandbox.now - 864e5);
-  const per = { workersInvocationsAdaptive: { sum: { requests: 1000, cpuTimeUs: 2e6 } }, d1AnalyticsAdaptiveGroups: { sum: { rowsRead: 2e9, rowsWritten: 1e6 } }, d1StorageAdaptiveGroups: { max: { databaseSizeBytes: 1.5e9 } }, r2StorageAdaptiveGroups: { max: { payloadSize: 9.2e10, metadataSize: 5e6 } } };
+  const per = { workersInvocationsAdaptive: { sum: { requests: 1000, cpuTimeUs: 2e6 } }, d1AnalyticsAdaptiveGroups: { sum: { rowsRead: 2e9, rowsWritten: 1e6 } }, d1StorageAdaptiveGroups: { max: { databaseSizeBytes: 1.5e9 } }, r2StorageAdaptiveGroups: { max: { payloadSize: 9.2e10, metadataSize: 5e6 } },
+    aiSearchSemanticQueriesAdaptiveGroups: { count: 40 }, aiSearchStorageAdaptiveGroups: { max: { bytes: 7.6e7 } }, aiSearchIngestionTokensAdaptiveGroups: { sum: { tokens: 200000 } } };
   const row = per[field] || { sum: { requests: 1, duration: 10, rowsRead: 1, rowsWritten: 1, billableOperations: 1, queriedVectorDimensions: 1, totalSessionDurationMs: 1, allocatedMemory: 1, allocatedDisk: 1, cpuTimeSec: 1 }, max: { storedVectorDimensions: 5, storedBytes: 1e6, byteCount: 10 } };
   const groups = [prev, d].map((date) => ({ dimensions: { date, actionType: "GetObject" }, ...row }));
   return { data: { viewer: { accounts: [{ [field]: groups }] } } };
@@ -106,6 +123,14 @@ ok(queries.length === L.COST_DATASETS.length && /datetime_geq: "2026-10-06T00:00
 ok(/\/workers\/observability\/usage\?from=\d+&to=\d+/.test(sandbox.cfPath), "the observability usage endpoint is read with from and to in milliseconds", sandbox.cfPath);
 const month = db.prepare("SELECT * FROM cost_vendor_month WHERE month = '2026-11' AND product = 'd1' AND metric = 'rows_read'").get();
 ok(month && month.evidence === "meter" && month.usage_mtd === 4e9 && month.net_forecast_usd === 0 && month.gross_mtd_usd > 3.9 && month.gross_mtd_usd < 4.1, "the D1 row is priced: 4 B rows to date is under the allowance, so net 0 and gross USD 4", month);
+const aq = db.prepare("SELECT * FROM cost_vendor_month WHERE month = '2026-11' AND product = 'ai_search' AND metric = 'semantic_queries'").get();
+ok(aq && aq.evidence === "meter" && aq.usage_mtd === 80 && aq.included === 1000 && aq.net_mtd_usd === 0 && near(aq.gross_mtd_usd, 0.06), "AI Search: 80 queries to date are inside the 1,000 included, gross USD 0.06 at USD 0.75 per 1,000", aq);
+const ast = db.prepare("SELECT * FROM cost_vendor_month WHERE month = '2026-11' AND product = 'ai_search' AND metric = 'storage_gb'").get();
+ok(ast && near(ast.usage_projected, 0.076) && ast.net_forecast_usd === 0, "AI Search storage (0.076 GB) is a stock inside the 10 GB included", ast);
+const ain = db.prepare("SELECT usage_mtd, net_forecast_usd, usage_projected FROM cost_vendor_month WHERE month = '2026-11' AND product = 'ai_search' AND metric = 'ingestion_tokens'").get();
+ok(ain && ain.usage_mtd === 400000 && ain.usage_projected > ain.usage_mtd && ain.usage_projected < 5e6 && ain.net_forecast_usd === 0, "AI Search ingestion tokens are summed, projected over the month and still inside the 5 M included", ain);
+const det = db.prepare("SELECT verify_probe FROM remediation_contracts WHERE class = 'fm-ai-search-meter-silent'").get();
+ok(det && /product = 'ai_search' AND metric = 'storage_gb'/.test(det.verify_probe) && db.prepare("SELECT COUNT(*) AS n FROM failure_modes WHERE fm_key = 'ai-search-meter-silent'").get().n === 1, "the silent-meter failure mode and its detector are installed");
 const ev = db.prepare("SELECT quantity FROM cost_usage_daily WHERE product = 'workers_logs' AND date = '2026-11-05'").get();
 ok(ev && ev.quantity === 4000, "observability events are stored per day", ev);
 const before = db.prepare("SELECT COUNT(*) AS n FROM cost_usage_daily").get().n;
