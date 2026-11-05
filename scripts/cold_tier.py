@@ -284,18 +284,22 @@ def run(d1, r2=None, now=None, sleep=time.sleep, tiers=None, deadline=None):
         stop = deadline or (time.time() + COLD_BUDGET_SEC)
         # COLD-TIER-FAIR-1: the first tiers of the list used to spend the whole budget every run (the 04:07, 04:12 and 04:32Z runs of 2026-11-05 ended with
         # bp26_probe_results "stopped: budget" and nothing for the tiers after it), so a tier added later never got a chunk while fleet_probe_log had a backlog.
-        # The order now rotates every 15 minutes, so every tier is first in turn.
+        # The order now rotates every 15 minutes, and COLD-TIER-SHARE-1 gives each tier an equal share of the time that is left (a tier with nothing to move hands its
+        # share on): rotation alone made a tier wait for its turn as the first one, about every 105 minutes with seven tiers, which is 17 hours for the 50,000 rows
+        # of cron_fire_log; with shares every tier moves a few chunks on every run.
         order = list(tiers or TIERS)
         k = int((now or time.time()) // 900) % len(order)
-        for t in order[k:] + order[:k]:
+        rotated = order[k:] + order[:k]
+        for i, t in enumerate(rotated):
             res = out["tiers"].setdefault(t["table"], {"rolled": [], "chunks": 0, "rows": 0, "deleted": 0})
             if not IDENT.match(t["table"]):
                 res["error"] = "odd-name"
                 continue
             try:
                 res["rolled"] = [] if t["mode"] == "blob" else rollup(d1, t, now)
+                tier_stop = min(stop, time.time() + max(0.0, stop - time.time()) / (len(rotated) - i))
                 for _ in range(t.get("chunks") or CHUNKS_PER_TIER):
-                    if time.time() > stop:
+                    if time.time() > tier_stop:
                         res["stopped"] = "budget"
                         break
                     rows = _chunk_rows(d1, t, now)
@@ -398,6 +402,32 @@ CREATE INDEX idx_aal_trigger_id ON analytics_action_log (trigger_id, id);
     assert ra["n"] == 1, ra
     # a timestamp written with a space is compared as written: the cutoff of that tier has no T and no Z
     assert " " in _cutoff(T["analytics_action_log"], now) and "T" not in _cutoff(T["analytics_action_log"], now) and "T" in _cutoff(T["cron_fire_log"], now)
+
+
+def selftest_share(c, d1, now):
+    """COLD-TIER-SHARE-1: three tiers with a long backlog and a budget that only one of them could use up: every tier still moves chunks."""
+    for n in ("share_a", "share_b", "share_c"):
+        c.execute("CREATE TABLE %s (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, name TEXT, transport TEXT, ok INTEGER, ms INTEGER)" % n)
+        c.executemany("INSERT INTO %s (ts, name, transport, ok, ms) VALUES (?, 'p', 'http', 1, 5)" % n, [(_iso(0, now - 6 * 86400 + i * 60),) for i in range(3000)])
+        c.execute("INSERT INTO %s (ts, name, transport, ok, ms) VALUES (?, 'p', 'http', 1, 5)" % n, [_iso(0, now - 3600)])
+    c.commit()
+
+    class Slow:
+        def __init__(self):
+            self.o = {}
+
+        def put(self, key, data):
+            time.sleep(0.1)
+            self.o[key] = data
+            return True
+
+        def get(self, key):
+            return self.o.get(key)
+    tiers = [dict(TIERS[0], table=n, chunk=100, chunks=60) for n in ("share_a", "share_b", "share_c")]
+    r = run(d1, Slow(), now, lambda s: None, tiers, deadline=time.time() + 3.0)
+    moved = {k: v["chunks"] for k, v in r["tiers"].items()}
+    assert all(v >= 3 for v in moved.values()), ("every tier gets a share of the budget", moved)
+    assert max(moved.values()) <= 20 and all(v["stopped"] == "budget" for v in r["tiers"].values() if v["chunks"] < 60), moved
 
 
 def selftest_blob(c, d1, st, now, pauses):
@@ -539,6 +569,7 @@ CREATE TABLE remediation_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, cl
     st.corrupt = False
     selftest_tier2(c, d1, st, now, pauses)
     selftest_blob(c, d1, st, now, pauses)
+    selftest_share(c, d1, now)
     # the event line names every tier (7 of them, none cut) and carries an error
     line = brief({"a": {"rolled": ["d"], "chunks": 2, "rows": 5, "deleted": 5}, "b": {"rolled": [], "chunks": 0, "rows": 0, "deleted": 0, "stopped": "budget"}, "c": {"error": "verify-sha-mismatch"}})
     assert "a rolled=1 chunks=2 rows=5 deleted=5" in line and "b rolled=0" in line and "stopped=budget" in line and "c rolled=0" in line and "error=verify-sha-mismatch" in line, line
