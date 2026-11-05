@@ -567,7 +567,7 @@ var __name22222 = /* @__PURE__ */ __name2222((target, value) => __defProp22222(t
 // 0.42.0 REVISE-COUNT-WIRE-1, ERRATA-CONFIRM-RETRY-CAP-1 and CITATION-GATE-LEDGER-1: atomic revise-noop parking, durable errata deferrals, and race-safe verified-claim recording.
 // 0.41.0 ERRATA-CHAIN-DISPATCH-1 (pillar research): a binding-only consumer kick persists until an unused errata cron slot; publish gates are unchanged.
 // 0.41.2 (pillar research; patch): unresolved HARD findings at the configured review-cycle cap park without an extra revise pass.
-var VERSION = "0.50.2";
+var VERSION = "0.51.0";
 /* 0.49.2 GPT-OSS-EFFORT-LOW-1 (pillar cost; patch): gpt-oss-120b calls pass reasoning.effort low (ops_config research_gptoss_effort restores medium or off) so the 1303-neuron ensemble leg and the revise, review and verify calls stop spending medium-effort reasoning tokens. */ /* 0.48.4 RESEARCH-SYNTH-4 (pillar research; patch): the synthesis pool read drops the context column and holds 240 rows, and each ledger row reads its context by id, so the tick stops tripping the D1 overload guard. */ /* 0.48.3 RESEARCH-SYNTH-3 (pillar research; patch): synthesis merges up to 20 clusters per tick (cap 40, was 4 and 10) so the deferred pool falls by dozens per hour. */ /* 0.48.2 GLM-EMPTY-DIAG-1 (pillar cost; patch): empty glm-5.3-flash replies now log finish_reason, completion tokens and reasoning size, so the cause of the 30% empty rate is read from events. */ /* 0.48.1 RESEARCH-SYNTH-2 (pillar research; patch): synthesis merges only real conjectures (not scan auto-candidates, re-entry fragments or JSON lists), dissolves the first mixed cluster, and reports merge errors. */ /* 0.48.0 RESEARCH-REVISE-RELIABLE-1 (owner directive 2026-11-04, pillar research; minor): the revise patch call runs gpt-oss-120b first (0.6% errors, 89 s) with glm-5.3-flash as retry (30% errors, 129 s); ops_config research_revise_first restores glm. */ /* 0.47.0 PAPER-INTERNAL-APPENDIX-SWEEP-1 (owner directive 2026-11-04, pillar research; minor): the format sweep removes leaked pipeline appendices (Divergence report, Claim attribution) from published non-owner papers, with a shrink guard. */ /* 0.46.0 RESEARCH-SYNTH-1 (owner directive 2026-11-04, pillar research; minor): related deferred ideas merge into one synthesis row with a full-text merge ledger, duplicate paper corrections collapse, so the pool shrinks and each paper carries several ideas. */ /* 0.45.4 STRUCTURAL-NUMBERING-RECOVERY-1 (#1001380, pillar research; patch): normalize skipped standard section headings in complete so structural-only rows advance without spending their recover budget. */ /* 0.45.3 REVISE-PATCH-ANCHOR-RETRY-1 (#6147, pillar research; patch): retry unapplied HARD fixes with unique verbatim paper anchors. */ /* 0.44.8 RESEARCH-REVISER-REASONING-LOW-1 (#2333, pillar cost; patch): route Zai reviser calls at low reasoning effort. */ /* 0.44.6 REVISE-WASTE-1 (issue 100408, pillar cost; patch): retain individually safe revision edits when another edit exceeds the shrink guard, then keep the existing review gate. */ /* 0.44.3 RESEARCH-PRIORITY-STARVATION-1 (#3751, agent_issues 100613, pillar research; patch): class quotas reserve proposal progress and bound revision claims, with recurring aged FIFO turns. */ /* 0.44.2 ERRATA-HEALTH-METADATA-1 (review 4437402981, pillar research; patch): the folded errata health endpoint reports the active confirmation model and default batch. */ /* 0.44.1 ERRATA-CONFIRM-MODEL-DEAD-1 (#100458, pillar research; patch): route confirmations through glm-5.3 and raise the per-tick batch. */ /* 0.44.0 SOFT-DAILY-BUDGET-1 (2026-11-01, issue 3003, pillars research and cost): exceeding the daily neuron target routes stages through the lean ensemble and lower width instead of idling publication; budget-gate.test.mjs. */ /* 0.41.1 REVISE-NOOP-BOUND-1 (2026-11-01, agent_issues 1000802; pillar cost): stageRevise now persists each revise-noop and parks the row after the second, so re-armed unresolved revisions stop consuming repeated model calls without weakening review or publication gates; revise-noop.test.mjs. */ /* 0.40.11 SLOT-CRASH-TRACE-1 (2026-10-31, agent_issues 1000556, 1000561, 1000562, 1000564, 1000565, 1000566, pillar autonomy; patch): 0.40.10 COMPLETE-STRUCTURAL-1 fixed the crash itself (spec.n of undefined when pc.middleMissing was empty); what remains is why it hid for five days -- the runSlot and run() catches logged only e.message, so 1904 error events named no location. Both catches now append the top two stack frames, and the bundle's remaining unguarded `.n` reads (insertSection on an unknown section key, the grounding bibBlock, the dangling-ref collector) fail closed instead of throwing. slot-crash-trace.test.mjs. */ /* 0.40.10 COMPLETE-STRUCTURAL-1 (2026-10-31, agent_issues 1000556-1000566 LOOP-BREAKER-1, pillar autonomy; patch): a paper that held every required section, ended cleanly and cited no missing section but stayed incomplete for a structural reason alone (duplicate or skipped section numbers, out-of-order or duplicated headings, an early appendix, generation-instruction residue) fell into stageComplete's section branch with pc.middleMissing empty, so PAPER_SECTION_ORDER.find(undefined) gave undefined and spec.n threw "Cannot read properties of undefined (reading 'n')" on every claim; the uncaught throw skipped markError, the row stayed claimed, and the stale reaper fed it back to crash again (slot errors every tick, live signature measured 2026-10-31). A structural-only incomplete paper now goes through markError with its reasons, the same recover route as every other defect this stage cannot fix. complete-structural.test.mjs. */ /* 0.40.9 ERRATA-CLAIM-FAIR-1 (2026-10-30, agent_issues 1000472, pillar research; patch): the first claim of each errata_claim_interval_hours window (default 20) goes to the oldest never-attempted errata remediation row, so the 233 rows that no claim order ever reached are claimed at a bounded rate of about one a day inside the unchanged daily neuron budget; the three claim ORDER BY texts are untouched, and an inert snippet that had been pasted into this comment (it said errata rows are never claimed) is removed. errata-claim-fair.test.mjs. */ /* 0.40.6 RESEARCH-ERRATA-LOOP-STOP-1 (2026-10-29, agent_issues 1000472, pillar cost; patch): a remediation row whose HARD finding count rises across a review/revise cycle goes to the withheld path at once (event review-diverging) instead of spending the remaining cycles. errata-loop-stop.test.mjs. */ /* 0.40.5 STRUCTURE-NUMBERING-1 (agent_issues 1000540, pillar research; patch): finalGates raises gate-numbering (HARD, new papers) for a numbered subsection under a different numbered section. structure-numbering.test.mjs. */ /* 0.40.0 NOTICE-REPAIR-STALE-METRIC-1 (2026-10-28, agent_issues 1000509, pillar autonomy; minor: a data product): noticeRepairTick writes metric_registry owner_papers_retracted_over_24h, the count of owner papers still retracted 24 hours after their first integrity backup, from the stale list it already builds (migrations/2026-10-28-metric-family-cluster-b.sql registers the metric and its trigger). */ /*0.39.7 REVISED-STANDARD-1 (2026-10-28, pillar research; patch): revised papers are typeset like new papers (reviser member 1.5.1). 0.39.6 PARSE-FIX-1 (2026-10-28, ci-watchdog 5072 and 5071; patch): the 0.39.5 comment closed before the older version notes, leaving prose as code (Cloudflare 10021, Unexpected number at 127:453); the older notes are inside their own comment again. */ /* 0.39.5 RESEARCH-MODEL-DEFAULT-1 (2026-10-28, agent_issues 1000615 and 100211, pillar cost; patch): the static MODELS default is now the cost order (glm-5.3-flash first, gpt-oss-120b fallback), so a cold start or a failed applyModelOrder read no longer begins on the 740-neuron model; MODELS_VALUE_ORDER (the revert order) is its own literal. Runtime behaviour was already glm-first via RESEARCH-COST-FIRST-1. */ /* 0.36.7 PARK-REARM-CAP-1 (2026-10-26, agent_issues 100615 and 1000029, pillar research; patch): parkRearmTick counted a re-arm in research_queue.context.parkRearm, which the revise, review and verify stages rewrite without that key, so a revision row that parked again was re-armed again (rem-rev-b9f3a431 parked 15 times in 2880 minutes, revise-noop rounds on the same rows for days). The count is now research_queue.terminal_rearms, shared with PARKED-REGROUND-1 (TERMINAL_RECOVERY_MAX recoveries in all); after the last one the row stays parked with its reason plus PARK-REARM-EXHAUSTED-1 and one park-rearm-exhausted event. No gate, review depth or publication rule changes (the revise waiver proposed in 1000029 stays declined: a paper whose HARD findings no edit resolved is not advanced). park-rearm-cap.test.mjs. */ /* 0.36.1 PUB-ARTIFACT-SOURCE-1 (2026-10-26, pillar research, agent_issues 1000282): the RECONCILE prompt no longer requires "## Appendix A. Divergence report" and "## Appendix B. Claim attribution" (the divergence record stays in R2 as divergence-report.json) and tells the editor to name no draft and no appendix; stripInternalAppendices removes either section from the reconciled text, from the text the complete stage reads, from the draft row and from a version-queue body before publication; the reader-facing changelog no longer lists them as new sections; the review treats an appendix on the divergence or claim attribution as a HARD internal artifact. 0.36.0  RESEARCH-COST-FIRST-1 (2026-10-26, agent_issues 100211, pillar cost; minor: the worker now picks its first model by cost on its own and reverts on its own): glm-5.3-flash runs first in every stage while ops_config research_primary_model is auto, gpt-oss-120b answers an empty or rate-limited glm call, and 10 such fallbacks in 60 minutes put gpt-oss-120b back first for the hour. Measured 2026-10-26: 8 papers for 381k neurons (gpt-oss-120b 252k of the stage spend at about 740 a call) against 13k a paper on 10-09..12 with glm first. Gates unchanged. */ /* 0.35.1 PAPER-LEDGER-ATTRIBUTION-2 (2026-10-26, pillars research and autonomy): every statement of this worker that changes a column living-paper paper_change_ledger tracks (body, status, version, title, abstract, slug, doi) now sets papers.change_actor ("qnfo-research-exec:<stage>:<slug>:<clock>") and papers.change_reason in the same UPDATE or INSERT, so the ledger no longer files its edits as unattributed: the DOI reconcile, the publish paths, the version queue, the abstract fill, the draft writer, the errata correction (inlined member, errata-hub kept in step), and the claim-integrity and revision-loop restores. paper-writer.test.mjs scans every papers statement of the host and the member and fails on a new writer that skips it. 0.35.0 REPO-DEPOSIT-1 + RESEARCH-PROVENANCE-1 (2026-10-26, pillar research; minor: the worker now keeps the research record complete on its own): a run and its paper are one Git Data API commit in QNFO/qnfo-research (runs/cycle-N/<slug>/ + papers/<slug>/ with a provenance.json), retried on the new head after a refused ref update, with a blob-integrity check and a manifest read-back, so a deposit is ok only when it landed; the manifest is v2 (run id, configured models, paper hash, UTF-8 byte counts) with an RO-Crate beside it; every attempt is a research_run_ledger row; a failed deposit is retried by the 10-minute sync tick, which also restores the gaps listed in the repository's provenance/known-gaps.json (run files from R2 only if the hash equals the manifest's; paper text from living-paper) and compares a few published papers per tick with their git copy (research_repo_sync_batch). Closes: 97 of 400 deposits logged ok with an HTTP 409, 154 manifest-listed files missing from 47 runs, 48 runs without a manifest, 201 pipeline papers with no papers/<slug>/paper.md, revisions that never reached git (PUT without sha, HTTP 422), and unquoted SQL (datetime(now)) in an empty catch that left publication_artifacts at 0 GitHub rows. Until QNFO/qnfo-research carries provenance/IMPORT.json a run still goes to the legacy repository (atomically) and paper text is not written. ops_config research_repo_target / research_repo_sync / research_repo_restore switch it off without a deploy. repo-deposit.test.mjs (27 cases on a fake Git Data API). repoCatchupTick finishes the consolidation on its own: while the legacy repository has cycles that runs/ lacks, or its history is not an ancestor of main (the repository merges squash-only, which drops the imported commits), it dispatches the qnfo-research workflow ensemble-catchup.yml (at most every 6 hours) and, once none are missing, the history is linked and 3 consolidated deposits are ledgered, files one PORTFOLIO-ARCHIVE-1 request for the legacy repository (research_repo_archive = off stops it). GET /repo-ledger. */ /* 0.34.0 ERRATA-CONFIRM-COST-1 (2026-10-26, agent_issues 1000032/1000035, pillar cost; minor: the confirm rate is now a setting the fleet tunes on its own): the internal-errata confirm checks PAPER-LEARN-1 findings with deepseek-v4-flash first and kimi-k2.6 second (kimi was 33% of the shared research budget on 2026-10-25), reads a 24k-char excerpt instead of 48k, takes ops_config errata_confirm_max rows per tick (default 12, at most 48; BREACH-SELFHEAL-1 tunes it) and records which model settled each row. */ /* 0.33.3 BROKEN-BINDING-PAPERS-1 + BROKEN-BINDING-BIBLIOGRAPHY-1 (2026-10-25, remediation sweep; pillar reliability): reconcileDOIBatch read and wrote papers through env.QNFO_AUDIT, but qnfo-audit has no papers table (living-paper owns it, bound here as LIVING_PAPER), so every reconcile pass threw and DOI reconciliation had never run. The citation cross-check then queried a bibliography table that exists in neither database, raising D1_ERROR for every reference; it now probes once per run and follows RESEARCH-THROUGHPUT-1's documented skip path (logged, deterministic release gate unchanged). Found by the fleet graph sql-table-missing findings, which were real. */ /* 0.33.2 FLOOR-REARM-NOOP-1 (2026-10-25, remediation sweep of the dashboard's 59 metric breaches; pillar reliability): floorRearmTick probes sqlite_master for bak_20261019_research_parked before querying it, so the missing migration is the no-op its contract already promised instead of a D1_ERROR on every 10-minute tick (134 scheduled exceptions/day, the worker's only error class and one of the two workers behind the dashboard's "errors in the last 3h" finding). */ /* 0.32.0 NO-REGISTRAR-1 (2026-10-21, owner directive: the closed deposit registrar is fully deprecated and not named in any code): publish, revision and errata SQL write and read doi only (the registrar columns are no longer touched); dead DOIs are recognised by the 10.5281 prefix. */ /* 0.31.0 COST-SUSTAIN-1 (2026-10-21, owner directive: research and publication <= $300/month all-in, quality must not drop; pillar cost): a hard daily neuron budget (ops_config research_daily_neurons, default 360000 = $3.96/day at $0.011/1k; 2026-10-09..12 ran 252-345k/day for 22-31 papers/day) paced across the UTC day (spent <= budget x (hour+1)/24 + 10% burst) gates every model-spending path of this worker and its folded members (stages, revision loop, claim-integrity sweep, reviser and thin-prior-work members): work over the pace waits for the next tick, nothing is skipped, gates and review depth are unchanged. Root cause it closes: every earlier cost control was soft (width, model order) and a throughput config raise (research_parallel 96, 2026-10-18) tripled spend to 3.5-4.2M neurons/day with nothing to stop it. Event research-budget; GET /budget. */ /* 0.29.0 RESEARCH-TERMINAL-REARMED-1 + PARKED-REGROUND-1 + NOTICE-REPAIR-SKIP-BLOCKED-1 (2026-10-20, owner directive "clear all open issues server-side automatically within 24 hours"; agent_issues 100026, 100043, 100049, 100051, 100153, 100165, 100274; pillar autonomy; minor: a recovery it now takes on its own): (a) every RESEARCH-TERMINAL issue gets a self-closing contract, whatever the reason: resolved when the row has left the terminal state (re-armed and back in the pipeline, or published), or parked for a content reason with the queue advancing, or when every automatic recovery is spent (terminal_rearms >= 2); a reason that can be a pipeline fault closes only on the first or last of these; markError dedupes the issue against open issues only (a row that went terminal again after its issue closed filed nothing) and upserts the contract on its class; (b) PARKED-REGROUND-1: the hourly park sweep returns up to 2 rows parked for a content or convergence failure to ground with a fresh draft, once per recovery, rows with an open issue first (park_rearm = off stops it); (d) VERIFY-ZERO-CLAIMS-1: a verify pass whose extraction found no claim in a paper with 6 or more numeric equalities logs a verify-zero-claims event (the pass itself is unchanged), measured by the fm-verify-zero-claims-quantitative detector (PAPER-LEARN-1 learning, issue 100234); (c) noticeRepairTick counts repairs, not attempts: eight papers the living-paper publish floor refuses (retracted -> published under 20,000 chars) held the batch of 8 for ever and the restorable ones behind them were never tried; a refused paper is reported as blocked and the loop goes on. terminal-rearmed.test.mjs, poison-park.test.mjs. */ /* 0.28.7 RESEARCH-TERMINAL-HARD-REVIEW-SELFCLOSE-1 (2026-10-20, agent_issues 100294 lever 1, 100290; pillar autonomy; patch): a row parked because the review found HARD findings the revise cycles did not resolve ("review: N HARD findings unresolved after M revise cycles") is the integrity gate withholding the paper, like a verify mismatch with every gate passing; its RESEARCH-TERMINAL issue now gets the same self-closing contract (parked row with its reason, queue advancing) instead of waiting for a person (14 of the last 15 closed by hand after about 54 h). "revise: no applicable edit" and every other terminal reason keep no contract and stay open for a fix, since they can be a pipeline fault. poison-park.test.mjs. */ /* 0.28.1 PROPORTIONATE-NOTICE-2 (2026-10-19): papers_fabricated_claims_open counts flags on published pipeline papers only; four flags left on the owner's papers before 0.28.0 held the metric above 0. */ /* 0.28.0 PROPORTIONATE-NOTICE-1 (2026-10-19, owner: corrections "overly aggressive ... a warning notice about trivial semantics that seems to nullify the whole paper"): no banner under a paper's title for a revision or a wording correction, only a Version History line; the claim check covers pipeline papers only; noticeRepairTick restores the owner's corrected or retracted papers from paper_integrity_backups and turns earlier banners into history lines. */ /* 0.27.6 REVISION-NONREGRESS-1 (2026-10-19): a loop revision with under 70% of the live references or 60% of its words is sent back through the pipeline instead of replacing the live paper. */ /* 0.27.5 REVISION-CLAIMGATE-1 (2026-10-19): claimAudit strips the revision banner, Version History and Provenance section before scanning; the claim gate read those pipeline notes as fabricated claims and blocked the first loop revisions. */ /* 0.27.3 REVISION-CLAIM-FIRST-1 (2026-10-19): a queued revision row is claimed ahead of resumable drafts too; re-armed revise rows kept arriving and the five revision rows queued 17:31-18:20 were never claimed. At most revision_loop_inflight (8) rows jump the queue. */ /* 0.27.2: merged main (0.26.1/0.26.2 code-agent fixes). */ /* 0.27.1 REVISION-ELIGIBLE-2 (2026-10-19): the loop takes only qnf- identifiers or queue-row papers (qnfo-2025-* is the owner's imported writing, 8 such rows were parked), and a queued revision row is claimed ahead of the 72-hour FIFO so revisions are not starved behind 106 old proposals. */ /* 0.27.0 REVISION-ERRATA-1 (2026-10-19, pillar research): open internal_errata for a published paper (PAPER-LEARN-1 confirmed errors, reviser findings) go into its revision brief and put it first in the revision loop after 60 minutes; rlEligible no longer excludes pipeline papers that carry the owner as byline (226 qnf- papers were kept out). */ /* 0.26.0 REVISION-LOOP-1 (2026-10-19, pillar research, owner directive "continually self-improve, self-correct, loop in new information, and iterate"): published pipeline papers go back through the whole pipeline on a rate (ops_config revision_loop_*), oldest and gate failures first, and publish as the next minor version with a Version History; remediation rewrites follow the live version instead of a fixed 2.0.0; publishV2 keeps every replaced text in living-paper paper_version_history; GET /revision-loop and /paper-versions. */ /* 0.25.0 WAI-WIDTH-GOVERNOR-1 (2026-10-19, pillar cost, agent_issues 99924, 2731, 99928, 99937, 2930; BUDGET-SOFT-ROUTE-1 backpressure, never a stop): (a) the stage width is governed AIMD style under the LEAN-WIDTH-1 cap: a tick whose last 30 minutes show more than 15% of its stage runs rate-limited (3021/3040 on the first attempt, at least 3) halves the next width (floor 4), a clean tick adds 2 (event research-width); ops_config research_governor = off restores the plain cap; (b) after a 3021/3040 on a model every slot of the isolate skips it for 20 s, to its fallback or by waiting; (c) AI_RATE_FALLBACK never names a model whose input rate is above the primary's (glm-5.3-flash fell back to gpt-oss-120b, 2.3x): the call waits one gauge window and tries once more; (d) kimi-k2.6 (6.3x the glm-5.3-flash input rate, 172 of 324 calls failed on 10-19, 29% of the worker's neurons) runs in revise and in the verify text path only as the last retry after glm-5.3-flash and gpt-oss-120b (ops_config research_kimi_last_resort = off drops it). */ /* 0.24.0 RESEARCH-FLOOR-1 (rebased onto 0.23.0 CLAIM-INTEGRITY-1) (2026-10-19, agent_issues 99913, pillar research): (a) REVISE-SHRINK-GUARD-1: a revise patch that would take a paper from at or above the publish floor (20,000 chars) to below it, cut more than 20% of it, or drop its cited references under the reference floor counts as not applied (event revise-shrink-refused), so the second model runs with the limit stated; (b) COMPLETE-TO-FLOOR-1: the complete stage extends a complete paper under the floor with grounded sections (event floor-extend, at most 6 rounds, goal 1.2x the floor) and gate-length / gate-refcount findings route verify and revise to complete instead of the patch reviser (event floor-route); (c) FLOOR-REARM-1: the hourly sweep returns the rows frozen in bak_20261019_research_parked to complete, 5 per run, once each. */ /* 0.22.0 CLAIM-INTEGRITY-1 (2026-10-19, owner directive: the pipeline published experimental designs, pilot measurements, pre-registrations and blind expert reviews that never happened; pillar research): the writer, reconcile, revise and patch prompts forbid describing empirical work as done and the reviewer counts it HARD; claimGate (deterministic scan, a gpt-oss-120b extraction and a glm-5.3-flash confirmation) holds such a paper in verify and blocks a publishV2 revision that carries one; claimIntegritySweep audits every published paper newest first on each 10-minute tick (again at each new version), rewrites confirmed statements as proposals or assumptions with a Correction Notice as a new version, and retracts a paper with 5 or more, or one a correction cannot clear (status retracted, notice body, original in qnfo-audit.paper_integrity_backups). GET /claim-integrity reads the ledger; ops_config claim_integrity_mode = measure | off. */ /* 0.21.1 KIMI-TIMEOUT-FALLBACK-1 (2026-10-19, pillar research): a 3046 timeout on kimi-k2.6, the revise stage's second model (268 of 520 calls failed on 10-18/19, ~210 s each), falls back at once to glm-5.3-flash instead of three retries and an empty answer. */ /* 0.21.0 THIN-PRIOR-WORK-1 (2026-10-19, pillar research, agent_issues 99949; metric papers_live_failing_release_gate 140): every hour at :30 two published papers that fail the release gate as quality:thin get a Prior Work and Related Literature section grounded in the full texts of up to three related gate-passing QNFO papers, checked by a second model family, and queued as a revision for publishV2; ops_config thin_prior_work = off stops it. 0.20.0 LEAN-WIDTH-1 (2026-10-19, pillar cost; metrics workers_ai_run_rate_usd 410.84 vs 95, fleet_cost_run_rate_usd): while an ai_spend cap is breached (leanEnsemble), the stage width is at most ops_config research_parallel_lean (default 24, half of RESEARCH_PARALLEL_MAX) instead of the full ceiling. Measured: 10-09..10-12 at width 8 published 22-31 papers a day at about 13k neurons each; 10-18 at width 48 (research_parallel 96, clamped) made 7720 calls, 3140 of them errors (rate limits on glm-5.3-flash, retried and re-run), for 3.77M neurons and 24 papers. BUDGET-SOFT-ROUTE-1: fewer items per tick, never none; research_parallel_lean = 48 restores the old behaviour without a deploy. */ /* 0.19.2 (2026-10-19, RESOLVE-ALL-OPEN-1): merges main's 0.19.0 MATH-LATEX-AUTOFIX-1 with PR 2603's 0.19.0/0.19.1 fixes below. */ /* 0.19.1 EXTRACT-JSON-ROBUST-1 (issue 2877): parseExtractedClaims reads the first balanced JSON list or object (trailing prose no longer breaks it) and re-parses with lone LaTeX backslashes escaped; an empty extraction reply is asked once more in the tick. RETRY-NOT-ERROR-1 (issue 99990): a verify retry still in budget (retry: true) logs its done event as warn; only the pass that exhausts its retries is an error, so LOOP-BREAKER-1 counts real failures. WORKERS-BP-LOGGING (issue 2538): the 21 swallowed catches log a structured console.error (two trial parses carry a comment), control flow unchanged. */ /* 0.19.0 RESOLVE-ALL-OPEN-1 (2026-10-19, owner directive "RESOLVE/REMEDIATE ALL OPEN ISSUES"; pillar research): (a) RESEARCH-REVIEW-BIB-TRUNC-1 (#2800): the reviewer sees the index line of every bibliography entry, then bounded excerpts, instead of the first 8,000 chars (2-3 of 9-14 entries); (b) SLOP-SCAN-1 (#2407): a deterministic inflated-prose scan adds SOFT findings with locations against a corpus baseline read from its own slop-scan events; (c) REVISE-STRIDE-1 (#2847): queued rows at a resumable stage are claimed before ground rows; (d) EXTENSION-ACTIVATION-1 (#2824): extension rows (<= research_extension_per_day) bypass research_ready_cap, ops_config research_extension_cap_mode=respect restores it; (e) SWEEP-REARM-INLINE-1 (#2393): the completeness sweep re-arms remediation rows a 2026-10-17 cleanup closed as published without publishing; (f) RECONCILE-READ-1 (c) (#2725): an incomplete draft names its failed checks. */ /* 0.18.38 TICK-10M-1 + RECLAIM-KEEP-STAGE-1 + IDEA-TO-PUBLISH-METRIC-1 (2026-10-18, owner directive: idea to publication under 100 hours; pillar research): (a) the cron runs every 10 minutes (was 15; 144/day = CRON-MANDATE-1 ceiling, same schedule count); member windows are 10 minutes wide so each errata/reviser job still runs exactly once per slot; the 03:00 sweep window is 10 minutes; (b) a stale reclaim keeps a resumable stage (complete/review/revise/verify), and RESUME-DRAFT-1 at claim falls back to ground when reconciled.md is missing, so a stalled draft is not re-drafted from scratch; (c) idea_to_publish_h_p50_7d (median hours idea_proposals.created_at -> published_at, 7 days) is written to metric_registry on the :00 tick. */ /* 0.18.37 ERRATA-HIGHRISK-ROUTE-1 folded (errata member 1.6.2): a high-risk errata correction draft older than 6 h becomes a remediation research row instead of waiting audited forever; internal_errata closes with its queue row. */ /* 0.18.36 CLAIM-HEARTBEAT-1 + RESUME-DRAFT-1 + REVIEW-SECOND-MODEL-1 (2026-10-18): a stage returning ok refreshes claimed_at so the stale-claim reclaimer stops re-grounding papers still advancing (550 releases/24h, 302 ground claims of 72 rows); a resumable stage is kept when its draft exists in R2 (70 revise rows were re-drafted from ground); the review second path names its model (not kimi-k2.6 after #1429). */ /* 0.18.35 CLAIM-HEARTBEAT-1 (2026-10-18): a stage that returns ok refreshes claimed_at, so the 120-min stale-claim reclaimer no longer re-grounds papers that are still advancing (550 releases/24h, 302 ground claims of 72 rows). */ /* 0.18.34 REVIEW-EMPTY-SECOND-PATH-1 (2026-10-18): an unreadable review takes a second model family in the same tick and, still unreadable, re-runs review directly instead of sending the review-parse placeholder through two no-op patch calls (237 of 264 revise-noop events, 329 hard=1 cycles in 3 days). */ /* 0.18.33 PATCH-FLEX-REGEX-OVERFLOW-1 (2026-10-18, agent_issues 2886): findFlexible caps the flexible matcher at 400 tokens and fails closed on any regex error, so a whole-section find text no longer throws "Invalid regular expression: Stack overflow" out of the slot. */ /* 0.18.32 AI-RATE-FALLBACK-1 (2026-10-18): a 3021/3040/3046 on the primary model after backoff takes one call on another family (glm<->gpt-oss-120b) instead of failing the stage; 3040 no longer misread as a reasoning_effort rejection. */ /* 0.18.31 VERIFY-AUTOCORRECT-1 (2026-10-18): papers fail verify with REAL arithmetic errors (the reconcile/ensemble writer computes a number that does not match its own stated inputs) and the revise loop cannot reliably fix a bare number, so such papers cycle until park. Verify already holds both values — independently computed `computed` and the paper's stated `expected` — so stageVerify now corrects the number deterministically (autoCorrectNumeric) instead of sending it back through a model. Fail-closed: only a stated value found exactly once (verbatim or as an unambiguous bare mantissa in LaTeX/\\times 10^N) is corrected; anything ambiguous is skipped and falls through to revise. Every correction is logged as verify-autocorrect and appended to verification.md. */ /* 0.18.29 VERIFY-CYCLE-CAP-1 (2026-10-17, owner directive "REMEDIATE ALL ISSUES AND FAILURE MODES"): the verify->revise edge reset the review cycle counter to 0 (context={cycles:0,verifyPass:1}) while EVERY other edge preserves it (3716, 3735, 3753) and the review stage is the one that increments it. That single reset made MAX_REVIEW_CYCLES (6) unreachable, so an item that fails verify re-enters revise, resets to cycle 0, and loops until recover_count runs out — measured 2026-10-17: review-unresolved events exist ONLY at cycle 2 (193) and 3 (165), never 4; 96 rerun-route and 278 revise-patch events against ~100 rows; and stage='publish' is EMPTY, which is why 151 complete events produced 0 publications and why the publish quota (24) guarded an empty queue. The edge now preserves the count, so the existing six-cycle cap can terminate an item visibly instead of cycling forever. The gate itself (gates2) is unchanged: this does not let a failing draft through, it lets a draft that cannot pass STOP. */ // 0.18.28-codeagent /* 0.19.0 MATH-LATEX-AUTOFIX-1 (2026-10-19, agent_issues 100027, pillar research): 8 finished papers were parked from 2026-10-12 because gate-math-latex was left to the revise models' search/replace edits, which often did not apply. Plain-text math with one LaTeX spelling (Unicode super/subscripts, bare ^ and _ scripts, bra-kets, the scanner's operators) is now converted deterministically in review, revise and verify (event math-autofix); box drawings and lines holding currency still go to the models. */ /* 0.18.38 TICK-10M-1 + RECLAIM-KEEP-STAGE-1 + IDEA-TO-PUBLISH-METRIC-1 (2026-10-18, owner directive: idea to publication under 100 hours; pillar research): (a) the cron runs every 10 minutes (was 15; 144/day = CRON-MANDATE-1 ceiling, same schedule count); member windows are 10 minutes wide so each errata/reviser job still runs exactly once per slot; the 03:00 sweep window is 10 minutes; (b) a stale reclaim keeps a resumable stage (complete/review/revise/verify), and RESUME-DRAFT-1 at claim falls back to ground when reconciled.md is missing, so a stalled draft is not re-drafted from scratch; (c) idea_to_publish_h_p50_7d (median hours idea_proposals.created_at -> published_at, 7 days) is written to metric_registry on the :00 tick. */ /* 0.18.37 ERRATA-HIGHRISK-ROUTE-1 folded (errata member 1.6.2): a high-risk errata correction draft older than 6 h becomes a remediation research row instead of waiting audited forever; internal_errata closes with its queue row. */ /* 0.18.36 CLAIM-HEARTBEAT-1 + RESUME-DRAFT-1 + REVIEW-SECOND-MODEL-1 (2026-10-18): a stage returning ok refreshes claimed_at so the stale-claim reclaimer stops re-grounding papers still advancing (550 releases/24h, 302 ground claims of 72 rows); a resumable stage is kept when its draft exists in R2 (70 revise rows were re-drafted from ground); the review second path names its model (not kimi-k2.6 after #1429). */ /* 0.18.35 CLAIM-HEARTBEAT-1 (2026-10-18): a stage that returns ok refreshes claimed_at, so the 120-min stale-claim reclaimer no longer re-grounds papers that are still advancing (550 releases/24h, 302 ground claims of 72 rows). */ /* 0.18.34 REVIEW-EMPTY-SECOND-PATH-1 (2026-10-18): an unreadable review takes a second model family in the same tick and, still unreadable, re-runs review directly instead of sending the review-parse placeholder through two no-op patch calls (237 of 264 revise-noop events, 329 hard=1 cycles in 3 days). */ /* 0.18.33 PATCH-FLEX-REGEX-OVERFLOW-1 (2026-10-18, agent_issues 2886): findFlexible caps the flexible matcher at 400 tokens and fails closed on any regex error, so a whole-section find text no longer throws "Invalid regular expression: Stack overflow" out of the slot. */ /* 0.18.32 AI-RATE-FALLBACK-1 (2026-10-18): a 3021/3040/3046 on the primary model after backoff takes one call on another family (glm<->gpt-oss-120b) instead of failing the stage; 3040 no longer misread as a reasoning_effort rejection. */ /* 0.18.31 VERIFY-AUTOCORRECT-1 (2026-10-18): papers fail verify with REAL arithmetic errors (the reconcile/ensemble writer computes a number that does not match its own stated inputs) and the revise loop cannot reliably fix a bare number, so such papers cycle until park. Verify already holds both values — independently computed `computed` and the paper's stated `expected` — so stageVerify now corrects the number deterministically (autoCorrectNumeric) instead of sending it back through a model. Fail-closed: only a stated value found exactly once (verbatim or as an unambiguous bare mantissa in LaTeX/\\times 10^N) is corrected; anything ambiguous is skipped and falls through to revise. Every correction is logged as verify-autocorrect and appended to verification.md. */ /* 0.18.29 VERIFY-CYCLE-CAP-1 (2026-10-17, owner directive "REMEDIATE ALL ISSUES AND FAILURE MODES"): the verify->revise edge reset the review cycle counter to 0 (context={cycles:0,verifyPass:1}) while EVERY other edge preserves it (3716, 3735, 3753) and the review stage is the one that increments it. That single reset made MAX_REVIEW_CYCLES (6) unreachable, so an item that fails verify re-enters revise, resets to cycle 0, and loops until recover_count runs out — measured 2026-10-17: review-unresolved events exist ONLY at cycle 2 (193) and 3 (165), never 4; 96 rerun-route and 278 revise-patch events against ~100 rows; and stage='publish' is EMPTY, which is why 151 complete events produced 0 publications and why the publish quota (24) guarded an empty queue. The edge now preserves the count, so the existing six-cycle cap can terminate an item visibly instead of cycling forever. The gate itself (gates2) is unchanged: this does not let a failing draft through, it lets a draft that cannot pass STOP. */ // 0.18.28-codeagent
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -7733,6 +7733,7 @@ async function stageVerify(env, row) {
       await env.QNFO_AUDIT.prepare("UPDATE research_queue SET stage='revise', context=? WHERE id=?").bind(JSON.stringify({ cycles: Number(ctx.cycles || 0), verifyPass: 1 }).slice(0, 6e3), row.id).run();
       return { ok: true, stage: "verify->revise", gate: gates2.reason };
     }
+    await saveVerifyLedger(env, row, [], null);
     await stampProvenance(env, row, paper, { claims: 0, mismatches: 0, ran: false });
     await env.QNFO_AUDIT.prepare("UPDATE research_queue SET stage='publish', status='review' WHERE id=?").bind(row.id).run();
     return { ok: true, stage: "verify->publish", claims: 0 };
@@ -7907,6 +7908,7 @@ async function stageVerify(env, row) {
     await markError(env, row, "verify: unresolved after revision - mismatch=" + mismatch + " gates=" + gates.reason);
     return { ok: false, stage: "verify", withheld: "verify-unresolved", mismatches: adj.mismatches, gate: gates.reason };
   }
+  await saveVerifyLedger(env, row, ex.claims, adj);
   await stampProvenance(env, row, paper, { claims: adj.rows.length, mismatches: adj.mismatches, ran: adj.ran, basis: adj.basis });
   await env.QNFO_AUDIT.prepare("UPDATE research_queue SET stage='publish', status='review' WHERE id=?").bind(row.id).run();
   return { ok: true, stage: "verify->publish", claims: claims.length, basis: adj.basis };
@@ -8277,6 +8279,217 @@ async function writeClaimsLedger(env, slug, bodyMd, gateRefs) {
     console.error(JSON.stringify({ worker: "qnfo-research-exec", where: "claims-ledger", slug: key.slice(0, 80), error: out.error }));
   }
   return out;
+}
+// ATOMIC-CLAIMS-LEDGER-1 (RM-CLAIMS-LEDGER-1, roadmap row 1702, pillar research): the claim_coverage metric reads claim_kind = 'atomic' rows (scripts/bp26_claims.py, PR 6619
+// stopped counting reference rows as claims), and nothing wrote one: PR 6619 added atomic-claims-ledger.test.mjs without the worker functions it imports, so the suite sat in
+// scripts/suite-quarantine.txt and the metric kept a carried value. One record per reader-facing prose sentence of the published paper (headings, code, display maths, tables,
+// the References and Provenance sections excluded), written after the queue row is marked published (never for a held paper). State: a sentence whose number was recomputed
+// by the verify stage as matching is verified, one that matches a recomputation that failed is refuted; any other sentence that cites a reference is unverified (a reference
+// that exists does not show that it supports the sentence), one that cites nothing is unsupported. The verify stage hands over its per-claim results as pipeline/<row>/claims-ledger.json
+// (saveVerifyLedger). The sentence-to-claim link is a shared numeric literal of three or more significant digits and is labelled in verified_by. Keyed (slug, claim_kind, source_ref)
+// by the unique index of 2026-11-01-paper-claims-unique.sql, so a retry upserts. Best effort: a failed write is logged and never changes the publish result.
+var ATOMIC_SENTENCES_MAX = 400;
+var ATOMIC_SKIP_HEADING = /^(?:references?|bibliography|provenance(?:\s+and\s+ai\s+involvement)?|acknowledg(?:e)?ments?)$/i;
+var ATOMIC_ABBREV = /^(?:e\.g\.|i\.e\.|cf\.|vs\.|fig\.|figs\.|eq\.|eqs\.|sec\.|secs\.|ref\.|refs\.|no\.|approx\.|resp\.|dr\.|prof\.|al\.|st\.|vol\.|pp\.)$/i;
+function atomicProseParagraphs(body) {
+  const paras = [];
+  let cur = [];
+  let inFence = false, inMath = false, skipLevel = 0;
+  const flush = function() { if (cur.length) paras.push(cur.join(" ")); cur = []; };
+  for (const raw of String(body || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^(?:```|~~~)/.test(line)) { flush(); inFence = !inFence; continue; }
+    if (inFence) continue;
+    if (/^\$\$/.test(line)) { flush(); if (!(line.length > 2 && /\$\$\s*$/.test(line))) inMath = !inMath; continue; }
+    if (inMath) continue;
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      flush();
+      const lvl = h[1].length;
+      if (skipLevel && lvl <= skipLevel) skipLevel = 0;
+      if (!skipLevel && ATOMIC_SKIP_HEADING.test(h[2].replace(/[#*_`]/g, "").trim())) skipLevel = lvl;
+      continue;
+    }
+    if (skipLevel) continue;
+    if (!line) { flush(); continue; }
+    if (/^\|/.test(line) || /^[-*_]{3,}$/.test(line) || /^!\[/.test(line) || /^<[^>]+>$/.test(line)) { flush(); continue; }
+    const item = /^(?:[-*+]|\d+[.)])\s+/.test(line);
+    if (item) flush();
+    cur.push(line.replace(/^(?:[-*+]|\d+[.)])\s+/, ""));
+    if (item) flush();
+  }
+  flush();
+  return paras;
+}
+function atomicSplitSentences(paragraph) {
+  const text = String(paragraph || "").replace(/\s+/g, " ").trim();
+  const out = [];
+  let start = 0;
+  const re = /[.!?]+["')\]]*\s+/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const end = m.index + m[0].length;
+    const before = text.slice(start, end).trim();
+    const lastTok = before.split(" ").pop().replace(/^[("'\[]+/, "");
+    if (/[A-Z0-9\[($\\"']/.test(text.charAt(end)) && !ATOMIC_ABBREV.test(lastTok)) { out.push(before); start = end; }
+  }
+  const tail = text.slice(start).trim();
+  if (tail) out.push(tail);
+  return out;
+}
+function atomicIsClaim(text) {
+  if (text.length < 20 || text.length > 600) return false;
+  if (text.split(" ").length < 4) return false;
+  if (!/[A-Za-z]{3}/.test(text)) return false;
+  return !/^(?:figure|fig\.|table|algorithm|listing)\s*\d/i.test(text);
+}
+function atomicCites(sentence) {
+  const nums = [];
+  const re = /\[(\d{1,3}(?:\s*[,–—-]\s*\d{1,3})*)\]/g;
+  let m;
+  while ((m = re.exec(sentence)) !== null) {
+    for (const part of m[1].split(/\s*,\s*/)) {
+      const r = part.split(/\s*[–—-]\s*/);
+      if (r.length === 2 && Number(r[1]) >= Number(r[0]) && Number(r[1]) - Number(r[0]) < 20) { for (let k = Number(r[0]); k <= Number(r[1]); k++) nums.push(k); }
+      else nums.push(Number(r[0]));
+    }
+  }
+  return Array.from(new Set(nums.filter(function(n) { return n > 0; })));
+}
+function atomicRefMap(body) {
+  const map = {};
+  let inRefs = false;
+  for (const raw of String(body || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (h) { inRefs = /^(?:references?|bibliography)$/i.test(h[1].replace(/[#*_`]/g, "").trim()); continue; }
+    if (!inRefs) continue;
+    const m = line.match(/^\[(\d{1,3})\]\s*(.*)$/);
+    if (!m) continue;
+    const found = CITATION_GATE.extractRefs(m[2]);
+    map[m[1]] = found.length ? found[0].kind + ":" + String(found[0].id).toLowerCase() : "ref:" + m[1];
+  }
+  return map;
+}
+function atomicNumKeys(text) {
+  const keys = [];
+  const re = /(?:^|[^A-Za-z0-9_])(\d[\d,]*(?:\.\d+)?)(?:\s*[eE][+-]?\d+)?/g;
+  let m;
+  while ((m = re.exec(String(text || ""))) !== null) {
+    const k = m[1].replace(/[,.]/g, "").replace(/^0+/, "").replace(/0+$/, "");
+    if (k.length >= 3 && keys.indexOf(k) < 0) keys.push(k);
+  }
+  return keys;
+}
+function atomicHash(text) {
+  let h = 2166136261;
+  const s = String(text).toLowerCase().replace(/\s+/g, " ");
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+function atomicLedgerLiterals(ledger) {
+  const map = {};
+  for (const c of Array.isArray(ledger) ? ledger : []) {
+    if (!c || (c.state !== "verified" && c.state !== "refuted")) continue;
+    for (const k of atomicNumKeys(c.statement)) if (!map[k] || c.state === "refuted") map[k] = { state: c.state, by: String(c.by || "verify-script") };
+  }
+  return map;
+}
+function extractAtomicClaims(body, refs, version, verifyLedger) {
+  const refMap = atomicRefMap(body);
+  const gate = {};
+  for (const r of Array.isArray(refs) ? refs : []) if (r && r.id != null) gate[String(r.kind) + ":" + String(r.id).toLowerCase()] = String(r.status || "");
+  const lits = atomicLedgerLiterals(verifyLedger);
+  const out = [];
+  const seen = {};
+  for (const para of atomicProseParagraphs(body)) {
+    for (const s of atomicSplitSentences(para)) {
+      const text = s.replace(/\*\*|__/g, "").replace(/\s+/g, " ").trim();
+      if (!atomicIsClaim(text)) continue;
+      if (out.length >= ATOMIC_SENTENCES_MAX) return out;
+      const cited = atomicCites(text).map(function(n) { return refMap[String(n)] || "ref:" + n; });
+      let state = cited.length ? "unverified" : "unsupported", by = null;
+      let hit = null;
+      for (const k of atomicNumKeys(text)) if (lits[k] && (!hit || lits[k].state === "refuted")) hit = lits[k];
+      if (hit) { state = hit.state; by = hit.by + "+literal"; }
+      else if (cited.some(function(c) { return gate[c] === "not-found" || gate[c] === "title-mismatch"; })) { state = "refuted"; by = "citation-gate"; }
+      let ref = (cited.length ? cited.slice(0, 3).join("+") : "unsupported") + "#" + atomicHash(text);
+      seen[ref] = (seen[ref] || 0) + 1;
+      if (seen[ref] > 1) ref = ref + "-" + seen[ref];
+      out.push({ claim_text: text, claim_kind: "atomic", source_ref: ref.slice(0, 200), verification_state: state, verified_by: by, version: version == null ? null : String(version) });
+    }
+  }
+  return out;
+}
+async function writeAtomicClaimsLedger(env, slug, version, body, refs, verifyLedger) {
+  const key = String(slug || "").trim();
+  if (!key || !env || !env.QNFO_AUDIT) return { written: 0 };
+  try {
+    const claims = extractAtomicClaims(body, refs, version, verifyLedger);
+    if (!claims.length) return { written: 0 };
+    const db = env.QNFO_AUDIT;
+    const sql = "INSERT INTO paper_claims (slug, version, claim_text, claim_kind, source_ref, verification_state, verified_by, verified_at) VALUES (?1, ?2, ?3, 'atomic', ?4, ?5, ?6, CASE WHEN ?5 = 'verified' THEN datetime('now') END) ON CONFLICT(slug, claim_kind, source_ref) DO UPDATE SET version = excluded.version, claim_text = excluded.claim_text, verification_state = excluded.verification_state, verified_by = excluded.verified_by, verified_at = excluded.verified_at, published_at = datetime('now')";
+    const stmts = claims.map(function(c) { return db.prepare(sql).bind(key, c.version, c.claim_text, c.source_ref, c.verification_state, c.verified_by); });
+    for (let i = 0; i < stmts.length; i += 40) {
+      const chunk = stmts.slice(i, i + 40);
+      if (typeof db.batch === "function") await db.batch(chunk);
+      else for (const s of chunk) await s.run();
+    }
+    return { written: claims.length };
+  } catch (e) {
+    const error = String(e && e.message || e).slice(0, 200);
+    console.error(JSON.stringify({ worker: "qnfo-research-exec", where: "atomic-claims-ledger", slug: key.slice(0, 80), error: error }));
+    return { written: 0, error: error };
+  }
+}
+// The verify stage's side of the ledger: one entry per extracted quantitative claim, decided by recomputation (adjudicateVerification). A decided and matching claim is verified,
+// a decided and mismatching one refuted, and a claim with no decided CLAIM line (including the claims beyond VERIFY_MAX_CLAIMS, which the pass never recomputes) is unverified,
+// so the cap cannot inflate coverage. Saved to pipeline/<row>/claims-ledger.json when the pass routes to publish.
+function verifyClaimsLedger(extracted, adj, cap) {
+  const list = Array.isArray(extracted) ? extracted : [];
+  const rows = {};
+  for (const r of adj && Array.isArray(adj.rows) ? adj.rows : []) if (r && r.id != null) rows[String(r.id).toLowerCase()] = r;
+  const by = "verify-" + String(adj && adj.basis || "script");
+  const seen = {};
+  const out = [];
+  for (let i = 0; i < list.length && out.length < ATOMIC_SENTENCES_MAX; i++) {
+    const c = list[i] || {};
+    let id = String(c.id != null && c.id !== "" ? c.id : "Q" + (i + 1)).replace(/\s+/g, " ").trim().slice(0, 60) || "Q" + (i + 1);
+    const k = id.toLowerCase();
+    seen[k] = (seen[k] || 0) + 1;
+    if (seen[k] > 1) id = id + "#" + seen[k];
+    const r = rows[k];
+    let state = "unverified", basis;
+    if (r && r.decided) {
+      state = r.match ? "verified" : "refuted";
+      basis = "computed " + r.computed + " against stated " + r.expected;
+    } else if (r) {
+      basis = "the CLAIM line could not be decided";
+    } else {
+      basis = typeof cap === "number" && i >= cap ? "beyond the per-pass claim cap, not recomputed" : "no CLAIM line printed for this claim";
+    }
+    out.push({ id: id, statement: String(c.statement || c.text || id).replace(/\s+/g, " ").trim().slice(0, 300), state: state, by: by, basis: String(basis).slice(0, 160) });
+  }
+  return out;
+}
+async function saveVerifyLedger(env, row, extracted, adj) {
+  try {
+    const ledger = verifyClaimsLedger(extracted, adj, VERIFY_MAX_CLAIMS);
+    await r2Put(env, String(row.id) + "/claims-ledger.json", JSON.stringify(ledger));
+    return ledger.length;
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "qnfo-research-exec", where: "verify-ledger-save", row: String(row && row.id || "").slice(0, 12), error: String(e && e.message || e).slice(0, 200) }));
+    return 0;
+  }
+}
+async function readVerifyLedger(env, row) {
+  try {
+    const raw = await r2Get(env, String(row.id) + "/claims-ledger.json");
+    const l = raw ? JSON.parse(raw) : [];
+    return Array.isArray(l) ? l : [];
+  } catch (e) {
+    return [];
+  }
 }
 // The one citation gate step. opts.slug is the papers slug the ledger rows are keyed by (publishStageV2 passes it).
 async function citationGateStep(env, row, bodyMd, opts) {
@@ -8669,6 +8882,12 @@ async function publishStageV2(env, row) {
   const ghr = await pushArtifactsToGitHub(env, slug, ghFiles, { row: row, title: paper.title, body: paper.body_md, version: paper.version });
   await logEvent(env, "github", JSON.stringify(ghr).slice(0, 500), ghr.ok ? "ok" : "error");
   await env.QNFO_AUDIT.prepare("UPDATE research_queue SET status='published', stage='done', doi=NULL, published_at=?, error=NULL WHERE id=?").bind(nowIso(), row.id).run();
+  try {
+    const _ac = await writeAtomicClaimsLedger(env, slug, paper.version, paper.body_md, cg && cg.result && cg.result.refs, await readVerifyLedger(env, row));
+    await logEvent(env, "atomic-claims", "row=" + String(row.id).slice(0, 8) + " slug=" + slug + " written=" + _ac.written + (_ac.error ? " error=" + _ac.error : ""), _ac.error ? "warn" : "ok");
+  } catch (eAc) {
+    console.error(JSON.stringify({ worker: "qnfo-research-exec", where: "atomic-claims-publish", error: String(eAc && eAc.message || eAc).slice(0, 200) }));
+  }
   return { ok: true, stage: "publish->published", doi: null, slug, github: ghr };
 }
 __name(publishStageV2, "publishStageV2");
@@ -34131,6 +34350,11 @@ export {
   mathLatexAutofix,
   citationGateStep,
   writeClaimsLedger,
+  extractAtomicClaims,
+  writeAtomicClaimsLedger,
+  verifyClaimsLedger,
+  saveVerifyLedger,
+  readVerifyLedger,
   corpusWidth,
   citationRowsFromBib,
   persistCitations,

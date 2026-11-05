@@ -9,5 +9,13 @@
         "\"worker\":\"qnfo-research-exec\""
       ]
     }
+  ],
+  "d1": [
+    {
+      "binding": "QNFO_AUDIT",
+      "explain": [
+        "INSERT INTO paper_claims (slug, version, claim_text, claim_kind, source_ref, verification_state, verified_by) SELECT 'probe', '0', 'probe', 'atomic', 'probe', 'unverified', 'probe' WHERE 1 ON CONFLICT(slug, claim_kind, source_ref) DO UPDATE SET claim_text = excluded.claim_text, verification_state = excluded.verification_state"
+      ]
+    }
   ]
 }
