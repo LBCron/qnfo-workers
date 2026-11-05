@@ -269,7 +269,8 @@ var AF_SOURCE_PROFILES = {
   "wikipedia.org": { label: "Wikipedia", country: "US", viewpoint: "" },
   "arxiv.org": { label: "arXiv", country: "US", viewpoint: "" },
   "hansard.parliament.uk": { label: "Hansard (UK Parliament)", country: "GB", viewpoint: "uk-parliament" },
-  "globalvoices.org": { label: "Global Voices", country: "NL", viewpoint: "global-citizen-media" }
+  "globalvoices.org": { label: "Global Voices", country: "NL", viewpoint: "global-citizen-media" },
+  "gov.uk": { label: "GOV.UK", country: "GB", viewpoint: "uk-government" }
 };
 function afHost(ref) {
   var m = /^https:\/\/([^\/?#:]+)/i.exec(String(ref || ""));

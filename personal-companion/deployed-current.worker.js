@@ -3232,7 +3232,7 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.45.1";
+var VERSION = "1.45.2";
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -3577,7 +3577,8 @@ var AF_SOURCE_PROFILES = {
   "wikipedia.org": { label: "Wikipedia", country: "US", viewpoint: "" },
   "arxiv.org": { label: "arXiv", country: "US", viewpoint: "" },
   "hansard.parliament.uk": { label: "Hansard (UK Parliament)", country: "GB", viewpoint: "uk-parliament" },
-  "globalvoices.org": { label: "Global Voices", country: "NL", viewpoint: "global-citizen-media" }
+  "globalvoices.org": { label: "Global Voices", country: "NL", viewpoint: "global-citizen-media" },
+  "gov.uk": { label: "GOV.UK", country: "GB", viewpoint: "uk-government" }
 };
 function afHost(ref) {
   var m = /^https:\/\/([^\/?#:]+)/i.exec(String(ref || ""));
@@ -4188,6 +4189,114 @@ async function fetchWiki(title) {
   return { kind: "concept", ref: "https://en.wikipedia.org/wiki/" + encodeURIComponent(p.title || title), title: squish(p.title || title), text: text.slice(0, 12e3) };
 }
 __name(fetchWiki, "fetchWiki");
+// EK-2 (roadmap row 1749, agent_issues 1000713): independent sources for a contested topic. The gate in fitAnchors wants three publishers, two labelled
+// viewpoints and one non-US source, and nothing supplied them: every Wikipedia anchor shares one host, so CONTESTED-PRESKIP-1 skipped every contested
+// candidate and the companion wrote no policy, history, geopolitics, health or economics piece after the gate landed (companion_runs 2026-11-04:
+// "contested, one-host sources" on every history and politics candidate). These adapters read open, keyless APIs of publishers that are not Wikipedia
+// and whose country and standpoint are on record (AF_SOURCE_PROFILES in the shared analysis form): the UK Parliament's Hansard (speeches by named
+// members and parties), Global Voices (citizen media written by people in the countries concerned) and GOV.UK (the UK government's own statements).
+// Each returns an anchor {kind, ref, title, text, viewpoint, sourceCountry, full} or null, none is ever required, and a contested topic is drafted only when
+// the gate (contestedSourcesOk) passes on what they returned; the gate itself is unchanged. The text is the publisher's own words, never a summary.
+var CSRC_MAX_CHARS = 9000, CSRC_TRIES = 2, CSRC_CONTRIB_MAX = 1300, CSRC_CONTRIBS = 7;
+var CSRC_STOP_RE = /^(?:the|and|for|with|from|that|this|into|over|under|between|against|during|after|before|their|about|were|was|has|have|had|its|his|her|of|in|on)$/i;
+function csrcWords(topic) { return String(topic || "").toLowerCase().split(/[^a-z0-9À-ɏ]+/).filter(function (w) { return w.length >= 4 && !CSRC_STOP_RE.test(w); }); }
+// The text names the topic: its whole name, or (two or more significant words) every one of them. A source that does not is not about the topic.
+function csrcRelevant(text, topic) {
+  var low = String(text || "").toLowerCase(), base = linkBase(topic).toLowerCase();
+  if (base.length >= 6 && low.indexOf(base) >= 0) return true;
+  var w = csrcWords(base);
+  return w.length >= 2 && w.every(function (x) { return low.indexOf(x) >= 0; });
+}
+// The source discusses the topic rather than naming it once: its whole name occurs at least twice, or the name is long enough (three or more significant
+// words) that every word being present in the opening is already specific.
+function csrcDiscusses(body, topic) {
+  var low = String(body || "").toLowerCase(), base = linkBase(topic).toLowerCase(), n = 0, at = -1;
+  if (base.length >= 6) while ((at = low.indexOf(base, at + 1)) >= 0) n++;
+  return n >= 2 || csrcWords(base).length >= 3;
+}
+function csrcQueries(topic) {
+  var base = linkBase(topic), q = [base], w = base.split(/\s+/).filter(function (x) { return /^[A-ZÀ-ɏ]/.test(x) && x.length >= 3 && !/^\d+$/.test(x); });
+  if (w.length >= 2 && w.slice(0, 2).join(" ") !== base) q.push(w.slice(0, 2).join(" "));
+  return q.filter(function (x, i, a) { return x && a.indexOf(x) === i; });
+}
+function csrcPartyOf(who) { var m = /\(([^()]{2,12})\)\s*$/.exec(String(who || "")); return m ? m[1] : ""; }
+// Hansard: the debate (Commons, Lords or Westminster Hall) whose title names the topic; a handful of its speeches by different members, round-robin over
+// parties so that government and opposition both speak, each marked with who said it. Text is the speeches as recorded.
+async function fetchHansardSource(topic) {
+  var qs = csrcQueries(topic), debate = null;
+  for (var qi = 0; qi < qs.length && !debate; qi++) {
+    var j = await srcJson("hansard debates", "https://hansard-api.parliament.uk/search/debates.json?take=6&searchTerm=" + encodeURIComponent(qs[qi]));
+    var res = ((j && j.Results) || []).filter(function (r) { return r && r.DebateSectionExtId && csrcRelevant(r.Title, topic); });
+    res.sort(function (a, b) { return String(b.SittingDate).localeCompare(String(a.SittingDate)); });
+    if (res.length) debate = res[0];
+  }
+  if (!debate) return null;
+  var d = await srcJson("hansard debate", "https://hansard-api.parliament.uk/debates/debate/" + encodeURIComponent(debate.DebateSectionExtId) + ".json");
+  var items = ((d && d.Items) || []).filter(function (it) { return it && it.ItemType === "Contribution" && it.AttributedTo && String(it.AttributedTo).toLowerCase() !== "none" && String(it.Value || "").length >= 200; });
+  var byParty = {}, order = [], seen = {};
+  items.forEach(function (it) {
+    var who = String(it.AttributedTo).replace(/\s+/g, " ").trim(), key = who.split("(")[0].trim().toLowerCase(); // a member reappears without constituency and party: one speech each
+    if (seen[key]) return;
+    seen[key] = 1;
+    var party = csrcPartyOf(who) || "other";
+    if (!byParty[party]) { byParty[party] = []; order.push(party); }
+    byParty[party].push({ who: who, text: squish(String(it.Value)).slice(0, CSRC_CONTRIB_MAX) });
+  });
+  var picked = [];
+  for (var round = 0; picked.length < CSRC_CONTRIBS; round++) {
+    var any = false;
+    for (var oi = 0; oi < order.length && picked.length < CSRC_CONTRIBS; oi++) { var c = byParty[order[oi]][round]; if (c) { picked.push(c); any = true; } }
+    if (!any) break;
+  }
+  if (!picked.length) return null;
+  var date = String(debate.SittingDate || "").slice(0, 10), house = String(debate.House || "Commons");
+  var text = "Hansard, the official record of the UK Parliament: " + house + ", " + (debate.DebateSection ? debate.DebateSection + ", " : "") + date + ", debate " + squish(debate.Title) + ". Speeches as recorded. " +
+    picked.map(function (c) { return c.who + ": " + c.text; }).join(" ");
+  text = text.slice(0, CSRC_MAX_CHARS);
+  if (!csrcRelevant(text, topic)) return null;
+  return { kind: "source", ref: "https://hansard.parliament.uk/" + house + "/" + date + "/debates/" + debate.DebateSectionExtId + "/" + squish(debate.Title).replace(/[^A-Za-z0-9]+/g, ""), title: "Hansard: " + squish(debate.Title) + ", " + house + ", " + date, text: text, viewpoint: "uk-parliament", sourceCountry: "GB", full: true };
+}
+// Global Voices: the newest post that names the topic, in full. Citizen media from outside the major outlets, written by people in the countries concerned.
+async function fetchGlobalVoicesSource(topic) {
+  var qs = csrcQueries(topic);
+  for (var qi = 0; qi < qs.length; qi++) {
+    var j = await srcJson("globalvoices", "https://globalvoices.org/wp-json/wp/v2/posts?per_page=6&_fields=link,title,date,content&search=" + encodeURIComponent(qs[qi]));
+    var posts = Array.isArray(j) ? j : [];
+    for (var i = 0; i < posts.length; i++) {
+      var p = posts[i], title = squish(decodeEntities(stripTags(String(p && p.title && p.title.rendered || "")))), body = squish(decodeEntities(stripTags(String(p && p.content && p.content.rendered || ""))));
+      if (!p || !/^https:\/\/globalvoices\.org\//.test(String(p.link || "")) || body.length < ANCHOR_MIN_CHARS || !csrcRelevant(title + " " + body.slice(0, 800), topic) || !csrcDiscusses(title + " " + body, topic)) continue;
+      return { kind: "source", ref: String(p.link), title: "Global Voices: " + title, text: ("Global Voices, " + String(p.date || "").slice(0, 10) + ", " + title + ". " + body).slice(0, CSRC_MAX_CHARS), viewpoint: "global-citizen-media", sourceCountry: "NL", full: true };
+    }
+  }
+  return null;
+}
+// GOV.UK: a speech, statement or press release of the UK government that names the topic, as published.
+var GOVUK_FORMATS = { speech: 1, oral_statement: 1, written_statement: 1, press_release: 1, news_story: 1, government_response: 1 };
+async function fetchGovUkSource(topic) {
+  var qs = csrcQueries(topic);
+  for (var qi = 0; qi < qs.length; qi++) {
+    var j = await srcJson("govuk search", "https://www.gov.uk/api/search.json?count=6&fields=title,link,format,public_timestamp&q=" + encodeURIComponent("\"" + qs[qi] + "\""));
+    var rs = ((j && j.results) || []).filter(function (r) { return r && GOVUK_FORMATS[r.format] && /^\/government\//.test(String(r.link || "")); });
+    for (var i = 0; i < rs.length && i < 3; i++) {
+      var c = await srcJson("govuk content", "https://www.gov.uk/api/content" + rs[i].link);
+      var body = squish(decodeEntities(stripTags(String(c && c.details && c.details.body || ""))));
+      var title = squish(String(rs[i].title || ""));
+      if (body.length < ANCHOR_MIN_CHARS || !csrcRelevant(title + " " + body.slice(0, 800), topic) || !csrcDiscusses(title + " " + body, topic)) continue;
+      return { kind: "source", ref: "https://www.gov.uk" + rs[i].link, title: "GOV.UK: " + title, text: ("GOV.UK, the UK government, " + String(rs[i].public_timestamp || "").slice(0, 10) + ", " + title + ". " + body).slice(0, CSRC_MAX_CHARS), viewpoint: "uk-government", sourceCountry: "GB", full: true };
+    }
+  }
+  return null;
+}
+// All three in parallel; the diagnostic line says which answered (the run log shows it when a candidate is dropped).
+async function gatherContestedSources(primary) {
+  var topic = primary && primary.title || "", names = ["hansard", "globalvoices", "govuk"];
+  var jobs = [fetchHansardSource, fetchGlobalVoicesSource, fetchGovUkSource].map(function (fn, i) {
+    return fn(topic).catch(function (e) { diagNote(names[i] + ": " + String(e && e.message || e).slice(0, 60)); return null; });
+  });
+  var got = await Promise.all(jobs), out = got.filter(Boolean);
+  diagNote("contested sources for " + topic.slice(0, 40) + ": " + names.map(function (n, i) { return n + " " + (got[i] ? got[i].text.length : "none"); }).join(", "));
+  return out;
+}
 async function fetchArxivQuery(label, query, sortBy) {
   var resp = await srcFetch(label, "https://export.arxiv.org/api/query?search_query=" + query + "&sortBy=" + (sortBy || "submittedDate") + "&sortOrder=descending&max_results=8");
   if (!resp) return [];
@@ -4303,7 +4412,7 @@ function cutAtSentence(text, max) {
 var PRIMARY_SHARE = 0.7; // FULLTEXT-BUDGET-1 (1.26.2): was 0.55 of 18000
 // EK-2: a contested topic is not drafted unless source records prove three distinct publishers, differing viewpoints,
 // and a non-US source. Missing perspective or country metadata is not evidence and fails closed.
-var CONTESTED_TOPIC_RE = /\b(?:policy|policies|politics|political|election|elections|parliament|congress|government|governance|war|wars|conflict|invasion|occupation|insurgen\w*|geopolitic\w*|foreign relations|international relations|history|historical|history of|empire|colonial\w*|treaty|treaties|sanction\w*|health|medicine|medical|disease|diseases|epidemic|pandemic|vaccin\w*|econom\w*|inflation|recession|trade|tariff\w*|taxation|market|markets|budget|debt|poverty)\b/i;
+// CONTESTED_TOPIC_RE is defined once, beside composePiece; an earlier, broader definition here was replaced at load by that one and never took effect, so it was removed (EK-2, 1.45.2).
 function isContestedTopic(text) { return CONTESTED_TOPIC_RE.test(String(text || "").slice(0, 4000)); }
 function sourceHost(ref) {
   try {
@@ -4506,7 +4615,7 @@ async function wikiAnchors(used, cooled, seed) {
   var scored = screenTopics(fresh, intros);
   if (Object.keys(intros).length) diagNote("intro screen: " + scored.slice(0, 3).map(function (x) { return x.t.slice(0, 40) + " " + x.s; }).join(", "));
   var titles = scored.map(function (x) { return x.t; });
-  var primary = null, fallback = null, skipped = [], fitted = null, fittedCausal = -1, causalSeen = [];
+  var primary = null, fallback = null, skipped = [], fitted = null, fittedCausal = -1, causalSeen = [], contestedTried = 0;
   for (var t = 0; t < titles.length && !primary && t < 10; t++) {
     var key = "wiki:" + titles[t];
     if (used.indexOf(key) >= 0 || cooled[key]) continue;
@@ -4515,7 +4624,16 @@ async function wikiAnchors(used, cooled, seed) {
     // CONTESTED-PRESKIP-1 (1.44.15, agent_issues 1000633): every Wikipedia anchor shares one host, so a contested primary can never pass
     // the EK-2 source gate in fitAnchors (three publishers); 94 runs on 3-4 Nov fetched and screened one only to drop it, and
     // reading.q08.org published two pieces in a week. Skip such a candidate here and try the next; the gate itself is unchanged.
-    if (isContestedTopic(String(art.title || "") + " " + String(art.text || ""))) { skipped.push(titles[t] + " (contested, one-host sources)"); continue; }
+    if (isContestedTopic(String(art.title || "") + " " + String(art.text || ""))) {
+      // EK-2 (1.45.2): a contested candidate is kept only when independent sources for it exist and the unchanged gate passes on them; otherwise it is
+      // skipped as before, with the reason in the run log. At most CSRC_TRIES candidates per run are given sources, so the fetches stay bounded.
+      if (contestedTried >= CSRC_TRIES) { skipped.push(titles[t] + " (contested, source budget spent)"); continue; }
+      contestedTried++;
+      var extra = await gatherContestedSources(art);
+      var cgate = contestedSourcesOk([art].concat(extra));
+      if (!cgate.ok) { skipped.push(titles[t] + " (contested, " + cgate.why + ")"); continue; }
+      art.sources = extra;
+    }
     var fit = systemsFit(art);
     if (fit.ok) {
       var cs = causalScore(art.text); // CAUSAL-SOURCE-1
@@ -4535,12 +4653,13 @@ async function wikiAnchors(used, cooled, seed) {
   var named = rankLinked(pool, primary.text, primary.title);
   var linked = named.slice(0, 4).concat(pickSeeded(pool.filter(function (x) { return named.indexOf(x) < 0; }), seed, 6)).slice(0, 6);
   var got = 0, picked = [];
-  for (var li = 0; li < linked.length && got < 2; li++) {
+  for (var li = 0; li < linked.length && got < (primary.sources ? 1 : 2); li++) {
     var la = await fetchWiki(linked[li]);
     if (la && la.text.length >= LINK_MIN_CHARS) { anchors.push(la); got++; picked.push(la.title + (named.indexOf(linked[li]) >= 0 ? " (named)" : " (random)")); }
   }
   if (picked.length) diagNote("context links: " + picked.join(", "));
-  return anchors;
+  if (primary.sources) { anchors = [primary].concat(primary.sources, anchors.slice(1)); diagNote("contested topic sources: " + primary.sources.map(function (x) { return sourceHost(x.ref); }).join(", ")); }
+  return anchors.map(function (a) { if (a === primary && a.sources) { var c = Object.assign({}, a); delete c.sources; return c; } return a; });
 }
 async function paperAnchors(subject, seed) {
   var papers = [];
@@ -7231,24 +7350,38 @@ function stallRecurred(statuses) {
   }
   return false;
 }
-// EK-3 (1.45.0, roadmap row 1750): the even-keel check is measured, counts only (no text leaves the personal plane). scored_share: of the audit rows that passed in the
-// 7 days to now, the share that carry a balance_score, i.e. the check ran and answered (it was 0 of 20 rows before this version). hold_share: of the drafts that
-// reached the even-keel reviewer in the same window (the scored passes plus the attempts it stopped at stage balance), the share it stopped: a wall would show here
-// before it shows as a stall. Written each hourly tick into the two metrics the migration registers; an unregistered metric updates no row.
+// EK-3 (1.45.0, roadmap row 1750): the even-keel check is measured, counts only (no text leaves the personal plane). scored_share_last5: of the five newest audit rows
+// that passed, the share that carry a balance_score, i.e. the check ran and answered (0 of 20 rows before this version; the newest five move with the pieces, so a
+// repair shows in days, not after a week of old rows). hold_share_7d: of the drafts that reached the even-keel reviewer in the 7 days to now (the scored passes plus the
+// attempts it stopped at stage balance), the share it stopped: a wall would show here before it shows as a stall. Written each hourly tick into the two metrics the
+// migration registers; an unregistered metric updates no row.
 async function writeBalanceMetrics(env, now) {
   try {
     var since = new Date(now - 7 * 864e5).toISOString();
-    var a = await env.PERSONAL.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN balance_score IS NOT NULL THEN 1 ELSE 0 END) AS scored FROM companion_audits WHERE verdict = 'pass' AND checked_at >= ?1").bind(since).first();
+    var a = await env.PERSONAL.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN balance_score IS NOT NULL THEN 1 ELSE 0 END) AS scored FROM (SELECT balance_score FROM companion_audits WHERE verdict = 'pass' ORDER BY checked_at DESC LIMIT 5)").first();
     var h = await env.PERSONAL.prepare("SELECT COUNT(*) AS held FROM companion_runs WHERE status = 'rejected' AND run_at >= ?1 AND detail LIKE 'fact-check balance:%'").bind(since).first();
     var passes = Number(a && a.n) || 0, scored = Number(a && a.scored) || 0, held = Number(h && h.held) || 0;
     var scoredShare = passes ? Math.round(1000 * scored / passes) / 1000 : null;
-    var holdShare = scored + held ? Math.round(1000 * held / (scored + held)) / 1000 : null;
+    var recent = await env.PERSONAL.prepare("SELECT COUNT(*) AS n FROM companion_audits WHERE verdict = 'pass' AND balance_score IS NOT NULL AND checked_at >= ?1").bind(since).first();
+    var holdShare = Number(recent && recent.n) + held ? Math.round(1000 * held / (Number(recent && recent.n) + held)) / 1000 : null;
     var stamp = new Date(now).toISOString();
     var put = "UPDATE metric_registry SET last_value = ?2, last_refreshed = ?3, state = 'MEASURED' WHERE metric = ?1";
-    await env.AUDIT.prepare(put).bind("companion_balance_scored_share_7d", scoredShare == null ? null : String(scoredShare), stamp).run();
+    await env.AUDIT.prepare(put).bind("companion_balance_scored_share_last5", scoredShare == null ? null : String(scoredShare), stamp).run();
     await env.AUDIT.prepare(put).bind("companion_balance_hold_share_7d", holdShare == null ? null : String(holdShare), stamp).run();
     return { passes: passes, scored: scored, held: held, scoredShare: scoredShare, holdShare: holdShare };
   } catch (e) { stallLog("balance.metric", e); return null; }
+}
+// EK-2 (1.45.3, roadmap row 1749): how many of the visible pieces of the last 30 days cite a publisher other than Wikipedia and arXiv in their sources footer (their
+// anchor_json refs), i.e. were written on independent sources. Counts only. It reads 0 until the first contested topic with sources publishes, and is the closing measure of
+// issue 1000713; an unregistered metric updates no row.
+async function writeSourceMetrics(env, now) {
+  try {
+    var since = new Date(now - 30 * 864e5).toISOString();
+    var r = await env.PERSONAL.prepare("SELECT COUNT(*) AS n FROM companion_pieces WHERE created_at >= ?1 AND CASE WHEN json_valid(anchor_json) THEN EXISTS (SELECT 1 FROM json_each(companion_pieces.anchor_json, '$.refs') j WHERE j.value LIKE 'https://%' AND j.value NOT LIKE 'https://%wikipedia.org/%' AND j.value NOT LIKE 'https://arxiv.org/%') ELSE 0 END AND " + VISIBLE_SQL).bind(since).first();
+    var n = Number(r && r.n) || 0;
+    await env.AUDIT.prepare("UPDATE metric_registry SET last_value = ?2, last_refreshed = ?3, state = 'MEASURED' WHERE metric = ?1").bind("companion_independent_source_pieces_30d", String(n), new Date(now).toISOString()).run();
+    return { pieces: n };
+  } catch (e) { stallLog("source.metric", e); return null; }
 }
 async function companionStallDetector(env, nowMs) {
   if (!env.AUDIT || !env.PERSONAL) return { skipped: "no binding" };
@@ -7263,7 +7396,7 @@ async function companionStallDetector(env, nowMs) {
   try {
     await env.AUDIT.prepare("UPDATE metric_registry SET last_value = ?2, last_refreshed = ?3, state = 'MEASURED' WHERE metric = ?1").bind("companion_hours_since_last_piece", hours == null ? null : String(hours), new Date(now).toISOString()).run();
   } catch (eM) { stallLog("stall.metric", eM); }
-  await writeBalanceMetrics(env, now);
+  await writeBalanceMetrics(env, now); await writeSourceMetrics(env, now);
   var open = await env.AUDIT.prepare("SELECT id, created_at FROM agent_issues WHERE status='open' AND title LIKE ?1 ORDER BY id DESC").bind(STALL_TITLE + ":%").all();
   var openRows = (open && open.results) || [];
   var openIds = openRows.map(function (o) { return o.id; });
@@ -8412,7 +8545,8 @@ function groundingNeedles(problems) {
   return needles.filter(function (n, i, a) { return n.length > 0 && a.indexOf(n) === i; });
 }
 var __verify = { stallRecurred: stallRecurred, shortenFeedback: shortenFeedback, LENGTH_CEILING: LENGTH_CEILING, pruneClassOf: pruneClassOf, pruneClassesOf: pruneClassesOf, pruneRepeat: pruneRepeat, PRUNE_REPEAT_AFTER: PRUNE_REPEAT_AFTER, attemptBudgetStop: attemptBudgetStop, STALL_MIN: STALL_MIN, pruneHeadings: pruneHeadings, mirrorPipeline: mirrorPipeline, pipeItem: pipeItem, pipeSince: pipeSince, PIPE_SELECT: PIPE_SELECT, PIPE_PROPERTY: PIPE_PROPERTY, PIPE_ID_PREFIX: PIPE_ID_PREFIX, qualityWorst: qualityWorst, gateWorst: gateWorst, criticGroundingGates: criticGroundingGates, STARVED_RETRY_QUIET_MS: STARVED_RETRY_QUIET_MS, quotesAllSourced: quotesAllSourced, sourcedPassage: sourcedPassage, sourceSentences: sourceSentences, sourcedRereadNote: sourcedRereadNote, SOURCED_COVER: SOURCED_COVER, SENT_ABBREV_RE: SENT_ABBREV_RE, GROUND_MAX: GROUND_MAX, PRIMARY_SHARE: PRIMARY_SHARE, deleteSentences: deleteSentences, rubricNoQuoteNote: rubricNoQuoteNote, quotesAllInAnalysis: quotesAllInAnalysis, rubricRereadNote: rubricRereadNote, eventTitles: eventTitles, eventDay: eventDay, fetchEventTitles: fetchEventTitles, EVENT_POOL: EVENT_POOL, WRITER_LEAD: WRITER_LEAD, CF_FALLBACK_GPT_OSS: CF_FALLBACK_GPT_OSS, loadWriterOrder: loadWriterOrder, fallbackChain: fallbackChain, cutAtSentence: cutAtSentence, causalScore: causalScore, CAUSAL_MIN: CAUSAL_MIN, CAUSAL_CHARS: CAUSAL_CHARS, fitAnchors: fitAnchors, logCaught: logCaught, foldAccents: foldAccents, todayLine: todayLine, reframePiece: reframePiece, parseDraftMd: parseDraftMd, P_REFRAME: P_REFRAME, REFRAME_BAND: REFRAME_BAND, REFRAME_START_BEFORE_MS: REFRAME_START_BEFORE_MS, CF_FALLBACK: CF_FALLBACK, pieceWords: pieceWords, splitText: splitText, autoMarkAnalysis: autoMarkAnalysis, withAutoMark: withAutoMark, analysisSplitInfo: analysisSplitInfo, CRITIC_INVENTED_MAX: CRITIC_INVENTED_MAX, writerBand: writerBand, writerIsFallback: writerIsFallback, WRITER_TEMPERATURE_FB: WRITER_TEMPERATURE_FB, CRITIC_TEMPERATURE: CRITIC_TEMPERATURE, ANALYSIS_MARK: ANALYSIS_MARK, stripAnalysisMark: stripAnalysisMark, analysisSplitOk: analysisSplitOk, reviewText: reviewText, stripPieceMark: stripPieceMark, persistPiece: persistPiece, STARVED_RETRY_MAX_24H: STARVED_RETRY_MAX_24H, fetchWikiIntros: fetchWikiIntros, introScore: introScore, screenTopics: screenTopics, wikiAnchors: wikiAnchors, TOPIC_POOL: TOPIC_POOL, pruneBlockFixable: pruneBlockFixable, pruneRepairFeedback: pruneRepairFeedback, expandFeedback: expandFeedback, rankLinked: rankLinked, linkMentionScore: linkMentionScore, CRITIC_PRUNE_ROUNDS: CRITIC_PRUNE_ROUNDS, criticQuotes: criticQuotes, critiqueWorst: critiqueWorst, QUOTE_MIN_WORDS: QUOTE_MIN_WORDS, systemsFit: systemsFit, generationHold: generationHold, gatherVerdicts: gatherVerdicts, orderByHealth: orderByHealth, sickReviewers: sickReviewers, FACTCHECK_HEDGE_MS: FACTCHECK_HEDGE_MS, starvedRetryDue: starvedRetryDue, arxivWindow: arxivWindow, fetchWiki: fetchWiki, splitLongLede: splitLongLede, stallAttemptStage: stallAttemptStage, companionStallDigest: companionStallDigest, arxivIdOf: arxivIdOf, paperFullTextUrls: paperFullTextUrls, paperHtmlText: paperHtmlText, ledeProblems: ledeProblems, ledeOf: ledeOf, pruneUnsupported: pruneUnsupported, deleteSentences: deleteSentences, splitFactItems: splitFactItems, sourceLabel: sourceLabel, anchorsText: anchorsText, floorFor: floorFor, critiquePiece: critiquePiece, REPAIR_FLOOR_SHARE: REPAIR_FLOOR_SHARE, FALLBACK_FLOOR_RATIO: FALLBACK_FLOOR_RATIO, NOTES_OBJECTION_PLACEHOLDER: NOTES_OBJECTION_PLACEHOLDER, groundingNeedles: groundingNeedles, stemGrounded: stemGrounded, repairGroundingDraft: repairGroundingDraft, GROUNDING_PREFIX: GROUNDING_PREFIX, problemContext: problemContext, factCheckExtra: factCheckExtra, blockedRetryDue: blockedRetryDue, steward: steward, fetchCfg: fetchCfg, fetchUA: fetchUA, groundingProblems: groundingProblems, parseFactVerdict: parseFactVerdict, factCheck: factCheck, verifyPiece: verifyPiece, auditPublished: auditPublished, retractPiece: retractPiece, pieceVerified: pieceVerified, recordAudit: recordAudit, generate: generate, unwrapJsonItem: unwrapJsonItem, itemHasNoClaim: itemHasNoClaim, reviewerSaysSupported: reviewerSaysSupported, factItemText: factItemText, splitFactItems: splitFactItems, serialInstallmentTitle: serialInstallmentTitle, serialBaseTitle: serialBaseTitle, serialChaptersDone: serialChaptersDone, serialTitleMatches: serialTitleMatches, withInstallmentTitle: withInstallmentTitle, freeInstallmentPiece: freeInstallmentPiece, pickTopic: pickTopic, sendMail: sendMail, pickReviewers: pickReviewers, familyOf: familyOf, anchorsBlock: anchorsBlock, plainCredit: plainCredit, sourcesFoot: sourcesFoot, renderPiece: renderPiece, prompts: { P_STYLE: P_STYLE, P_ESSAY: P_ESSAY, P_NOTES: P_NOTES, P_SERIAL: P_SERIAL, P_CRITIQUE: P_CRITIQUE, FACTCHECK_PROMPT: FACTCHECK_PROMPT }, VISIBLE_SQL: VISIBLE_SQL, REVIEW_POOL: REVIEW_POOL };
-Object.assign(__verify, { writeBalanceMetrics: writeBalanceMetrics, balanceCheck: balanceCheck, balanceCheckOne: balanceCheckOne, parseBalanceScore: parseBalanceScore, verifyPiece: verifyPiece, recordAudit: recordAudit, factRevisionPrompt: factRevisionPrompt, BALANCE_MIN_SCORE: BALANCE_MIN_SCORE, REVIEW_POOL: REVIEW_POOL, familyOf: familyOf });
+Object.assign(__verify, { gatherContestedSources: gatherContestedSources, fetchHansardSource: fetchHansardSource, fetchGlobalVoicesSource: fetchGlobalVoicesSource, fetchGovUkSource: fetchGovUkSource, csrcRelevant: csrcRelevant, csrcDiscusses: csrcDiscusses, csrcQueries: csrcQueries, wikiAnchors: wikiAnchors, getSrcDiag: function () { return srcDiag; } });
+Object.assign(__verify, { writeSourceMetrics: writeSourceMetrics, writeBalanceMetrics: writeBalanceMetrics, balanceCheck: balanceCheck, balanceCheckOne: balanceCheckOne, parseBalanceScore: parseBalanceScore, verifyPiece: verifyPiece, recordAudit: recordAudit, factRevisionPrompt: factRevisionPrompt, BALANCE_MIN_SCORE: BALANCE_MIN_SCORE, REVIEW_POOL: REVIEW_POOL, familyOf: familyOf });
 Object.assign(__verify, { isContestedTopic: isContestedTopic, sourceHost: sourceHost, sourceViewpoint: sourceViewpoint, sourceCountry: sourceCountry, contestedSourcesOk: contestedSourcesOk });
 export {
   __verify,

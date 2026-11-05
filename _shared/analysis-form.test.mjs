@@ -93,6 +93,7 @@ ok(AF.afSourcesFooter([]) === "" && AF.afSourcesFooterFromJson("not json") === "
 ok(/Corlea/.test(AF.afSourcesFooterFromJson(JSON.stringify({ refs: ["https://en.wikipedia.org/wiki/Corlea_Trackway"] }))), "the footer reads anchor_json");
 ok(!/<script/.test(AF.afSourcesFooter(["https://example.org/a?x=<script>"])), "references are escaped");
 ok(AF.afSourceProfile("https://en.wikipedia.org/wiki/X").label === "Wikipedia" && AF.afSourceProfile("https://hansard.parliament.uk/x").country === "GB" && AF.afSourceProfile("https://globalvoices.org/x").country === "NL", "host profiles carry label and country");
+ok(AF.afSourceProfile("https://www.gov.uk/government/speeches/x").viewpoint === "uk-government" && AF.afSourceLabel("https://www.gov.uk/government/speeches/x") === "GOV.UK", "GOV.UK is a registered host with its own standpoint");
 ok(AF.afSourceProfile("https://notwikipedia.org/x") === null && AF.afSourceProfile("https://evilhansard.parliament.uk.example.com/") === null, "a look-alike host does not match a profile");
 ok(AF.afSourceProfile("https://hansard.parliament.uk/x").viewpoint === "uk-parliament" && AF.afSourceProfile("https://en.wikipedia.org/wiki/X").viewpoint === "", "viewpoint labels are standpoints; an encyclopedia has none");
 

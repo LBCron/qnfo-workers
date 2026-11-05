@@ -130,17 +130,20 @@ ok(!/var BALANCE_FAMILY/.test(src) && !/=== BALANCE_FAMILY/.test(src), "the filt
 // (9) the check is measured: scored share and hold share, counts only, written to the two registered metrics each tick
 {
   const writes = [];
-  const personal = { prepare: (sql) => ({ bind: () => ({ first: async () => (/FROM companion_audits/.test(sql) ? { n: 10, scored: 8 } : /FROM companion_runs/.test(sql) ? { held: 2 } : null) }) }) };
+  // the five newest passes: 4 of 5 scored; in the 7 days: 8 scored passes and 2 attempts held
+  const first = async (sql) => (/FROM \(SELECT balance_score/.test(sql) ? { n: 5, scored: 4 } : /FROM companion_audits/.test(sql) ? { n: 8 } : /FROM companion_runs/.test(sql) ? { held: 2 } : null);
+  const personal = { prepare: (sql) => ({ bind: () => ({ first: () => first(sql) }), first: () => first(sql) }) };
   const audit = { prepare: (sql) => ({ bind: (...a) => ({ run: async () => { writes.push({ sql, a }); return {}; } }) }) };
   const now = Date.parse("2026-11-05T12:00:00Z");
   const out = await V.writeBalanceMetrics({ PERSONAL: personal, AUDIT: audit }, now);
-  ok(out && out.scoredShare === 0.8 && out.holdShare === 0.2, "8 of 10 passes scored is 0.8; 2 held beside 8 scored is 0.2", out);
+  ok(out && out.scoredShare === 0.8 && out.holdShare === 0.2, "4 of the newest 5 passes scored is 0.8; 2 held beside 8 scored in the week is 0.2", out);
   const byMetric = Object.fromEntries(writes.map((w) => [w.a[0], w.a[1]]));
-  ok(byMetric.companion_balance_scored_share_7d === "0.8" && byMetric.companion_balance_hold_share_7d === "0.2" && writes.every((w) => /UPDATE metric_registry SET last_value/.test(w.sql)), "both metrics are written as UPDATEs of registered rows", writes.map((w) => w.a));
-  const none = await V.writeBalanceMetrics({ PERSONAL: { prepare: () => ({ bind: () => ({ first: async () => ({ n: 0, scored: 0, held: 0 }) }) }) }, AUDIT: audit }, now);
+  ok(byMetric.companion_balance_scored_share_last5 === "0.8" && byMetric.companion_balance_hold_share_7d === "0.2" && writes.every((w) => /UPDATE metric_registry SET last_value/.test(w.sql)), "both metrics are written as UPDATEs of registered rows", writes.map((w) => w.a));
+  const zero = async () => ({ n: 0, scored: 0, held: 0 });
+  const none = await V.writeBalanceMetrics({ PERSONAL: { prepare: () => ({ bind: () => ({ first: zero }), first: zero }) }, AUDIT: audit }, now);
   ok(none && none.scoredShare === null && none.holdShare === null, "no passes, no share (not zero)", none);
   ok(await V.writeBalanceMetrics({ PERSONAL: { prepare: () => { throw new Error("db down"); } }, AUDIT: audit }, now) === null, "a read failure is logged and returns null, never throws into the stall detector");
-  ok(/await writeBalanceMetrics\(env, now\);\n  var open = await env\.AUDIT/.test(src), "the stall detector writes them every hourly tick");
+  ok(/await writeBalanceMetrics\(env, now\); await writeSourceMetrics\(env, now\);\n  var open = await env\.AUDIT/.test(src), "the stall detector writes them every hourly tick");
 }
 
 console.log("even-keel: " + pass + " passed, " + fail + " failed");
