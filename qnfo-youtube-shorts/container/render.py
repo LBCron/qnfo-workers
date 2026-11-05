@@ -5,7 +5,7 @@ Voice, YT-VOICE-1: a beat whose sentences carry no audio_b64 is spoken here by K
 whole beat, so intonation runs across sentence ends, and the model's own token times give real word timing for the captions. A beat that carries audio
 (the Workers AI Aura/melotts fallback) keeps the old path: each sentence's measured length is split over its words by character count.
 """
-import base64, json, os, re, shutil, subprocess, sys
+import base64, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -162,6 +162,7 @@ def render(job, out):
     out.mkdir(parents=True, exist_ok=True)
     beats = job["beats"]
     t, allw, lst = 0.0, [], []
+    t_begin = time.monotonic()      # YT-RENDER-SPEED-1: wall seconds per stage (voice, manim, mux) travel back in the result, so the next lever is chosen from a profile
     for i, b in enumerate(beats):
         wav = out / f"b{i}.wav"
         if all(not s.get("audio_b64") for s in b["sentences"]):      # YT-VOICE-1: spoken here, whole beat at once
@@ -196,8 +197,12 @@ def render(job, out):
     spec = {"theme": theme, "beats": [{k: v for k, v in b.items() if k != "sentences"} for b in beats]}
     (out / "spec.json").write_text(json.dumps(spec), "utf8")
     env = dict(os.environ, SHORT_SPEC=str(out / "spec.json"), SHORT_FONT=FONT)
-    m = subprocess.run([sys.executable, "-m", "manim", "render", "-qm", "--fps", "30", "-r", "1080,1920", "--media_dir", str(out / "media"),
+    t_voice = time.monotonic()
+    # YT-11: --disable_caching skips manim's per-animation hash of the whole scene (every play() serialises every mobject) and its cache writes; a render container starts
+    # empty and each job is rendered once, so the cache can never be hit.
+    m = subprocess.run([sys.executable, "-m", "manim", "render", "-qm", "--fps", "30", "-r", "1080,1920", "--disable_caching", "--media_dir", str(out / "media"),
                         "-o", "diagram", str(HERE / "short_scene.py"), "ShortScene"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    t_manim = time.monotonic()
     if m.returncode != 0:      # YT-RENDER-ERR-1: the caller sees why, not only the exit status
         lines = [ln for ln in m.stderr.replace(CR, NL).split(NL) if ln.strip() and "it/s]" not in ln]
         raise RuntimeError("manim exit %s: %s" % (m.returncode, " | ".join(lines)[-900:]))
@@ -214,7 +219,9 @@ def render(job, out):
     import hashlib, datetime   # BP26-AI-ACT-ART50-1: machine-readable marking next to the file (the on-screen label is burned in)
     (out / "provenance.json").write_text(json.dumps({"ai_generated": True, "disclosure": "synthetic narration and generated animation", "video_sha256": hashlib.sha256(final.read_bytes()).hexdigest(),
                                                      "slug": job.get("slug"), "theme": tname, "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}, indent=1), "utf8")
-    return {"path": str(final), "duration_s": round(t, 1), "bytes": final.stat().st_size}
+    timings = {"voice_s": round(t_voice - t_begin, 1), "manim_s": round(t_manim - t_voice, 1), "mux_s": round(time.monotonic() - t_manim, 1)}
+    print("render timings", json.dumps(timings), "video_s", round(t, 1), file=sys.stderr, flush=True)
+    return {"path": str(final), "duration_s": round(t, 1), "bytes": final.stat().st_size, "timings": timings}
 
 
 if __name__ == "__main__":      # runner fallback: python render.py job.json outdir

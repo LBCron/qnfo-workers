@@ -89,6 +89,15 @@ test("the mp4 carries description and copyright tags next to the AI comment, and
   assert.match(render, /provenance\.json/);
 });
 
+test("YT-11: the manim render skips its scene hash and the result carries the stage timings (YT-RENDER-SPEED-1)", () => {
+  const render = readFileSync(join(here, "container", "render.py"), "utf8");
+  const cmd = render.slice(render.indexOf('[sys.executable, "-m", "manim", "render"'), render.indexOf('"ShortScene"]'));
+  assert.ok(cmd.includes('"--disable_caching"'), "the manim command line disables the animation cache");
+  assert.ok(cmd.includes('"-r", "1080,1920"') && cmd.includes('"--fps", "30"'), "the output size and frame rate are unchanged");
+  assert.match(render, /"timings": timings/, "the result returns the per-stage seconds");
+  for (const k of ["voice_s", "manim_s", "mux_s"]) assert.ok(render.includes('"' + k + '"'), k);
+});
+
 test("centre_dy keeps a beat in the middle of the content band (python container/test_layout.py)", (t) => {
   for (const py of ["python3", "python"]) {
     const r = spawnSync(py, ["-I", join(here, "container", "test_layout.py")], { encoding: "utf8" });
