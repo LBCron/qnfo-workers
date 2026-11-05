@@ -1,4 +1,4 @@
-var VERSION = "1.19.0-codeagent";
+var VERSION = "1.19.1-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -3498,8 +3498,9 @@ function withPaperLearn(inner) {
       if (u.pathname === "/paper-ledger/chain" && request.method === "GET") {
         var cs;
         try { cs = await paperLedgerChainStatus(env, u.searchParams.get("verify") === "1"); }
-        catch (e) { console.error("[qnfo-lifecycle] paper-ledger chain status failed: " + String(e && e.message || e).slice(0, 300)); cs = { error: "status unavailable (logged)" }; }
-        return new Response(JSON.stringify(cs), { status: cs.error ? 500 : 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=60" } });
+        // A deploy can land before the living-paper migration that creates the chain views (observed 2026-11-05: one CF-OBS issue from exactly that window): that is a state, not an error, so it is answered 503 and not logged as a failure.
+        catch (e) { if (plcMissingTable(e)) { cs = { installed: false, error: "the paper ledger chain is not installed yet" }; } else { console.error("[qnfo-lifecycle] paper-ledger chain status failed: " + String(e && e.message || e).slice(0, 300)); cs = { error: "status unavailable (logged)" }; } }
+        return new Response(JSON.stringify(cs), { status: cs.installed === false ? 503 : cs.error ? 500 : 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=60" } });
       }
       if ((u.pathname === "/paper-learn/status" || u.pathname === "/paper-learn/learnings") && request.method === "GET") {
         var st;

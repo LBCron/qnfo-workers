@@ -254,6 +254,22 @@ const metric = (a, name) => a.prepare("SELECT last_value v, state FROM metric_re
   ok(views.length === 5, "the chain migration defines five views", views);
   for (const v of views) ok(v.terms <= 5, "view " + v.name + " stays within 5 compound terms (D1 limit)", v.terms);
 }
+{ // the open route: a deploy that lands before the migration answers 503 and logs nothing; an installed chain answers 200
+  const errs = []; const origErr = console.error; console.error = (...a) => { errs.push(a.join(" ")); };
+  try {
+    const bare = await W.fetch(new Request("https://x/paper-ledger/chain"), { LIVING_PAPER: d1(new DatabaseSync(":memory:")) }, {});
+    const body = await bare.json();
+    ok(bare.status === 503 && body.installed === false, "before the migration the route answers 503 installed:false", [bare.status, body]);
+    ok(errs.length === 0, "a missing table is not logged as an error (no observability issue)", errs);
+    const db = mkLiving(), au = mkAudit(); seed(db, 4);
+    const env = { LIVING_PAPER: d1(db), QNFO_AUDIT: d1(au) };
+    await P.tick(env, {});
+    const live = await W.fetch(new Request("https://x/paper-ledger/chain?verify=1"), env, {});
+    const lb = await live.json();
+    ok(live.status === 200 && lb.marker === "PAPER-LEDGER-CHAIN-1" && lb.verified.hash_breaks === 0, "an installed chain answers 200 with a clean verification", [live.status, lb]);
+    ok(live.headers.get("cache-control") === "public, max-age=60", "the route is cached for a minute");
+  } finally { console.error = origErr; }
+}
 { // source pins
   const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
   ok(/var PLC_COLS = \[/.test(src) && src.includes("PAPER-LEDGER-CHAIN-1:BEGIN") && src.includes("PAPER-LEDGER-CHAIN-1:END"), "the chain block is delimited in worker.js");
