@@ -37,7 +37,7 @@
 // Q08-ASCII-SOURCE-1 (2026-10-01): this file is ASCII-only; every typographic character is a \uXXXX escape. The deploy path
 // double-encoded raw UTF-8, so live pages read "... \u00e2 q08" and posts "\u00e2\u0080\u0094". Keep new literals escaped.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "0.44.0";
+var VERSION = "0.45.0";
 /* 0.43.0 Q08-TICK-ALLOWANCE-1 (2026-11-04, pillar cost; minor: the engine now decides on its own whether a tick starts an attempt; BUDGET-SOFT-ROUTE-1, attempts slow down and never stop): ai_call_counters showed 119,552, 129,547 and 110,450 neurons on 2026-11-01..03 against the 50,000 target (ops_config q08_daily_neurons) because q08Budget() only steered the first writer model and nothing bounded the attempts a tick starts (40 a day, the attempt cap, at about 2,760 neurons each). Now the :00 cron and the :30 stall retry go through governedGenerate: tick k of 48 starts an attempt only while the day is under the pace line budget x (k + 1) / 48, an essay after a forecast attempt that spent model calls starts only while the day is still under it, and 150 minutes without an attempt starts one whatever the line says (8 a day at least). No row is written for a tick that waits. The writer gate, reader panels, fact-check, final read and accuracy audit are unchanged, and an attempt already started runs all its rounds. ops_config q08_tick_governor = off restores the old behaviour. tick-allowance.test.mjs replays a UTC day. */
 /* 0.42.0 RM-FORECAST-UPDATE-SCORING-1 (#5578; research): score the last valid update before the horizon with the resolved outcome. */
 /* 0.41.6 FORECAST-CALIBRATION-BUCKET-COVERAGE-1 (#5576, charter pillar research; patch): calibration buckets include probabilities across the full [0,1] range, including the tails, rather than silently omitting forecasts below 5% or above 96%. */
@@ -515,8 +515,8 @@ async function q08TickMore(env) {
   } catch (e) { return true; }
 }
 async function dailyCap(env) {
-  // FORECAST-CRITERIA-REPUBLISH-1: run the criteria sweep once per cron tick, before any scrape or AI call.
-  // It is idempotent (the void UPDATE only matches status = 'open') and never blocks the tick on failure.
+  // BP26-FORECAST-CLARIFY-1: run the criteria clarification sweep once per cron tick, before any scrape or AI call.
+  // It is idempotent (INSERT OR IGNORE on one row per forecast and kind) and never blocks the tick on failure.
   await sweepForecastCriteria(env);
   var legacy = MAX_PER_DAY;
   if (env && env.AUDIT) {
@@ -761,64 +761,61 @@ function forecastGroundText(snapshot) {
   return [snapshot.essay.title || "", String(snapshot.essay.body_md || "").slice(0, 6000), snapshot.signal || "", (snapshot.lines || []).join("\n")].join("\n");
 }
 
-// FORECAST-CRITERIA-REPUBLISH-1 (issue 1000740, RED-DRAIN-1 dispatch; charter pillar: personal): metric
-// forecast_resolution_criteria_complete (issue 1000671) reads 0 of 3 because the published resolution text of
-// forecast 2 (PJM auction) lacks a source and an edge-case rule and forecasts 3 (TrendForce) and 4 (Broadcom) lack
-// an edge-case rule. The published fields are immutable by trigger q08_forecasts_published_fields_immutable, so the
-// text cannot be edited in place; the existing retraction path (the UPDATE q08_forecasts SET status = void in the
-// retract code) is the only way out. This sweep runs on every cron tick before any scrape or AI call: for each
-// open forecast whose resolution_text fails the same three patterns as validateForecast in scripts/bp26_forecast.py
-// (a source, a date, an edge-case rule), it voids the row with disposition 'superseded-incomplete-criteria' — the
-// UPDATE is guarded on status = 'open', so a rerun after a successful void matches zero rows and the step is
-// idempotent — and queues a replacement through the existing generator, whose prompt and validateForecast gate
-// already require all three parts, so the republished forecast cannot reintroduce the gap. It never touches a
-// forecast that passes the gate, never edits a published field, and never writes anything when the resolution
-// already satisfies the criteria.
-var FORECAST_CRITERIA_SOURCE_RE = /\bsource\b/i;
-var FORECAST_CRITERIA_DATE_RE = /\b\d{4}-\d{2}-\d{2}\b/;
-var FORECAST_CRITERIA_EDGE_RE = /\bedge[- ]?case\b/i;
-function forecastCriteriaMissing(text) {
-  var t = String(text || "");
-  if (!FORECAST_CRITERIA_SOURCE_RE.test(t)) return "source";
-  if (!FORECAST_CRITERIA_DATE_RE.test(t)) return "date";
-  if (!FORECAST_CRITERIA_EDGE_RE.test(t)) return "edge-case-rule";
-  return null;
+// BP26-FORECAST-CLARIFY-1 (2026-11-05, charter pillar research; agent_issues 1000671, metric forecast_resolution_criteria_complete; replaces the
+// FORECAST-CRITERIA-REPUBLISH-1 sweep of issue 1000740). Measured 2026-11-04: all three open forecasts (ids 2, 3, 4, published 2026-10-26, before the 0.38.0
+// gate) name their source and date but none states an edge-case rule, and forecast 2 names its source only in watch_urls, so the metric read 0 of 3. The earlier
+// sweep could not work and would have been destructive if it had: it read q08_forecasts.resolution_text (the settling verdict, NULL on every open row, so it
+// skipped every row), tested the literal words "source" and "edge case" instead of the three patterns the metric and the gate use, and called
+// generateForecast(env, { replaceId }) although that function takes a start time, not options, and runs the whole compose pipeline per voided forecast.
+// The published claim, probability, horizon, resolution text and timestamp are immutable (trigger q08_forecasts_published_fields_immutable) and stay so. What a
+// legacy forecast may gain is a dated, append-only clarification beside the text (q08_forecast_clarifications, one row per forecast and kind), written once
+// from facts the row already holds: its watch_urls as the source, its horizon as the date, and the settling rule resolveForecasts and FORECAST_JUDGE_PROMPT
+// already apply (evidence dated on or before the horizon; undecidable after FORECAST_MAX_CHECKS weekly checks is void and unscored). It documents how the
+// resolver already behaves; it changes no outcome and no score. A forecast whose source cannot be named from its own record is left alone, so the gap stays
+// visible in the metric. The metric (scripts/bp26_forecast.py) and the public pages read the resolution together with its clarification.
+function forecastClarificationText(f, today) {
+  var gaps = forecastResolutionGaps(f && f.resolution);
+  if (!gaps.length) return null;
+  var urls = [];
+  try { urls = (JSON.parse(f.watch_urls || "[]") || []).filter(function (u) { return typeof u === "string" && /^https:\/\//.test(u); }).slice(0, 3); } catch (e) { urls = []; }
+  var parts = [];
+  if (gaps.some(function (g) { return g.indexOf("the source") === 0; })) {
+    if (!urls.length) return null; // a source cannot be invented from nothing
+    parts.push("Source: " + urls.join(", ") + ".");
+  }
+  if (gaps.some(function (g) { return g.indexOf("the date") === 0; })) parts.push("Read by " + f.horizon + ".");
+  if (gaps.some(function (g) { return g.indexOf("an edge-case") === 0; })) {
+    parts.push("Edge cases: the forecast is settled on evidence dated on or before " + f.horizon + "; if the source has published no decidable answer by then it is rechecked every " + FORECAST_RECHECK_DAYS + " days up to " + FORECAST_MAX_CHECKS + " times and resolves void (unscored) if still undecidable; evidence dated after the horizon that does not say when the condition became true does not count.");
+  }
+  var text = parts.join(" ") + " (Clarification added " + today + " to record how the resolver already settles this forecast; the wording above and the timestamp are unchanged.)";
+  return forecastResolutionGaps(String(f.resolution) + " " + text).length ? null : text;
 }
 async function sweepForecastCriteria(env) {
   if (!env || !env.DB) return 0;
   var n = 0;
   try {
-    // FLEET-JOURNEY-FAILED-1 / issue #1000489: the sweep read resolution_text before older D1
-    // schemas had the column, so every tick threw D1_ERROR at /health. Add it if missing.
-    try {
-      await env.DB.prepare("ALTER TABLE q08_forecasts ADD COLUMN resolution_text TEXT").run();
-    } catch (addErr) {
-      var addMsg = String(addErr && addErr.message || addErr);
-      if (!/duplicate column/i.test(addMsg) && !/already exists/i.test(addMsg)) throw addErr;
-    }
-    var rows = await env.DB.prepare("SELECT id, resolution_text FROM q08_forecasts WHERE status = 'open'").all();
+    if (!(await ensureForecastSchema(env))) return 0;
+    var rows = await env.DB.prepare("SELECT id, slug, resolution, horizon, watch_urls FROM q08_forecasts WHERE status = 'open' AND id NOT IN (SELECT forecast_id FROM q08_forecast_clarifications WHERE kind = 'criteria')").all();
     var list = (rows && rows.results) || [];
     for (var i = 0; i < list.length; i++) {
-      var row = list[i];
-      if (row.resolution_text == null || row.resolution_text === undefined) continue; // no text to judge yet: never void on absence alone
-      var miss = forecastCriteriaMissing(row.resolution_text);
-      if (!miss) continue;
-      var upd = await env.DB.prepare("UPDATE q08_forecasts SET status = 'void', disposition = 'superseded-incomplete-criteria' WHERE id = ?1 AND status = 'open'").bind(row.id).run();
-      if (upd && upd.meta && upd.meta.changes) {
+      var text = forecastClarificationText(list[i], utcDay());
+      if (!text) continue;
+      var ins = await env.DB.prepare("INSERT OR IGNORE INTO q08_forecast_clarifications (forecast_id, slug, kind, text, added_at) VALUES (?1, ?2, 'criteria', ?3, ?4)").bind(list[i].id, list[i].slug, text, nowIso()).run();
+      if (ins && ins.meta && ins.meta.changes) {
         n++;
-        console.error(JSON.stringify({ worker: "q08-signal-engine", event: "forecast-criteria-republish-void", id: row.id, missing: miss }));
-        // Queue the replacement through the existing generator (its prompt and validateForecast already
-        // require a source, a date and an edge-case rule), so the republished forecast closes the gap.
-        if (typeof generateForecast === "function") {
-          try { await generateForecast(env, { replaceId: row.id }); }
-          catch (e) { console.error(JSON.stringify({ worker: "q08-signal-engine", event: "forecast-criteria-republish-queue", id: row.id, error: String((e && e.message) || e).slice(0, 200) })); }
-        }
+        console.error(JSON.stringify({ worker: "q08-signal-engine", event: "forecast-criteria-clarified", id: list[i].id }));
       }
     }
   } catch (e) {
-    console.error(JSON.stringify({ worker: "q08-signal-engine", event: "forecast-criteria-republish-sweep", error: String((e && e.message) || e).slice(0, 200) }));
+    console.error(JSON.stringify({ worker: "q08-signal-engine", event: "forecast-criteria-clarify", error: String((e && e.message) || e).slice(0, 200) }));
   }
   return n;
+}
+async function forecastClarification(env, forecastId) {
+  try {
+    var r = await env.DB.prepare("SELECT text, added_at FROM q08_forecast_clarifications WHERE forecast_id = ?1 AND kind = 'criteria'").bind(forecastId).first();
+    return r ? { text: String(r.text || ""), added_at: String(r.added_at || "") } : null;
+  } catch (e) { return null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -2934,6 +2931,10 @@ async function ensureForecastSchema(env) {
     await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_q08_forecast_updates_slug ON q08_forecast_updates (slug, id)").run();
     await env.DB.prepare("CREATE TRIGGER IF NOT EXISTS q08_forecast_updates_no_update BEFORE UPDATE ON q08_forecast_updates BEGIN SELECT RAISE(ABORT, 'BP26-FORECAST-HYGIENE-1: q08_forecast_updates is append-only'); END").run();
     await env.DB.prepare("CREATE TRIGGER IF NOT EXISTS q08_forecast_updates_no_delete BEFORE DELETE ON q08_forecast_updates BEGIN SELECT RAISE(ABORT, 'BP26-FORECAST-HYGIENE-1: q08_forecast_updates is append-only'); END").run();
+    // BP26-FORECAST-CLARIFY-1: dated clarifications of a forecast's resolution criteria, append-only, one row per forecast and kind.
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS q08_forecast_clarifications (id INTEGER PRIMARY KEY AUTOINCREMENT, forecast_id INTEGER NOT NULL, slug TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, added_at TEXT NOT NULL, UNIQUE (forecast_id, kind))").run();
+    await env.DB.prepare("CREATE TRIGGER IF NOT EXISTS q08_forecast_clarifications_no_update BEFORE UPDATE ON q08_forecast_clarifications BEGIN SELECT RAISE(ABORT, 'BP26-FORECAST-CLARIFY-1: q08_forecast_clarifications is append-only'); END").run();
+    await env.DB.prepare("CREATE TRIGGER IF NOT EXISTS q08_forecast_clarifications_no_delete BEFORE DELETE ON q08_forecast_clarifications BEGIN SELECT RAISE(ABORT, 'BP26-FORECAST-CLARIFY-1: q08_forecast_clarifications is append-only'); END").run();
     await env.DB.prepare("CREATE TRIGGER IF NOT EXISTS q08_forecasts_published_fields_immutable BEFORE UPDATE OF slug, claim, probability, horizon, resolution, created_at ON q08_forecasts WHEN NEW.slug IS NOT OLD.slug OR NEW.claim IS NOT OLD.claim OR NEW.probability IS NOT OLD.probability OR NEW.horizon IS NOT OLD.horizon OR NEW.resolution IS NOT OLD.resolution OR NEW.created_at IS NOT OLD.created_at BEGIN SELECT RAISE(ABORT, 'BP26-FORECAST-HYGIENE-1: a published forecast is never overwritten; insert a row in q08_forecast_updates'); END").run();
     __forecastSchemaDone = true;
     return true;
@@ -4460,6 +4461,7 @@ function renderForecastBox(f) {
     '<p style="margin:0 0 8px"><strong>Most likely scenario (' + fcPct(f.probability) + '):</strong> ' + q08Inline(f.claim) + '</p>' +
     '<p class="q-meta" style="margin:0 0 6px">Settled by ' + escHtml(f.horizon) + ' &middot; status: ' + escHtml(fcStatus(f)) + (f.status === "resolved" && f.brier != null ? ' &middot; Brier score ' + escHtml(String(f.brier)) : "") + '</p>' +
     '<p class="q-meta" style="margin:0 0 6px">Resolves true if: ' + escHtml(f.resolution) + '</p>' +
+    (f.clarification && f.clarification.text ? '<p class="q-meta" style="margin:0 0 6px">Clarification of the resolution (' + escHtml(String(f.clarification.added_at).slice(0, 10)) + '): ' + escHtml(f.clarification.text) + '</p>' : "") +
     (altText ? '<p class="q-meta" style="margin:0 0 6px">Rival scenarios: ' + altText + '</p>' : "") +
     (ind.length ? '<p class="q-meta" style="margin:0 0 6px">Watch: ' + ind.map(function (x) { return escHtml(String(x)); }).join("; ") + '</p>' : "") +
     (f.secondary_claims || []).map(function (c) { return '<p class="q-meta">Secondary prediction (' + fcPct(c.probability) + '), made ' + escHtml(String(c.created_at).slice(0, 10)) + ': ' + escHtml(c.claim) + ' &middot; settled by ' + escHtml(c.horizon) + ' &middot; ' + escHtml(fcStatus(c)) + (c.brier != null ? ' &middot; Brier ' + escHtml(String(c.brier)) : '') + '<br>Resolves true if: ' + escHtml(c.resolution) + '</p>'; }).join("") +
@@ -5024,7 +5026,7 @@ function cleanNote(v) {
   return t || null;
 }
 // Q08-QUALITY-1: pure helpers exposed for the offline suite (quality.test.mjs); no route uses this export.
-export const __forecast = { forecastResolutionGaps: forecastResolutionGaps, recordForecastUpdate: recordForecastUpdate, renderCalibration: renderCalibration, forecastPostText: forecastPostText, gatherEvidence: gatherEvidence, forecastDue: forecastDue, resolveForecasts: resolveForecasts, ensureForecastSchema: ensureForecastSchema, generateForecast: generateForecast, forecastStats: forecastStats, parseForecastBlock: parseForecastBlock, validateForecast: validateForecast, forecastXform: forecastXform, forecastProblems: forecastProblems, buildForecastPrompt: buildForecastPrompt, calibration: calibration, lastForecastUpdateScore: lastForecastUpdateScore, parseJudgeVerdict: parseJudgeVerdict, aggregateJudges: aggregateJudges, parseForecastCap: parseForecastCap, publicHttpsUrl: publicHttpsUrl, fcStatus: fcStatus, renderForecastBox: renderForecastBox, renderForecasts: renderForecasts, FORECAST_DIRECTIVE: FORECAST_DIRECTIVE, FORECAST_EVERY: FORECAST_EVERY, FORECAST_MAX_CHECKS: FORECAST_MAX_CHECKS };
+export const __forecast = { forecastClarificationText: forecastClarificationText, sweepForecastCriteria: sweepForecastCriteria, forecastClarification: forecastClarification, forecastResolutionGaps: forecastResolutionGaps, recordForecastUpdate: recordForecastUpdate, renderCalibration: renderCalibration, forecastPostText: forecastPostText, gatherEvidence: gatherEvidence, forecastDue: forecastDue, resolveForecasts: resolveForecasts, ensureForecastSchema: ensureForecastSchema, generateForecast: generateForecast, forecastStats: forecastStats, parseForecastBlock: parseForecastBlock, validateForecast: validateForecast, forecastXform: forecastXform, forecastProblems: forecastProblems, buildForecastPrompt: buildForecastPrompt, calibration: calibration, lastForecastUpdateScore: lastForecastUpdateScore, parseJudgeVerdict: parseJudgeVerdict, aggregateJudges: aggregateJudges, parseForecastCap: parseForecastCap, publicHttpsUrl: publicHttpsUrl, fcStatus: fcStatus, renderForecastBox: renderForecastBox, renderForecasts: renderForecasts, FORECAST_DIRECTIVE: FORECAST_DIRECTIVE, FORECAST_EVERY: FORECAST_EVERY, FORECAST_MAX_CHECKS: FORECAST_MAX_CHECKS };
 export const __domain = { parseDomains: parseDomains, q08Domains: q08Domains, resetDomains: function () { __domains = { at: 0, d: parseDomains(null) }; }, classifyDomain: classifyDomain, storyDomain: storyDomain, preferNonTech: preferNonTech, scrapeArxivDomain: scrapeArxivDomain, domainForm: domainForm, buildPrompt: buildPrompt, READER_PROMPT: READER_PROMPT, READER_PROMPT_DOMAIN: READER_PROMPT_DOMAIN, FINAL_READER_PROMPT: FINAL_READER_PROMPT, FINAL_READER_PROMPT_DOMAIN: FINAL_READER_PROMPT_DOMAIN, readerPromptFor: readerPromptFor, finalReaderPromptFor: finalReaderPromptFor, sourceKindOf: sourceKindOf, DOMAIN_ROTATE: DOMAIN_ROTATE, Q08_DIRECTIVE: Q08_DIRECTIVE };
 export const __gen = { thinPassedOver: thinPassedOver, parseArxivPool: parseArxivPool, arxivPoolSize: arxivPoolSize, resetArxivPool: function () { __arxivPool = { at: 0, n: ARXIV_POOL_DEFAULT }; }, scrapeArxiv: scrapeArxiv, ARXIV_POOL_DEFAULT: ARXIV_POOL_DEFAULT, parseComposeOrder: parseComposeOrder, q08Budget: q08Budget, Q08_DAILY_NEURONS_DEFAULT: Q08_DAILY_NEURONS_DEFAULT, resetRunColumns: function () { __runColsOk = false; __runColsTried = 0; }, sourceFloorFrom: sourceFloorFrom, learnedSourceFloor: learnedSourceFloor, thinSourceVerdict: thinSourceVerdict, sourceKindOf: sourceKindOf, markThinSkipped: markThinSkipped, ensureRunColumns: ensureRunColumns, insertRun: insertRun, meterCall: meterCall, claimClassesOf: claimClassesOf, get SOURCE_FLOOR_MIN_OK() { return SOURCE_FLOOR_MIN_OK; }, get THIN_MIN_ARTICLE() { return THIN_MIN_ARTICLE; }, get MIN_GROUND_CHARS() { return MIN_GROUND_CHARS; }, composeOrder: composeOrder, COMPOSE_MODELS: COMPOSE_MODELS, COMPOSE_MODELS_AT_CAP: COMPOSE_MODELS_AT_CAP, generate: generate, get TICK_BUDGET_MS() { return TICK_BUDGET_MS; }, get ESSAY_AFTER_FORECAST_MS() { return ESSAY_AFTER_FORECAST_MS; }, q08TickAllowance: q08TickAllowance, q08TickConfig: q08TickConfig, q08LastAttemptMs: q08LastAttemptMs, q08TickMore: q08TickMore, governedGenerate: governedGenerate };
 export const __stall = { stallRetryDue: stallRetryDue, stallDetector: stallDetector, stallDigest: stallDigest, stallStage: stallStage, get STALL_RETRY_H() { return STALL_RETRY_H; } };
@@ -5414,6 +5416,7 @@ async function q08Fetch(req, env, ctx) {
       await countPieceRead(env, req, slug, ctx);
       var frow = piece.kind === "forecast" ? await env.DB.prepare("SELECT * FROM q08_forecasts WHERE slug = ?").bind(slug).first().catch(function () { return null; }) : null;
       if (frow) frow.secondary_claims = (await env.DB.prepare("SELECT * FROM q08_forecast_claims WHERE slug = ? ORDER BY claim_index").bind(slug).all().catch(function () { return { results: [] }; })).results || [];
+      if (frow) frow.clarification = await forecastClarification(env, frow.id);
       var pieceHtml = renderPiece(piece, frow);
       // If a vote just occurred, show a thank‑you notice instead of the voting UI.
       var voted = url.searchParams.get("voted");
@@ -5481,6 +5484,8 @@ async function q08Fetch(req, env, ctx) {
     if (path === "/api/forecasts") {
       var fr2 = await env.DB.prepare("SELECT slug, source_slug, claim, probability, horizon, resolution, alternatives_json, status, outcome, brier, checks, created_at, resolved_at, disposition FROM q08_forecasts WHERE slug NOT IN (SELECT slug FROM q08_retractions) ORDER BY id DESC LIMIT 200").all().catch(function () { return { results: [] }; });
       var fupd = await env.DB.prepare("SELECT slug, prior_probability, probability, reason, evidence_url, created_at FROM q08_forecast_updates ORDER BY id").all().catch(function () { return { results: [] }; });
+      var fcl = await env.DB.prepare("SELECT slug, text, added_at FROM q08_forecast_clarifications WHERE kind = 'criteria'").all().catch(function () { return { results: [] }; });
+      var clBySlug = {}; (fcl.results || []).forEach(function (c) { clBySlug[c.slug] = { text: c.text, added_at: c.added_at }; });
       var fby = {}; (fupd.results || []).forEach(function (u) { (fby[u.slug] = fby[u.slug] || []).push({ prior_probability: u.prior_probability, probability: u.probability, reason: u.reason, evidence_url: u.evidence_url, at: u.created_at }); });
       var claims = await env.DB.prepare("SELECT slug, claim_index, claim, probability, horizon, resolution, watch_query, watch_urls, created_at, status, outcome, brier, checks, last_check_at, resolved_at, disposition FROM q08_forecast_claims WHERE slug IN (SELECT slug FROM q08_forecasts ORDER BY id DESC LIMIT 200) ORDER BY claim_index").all().catch(function () { return { results: [] }; });
       var cby = {}; (claims.results || []).forEach(function (c) { (cby[c.slug] = cby[c.slug] || []).push(c); });
@@ -5488,6 +5493,7 @@ async function q08Fetch(req, env, ctx) {
   f.original_probability = f.probability;
   f.secondary_claims = cby[f.slug] || [];
   f.updates = fby[f.slug] || [];
+  f.criteria_clarification = clBySlug[f.slug] || null;
   return attachForecastUpdateScore(f, f.updates);
 }) });
     }

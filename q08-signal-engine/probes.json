@@ -20,6 +20,12 @@
       "contains": [
         "cf-turnstile"
       ]
+    },
+    {
+      "url": "https://q08.org/api/forecasts",
+      "contains": [
+        "\"criteria_clarification\""
+      ]
     }
   ]
 }
