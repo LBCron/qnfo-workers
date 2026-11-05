@@ -36,6 +36,7 @@ on:
           - zaraz-remove-tool
           - zaraz-get
           - zaraz-set-ga4
+          - gtg-tag
           - spare-domain-canon
           - d1-backup
           - unbind-d1
@@ -52,7 +53,7 @@ on:
         required: false
         default: ""
       model:
-        description: "model filter (gateway-logs), tool match (zaraz-remove-tool), or dry|live for zaraz-set-ga4 and spare-domain-canon, or dry|live|revert for edge-rules"
+        description: "model filter (gateway-logs), tool match (zaraz-remove-tool), or dry|live for zaraz-set-ga4 and spare-domain-canon, or dry|live|revert for edge-rules, or read|off|on for gtg-tag"
         required: false
         default: ""
       gateway:

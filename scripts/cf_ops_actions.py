@@ -75,6 +75,10 @@ ACTIONS
   zaraz-remove-tool ZONE --model MATCH
                          Remove exactly one Zaraz tool matching MATCH on an allowlisted zone (q08.org), publish, verify
                          (ZARAZ-TOOL-REMOVE-1). Prints only the removed tool's non-secret settings so it can be re-added.
+  gtg-tag ZONE --model read|off|on
+                         BP26-NO-TRACKING-2: Cloudflare Google Tag Gateway automatic tag set-up on one allowlisted zone (qwav.tech). read prints the config; off sets
+                         setUpTag false (the edge then stops writing the Google tag and its _ga cookies into every page of the zone before consent), on restores it.
+                         The other fields are sent back unchanged and the result is read back; the previous config is printed for the revert.
   ops-intake-probe       #1189 DoD: ask the qnfo-ops agent (OPS_ROUTER_AUTH_KEY) to call research_queue once with a
                          clearly marked probe idea and return the raw tool JSON, proving the intake envelope reports
                          persistence truthfully. The probe intent is cancelled afterwards from D1, before the 06:00Z
@@ -738,6 +742,48 @@ def zaraz_set_ga4(zone_name: str, mode: str, token: str) -> int:
     emit({"action": "zaraz-set-ga4", "ok": st2 in (200, 201), "zone": zone_name, "permissions": tools[tkey].get("permissions"), "published_http": st2, "errors": p.get("errors") if isinstance(p, dict) else None})
     return 0 if st2 in (200, 201) else 1
 
+
+
+# BP26-NO-TRACKING-2 (2026-11-05, breach triggers 14504 non_essential_cookies_set and 14505 third_party_trackers). The qwav.tech zone has Cloudflare's Google Tag
+# Gateway on with setUpTag true (measurement id of the ask.qwav.tech property): the edge writes the Google tag and its _ga cookies into every HTML page of the zone for every visitor,
+# before any consent, and a Worker cannot gate or strip what the edge injects after it (the gateway is a zone setting; Configuration Rules cannot scope it to a hostname). qnfo-gateway's own tag
+# is behind a consent loader since 3.58.0 (BP26-CONSENT-1); this is the other path. mode 'read' prints the config, 'off' sets setUpTag false (the endpoint, measurement id and the rest are
+# sent back unchanged, so the gateway keeps proxying a tag the site adds itself), 'on' restores it. The result is read back.
+GTG_ZONES = {"qwav.tech"}
+
+
+def gtg_tag(zone_name: str, mode: str, token: str) -> int:
+    if zone_name not in GTG_ZONES:
+        emit({"action": "gtg-tag", "ok": False, "error": "zone not in the allowlist", "zone": zone_name, "allowed": sorted(GTG_ZONES)})
+        return 2
+    zs = zaraz_zones(token, zone_name)
+    if not zs:
+        emit({"action": "gtg-tag", "ok": False, "error": "zone not found", "zone": zone_name})
+        return 2
+    path = "/zones/%s/settings/google-tag-gateway/config" % zs[0][0]
+    st, j = call("GET", path, token)
+    if st != 200 or not isinstance(j.get("result"), dict):
+        emit({"action": "gtg-tag", "ok": False, "stage": "get", "http": st, "errors": j.get("errors")})
+        return 1
+    before = j["result"]
+    if mode not in ("off", "on"):
+        emit({"action": "gtg-tag", "ok": True, "mode": "read", "zone": zone_name, "config": before})
+        return 0
+    want = mode == "on"
+    if bool(before.get("setUpTag")) == want:
+        emit({"action": "gtg-tag", "ok": True, "zone": zone_name, "note": "already " + mode, "config": before})
+        return 0
+    body = {k: before[k] for k in ("enabled", "endpoint", "hideOriginalIp", "measurementId") if k in before}
+    body["setUpTag"] = want
+    st2, j2 = call("PUT", path, token, body)
+    if st2 not in (200, 201) or j2.get("success") is False:
+        emit({"action": "gtg-tag", "ok": False, "stage": "put", "http": st2, "errors": j2.get("errors"), "before": before})
+        return 1
+    st3, j3 = call("GET", path, token)
+    after = j3.get("result") if st3 == 200 and isinstance(j3.get("result"), dict) else {}
+    ok = bool(after) and bool(after.get("setUpTag")) == want
+    emit({"action": "gtg-tag", "ok": ok, "zone": zone_name, "mode": mode, "before": before, "after": after})
+    return 0 if ok else 1
 
 
 # SPARE-DOMAIN-CANON-1 (2026-10-12, agent_issues 2361; owner approved 2026-10-12, former card 66). qwav.org is the canonical
@@ -1996,7 +2042,7 @@ def gen_activitypub_key(worker: str, acct: str, token: str, keygen=_rsa_keypair,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["blocker-redteam", "d1-backup", "unbind-d1", "delete-d1", "unbind-service", "worker-history", "kv-secret-scan", "ops-intake-probe", "report", "r2-get", "delete-worker", "delete-vectorize-index", "gateway-logs", "ai-neurons", "gateway-cost", "gateway-routes", "access-probe", "access-ensure-cloudflare", "zaraz-remove-tool", "zaraz-get", "zaraz-set-ga4", "spare-domain-canon", "gen-activitypub-key", "d1-restore-drill", "kill-switch-drill", "edge-rules", "secrets-inventory", "obs-sampling"])
+    ap.add_argument("action", choices=["blocker-redteam", "d1-backup", "unbind-d1", "delete-d1", "unbind-service", "worker-history", "kv-secret-scan", "ops-intake-probe", "report", "r2-get", "delete-worker", "delete-vectorize-index", "gateway-logs", "ai-neurons", "gateway-cost", "gateway-routes", "access-probe", "access-ensure-cloudflare", "zaraz-remove-tool", "zaraz-get", "zaraz-set-ga4", "gtg-tag", "spare-domain-canon", "gen-activitypub-key", "d1-restore-drill", "kill-switch-drill", "edge-rules", "secrets-inventory", "obs-sampling"])
     ap.add_argument("--target", default="")
     ap.add_argument("--model", default="")
     ap.add_argument("--gateway", default="default")
@@ -2045,6 +2091,8 @@ def main() -> int:
         return zaraz_get(a.target, token)
     if a.action == "zaraz-set-ga4":
         return zaraz_set_ga4(a.target, a.model, token)
+    if a.action == "gtg-tag":
+        return gtg_tag(a.target, a.model, token)
     if a.action == "spare-domain-canon":
         return spare_domain_canon(a.target, a.model, token)
     if a.action == "r2-get":
