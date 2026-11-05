@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.93.1";
+var VERSION = "1.93.2";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -7869,11 +7869,19 @@ function wmTransientUnmeasured(json) {
 async function watchmakerDaily(env, opts) {
   const now = opts && opts.now || Date.now();
   const d = new Date(now);
-  if (!(opts && opts.force) && d.getUTCHours() < WATCHMAKER_AFTER_UTC_HOUR) return { skipped: "before " + WATCHMAKER_AFTER_UTC_HOUR + ":00Z" };
   const A = env.AUDIT;
-  await A.prepare("CREATE TABLE IF NOT EXISTS watchmaker_runs (day TEXT PRIMARY KEY, index_value INTEGER, counted TEXT, json TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
-  const day = d.toISOString().slice(0, 10);
-  const have = (await d1all(A, "SELECT day, json, created_at FROM watchmaker_runs WHERE day = ?", [day]))[0];
+  let day = d.toISOString().slice(0, 10);
+  let have = null;
+  if (!(opts && opts.force) && d.getUTCHours() < WATCHMAKER_AFTER_UTC_HOUR) {
+    // WATCHMAKER-REMEASURE-1b: before 07:00Z nothing new is measured, but the newest stored row that holds a transient failure (the 07:00Z row of the day before) is measured again into its own
+    // day, at most every 20 minutes, instead of standing until the next morning.
+    try { have = (await d1all(A, "SELECT day, json, created_at FROM watchmaker_runs ORDER BY day DESC LIMIT 1"))[0] || null; } catch (e) { have = null; }
+    if (!have || !wmTransientUnmeasured(have.json) || now - Date.parse(String(have.created_at || "").replace(" ", "T") + "Z") < 20 * 60000) return { skipped: "before " + WATCHMAKER_AFTER_UTC_HOUR + ":00Z" };
+    day = have.day;
+  } else {
+    await A.prepare("CREATE TABLE IF NOT EXISTS watchmaker_runs (day TEXT PRIMARY KEY, index_value INTEGER, counted TEXT, json TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
+    have = (await d1all(A, "SELECT day, json, created_at FROM watchmaker_runs WHERE day = ?", [day]))[0];
+  }
   // WATCHMAKER-REMEASURE-1 (2026-11-05, breach audit sla-graph-fm): the day was measured once, at the first tick after 07:00Z, and a database that answered "overloaded" at that moment
   // made 41 of 68 operations "unmeasured", each counted as needing a person: watchmaker_index read 42 for the next 16 hours. A day whose stored measurement holds an operation that
   // failed on a transient database error is measured again, at most every 20 minutes; a persistent error (a missing table) is not retried, it is a finding.

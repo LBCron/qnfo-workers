@@ -576,6 +576,21 @@ ok(api.wmIso(1790849435000) === "2026-10-01T10:10:35.000Z" && api.wmIso(17908494
   db.prepare("INSERT OR REPLACE INTO watchmaker_runs (day, index_value, counted, json, created_at) VALUES ('2026-10-11', 1, 'x', 'not json', '2026-10-11 07:30:00')").run();
   r = await api.watchmakerDaily(env, { now: at("2026-10-11", "09") });
   ok(/already measured/.test(r.skipped || ""), "a stored row that is not JSON is left alone", r.skipped);
+  // WATCHMAKER-REMEASURE-1b: before 07:00Z the newest stored row that holds a transient failure is measured again, into its own day
+  db.prepare("DELETE FROM watchmaker_runs WHERE day > '2026-10-06'").run();
+  seed("2026-10-12", "unmeasured: D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window", "2026-10-12 07:00:00");
+  r = await api.watchmakerDaily(env, { now: Date.parse("2026-10-13T03:00:00Z") });
+  const early = db.prepare("SELECT day, json FROM watchmaker_runs WHERE day >= '2026-10-12'").all();
+  ok(!r.skipped && early.length === 1 && early[0].day === "2026-10-12" && !early[0].json.includes("seed-op"), "before 07:00Z a transiently unmeasured row from the day before is measured again into its own day", { r: r.skipped, early: early.map((e) => e.day) });
+  seed("2026-10-14", "unmeasured: D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window", "2026-10-15 02:50:00");
+  r = await api.watchmakerDaily(env, { now: Date.parse("2026-10-15T03:00:00Z") });
+  ok(/before 7:00Z/.test(r.skipped || ""), "but not within 20 minutes of the last measurement", r.skipped);
+  seed("2026-10-16", "ok, last run 0.2h ago", "2026-10-16 02:00:00");
+  r = await api.watchmakerDaily(env, { now: Date.parse("2026-10-17T03:00:00Z") });
+  ok(/before 7:00Z/.test(r.skipped || ""), "and a clean newest row is left alone before 07:00Z", r.skipped);
+  seed("2026-10-18", "unmeasured: D1_ERROR: no such table: nope", "2026-10-18 02:00:00");
+  r = await api.watchmakerDaily(env, { now: Date.parse("2026-10-19T03:00:00Z") });
+  ok(/before 7:00Z/.test(r.skipped || ""), "and a persistent error is left alone before 07:00Z", r.skipped);
   db.prepare("DELETE FROM watchmaker_runs WHERE day > '2026-10-06'").run();   // the GET test below reads the latest run: keep it the NOW day
 }
 
