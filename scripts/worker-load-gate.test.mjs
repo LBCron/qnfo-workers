@@ -73,7 +73,9 @@ ok(classify("Error: LOAD-GATE-RELATIVE-IMPORT ./a.js") === "relative-import" && 
 
 // the real fleet: every worker entry on this checkout loads (the gate is green at birth), and the stub covers every imported name
 const real = workerEntries(repo);
-ok(real.length >= 90, "the repository has its worker directories", real.length);
+// RM-REPO-DEAD-SOURCES-1 (2026-11-05): retired directories move to archive/<name>/ (PRs 7674, 7697, 7708 moved 30 directories; the count read 89 after batch 2), so a floor of 90 turned main red
+// after the second batch. The floor now follows the fleet: the charter caps live workers at 30, and 38 are live, so fewer than 30 entries means the scan found nothing.
+ok(real.length >= 30, "the repository has its worker directories (at least the charter cap of 30)", real.length);
 const bad = [];
 const queue = real.slice();
 await Promise.all(Array.from({ length: 8 }, async () => { while (queue.length) { const e = queue.shift(); const x = await checkOne(repo, e, 30); if (!x.ok) bad.push(x); } }));
