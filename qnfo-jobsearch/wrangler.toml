@@ -44,6 +44,11 @@ binding = "EMAIL"
 service = "qnfo-email"
 props = { caller = "qnfo-jobsearch" }
 
+# JOBSEARCH-LLM-RERANK-1 (JS-6): the re-rank asks Workers AI directly (one hop, about 11 s for 25 postings); the router binding below is the second path, kept because the
+# first live router answer was HTTP 502 after 38 s and a binding that is declared costs nothing. Spend is counted under this worker's name (AI-METER-COVER-1, __aiAttrEnv).
+[ai]
+binding = "AI"
+
 # JOBSEARCH-LLM-RERANK-1 (JS-6): the reorder-only re-rank asks the qnfo-ai router through this binding (props caller, no key copy).
 # Without it llmRerank answered "no-binding" on every run, which is what production did before this block.
 [[services]]

@@ -9,7 +9,43 @@
 // JOBSEARCH-CV-1 (1.5.0): the CV is part of this worker (page /cv): a yes/no interview that builds the claim bank, review of unconfirmed claims, roles, achievements and publications edited in D1, a resume per job (summary, roles, selected work, education, skills) and a cover note, history and backup. The search is tied to that bank (evidence the owner can back up weighs more; what the CV lacks is shown as a gap), decided postings (rejected, applied, approved) never come back under another id, rejections carry a reason the search learns from, and a wider net: stretch matches outside the stated preferences, more boards and aggregators.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.6.2-codeagent";
+var VERSION = "1.6.3-codeagent";
+// WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
+// binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
+// Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
+var __AI_ATTR_RATES = { "@cf/zai-org/glm-5.3": [127273, 400000], "@cf/zai-org/glm-5.3-flash": [13636, 45455], "@cf/nvidia/nemotron-3-120b-a12b": [45455, 136364], "@cf/moonshotai/kimi-k2.6": [86364, 363636], "@cf/moonshotai/kimi-k2.7-code": [86364, 363636], "@cf/openai/gpt-oss-120b": [31818, 68182], "@cf/openai/gpt-oss-20b": [18182, 27273], "@cf/deepseek-ai/deepseek-v4-pro-0813": [120000, 360000], "@cf/deepseek-ai/deepseek-v4-flash-0731": [40000, 120000], "@cf/meta/llama-3.3-70b-instruct-fp8-fast": [26668, 204805], "@cf/qwen/qwen3-30b-a3b-fp8": [4625, 30475], "@cf/qwen/qwen3.8-27b": [40909, 290909], "@cf/baai/bge-base-en-v1.5": [6058, 0], "@cf/baai/bge-small-en-v1.5": [1841, 0], "@cf/baai/bge-large-en-v1.5": [18582, 0] };
+function __aiAttrEnv(env, worker, aiKey, dbKey) {
+  try {
+    if (!env || env.__aiAttr) return env;
+    var ai = env[aiKey], db = env[dbKey];
+    if (!ai || typeof ai.run !== "function" || !db) return env;
+    var wrapped = new Proxy(ai, { get: function (t, p) {
+      if (p !== "run") { var v = Reflect.get(t, p); return typeof v === "function" ? v.bind(t) : v; }
+      return async function (model, input, opts) {
+        var t0 = Date.now(), ok = 1, res;
+        try { res = await t.run(model, input, opts); return res; } catch (e) { ok = 0; throw e; }
+        finally {
+          try {
+            var u = res && typeof res === "object" && res.usage || {};
+            var chars = 0; try { chars = JSON.stringify(input && (input.messages || input.prompt || input.text) || input || "").length; } catch (e1) {} // standards-ok: the counter is fail-soft by design, an AI call never fails because of its own bookkeeping
+            var inTok = Number(u.prompt_tokens || u.input_tokens || 0) || Math.round(chars / 4);
+            var outTok = Number(u.completion_tokens || u.output_tokens || 0);
+            var r = __AI_ATTR_RATES[String(model)] || [0, 0];
+            var neurons = (inTok * r[0] + outTok * r[1]) / 1e6;
+            await db.prepare("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors, in_chars, ms, in_tok, out_tok, neurons) VALUES (?1,?2,'binding',?3,1,?4,?5,?6,?7,?8,?9) ON CONFLICT(day, worker, purpose, model) DO UPDATE SET calls=calls+1, errors=errors+excluded.errors, in_chars=in_chars+excluded.in_chars, ms=ms+excluded.ms, in_tok=in_tok+excluded.in_tok, out_tok=out_tok+excluded.out_tok, neurons=neurons+excluded.neurons")
+              .bind(new Date().toISOString().slice(0, 10), worker, String(model).slice(0, 120), ok ? 0 : 1, chars, Date.now() - t0, inTok, outTok, neurons).run();
+          } catch (e2) {} // standards-ok: the counter is fail-soft by design, an AI call never fails because of its own bookkeeping
+        }
+      };
+    } });
+    var copy = Object.assign({}, env);
+    copy[aiKey] = wrapped;
+    copy.__aiAttr = 1;
+    return copy;
+  } catch (e) {
+    return env;
+  }
+}
 const WORKER = "qnfo-jobsearch";
 const LEDGER = {
  "ledger_verified_on": "2026-10-01",
@@ -1197,7 +1233,19 @@ function reasonOk(reason, job) {
   }
   return r;
 }
-async function rerankAsk(env, messages) {
+// Two ways to ask, in this order. (1) The Workers AI binding: the same model the router would pick, one hop, about 11 s for 25 postings (measured 2026-11-05 with the REST API:
+// 800 completion tokens, no reasoning tokens at effort low). (2) The qnfo-ai router through the QNFO_AI service binding, used only when the binding is missing or the call fails: its
+// first live answer (2026-11-05 03:16Z) was HTTP 502 after about 38 s, which is why the AI binding comes first. The text of the answer is the same JSON either way.
+function aiText(w) {
+  return (w && (typeof w.response === "string" ? w.response : (w.choices && w.choices[0] && w.choices[0].message && w.choices[0].message.content))) || "";
+}
+async function rerankAskAi(env, messages) {
+  let timer;
+  const run = env.AI.run(RERANK_MODEL, { messages, max_tokens: 2000, temperature: 0, reasoning_effort: "low" });
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error("ai timeout"), { code: "ai-timeout" })), 45000); });
+  try { return aiText(await Promise.race([run, limit])); } finally { clearTimeout(timer); }
+}
+async function rerankAskRouter(env, messages) {
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 45000);
   try {
     const r = await env.QNFO_AI.fetch("https://qnfo-ai.internal/v1/chat/completions", {
@@ -1205,32 +1253,41 @@ async function rerankAsk(env, messages) {
       body: JSON.stringify({ model: RERANK_MODEL, messages, max_tokens: 2000, temperature: 0, stream: false }),
     });
     if (!r.ok) throw Object.assign(new Error("http " + r.status), { code: "http-" + r.status });
-    const j = await r.json();
-    return (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
+    return aiText(await r.json());
   } finally { clearTimeout(t); }
 }
-// returns {kept, status}; status is one of no-binding, empty, ok, reordered, bad-answer, http-NNN, error
+async function rerankAsk(env, messages) {
+  let first = null;
+  if (env.AI && typeof env.AI.run === "function") {
+    try { const text = await rerankAskAi(env, messages); if (text) return { text, via: "ai" }; first = Object.assign(new Error("empty answer"), { code: "ai-empty" }); }
+    catch (e) { logErr("llm-rerank-ai", e); first = e; }
+  }
+  if (env.QNFO_AI && typeof env.QNFO_AI.fetch === "function") return { text: await rerankAskRouter(env, messages), via: "router" };
+  throw first || Object.assign(new Error("no binding"), { code: "no-binding" });
+}
+// returns {kept, status, via}; status is one of no-binding, empty, ok, reordered, bad-answer, ai-timeout, ai-empty, http-NNN, error
 async function llmRerankRun(env, kept) {
-  if (!env.QNFO_AI || typeof env.QNFO_AI.fetch !== "function") return { kept, status: "no-binding" };
+  const hasAi = env.AI && typeof env.AI.run === "function", hasRouter = env.QNFO_AI && typeof env.QNFO_AI.fetch === "function";
+  if (!hasAi && !hasRouter) return { kept, status: "no-binding" };
   if (kept.length < 2) return { kept, status: "empty" };
   const top = kept.slice(0, RERANK_TOP), rest = kept.slice(RERANK_TOP);
-  let text;
-  try { text = await rerankAsk(env, rerankMessages(top)); }
+  let asked;
+  try { asked = await rerankAsk(env, rerankMessages(top)); }
   catch (e) { logErr("llm-rerank", e); return { kept, status: (e && e.code) || "error" }; }
-  const p = parseRerank(text, top.length);
-  if (!p) return { kept, status: "bad-answer" };
+  const p = parseRerank(asked.text, top.length);
+  if (!p) return { kept, status: "bad-answer", via: asked.via };
   const next = p.order.map((i) => top[i]);
   next.forEach((j, k) => { j.match.why = (j.match.why || []).concat(["LLM: rank " + (k + 1) + " of " + next.length]); });   // the owner sees what the AI changed
   for (const [i, reason] of Object.entries(p.reasons)) {
     const ok = reasonOk(reason, top[i]);
     if (ok) top[i].match.why = (top[i].match.why || []).concat(["LLM: " + ok]);
   }
-  return { kept: next.concat(rest), status: p.order.every((v, i) => v === i) ? "ok" : "reordered" };
+  return { kept: next.concat(rest), status: p.order.every((v, i) => v === i) ? "ok" : "reordered", via: asked.via };
 }
 async function llmRerank(env, kept) {
   try {
     const r = await llmRerankRun(env, kept);
-    try { await setMeta(env, "rerank_status", r.status); await setMeta(env, "rerank_at", new Date().toISOString()); } catch (e) { logErr("llm-rerank-status", e); }
+    try { await setMeta(env, "rerank_status", r.status); await setMeta(env, "rerank_via", r.via || "none"); await setMeta(env, "rerank_at", new Date().toISOString()); } catch (e) { logErr("llm-rerank-status", e); }
     return r.kept;
   } catch (e) { logErr("llm-rerank", e); return kept; }   // any failure: the deterministic order stands
 }
@@ -1701,7 +1758,7 @@ async function opsReport(env) {
   const counts = (await db.prepare("SELECT status, COUNT(*) AS n FROM jobsearch_matches GROUP BY status").all()).results;
   const blockedN = (await db.prepare("SELECT COUNT(*) AS n FROM jobsearch_matches WHERE verified=0 AND status='pending_owner_approval'").first()).n;
   const stalePending = (await db.prepare("SELECT COUNT(*) AS n FROM jobsearch_matches WHERE status='pending_owner_approval' AND last_seen < ?").bind(iso(now - 72 * 3600000)).first()).n;
-  const rerank = Object.fromEntries(((await db.prepare("SELECT k, v FROM jobsearch_meta WHERE k IN ('rerank_status','rerank_at')").all()).results || []).map((r) => [r.k, r.v]));   // JOBSEARCH-LLM-RERANK-1: what the last run's AI re-rank did
+  const rerank = Object.fromEntries(((await db.prepare("SELECT k, v FROM jobsearch_meta WHERE k IN ('rerank_status','rerank_at','rerank_via')").all()).results || []).map((r) => [r.k, r.v]));   // JOBSEARCH-LLM-RERANK-1: what the last run's AI re-rank did
   const ageMin = last ? Math.round((now - Date.parse(last.finished_at)) / 60000) : null;
   const ledgerAge = Math.floor((now - Date.parse(LEDGER_VERIFIED_ON)) / 86400000);
   const checks = [
@@ -1714,7 +1771,7 @@ async function opsReport(env) {
     { fm: "jobsearch-intake-collapse", ok: !(recent.length >= 3 && recent.every((r) => Number(r.fetched) < 1000 || Number(r.passed) === 0)), detail: recent.map((r) => `${r.fetched}/${r.passed}`).join(" ") + " (fetched/passed, last 3 runs)" },
     { fm: "jobsearch-auth-unavailable", ok: !!env.EMAIL || !!env.LOOP_TOKEN, detail: `email sign-in ${env.EMAIL ? "bound" : "missing"}, loop token ${env.LOOP_TOKEN ? "set" : "not set"}` },
   ];
-  return { worker: WORKER, version: VERSION, status: checks.every((c) => c.ok) ? "ok" : "degraded", checked_at: iso(now), last_run: last ? { id: last.id, finished_at: last.finished_at, fetched: last.fetched, passed: last.passed, stored: last.stored, blocked: last.blocked } : null, rerank: { status: rerank.rerank_status || "never", at: rerank.rerank_at || null, binding: !!env.QNFO_AI }, feeds, matches_by_status: Object.fromEntries(counts.map((c) => [c.status, c.n])), checks };
+  return { worker: WORKER, version: VERSION, status: checks.every((c) => c.ok) ? "ok" : "degraded", checked_at: iso(now), last_run: last ? { id: last.id, finished_at: last.finished_at, fetched: last.fetched, passed: last.passed, stored: last.stored, blocked: last.blocked } : null, rerank: { status: rerank.rerank_status || "never", via: rerank.rerank_via || null, at: rerank.rerank_at || null, binding: !!(env.AI || env.QNFO_AI) }, feeds, matches_by_status: Object.fromEntries(counts.map((c) => [c.status, c.n])), checks };
 }
 const INDEX = {
   worker: WORKER, version: VERSION,
@@ -1727,8 +1784,12 @@ const INDEX = {
 };
 
 const handler = {
-  async scheduled(event, env, ctx) { ctx.waitUntil(run(env).catch((e) => console.log("[jobsearch] run failed " + e.message))); },
+  async scheduled(event, env, ctx) {
+    env = __aiAttrEnv(env, "qnfo-jobsearch", "AI", "JOBS_DB");
+    ctx.waitUntil(run(env).catch((e) => console.log("[jobsearch] run failed " + e.message)));
+  },
   async fetch(request, env, ctx) {
+    env = __aiAttrEnv(env, "qnfo-jobsearch", "AI", "JOBS_DB");
     const url = new URL(request.url), p = url.pathname, m = request.method;
     if (m === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type,x-loop-token", "access-control-allow-methods": "GET,POST,OPTIONS" } });
     if (p === "/health") return J({ ok: true, worker: WORKER, version: VERSION, ledger_verified_on: LEDGER_VERIFIED_ON });

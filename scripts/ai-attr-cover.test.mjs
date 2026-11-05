@@ -13,6 +13,7 @@ const TARGETS = {
   "qnfo-infra": ["AUDIT", 2],
   "qnfo-memory-mcp": ["AUDIT", 1],
   "qnfo-youtube-shorts": ["QNFO_AUDIT", 2],
+  "qnfo-jobsearch": ["JOBS_DB", 2],   // JOBSEARCH-LLM-RERANK-1: the re-rank asks the Workers AI binding first
 };
 let pass = 0;
 for (const [dir, [db, handlers]] of Object.entries(TARGETS)) {
