@@ -303,6 +303,14 @@ def scan_text(text):
     hits = []
     for name, rx in SECRET_PATTERNS:
         for m in rx.finditer(text):
+            # SECRETS-BEACON-1 (agent_issues 1001435): the "token" in Cloudflare Web Analytics' data-cf-beacon attribute is the public site tag every visitor's browser
+            # receives (read 2026-11-05: 5 of the 11 hits were that attribute in archived HTML). Only the generic assignment pattern is skipped, and only on a line that
+            # carries the attribute; a GitHub, AWS, PEM, sk- or Cloudflare token on the same line is still reported.
+            if name == "credential-literal-assignment":
+                ls = text.rfind("\n", 0, m.start()) + 1
+                le = text.find("\n", m.end())
+                if "data-cf-beacon" in text[ls:(len(text) if le < 0 else le)]:
+                    continue
             hits.append((text.count("\n", 0, m.start()) + 1, name))
     return sorted(set(hits))
 
@@ -672,6 +680,12 @@ def selftest():
             'TOKEN = "' + "a" * 24 + "'",
         ]:
             ok(scan_text(text) == [], "only a complete long quoted credential literal is reported")
+        # SECRETS-BEACON-1: the Cloudflare Web Analytics site tag is public by design; the same JSON elsewhere, and any specific token format on the same line, are still reported
+        beacon = '<script src="https://static.example.com/beacon.min.js" data-cf-beacon=\'{"version":"2024.11.0","token":"' + "a1b2" * 8 + '","r":1}\' crossorigin></script>'
+        ok(scan_text(beacon) == [], "a data-cf-beacon token is a public site tag, not a secret")
+        ok(scan_text('{"version":"2024.11.0","token":"' + "a1b2" * 8 + '","r":1}') == [(1, "credential-literal-assignment")], "the same JSON without the attribute is reported")
+        ok(scan_text(beacon + "\nTOKEN = \"" + "a1" * 15 + "\"") == [(2, "credential-literal-assignment")], "the next line is judged on its own")
+        ok(scan_text(beacon + " ghp" + "_" + "a1B2" * 9) == [(1, "github-token")], "a specific token format on a beacon line is still reported")
         write("src/zenodo.py", 'TOKEN = "' + "a1" * 30 + '"\n')
         r = collect_secrets_in_repo(P.Ctx(root=root, now=time.time(), deadline=time.time() + 100, ))[0]
         ok(r.value == 5 and ("src/zenodo.py:1", 0, "credential-literal-assignment") in r.rows and "a1" * 30 not in str(r), "collector counts the generic literal without exposing its value")
