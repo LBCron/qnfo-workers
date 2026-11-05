@@ -77,8 +77,8 @@ ok(one("SELECT evidence FROM roadmap_implementation WHERE id = 128").evidence ==
 
 // the repository agrees with the migration and the manifest
 const wf = join(root, ".github", "workflows");
-const gone = ["attach-jobs-q08-route", "attach-me-q08-route", "attach-mind-q08-route", "attach-watch-q08-route", "attach-travel-host"];
-const kept = ["attach-ask-qwav-route", "attach-lifecycle-custom-domain", "attach-surface-routes"];
+const gone = ["attach-jobs-q08-route", "attach-me-q08-route", "attach-mind-q08-route", "attach-watch-q08-route", "attach-travel-host", "attach-lifecycle-custom-domain"]; // the last one joined in TP-3B-ATTACH-1 (2026-11-05)
+const kept = ["attach-ask-qwav-route", "attach-surface-routes"];
 for (const g of gone) {
   ok(!existsSync(join(wf, g + ".yml")), "workflow deleted: " + g);
   ok(existsSync(join(root, "scripts", g + ".py")), "its script stays: " + g);
@@ -99,7 +99,7 @@ const rows = man.split("\n").filter((l) => /^\| attach-/.test(l));
 ok(rows.length === 8, "the manifest has one row per attach workflow", rows.length);
 for (const g of gone) ok(rows.some((l) => l.startsWith("| " + g + " ") && /\| delete \|$/.test(l)), "manifest verdict is delete: " + g);
 for (const k of kept) ok(rows.some((l) => l.startsWith("| " + k + " ") && /\| keep: /.test(l)), "manifest verdict is keep: " + k);
-ok(/delete 5, keep 3/.test(man), "the manifest counts delete 5, keep 3");
+ok(/delete 6, keep 2/.test(man), "the manifest counts delete 6, keep 2 (TP-3B-ATTACH-1 retired attach-lifecycle-custom-domain)");
 ok(!/attach-(jobs|me|mind|watch)-q08-route, |attach-travel-host,/.test(rd("../docs/MAIN-PUSH-POLICY.md")), "docs/MAIN-PUSH-POLICY.md no longer lists the deleted workflows as main-pushers");
 
 // lever 9 stays true: every live worker directory declares a charter pillar

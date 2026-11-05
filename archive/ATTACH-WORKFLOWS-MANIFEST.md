@@ -23,12 +23,14 @@ from outside the account on 2026-11-05 ~00:30Z: `GET https://<host>/health` answ
 | attach-watch-q08-route | watch.q08.org, personal-watch | ok, verify, verified true (2026-11-01T17:19:01Z) | 200, worker personal-watch 1.1.1 | delete |
 | attach-travel-host | travel.q08.org, personal-companion | ok (2026-11-01T17:19:05Z), no verify stage recorded | 200, version 1.44.16-codeagent (the personal-companion series) | delete |
 | attach-ask-qwav-route | ask.qwav.org and ask.qwav.tech, qnfo-ai-search | **failed** at stage redirect (2026-11-01T17:19:57Z) | ask.qwav.org 200; ask.qwav.tech 200, but the script's definition of done is a 301 to ask.qwav.org | keep: the redirect it exists to create is not there |
-| attach-lifecycle-custom-domain | lifecycle.qnfo.org, qnfo-lifecycle | **failed** at stage fallback-route (2026-11-01T17:19:28Z) | 200 | keep: its last run failed |
+| attach-lifecycle-custom-domain | lifecycle.qnfo.org, qnfo-lifecycle | **failed** at stage fallback-route (2026-11-01T17:19:28Z), http 409 code 10020 "A route with the same pattern already exists (used by Worker: qnfo-lifecycle)": the route it exists to create was already there and points at the right worker | GET /health 200, worker qnfo-lifecycle 1.18.1 (read 2026-11-05 ~03:40Z, W2-E, TP-3B-ATTACH-1) | delete |
 | attach-surface-routes | archive.qnfo.org, qwav.org, www.qwav.org, qwav.tech, qnfo-gateway | mixed: archive.qnfo.org present and verified; qwav.tech created, not verified, rolled back | archive.qnfo.org 200; qwav.org 200; www.qwav.org and qwav.tech answer 301 to qwav.org | keep: partly rolled back, and DOMAINS.md names it as the pattern |
 
-Counts: delete 5, keep 3 (workflows 76 to 71). The three kept workflows are a defect list, not a verdict: each one's last run failed or rolled back, so
+Counts: delete 6, keep 2 (workflows 76 to 70; attach-lifecycle-custom-domain joined the deletions in TP-3B-ATTACH-1, 2026-11-05: its one failure is an
+idempotent "route already exists" answer, see its row). The two kept workflows are a defect list, not a verdict: each one's last run failed or rolled back, so
 each needs either a fix that lets its script finish (then it is spent and joins this list) or a retirement with the evidence that its host is served
-some other way. They are filed with that wording in `agent_issues` (TP-3b follow-up, migration `2026-11-04-c5-resilience-footprint-tp3b.sql`).
+some other way. attach-surface-routes is not retired on the 301s alone: its last record lists ipatent.me, qwave.tech, q-wave.tech and
+empoweringchange.today (and their www names) as present but unverified, and those names did not connect from outside on 2026-11-05 (curl status 000). They are filed with that wording in `agent_issues` (TP-3b follow-up, migration `2026-11-04-c5-resilience-footprint-tp3b.sql`).
 
 To attach a new host again: copy `scripts/attach-me-q08-route.py` and write a workflow of the same shape (`git show 2fc57e0c:.github/workflows/attach-me-q08-route.yml`
 is the template; a copy of the deleted file is in git history). `docs/DOMAINS.md` has the table and the plane rule.

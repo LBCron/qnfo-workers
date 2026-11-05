@@ -25,7 +25,7 @@ A workflow does not push to `main`. It publishes through `scripts/push_head.sh`:
 | `artifact` | status and audit snapshots (`ci-status/*.json`, `audits/`) | branch `fleet-artifacts` (cherry-pick of the artifact commit, latest wins, no pull request, no ruleset applies) | best effort: exits 0 with a `::warning::`; an artifact never turns a green workflow red |
 | `code <branch> <title>` | source changes (patches, retired appliers, mirrors, unmangled bundles) | branch `fleet-bot/<name>` (replaced each run) and a pull request into `main` through the REST API | the stale-PR lane merges it when the required checks pass; if the repository setting "Allow GitHub Actions to create pull requests" is off the branch still carries the change and a warning says so |
 
-`scripts/push_artifact.sh` (used by canonical-deploy, fleet-telemetry-probe, ux-journeys and the six `attach-*` workflows)
+`scripts/push_artifact.sh` (used by canonical-deploy, fleet-telemetry-probe, ux-journeys and the two remaining `attach-*` workflows)
 now delegates to `push_head.sh artifact`. A step that truly runs with a bypass credential carries a
 `# MAIN-PUSH-BYPASS: <credential and reason>` line in the same step; `scripts/main-push-policy.test.mjs` fails otherwise.
 
@@ -41,7 +41,7 @@ stop writing to main. `reader` is what a grep of the repository and the workers 
 | fleet-telemetry-probe | `ci-status/fleet-telemetry.json` | none in code | c | via `push_artifact.sh` |
 | ux-journeys | `ci-status/ux-journeys-{live,local}.json` | none in code | c | via `push_artifact.sh` |
 | attach-surface-routes (the other five attach-* workflows were retired in TP-3b, archive/ATTACH-WORKFLOWS-MANIFEST.md) | `ci-status/attach-*.json` | none in code | c | via `push_artifact.sh` |
-| attach-ask-qwav-route, attach-lifecycle-custom-domain | `ci-status/<name>.json` | none in code | c | `push_head.sh artifact` |
+| attach-ask-qwav-route (attach-lifecycle-custom-domain was retired in TP-3B-ATTACH-1) | `ci-status/<name>.json` | none in code | c | `push_head.sh artifact` |
 | dup-worker-name-gate, guard-timebudget, remediation-bridge, remediation-consumer | `ci-status/<name>.json` | none in code (code comments describe the file as public; `status_unchanged.py` diffs against `origin/main`, see risks) | c | `push_head.sh artifact` |
 | container-config-autoverify, container-config-selfheal-cron, deploy-containers-pilot, restore-container-config-1485 | `ci-status/<name>.json` | none in code | c | `push_head.sh artifact` |
 | apply-pending-patches | patch scripts, `*/worker.js`, `.github/workflows/*` (landed patches); `ci-status/` report | the repository itself | b (code) / c (report) | code to branch `fleet-bot/apply-pending-patches` plus pull request; report to `fleet-artifacts` |
