@@ -46,7 +46,7 @@ bindings) or has no route. The graph reads routes and custom domains only; a nam
 | `ai.qnfo.org` | research | qnfo-ai | yes |
 | `ops.qnfo.org` | fleet | qnfo-ops | yes |
 | `agents.qnfo.org` (custom domain) | fleet | qnfo-agents | yes; added by CF-ESTATE-1 |
-| `lee.qnfo.org` (custom domain) | fleet | qnfo-fleet-lee (a live script with no source directory here; `python3 scripts/cf_estate.py worker-inventory` lists it as unmanaged) | kept; added by CF-ESTATE-1 |
+| `lee.qnfo.org` (custom domain, retired 2026-11-05) | fleet | none: Lee runs only in the fleet command line (fleet.qnfo.org/cmd, owner session); qnfo-fleet-lee is retired (qnfo-fleet-lee/RETIRED) and its host is removed | removed |
 | `hub.qnfo.org`, `design.qnfo.org`, `hensel.qnfo.org`, `measure.qnfo.org`, `quantum.qnfo.org`, `unity.qnfo.org` | research | Pages project `qnfo-hub` (six static landing pages of about 6 KB, titled "QNFO - Hub", served 200 on 2026-11-04; `www.qnfo.org` is also listed on that project and is shadowed by the qnfo-gateway route) | kept (static); added by CF-ESTATE-1 |
 | `fleet.qnfo.org` | fleet | qnfo-fleet-dashboard | yes |
 | `ideas.qnfo.org` | research | idea-hub | yes |

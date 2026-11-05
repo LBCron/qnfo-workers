@@ -1,0 +1,9 @@
+qnfo-fleet-lee is retired (2026-11-05, charter pillar security; owner decision, verbatim: "agent lee should only be executed from fleet dashboard command line by authenticated owner. there should not be a separate external-facing subdomain/route").
+
+Why: Lee, the Cloudflare-account assistant, had its own public host (lee.qnfo.org) outside the fleet's owner sign-in. Lee now lives in the fleet command line (qnfo-fleet-dashboard 1.95.0, RM-LEE-CMD-1: "cf <verb>" reads and "lee: <question>", owner session only, read tools only, switch ops_config cmd_lee). The standalone host serves nothing the command line does not.
+
+Dependency check, read 2026-11-05 against the fleet graph (GET https://qnfo-memory-mcp.q08.workers.dev/fleet-graph/impact?id=worker:qnfo-fleet-lee&depth=3): no worker binds it, no queue or cron, one referencing script (scripts/fleet_journeys.py, a documentation mention). The binding census reads it through service_registry, which the same change sets to state retired.
+
+Recovery: the source is not in this repository (a live script with no source directory here); per the comment in qnfo-fleet-dashboard it was developed in rwnq8/qnfo-fleet-dashboard. Bringing a standalone host back is a decision recorded in a PR that removes this file; the command-line Lee needs no host.
+
+The live script and its lee.qnfo.org custom domain are removed with cf-ops-actions delete-worker (target qnfo-fleet-lee) after this file is on main.
