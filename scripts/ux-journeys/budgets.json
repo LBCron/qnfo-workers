@@ -197,5 +197,11 @@
    "taps": 0,
    "typing": 0
   }
+ },
+ "jobs": {
+  "apply-controls-visible": {
+   "taps": 0,
+   "typing": 0
+  }
  }
 }

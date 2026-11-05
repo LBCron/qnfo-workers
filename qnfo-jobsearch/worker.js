@@ -9,7 +9,7 @@
 // JOBSEARCH-CV-1 (1.5.0): the CV is part of this worker (page /cv): a yes/no interview that builds the claim bank, review of unconfirmed claims, roles, achievements and publications edited in D1, a resume per job (summary, roles, selected work, education, skills) and a cover note, history and backup. The search is tied to that bank (evidence the owner can back up weighs more; what the CV lacks is shown as a gap), decided postings (rejected, applied, approved) never come back under another id, rejections carry a reason the search learns from, and a wider net: stretch matches outside the stated preferences, more boards and aggregators.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.6.7-codeagent";
+var VERSION = "1.7.0-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1063,7 +1063,11 @@ function buildResume(job, m) {
   const cl = new Set(m.clusters), b = BANK, roles = [...(b.roles || [])].sort(byRecency);
   const jobTags = new Set(Object.entries(TAG_TO_CLUSTERS).filter(([, cs]) => cs.some((c) => cl.has(c))).map(([t]) => t));
   const per = {}, chosen = [];
-  for (const f of pickFacts(m.clusters, 30)) { const k = f.role || "-"; per[k] = (per[k] || 0) + 1; if (per[k] > 3) continue; chosen.push(f); if (chosen.length >= 9) break; }
+  // ATS keyword echo (JOBSEARCH-APPLY-1): among the facts that fit the posting, those that use the posting's own terms come first
+  const hot = postingTerms(job).filter((t) => t.kind !== "tool" || kwRe(t.term).test(cvCorpus())).map((t) => kwRe(t.term));
+  const hits = (f) => { const low = f.text.toLowerCase(); return hot.filter((re) => re.test(low)).length; };
+  const ordered = pickFacts(m.clusters, 30).map((f, i) => [hits(f), i, f]).sort((x, y) => y[0] - x[0] || x[1] - y[1]).map((x) => x[2]);
+  for (const f of ordered) { const k = f.role || "-"; per[k] = (per[k] || 0) + 1; if (per[k] > 3) continue; chosen.push(f); if (chosen.length >= 9) break; }
   const byRole = {};
   for (const f of chosen) (byRole[f.role] = byRole[f.role] || []).push(f);
   const summaries = (b.summaries || []).map((s) => [(s.tags || []).filter((t) => jobTags.has(t)).length, s]).sort((x, y) => y[0] - x[0]);
@@ -1081,7 +1085,7 @@ function buildResume(job, m) {
   if ((b.certifications || []).length) { L.push("", tag("## Certifications", "S")); b.certifications.forEach((e, i) => L.push(tag("- " + e, "CERT:" + i))); }
   const low = (job.desc + " " + job.title).toLowerCase();
   const sk = (b.skills || []).map((s) => [(s.tags || []).filter((t) => jobTags.has(t)).length + (low.includes(s.name.toLowerCase()) ? 2 : 0), s]).sort((x, y) => y[0] - x[0]);
-  const names = sk.filter((x) => x[0] > 0).concat(sk.filter((x) => x[0] === 0)).slice(0, 10).map((x) => x[1].name);
+  const names = sk.filter((x) => x[0] > 0).concat(sk.filter((x) => x[0] === 0)).slice(0, Math.max(10, Math.min(16, sk.filter((x) => x[0] > 0).length))).map((x) => x[1].name);   // every CV skill the posting names goes on the skills line
   if (names.length) L.push("", tag("## Skills", "S"), tag(names.join(" · "), "K"));
   return L.join("\n") + "\n";
 }
@@ -1400,6 +1404,8 @@ async function analyzeJob(env, body) {
   const res = buildResume(job, m), note = buildNote(job, m), bad = verify(res, job).concat(verify(note, job));
   const cvGaps = sc.clusters.filter((c) => !OWNED.has(c)).map((c) => ({ cluster: c, questions: QUESTIONS.filter((q) => clustersOf(q.tags).includes(c)).slice(0, 4).map((q) => ({ id: q.id, ask: q.ask })) }));
   const draft = bad.length ? { blocked: bad.join("; ") } : { resume: stripTags(res), note: stripTags(note) };
+  const kit = bad.length ? null : applyKit(job, stripTags(res), stripTags(note), sc.flags);
+  const keywords = keywordReport(job, res);
   try { await saveHistory(env, { title: job.title, company: job.company, url: job.url, fit: sc.fit, verdict, resume: draft.resume, note: draft.note }); } catch (e) { logErr("history", e); }
   return {
     title: job.title, company: job.company, location: job.location || "(not found; judged on the text)", url: job.url, cv_gaps: cvGaps,
@@ -1407,8 +1413,168 @@ async function analyzeJob(env, body) {
     would_appear_in_your_search: sc.drops.length ? false : sc.tier !== "C" || sc.score >= 25,
     why_not_in_search: sc.drops.length ? sc.drops : sc.tier === "C" ? ["score below the cut after location and level adjustments"] : [],
     why: sc.why, flags: sc.flags, strengths, gaps: gapsFor(job.desc),
-    draft,
+    draft, keywords, apply: kit,
   };
+}
+// ------------------------------------------------------------------ one-click apply (JOBSEARCH-APPLY-1, 1.7.0)
+// Research basis (docs/JOBS-APPLY.md): ATS parsers read single-column text with standard headings and read .docx or text PDF; the resume must echo the
+// posting's own terms where the record backs them; fully unattended submission fails (employer-key APIs, captchas, attestations) and
+// ranks as spam, so the page fills the form in the owner's own browser and the owner presses the final submit.
+const ATS_RULES = [
+  ["greenhouse", /^https?:\/\/(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io\/[^\/]+\/jobs\/\d+/i, (x) => x.replace(/[?#].*$/, "") + "#app", true],
+  ["lever", /^https?:\/\/jobs(?:\.eu)?\.lever\.co\/[^\/]+\/[0-9a-f-]{20,}/i, (x) => x.replace(/[?#].*$/, "").replace(/\/(apply)?\/?$/, "") + "/apply", true],
+  ["ashby", /^https?:\/\/jobs\.ashbyhq\.com\/[^\/]+\/[0-9a-f-]{20,}/i, (x) => x.replace(/[?#].*$/, "").replace(/\/application\/?$/, "") + "/application", true],
+  ["workable", /^https?:\/\/apply\.workable\.com\/[^\/]+\/j\/[A-Z0-9]+/i, (x) => x.replace(/[?#].*$/, "").replace(/\/(apply)?\/?$/, "") + "/apply/", true],
+  ["recruitee", /^https?:\/\/[^\/]+\.recruitee\.com\/o\/[^\/?#]+/i, (x) => x.replace(/[?#].*$/, "").replace(/\/c\/new\/?$/, "") + "/c/new", true],
+  ["smartrecruiters", /^https?:\/\/jobs\.smartrecruiters\.com\//i, (x) => x, false],
+  ["workday", /myworkdayjobs\.com\//i, (x) => x, false],
+];
+function atsOf(rawUrl) {
+  const u = String(rawUrl || "");
+  for (const [ats, re, f, fill] of ATS_RULES) if (re.test(u)) return { ats, apply_url: f(u), fill };
+  return { ats: "other", apply_url: u, fill: false };
+}
+// Terms an ATS keyword filter or a recruiter search is likely to use. A term the posting uses and the CV backs goes on the resume;
+// a term the CV lacks is only reported (a gap), never written into a resume.
+const TECH_VOCAB = ["python", "sql", "excel", "tableau", "power bi", "looker", "dbt", "airflow", "spark", "hadoop", "aws", "azure", "gcp", "docker", "kubernetes", "terraform", "java", "javascript", "typescript", "react", "c++", "scala", "matlab", "sas", "stata", "spss", "arcgis", "qgis", "git", "jira", "salesforce", "snowflake", "databricks", "pytorch", "tensorflow", "scikit-learn", "pandas", "numpy", "nlp", "llm", "machine learning", "deep learning", "statistics", "agile", "scrum", "okr", "kpi", "stakeholder management", "grant writing", "six sigma", "prince2", "pmp", "gdpr", "wcag", "roadmap", "forecasting", "a/b testing", "etl", "api"];
+function cvCorpus() {
+  const b = BANK;
+  return [LEDGER.facts.map((f) => f.text), (b.skills || []).map((s) => s.name), (b.roles || []).map((r) => r.title + " " + r.org), (b.summaries || []).map((s) => s.text),
+    (b.publications || []).map((p) => p.title), b.education || [], b.certifications || []].flat().join("\n").toLowerCase();
+}
+function vocabulary() {
+  const vocab = new Map();
+  for (const s of BANK.skills || []) vocab.set(s.name.toLowerCase(), "skill");
+  for (const t of TECH_VOCAB) if (!vocab.has(t)) vocab.set(t, "tool");
+  for (const kws of Object.values(CLUSTER_KW)) for (const k of kws) { const t = k.replace(/\*$/, "").trim(); if (t.length >= 5 && !vocab.has(t)) vocab.set(t, "topic"); }
+  return vocab;
+}
+// the vocabulary terms the posting uses, by how often it uses them
+function postingTerms(job) {
+  const text = (job.title + "\n" + job.desc).toLowerCase(), out = [];
+  for (const [term, kind] of vocabulary()) {
+    const n = (text.match(new RegExp(kwRe(term).source, "g")) || []).length;
+    if (n) out.push({ term, kind, count: n });
+  }
+  return out.sort((a, b) => b.count - a.count || (a.term < b.term ? -1 : 1));
+}
+// matched: on this resume. addable: the CV backs it, this resume left it out. missing: the CV does not have it (never inserted).
+function keywordReport(job, resumeText) {
+  const res = String(resumeText || "").replace(/ <!--.*?-->$/gm, "").toLowerCase(), cv = cvCorpus();
+  const matched = [], addable = [], missing = [];
+  for (const t of postingTerms(job)) {
+    const re = kwRe(t.term), onResume = re.test(res), inCv = re.test(cv);
+    (onResume ? matched : inCv ? addable : missing).push(t.term);
+  }
+  const total = matched.length + addable.length + missing.length;
+  return { coverage: total ? Math.round((100 * matched.length) / total) : null, matched: matched.slice(0, 25), addable: addable.slice(0, 15), missing: missing.slice(0, 15), total };
+}
+// ---- export formats: plain text, printable HTML (save as PDF), and a minimal Word file (stored zip, no library)
+const plainOf = (md) => String(md || "").replace(/ <!--.*?-->$/gm, "").replace(/\*\*/g, "").replace(/^#{1,3} /gm, "");
+const mdInline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function resumeHtml(md, title) {
+  const out = [];
+  let inList = false;
+  for (const raw of plainOfKeepBold(md).split("\n")) {
+    const l = raw.trimEnd();
+    if (/^- /.test(l)) { if (!inList) { out.push("<ul>"); inList = true; } out.push("<li>" + mdInline(l.slice(2)) + "</li>"); continue; }
+    if (inList) { out.push("</ul>"); inList = false; }
+    if (!l.trim()) continue;
+    if (l.startsWith("# ")) out.push("<h1>" + mdInline(l.slice(2)) + "</h1>");
+    else if (l.startsWith("## ")) out.push("<h2>" + mdInline(l.slice(3)) + "</h2>");
+    else out.push("<p>" + mdInline(l) + "</p>");
+  }
+  if (inList) out.push("</ul>");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>@page{margin:18mm}body{font:11pt/1.4 Arial,Helvetica,sans-serif;color:#000;max-width:760px;margin:24px auto;padding:0 16px}h1{font-size:20pt;margin:0 0 4px}h2{font-size:11pt;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #000;margin:16px 0 6px;padding-bottom:2px}p{margin:3px 0}ul{margin:3px 0 8px;padding-left:18px}li{margin:2px 0}.np{margin-bottom:12px}@media print{.np{display:none}}</style></head><body><div class="np"><button onclick="print()">Save as PDF</button></div>${out.join("\n")}</body></html>`;
+}
+const plainOfKeepBold = (md) => String(md || "").replace(/ <!--.*?-->$/gm, "");
+const crcTable = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (u8) => { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = crcTable[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+function zipStored(files) {
+  const enc = new TextEncoder(), chunks = [], central = [];
+  let off = 0;
+  for (const [name, text] of files) {
+    const nm = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(12, 0x21, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, nm.length, true);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(14, 0x21, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+    chunks.push(new Uint8Array(lh.buffer), nm, data);
+    central.push(new Uint8Array(ch.buffer), nm);
+    off += 30 + nm.length + data.length;
+  }
+  const cdSize = central.reduce((n, c) => n + c.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+  const all = [...chunks, ...central, new Uint8Array(end.buffer)], out = new Uint8Array(all.reduce((n, c) => n + c.length, 0));
+  let p = 0;
+  for (const c of all) { out.set(c, p); p += c.length; }
+  return out;
+}
+const xmlEsc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function docxOf(md) {
+  const run = (text, bold, size) => `<w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>${bold ? "<w:b/>" : ""}<w:sz w:val="${size}"/></w:rPr><w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r>`;
+  const runs = (s, size, forceBold) => s.split(/(\*\*.+?\*\*)/).filter(Boolean).map((seg) => (/^\*\*.+\*\*$/.test(seg) ? run(seg.slice(2, -2), true, size) : run(seg, !!forceBold, size))).join("");
+  const paras = [];
+  for (const raw of plainOfKeepBold(md).split("\n")) {
+    const l = raw.trimEnd();
+    if (!l.trim()) continue;
+    if (l.startsWith("# ")) paras.push(`<w:p><w:pPr><w:spacing w:after="60"/></w:pPr>${runs(l.slice(2), 36, true)}</w:p>`);
+    else if (l.startsWith("## ")) paras.push(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="000000"/></w:pBdr><w:spacing w:before="200" w:after="80"/></w:pPr>${runs(l.slice(3).toUpperCase(), 22, true)}</w:p>`);
+    else if (l.startsWith("- ")) paras.push(`<w:p><w:pPr><w:ind w:left="360" w:hanging="220"/><w:spacing w:after="40"/></w:pPr>${run("• ", false, 21)}${runs(l.slice(2), 21)}</w:p>`);
+    else paras.push(`<w:p><w:pPr><w:spacing w:after="40"/></w:pPr>${runs(l, 21)}</w:p>`);
+  }
+  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras.join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1000" w:right="1000" w:bottom="1000" w:left="1000" w:header="500" w:footer="500" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  return zipStored([
+    ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`],
+    ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`],
+    ["word/document.xml", doc],
+  ]);
+}
+function b64(u8) { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+const fileSlug = (s) => String(s || "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40);
+// The kit is what the owner's browser needs for one application: the apply link, the form fields the CV answers, the resume file, the note.
+// Questions the form will ask that only the owner answers (work authorization, sponsorship, salary, demographics) are listed, never filled.
+function applyKit(job, resumeMd, noteMd, flags) {
+  const parts = String(P.name).trim().split(/\s+/), a = atsOf(job.url);
+  const docx = docxOf(resumeMd);
+  return {
+    id: job.id || "", title: job.title, company: job.company, ats: a.ats, apply_url: a.apply_url, can_fill: a.fill,
+    fields: { first_name: parts[0], last_name: parts[parts.length - 1], full_name: P.name, email: P.email, location: P.location, linkedin: (P.links || {}).linkedin || "", website: (P.links || {}).site || "" },
+    resume_file: `${fileSlug(P.name)}_Resume_${fileSlug(job.company)}.docx`, resume_docx_b64: b64(docx), note: plainOf(noteMd),
+    left_for_you: ["work authorization and sponsorship", "salary expectations", "demographic and equal-opportunity questions", "any question about a skill your CV does not back"].concat((flags || []).filter((f) => /^(AUTH|LANGUAGE|DEGREE|YEARS)/.test(f))),
+  };
+}
+// A match's kit is rebuilt from the posting as it reads now and the CV as it stands now (an edit to the CV since the run counts); when the page
+// cannot be read the draft stored at match time is used.
+async function matchKit(env, row) {
+  const ctx = await loadCtx(env);   // also loads the CV bank
+  let resume = row.resume_md, note = row.note_md, fresh = false, keywords = null, flags = [];
+  const job = { id: row.id, company: row.company, title: row.title, location: row.location || "", url: row.url, desc: "" };
+  try {
+    const got = await fetchPosting(row.url);
+    job.desc = got.desc || "";
+    if (job.desc) {
+      const sc = scoreJob(job, ctx, "analyze"), res = buildResume(job, { clusters: sc.clusters }), nt = buildNote(job, { clusters: sc.clusters });
+      flags = sc.flags;
+      keywords = keywordReport(job, res);
+      if (!verify(res, job).concat(verify(nt, job)).length) { resume = stripTags(res); note = stripTags(nt); fresh = true; }
+    }
+  } catch (e) { logErr("kit-fetch", e); }
+  if (!resume) throw Object.assign(new Error("no draft is kept for this match (rejected or old); use Check a job with its link"), { status: 404 });
+  return { ...applyKit(job, resume, note, flags), fresh, keywords };
+}
+const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+function fileResponse(kind, row) {
+  const base = fileSlug(P.name) + "_Resume_" + fileSlug(row.company), cors = { "access-control-allow-origin": "*", "cache-control": "no-store" };
+  if (kind === "resume.docx") return new Response(docxOf(row.resume_md), { headers: { ...cors, "content-type": DOCX_TYPE, "content-disposition": `attachment; filename="${base}.docx"` } });
+  if (kind === "resume.html") return new Response(resumeHtml(row.resume_md, `${P.name}: resume for ${row.company}`), { headers: { ...cors, "content-type": "text/html; charset=utf-8" } });
+  if (kind === "resume.md") return new Response(row.resume_md, { headers: { ...cors, "content-type": "text/markdown; charset=utf-8" } });
+  if (kind === "note.txt") return new Response(plainOf(row.note_md), { headers: { ...cors, "content-type": "text/plain; charset=utf-8" } });
+  return new Response(plainOf(row.resume_md), { headers: { ...cors, "content-type": "text/plain; charset=utf-8" } });
 }
 async function run(env) {
   await ensure(env);
@@ -1897,6 +2063,18 @@ const handler = {
       if (q) rows = rows.filter((x) => (x.title + " " + x.company + " " + x.location).toLowerCase().includes(q));
       return J({ count: rows.length, matches: rows.slice(0, lim) });
     }
+    const ax = p.match(/^\/api\/matches\/(.+?)\/(resume\.docx|resume\.html|resume\.txt|resume\.md|note\.txt|kit)$/);
+    if (ax && m === "GET") {
+      const row = await env.JOBS_DB.prepare("SELECT * FROM jobsearch_matches WHERE id=?").bind(decodeURIComponent(ax[1])).first();
+      if (!row) return J({ error: "not found" }, 404);
+      if (!row.verified) return J({ error: "artifacts failed verification: " + row.blocked_reason }, 409);
+      if (ax[2] === "kit") {
+        if (!(await ownerSession(request, env))) return J({ error: "sign in first: POST /api/auth/request, then POST /api/auth/verify" }, 401);
+        try { return J(await matchKit(env, row)); } catch (e) { return J({ error: e.message }, e.status || 502); }
+      }
+      if (!row.resume_md) return J({ error: "no draft is kept for this match" }, 404);
+      return fileResponse(ax[2], row);
+    }
     let mm = p.match(/^\/api\/matches\/(.+?)(\/status)?$/);
     if (mm && m === "GET" && !mm[2]) {
       const row = await env.JOBS_DB.prepare("SELECT * FROM jobsearch_matches WHERE id=?").bind(decodeURIComponent(mm[1])).first();
@@ -1934,8 +2112,44 @@ const handler = {
     return J({ error: "not found", see: "/api" }, 404);
   },
 };
-handler.__test = { evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK, llmRerank, llmRerankRun, ensureResearchPubs, RESEARCH_PUBS, pubLine, parseRerank, reasonOk, rerankMessages, artifactsFor, titleCandidate, sitemapUrls, slugTitle, PUBLIC_SECTOR, opsReport };
+handler.__test = { atsOf, keywordReport, docxOf, resumeHtml, plainOf, applyKit, matchKit, stripTags, postingTerms, evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK, llmRerank, llmRerankRun, ensureResearchPubs, RESEARCH_PUBS, pubLine, parseRerank, reasonOk, rerankMessages, artifactsFor, titleCandidate, sitemapUrls, slugTitle, PUBLIC_SECTOR, opsReport };
 export default handler;
+
+// ------------------------------------------------------------------ client script shared by both pages (JOBSEARCH-APPLY-1): kit handling and the Fill application bookmark
+const APPLY_JS = String.raw`
+function kitBytes(b64){var s=atob(b64),u=new Uint8Array(s.length);for(var i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u}
+function saveFile(name,b64){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([kitBytes(b64)]));a.download=name;document.body.appendChild(a);a.click();a.remove()}
+function kitPayload(k){return JSON.stringify({v:1,fields:k.fields,note:k.note,file:k.resume_file,b64:k.resume_docx_b64})}
+function fireKit(k){try{navigator.clipboard.writeText(kitPayload(k)).catch(function(e){console.warn('clipboard: '+e.message)})}catch(e){console.warn('clipboard: '+e.message)}saveFile(k.resume_file,k.resume_docx_b64);window.open(k.apply_url,'_blank','noopener')}
+function kwHtml(kw){if(!kw)return '<div class="mute">Keyword match unavailable: the posting page could not be read.</div>';
+ return '<h4>Keyword match: '+(kw.coverage==null?'n/a':kw.coverage+'%')+'</h4><div class="mute">On this resume: '+esc(kw.matched.join(', ')||'none')+'</div>'
+  +(kw.addable.length?'<div class="mute">In your CV, left off this resume: '+esc(kw.addable.join(', '))+'</div>':'')
+  +(kw.missing.length?'<div class="'+(window.CVPAGE?'gap':'flag')+'">The posting uses these and your CV does not (add to your CV only if true): '+esc(kw.missing.join(', '))+'</div>':'')}
+async function FILL(){
+ var k;
+ try{k=JSON.parse(await navigator.clipboard.readText());if(!k||k.v!==1)throw 0}catch(e){alert('Press Apply on jobs.q08.org first: it puts the application kit on your clipboard. Then click this bookmark on the application page.');return}
+ var F=k.fields,n=0;
+ function lab(el){var t=[el.name,el.id,el.placeholder,el.getAttribute('aria-label'),el.getAttribute('autocomplete')];if(el.labels)for(var i=0;i<el.labels.length;i++)t.push(el.labels[i].innerText);var by=el.getAttribute('aria-labelledby');if(by)by.split(' ').forEach(function(x){var e=document.getElementById(x);if(e)t.push(e.innerText)});var p=el.closest('label,.field,.application-field,[class*=question]');if(p)t.push(p.innerText.slice(0,120));return t.join(' ').toLowerCase()}
+ function put(el,v){var proto=el.tagName=='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));n++}
+ [].slice.call(document.querySelectorAll('input,textarea')).forEach(function(el){
+  if(['hidden','file','checkbox','radio','submit','button','password'].indexOf(el.type)>-1||el.value||el.disabled)return;
+  var t=lab(el),v='';
+  if(/first.?name|given.?name/.test(t))v=F.first_name;
+  else if(/last.?name|family.?name|surname/.test(t))v=F.last_name;
+  else if(el.type=='email'||/e-?mail/.test(t))v=F.email;
+  else if(/linkedin/.test(t))v=F.linkedin;
+  else if(/website|portfolio|personal site|other url/.test(t))v=F.website;
+  else if(/full.?name|your name|^name|_name/.test(t)&&!/company|employer|school|user|referr/.test(t))v=F.full_name;
+  else if(el.tagName=='INPUT'&&/location|city/.test(t)&&!/relocat/.test(t))v=F.location;
+  else if(el.tagName=='TEXTAREA'&&/cover|additional|message/.test(t))v=k.note;
+  if(v)put(el,v)});
+ var fi=[].slice.call(document.querySelectorAll('input[type=file]')).filter(function(e){return !e.files.length});
+ var rf=fi.filter(function(e){return /resume|cv|curriculum/.test(lab(e))})[0]||fi[0];
+ if(rf){var s=atob(k.b64),u=new Uint8Array(s.length);for(var i=0;i<s.length;i++)u[i]=s.charCodeAt(i);var dt=new DataTransfer();dt.items.add(new File([u],k.file,{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));rf.files=dt.files;rf.dispatchEvent(new Event('change',{bubbles:true}));n++}
+ alert('Filled '+n+' items'+(rf?', resume attached':'; no file box found, attach the downloaded resume')+'. Now answer the questions only you can answer (work authorization, salary, demographics), check everything, then press Submit yourself.')
+}
+function bookmarkHref(){return 'javascript:'+encodeURIComponent('('+FILL.toString().split(String.fromCharCode(10)).join(' ')+')()')}
+`;
 
 // ------------------------------------------------------------------ web UI (light theme, plain JS, talks only to the API above)
 const UI = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Job matches: verified claims only</title>
@@ -1960,8 +2174,8 @@ details{background:#fff;border:1px solid var(--line);border-radius:10px;padding:
 <header><h1>Job matches: verified claims only</h1><div class="sub" id="meta">loading…</div>
 <div class="bar"><select id="tier"><option value="">All tiers</option><option value="A">A</option><option value="B">B</option><option value="C">C: stretch</option></select>
 <select id="status"><option value="">Active (hides rejected)</option><option value="all">All, including rejected</option><option value="pending_owner_approval">Pending</option><option>approved</option><option>rejected</option><option>applied</option><option>replied</option><option>interview</option><option>offer</option><option>no_reply</option><option>expired</option></select>
-<input id="q" placeholder="Search title, company, place" size="26"><button id="run" class="p">Run now</button><a href="/cv"><b>My CV</b></a> <a href="/api" class="mute">API</a> <a href="/api/ledger" class="mute">Claim ledger</a> <a href="/api/ops" class="mute">Operations</a> <span id="who" class="mute"></span><button id="signin" onclick="signIn()">Sign in</button><button id="signout" style="display:none" onclick="api(\'/api/auth/logout\',{method:\'POST\'}).then(who)">Sign out</button></div></header>
-<main><div class="note">Every sentence in a resume or note is copied from the claim ledger and re-checked line by line; a failed check blocks the draft. Nothing is sent: approve only marks your decision, then you apply from the posting link.</div><details id="check" open><summary>Check a job I found</summary><textarea id="jin" rows="4" placeholder="Paste a job link, or paste the whole posting text" style="width:100%"></textarea><div class="bar"><input id="jtitle" placeholder="Title (optional)"><input id="jco" placeholder="Employer (optional)"><button class="p" id="jgo">How good a match am I?</button></div><div id="jres"></div></details>
+<input id="q" placeholder="Search title, company, place" size="26"><button id="ready">Ready to apply</button><button id="run" class="p">Run now</button><a href="/cv"><b>My CV</b></a> <a href="/api" class="mute">API</a> <a href="/api/ledger" class="mute">Claim ledger</a> <a href="/api/ops" class="mute">Operations</a> <span id="who" class="mute"></span><button id="signin" onclick="signIn()">Sign in</button><button id="signout" style="display:none" onclick="api(\'/api/auth/logout\',{method:\'POST\'}).then(who)">Sign out</button></div></header>
+<main><div class="note">Every sentence in a resume or note is copied from the claim ledger and re-checked line by line; a failed check blocks the draft. Nothing is sent: approve only marks your decision, then you apply from the posting link.</div><details id="fillsetup"><summary>One-click apply: set up once</summary><p>1. Drag this button to your bookmarks bar: <a id="bm" href="#" class="p" style="padding:6px 10px;border-radius:6px;background:var(--acc);color:#fff;text-decoration:none">Fill application</a></p><p class="mute">2. On any match press <b>Apply</b>: your tailored resume downloads, the form kit is copied and the application opens. 3. On the application page click the <b>Fill application</b> bookmark: it fills your details, adds the cover note and attaches the resume. 4. Answer the questions only you can answer, check the page, press Submit. Works on Greenhouse, Lever, Ashby, Workable and Recruitee; other sites open with the resume and note ready to paste. Nothing is submitted for you: employer systems reject unattended submissions, and an unreviewed application costs more than it saves.</p></details><details id="check" open><summary>Check a job I found</summary><textarea id="jin" rows="4" placeholder="Paste a job link, or paste the whole posting text" style="width:100%"></textarea><div class="bar"><input id="jtitle" placeholder="Title (optional)"><input id="jco" placeholder="Employer (optional)"><button class="p" id="jgo">How good a match am I?</button></div><div id="jres"></div></details>
 <details id="prefs"><summary>Search preferences: yes or no questions</summary><div id="survey" class="mute">loading</div><div class="bar"><button class="p" id="psave">Save and re-run the search</button><span id="prefmsg" class="mute"></span></div></details><div id="list"></div></main>
 <script>
 const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1973,7 +2187,7 @@ async function load(){
   $('#list').innerHTML=m.matches.map(x=>'<div class="card" id="c-'+esc(x.id)+'"><div class="row"><span class="badge '+x.tier+'">'+x.tier+' '+x.score+'</span><span class="t">'+esc(x.title)+'</span><span class="mute">'+esc(x.company)+' | '+esc(x.location||'n/a')+(via(x.id)?' | via '+esc(via(x.id)):'')+'</span><span class="st '+esc(x.status)+'">'+esc(x.status.replace(/_/g,' '))+'</span></div>'
    +'<div class="mute">'+esc(x.why.join(' | '))+'</div>'+x.flags.map(f=>'<div class="flag">Check: '+esc(f)+'</div>').join('')
    +(x.verified?'':'<div class="flag">Blocked by verifier: '+esc(x.blocked_reason)+'</div>')
-   +'<div class="acts"><a href="'+esc(x.url)+'" target="_blank" rel="noopener"><button>Open posting</button></a><button onclick="show(\\''+esc(x.id)+'\\')">Resume and note</button>'
+   +'<div class="acts">'+(x.verified?'<button class="p ap" data-id="'+esc(x.id)+'">Apply</button>':'')+'<a href="'+esc(x.url)+'" target="_blank" rel="noopener"><button>Open posting</button></a><button onclick="show(\\''+esc(x.id)+'\\')">Resume and note</button>'+(x.verified?'<a href="/api/matches/'+encodeURIComponent(x.id)+'/resume.docx"><button>Resume .docx</button></a>':'')+''
    +'<button onclick="decide(\\''+esc(x.id)+'\\',\\'approved\\')">Approve</button><button onclick="reject(\\''+esc(x.id)+'\\')">Reject</button><button onclick="decide(\\''+esc(x.id)+'\\',\\'applied\\')">Mark applied</button>'+[['replied','Got a reply'],['interview','Interview'],['offer','Offer']].map(o=>'<button onclick="decide(\\''+esc(x.id)+'\\',\\''+o[0]+'\\')">'+o[1]+'</button>').join('')+'</div><div class="art"></div></div>').join('')||'<p class="mute">No matches yet.</p>';
 }
 async function show(id){const el=document.getElementById('c-'+id).querySelector('.art');if(el.innerHTML){el.innerHTML='';return}
@@ -1999,8 +2213,29 @@ const VIA={rok:'RemoteOK',him:'Himalayas',hn:'Hacker News: Who is hiring',rm:'Re
 function via(id){return VIA[String(id).split(':')[0]]||''}
 function li(a){return a&&a.length?'<ul>'+a.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'<p class="mute">none</p>'}
 $('#jgo').onclick=async()=>{const r=$('#jres');r.textContent='Reading the posting...';try{const d=await authed(()=>api('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({input:$('#jin').value,title:$('#jtitle').value,company:$('#jco').value})}));window._last=d;
- r.innerHTML='<div class="card"><div class="t">'+esc(d.verdict)+' ('+d.fit_score+')  '+esc(d.title)+'</div><div class="mute">'+esc(d.company)+' | '+esc(d.location)+'</div><div>'+(d.would_appear_in_your_search?'Would appear in your search.':'Would NOT appear in your search: '+esc(d.why_not_in_search.join('; ')))+'</div><h4>Why</h4>'+li(d.why)+'<h4>Your record that fits</h4>'+li(d.strengths.map(x=>x.text))+'<h4>Gaps and checks</h4>'+li(d.gaps.concat(d.flags))+'<div class="acts"><button class="fb" data-v="like">More like this</button><button class="fb" data-v="dislike">Not for me</button></div><span id="fbmsg" class="mute"></span>'+(d.draft.resume?'<details><summary>Verified resume and note for this job</summary><pre>'+esc(d.draft.resume)+'</pre><pre>'+esc(d.draft.note)+'</pre></details>':'<p class="flag">Draft blocked: '+esc(d.draft.blocked)+'</p>')+'</div>';
+ r.innerHTML='<div class="card"><div class="t">'+esc(d.verdict)+' ('+d.fit_score+')  '+esc(d.title)+'</div><div class="mute">'+esc(d.company)+' | '+esc(d.location)+'</div><div>'+(d.would_appear_in_your_search?'Would appear in your search.':'Would NOT appear in your search: '+esc(d.why_not_in_search.join('; ')))+'</div><h4>Why</h4>'+li(d.why)+'<h4>Your record that fits</h4>'+li(d.strengths.map(x=>x.text))+'<h4>Gaps and checks</h4>'+li(d.gaps.concat(d.flags))+'<div class="acts"><button class="fb" data-v="like">More like this</button><button class="fb" data-v="dislike">Not for me</button></div><span id="fbmsg" class="mute"></span>'+kwHtml(d.keywords)+(d.apply?'<div class="acts"><button class="p" id="japply">Apply: download resume and copy kit</button></div>':'')+(d.draft.resume?'<details><summary>Verified resume and note for this job</summary><pre>'+esc(d.draft.resume)+'</pre><pre>'+esc(d.draft.note)+'</pre></details>':'<p class="flag">Draft blocked: '+esc(d.draft.blocked)+'</p>')+'</div>';
+ var ja=r.querySelector('#japply');if(ja)ja.onclick=function(){fireKit(d.apply)};
  r.querySelectorAll('.fb').forEach(b=>b.onclick=async()=>{try{await authed(()=>api('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:d.title,company:d.company,verdict:b.dataset.v})}));$('#fbmsg').textContent='Noted. The next search run uses it.'}catch(e){$('#fbmsg').textContent=e.message}})}catch(e){r.textContent=e.message}};
+${APPLY_JS}
+var KITS={},KREADY={};
+function warm(id){if(!KITS[id]){KITS[id]=api('/api/matches/'+encodeURIComponent(id)+'/kit').then(function(k){KREADY[id]=k;return k}).catch(function(e){delete KITS[id];throw e});KITS[id].catch(function(e){console.warn('kit: '+e.message)})}return KITS[id]}
+function kitPanel(el,id,k){
+ el.innerHTML='<div class="note"><b>Application kit for '+esc(k.company)+'</b> ('+esc(k.ats)+(k.fresh?', rebuilt from the posting as it reads now':', draft from match time')+'). Press <b>Open application and copy kit</b>: the resume downloads, the kit is copied and the application opens. There click your <b>Fill application</b> bookmark, check everything and submit.</div>'
+  +kwHtml(k.keywords)+'<h4>Left for you</h4>'+li(k.left_for_you)
+  +'<div class="acts"><button class="p" data-act="open">Open application and copy kit</button><button data-act="copy">Copy kit again</button><button data-act="dl">Download resume .docx</button><a href="/api/matches/'+encodeURIComponent(id)+'/resume.html" target="_blank" rel="noopener"><button>Resume as PDF (print)</button></a><button data-act="done">I submitted it</button></div>'}
+$('#list').addEventListener('mouseover',function(e){var b=e.target.closest&&e.target.closest('.ap');if(b)warm(b.dataset.id)});
+$('#list').addEventListener('click',async function(e){
+ var b=e.target.closest&&e.target.closest('.ap,[data-act]');if(!b)return;
+ var card=b.closest('.card'),id=card.id.slice(2),el=card.querySelector('.art'),k=KREADY[id];
+ if(b.classList.contains('ap')){
+  if(k){fireKit(k);kitPanel(el,id,k);return}
+  el.innerHTML='<div class="mute">Building the kit from the posting and your CV...</div>';
+  try{k=await authed(function(){return warm(id)});kitPanel(el,id,k)}catch(err){el.innerHTML='<div class="flag">'+esc(err.message)+'</div>'}
+  return}
+ var a=b.dataset.act;if(!k)return;
+ if(a==='open')fireKit(k);else if(a==='copy')navigator.clipboard.writeText(kitPayload(k));else if(a==='dl')saveFile(k.resume_file,k.resume_docx_b64);else if(a==='done')decide(id,'applied')});
+$('#bm').setAttribute('href',bookmarkHref());$('#bm').onclick=function(e){e.preventDefault();alert('Drag this button to your bookmarks bar. Do not click it here.')};
+$('#ready').onclick=function(){$('#tier').value='A';$('#status').value='pending_owner_approval';load()};
 load();who();loadPrefs();
 </script></body></html>`;
 
@@ -2120,10 +2355,12 @@ function show(r){
  var gaps=(r.cv_gaps||[]).map(function(g){return '<div class="gap"><b>The posting asks for '+esc(g.cluster.replace(/_/g,' '))+' and your CV does not mention it.</b> Have you done any of this?'+g.questions.map(function(q){return '<div style="margin-top:6px">'+esc(q.ask)+' <button class="link" onclick="jump(\''+esc(q.id)+'\')"><b>Answer →</b></button></div>'}).join('')+'</div>'}).join('');
  var d=r.draft||{};
  $('#out').innerHTML='<div class="card noprint"><h2>'+esc(r.verdict)+' ('+r.fit_score+')</h2><div class="mut">'+esc(r.title)+' · '+esc(r.company)+' · '+esc(r.location)+'</div><p>'+(r.would_appear_in_your_search?'This kind of role is in your job search.':'This role would not show up in your search: '+esc((r.why_not_in_search||[]).join('; ')))+'</p>'
-  +(d.resume?'<div class="row"><button class="b pri" onclick="window.print()">Print or save as PDF</button><button class="b" onclick="cp(last.draft.resume)">Copy resume</button><button class="b" onclick="cp(last.draft.note)">Copy cover note</button></div>':'<div class="gap">Draft blocked: '+esc(d.blocked)+'</div>')+'</div>'
+  +(d.resume?'<div class="row"><button class="b pri" onclick="window.print()">Print or save as PDF</button><button class="b" onclick="cp(last.draft.resume)">Copy resume</button><button class="b" onclick="cp(last.draft.note)">Copy cover note</button>'+(r.apply?'<button class="b" onclick="saveFile(last.apply.resume_file,last.apply.resume_docx_b64)">Download Word (.docx)</button><button class="b pri" onclick="fireKit(last.apply)">Apply</button>':'')+'</div>'+kwHtml(r.keywords):'<div class="gap">Draft blocked: '+esc(d.blocked)+'</div>')+'</div>'
   +(d.resume?'<div class="resume">'+md(d.resume)+'</div><h3 class="noprint">Cover note</h3><div class="note noprint">'+esc(d.note)+'</div>':'')
   +'<div class="noprint"><h3>'+((r.cv_gaps||[]).length?'Gaps to close':'No gaps found')+'</h3>'+(gaps||'<div class="good">Everything this posting asks for is covered by your CV.</div>')+'</div>'}
 function cp(t){navigator.clipboard.writeText(t);toast('Copied')}
+window.CVPAGE=1;
+${APPLY_JS}
 function jump(id){qi=S.questions.findIndex(function(q){return q.id==id});draft=[{}];go('story')}
 /* ---------- history ---------- */
 async function rHist(){var h=await authed(function(){return api('/api/cv/history')});
