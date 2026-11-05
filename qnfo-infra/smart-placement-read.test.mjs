@@ -31,7 +31,10 @@ function run(opts) {
     if (m) {
       const w = opts.workers.find((x) => x.name === decodeURIComponent(m[1]));
       if (w.fail) throw new Error("settings read failed for " + w.name);
-      return { result: { bindings: (w.d1 || []).map((id) => ({ type: "d1", id })), placement: w.placement } };
+      const bindings = (w.d1 || []).map((id) => ({ type: "d1", id }));
+      for (let i = 0; i < (w.secrets || 0); i++) bindings.push({ type: "secret_text", name: "S" + i });
+      for (let i = 0; i < (w.store || 0); i++) bindings.push({ type: "secrets_store_secret", name: "ST" + i, store_id: "s", secret_name: "x" });
+      return { result: { bindings, placement: w.placement } };
     }
     return { result: [] };
   };
@@ -58,6 +61,13 @@ ok(!("patched" in sp) && !("patch_errors" in sp), "the snapshot no longer report
 ok(sp.candidates === 5, "candidates counts every worker read", sp.candidates);
 ok(calls.every((c) => !c.fetch), "no direct fetch (no write path) was used", calls.filter((c) => c.fetch));
 ok(calls.filter((c) => /\/settings$/.test(c.path || "")).length === 5, "each worker's settings are read once and only read", calls.length);
+
+// SECRETS-CENSUS-1 (agent_issues 1000698): the same settings reads give the Secrets Store migration its measure
+const w2 = workers.map((w) => ({ ...w })); w2[0].secrets = 4; w2[1].secrets = 2; w2[1].store = 1; w2[2].store = 3; w2[3].secrets = 5;
+const cen = (await run({ workers: w2, dbs })).state.secrets_census;
+ok(cen && cen.secret_text === 11 && cen.store_bindings === 4, "the census counts secret_text and secrets_store_secret bindings across the readable workers", cen);
+ok(cen.workers === 5 && cen.store_bound.join() === "beta,gamma", "and names the workers that already have a store binding", cen);
+ok((await run({ workers, dbs })).state.secrets_census.secret_text === 0, "no bindings reads as zero, never undefined");
 
 const none = await run({ workers: [{ name: "solo", d1: ["d-big"], placement: {} }], dbs });
 ok(none.state.d1.smart_placement.smart.length === 0 && none.state.d1.smart_placement.top_heavy_smart.length === 0, "with no smart worker both lists are empty");
