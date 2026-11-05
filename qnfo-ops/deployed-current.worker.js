@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.64.0-tool-arg-alias";
+var VERSION = "2.65.0-tool-arg-alias";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -5172,6 +5172,91 @@ function sendEmailRestrictions(kv) {
   }
   return out;
 }
+/* SECRETS-STORE-BIND-1 (2.65.0, 2026-11-05, agent_issues 1001969 and 1001981, roadmap RM-SECRETS-STORE-1, pillar security).
+   qnfo-infra/wrangler.toml has declared [[secrets_store_secrets]] CF_TOKEN_STORE since 2026-11-01 and the installer below had no
+   case for it, so the Secrets Store held 30 entries and 0 workers bound one (secrets-inventory, 39 workers). A blind case would
+   switch qnfo-infra to the store entry CF_API_TOKEN (last modified 2026-07-04, value unreadable) on its next deploy, and
+   infraSecret prefers the store and does not fall back, so a stale value would fail every Cloudflare read. The case therefore
+   goes live only for a binding named in ops_config secrets_store_bind_allow (default empty): a comma list of secret names, or
+   worker:secret to limit one worker. Even then it needs the entry to exist in the store with the workers scope, read from the
+   Cloudflare API; an unreadable allowlist, an unreadable store or a missing entry skips the binding with a note and never fails
+   the deploy, and a deploy Cloudflare refuses is sent once more without the store bindings this deploy added. Nothing is read
+   from the store but names and scopes. Revert: empty the allowlist (the live binding stays, live wins on type and name) or write
+   the store entry back. secretsStoreBinding, parseSecretsStoreAllow and selectSecretsStoreBindings are pure. */
+var SECRETS_STORE_ID_RE = /^[0-9a-f]{32}$/i;
+var SECRETS_STORE_NAME_RE = /^[A-Za-z0-9_.-]{1,255}$/;
+function secretsStoreBinding(nm, kv) {
+  const k = kv && typeof kv === "object" ? kv : {};
+  const store = typeof k.store_id === "string" ? k.store_id.trim() : "";
+  const secret = typeof k.secret_name === "string" ? k.secret_name.trim() : "";
+  if (!nm || typeof nm !== "string" || !SECRETS_STORE_ID_RE.test(store) || !SECRETS_STORE_NAME_RE.test(secret)) return null;
+  return { type: "secrets_store_secret", name: nm, store_id: store, secret_name: secret };
+}
+function parseSecretsStoreAllow(raw) {
+  const out = [];
+  for (const part of String(raw == null ? "" : raw).split(/[\s,;]+/)) {
+    const e = part.trim();
+    if (!e || out.indexOf(e) !== -1) continue;
+    const i = e.indexOf(":");
+    if (i === -1 ? SECRETS_STORE_NAME_RE.test(e) : /^[A-Za-z0-9_.-]{1,63}$/.test(e.slice(0, i)) && SECRETS_STORE_NAME_RE.test(e.slice(i + 1))) out.push(e);
+  }
+  return out;
+}
+function secretsStoreAllowed(allow, worker, secretName) {
+  return Array.isArray(allow) && (allow.indexOf(secretName) !== -1 || allow.indexOf(worker + ":" + secretName) !== -1);
+}
+/* declared: bindings from secretsStoreBinding; allow: parseSecretsStoreAllow output; storeEntries: { [store_id]: [{ name, scopes }] | null }
+   (null or missing = the store could not be read). Returns the bindings that may go live and why each other one did not. */
+function selectSecretsStoreBindings(worker, declared, allow, storeEntries) {
+  const bound = [], skipped = [];
+  for (const b of Array.isArray(declared) ? declared : []) {
+    if (!secretsStoreAllowed(allow, worker, b.secret_name)) { skipped.push({ name: b.name, secret_name: b.secret_name, reason: "not in secrets_store_bind_allow" }); continue; }
+    const list = storeEntries && storeEntries[b.store_id];
+    if (!Array.isArray(list)) { skipped.push({ name: b.name, secret_name: b.secret_name, reason: "store unreadable" }); continue; }
+    const hit = list.find(function(e) { return e && e.name === b.secret_name; });
+    if (!hit) skipped.push({ name: b.name, secret_name: b.secret_name, reason: "secret not in the store" });
+    else if (!Array.isArray(hit.scopes) || hit.scopes.indexOf("workers") === -1) skipped.push({ name: b.name, secret_name: b.secret_name, reason: "store entry lacks the workers scope" });
+    else bound.push(b);
+  }
+  return { bound: bound, skipped: skipped };
+}
+async function resolveSecretsStoreBindings(env, worker, declared) {
+  const res = { bindings: [], note: null };
+  if (!declared || !declared.length) return res;
+  let allow = [];
+  try {
+    const row = await env.QNFO_AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'secrets_store_bind_allow' LIMIT 1").first();
+    allow = parseSecretsStoreAllow(row && row.value);
+  } catch (_ea) {
+    res.note = "secrets_store_secrets: " + declared.length + " declared, allowlist unreadable, none bound";
+    return res;
+  }
+  const wanted = declared.filter(function(b) { return secretsStoreAllowed(allow, worker, b.secret_name); });
+  const entries = {};
+  for (const sid of Array.from(new Set(wanted.map(function(b) { return b.store_id; })))) {
+    try {
+      const list = [];
+      for (let page = 1; page <= 5; page++) {
+        const r = await fetch("https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/secrets_store/stores/" + sid + "/secrets?per_page=100&page=" + page, { headers: { "Authorization": "Bearer " + env.CF_API_TOKEN } });
+        if (!r.ok) { entries[sid] = null; break; }
+        const j = await r.json().catch(function() { return null; });
+        const items = j && Array.isArray(j.result) ? j.result : null;
+        if (!items) { entries[sid] = null; break; }
+        for (const e of items) list.push({ name: e && e.name, scopes: e && e.scopes });
+        entries[sid] = list;
+        const pages = j.result_info && Number(j.result_info.total_pages);
+        if (!(pages > page)) break;
+      }
+    } catch (_es) {
+      entries[sid] = null;
+    }
+  }
+  const sel = selectSecretsStoreBindings(worker, declared, allow, entries);
+  res.bindings = sel.bound;
+  const skipped = sel.skipped.map(function(s) { return s.name + ":" + s.reason; });
+  res.note = "secrets_store_secrets: " + declared.length + " declared, " + sel.bound.length + " bound" + (skipped.length ? ", skipped " + skipped.join("; ") : "");
+  return res;
+}
 async function installDeclaredBindings(env, worker) {
   const out = { installed: 0, note: null, bindings: [] };
   try {
@@ -5223,6 +5308,7 @@ async function installDeclaredBindings(env, worker) {
       }
     }
     const decl = [];
+    const storeDecl = [];
     for (const s of sections) {
       const k = s.kv;
       const nm = k.binding || k.name || null;
@@ -5256,10 +5342,26 @@ async function installDeclaredBindings(env, worker) {
       else if (s.name === "ai_search") decl.push({ type: "ai_search", name: nm });
       else if (s.name === "analytics_engine_datasets" && k.dataset) decl.push({ type: "analytics_engine", name: nm, dataset: k.dataset });
       else if (s.name === "artifacts") decl.push({ type: "artifacts", name: nm });
+      else if (s.name === "secrets_store_secrets") {
+        const _sdb = secretsStoreBinding(nm, k);
+        if (_sdb) storeDecl.push(_sdb);
+      }
+    }
+    // SECRETS-STORE-BIND-1: a declared store binding goes live only through the allowlist; nothing here can lose the bindings above.
+    let _storeNote = null;
+    if (storeDecl.length) {
+      try {
+        const _st = await resolveSecretsStoreBindings(env, worker, storeDecl);
+        for (const _sb of _st.bindings) decl.push(_sb);
+        _storeNote = _st.note;
+      } catch (_est) {
+        _storeNote = "secrets_store_secrets: " + storeDecl.length + " declared, none bound (" + String(_est && _est.message || _est).slice(0, 80) + ")";
+      }
     }
     out.bindings = decl;
     out.installed = decl.length;
     if (!decl.length) out.note = "wrangler.toml declares no installable non-secret bindings";
+    if (_storeNote) out.note = out.note ? out.note + "; " + _storeNote : _storeNote;
     return out;
   } catch (e) {
     out.note = String(e && e.message || e).slice(0, 140);
@@ -5686,6 +5788,18 @@ async function cfWorkerDeploy(env, args) {
       resp = await cfFetchRetry(_putUrl, { method: "PUT", headers: _putHeaders }, { body: _buildBody });
       j = await resp.json().catch(() => ({}));
     }
+    if (!resp.ok) {
+      // SECRETS-STORE-BIND-1: a Secrets Store binding this deploy added must never be what stops a deploy: upload once more
+      // without the store bindings that were not already live (a live one is kept, as for every other binding).
+      const _storeNew = bindingsOut.filter(function (b) { return b && b.type === "secrets_store_secret" && !existingBindings.some(function (x) { return x && x.type === "secrets_store_secret" && x.name === b.name; }); });
+      if (_storeNew.length) {
+        bindingInstallNote = (bindingInstallNote ? bindingInstallNote + "; " : "") + "secrets_store_secrets refused, deployed without " + _storeNew.map(function (b) { return b.name; }).join(",") + ": " + JSON.stringify(j && j.errors || j).slice(0, 160);
+        bindingsOut = bindingsOut.filter(function (b) { return _storeNew.indexOf(b) === -1; });
+        bindingsInstalled = Math.max(0, bindingsInstalled - _storeNew.length);
+        resp = await cfFetchRetry(_putUrl, { method: "PUT", headers: _putHeaders }, { body: _buildBody });
+        j = await resp.json().catch(() => ({}));
+      }
+    }
     if (!resp.ok && _sendEmailBefore.length) {
       // SEND-EMAIL-SENDER-RESTRICT-1: a refused restriction on a live send_email binding is taken back to the live binding
       // exactly as it was read, and the upload is sent once more. A binding first installed by this deploy keeps what the file
@@ -5705,7 +5819,7 @@ async function cfWorkerDeploy(env, args) {
       return { ok: false, error: "CF API " + resp.status + ": " + JSON.stringify(j).slice(0, 400), ledger: _ledFail };
     }
     const _compatNote = _compat.restore ? " compat-restore from=" + (_compat.from || "n/a") + " " + String(args && args.compat_restore_note || "").slice(0, 120) : _compat.applied ? " compat_date=" + _compat.from + "->" + _compat.to + " reviewed=" + _compat.reviewed + (_compat.pending_verify ? " pending_verify" : "") : " compat_date=" + _compatDate + (_compat.declared_date && _compat.live_date && _compat.declared_date > _compat.live_date ? " compat_not_advanced=" + String(_compat.reason || "").replace(/\s+/g, "_").slice(0, 160) : "");
-    const _ledOk = await recordDeployLedger(env, { resource_name: worker, action: _compat.restore ? "compat-restore" : "deploy", version_id: versionNote || null, status: "success", notes: "cf_worker_deploy ok http=" + resp.status + " worker=" + worker + _compatNote + " bindings_preserved=" + bindingsOut.length + " observability=" + _obsNote.slice(0, 60) + (_declLimits ? " limits=" + _limitsNote.slice(0, 60) : "") + (_declPlacement ? " placement=" + _placementNote.slice(0, 60) : "") + (sendEmailRestrictApplied ? " send_email_restrict=applied:" + sendEmailRestrictApplied : _sendEmailNote ? " send_email_restrict=" + _sendEmailNote.slice(0, 60) : "") + (_droppedBindings.length ? " dropped_dangling_bindings=" + _droppedBindings.map(function (d) { return d.name + "->" + d.service; }).join(",") : "") + " etag=" + ((j && j.result && j.result.etag) ? j.result.etag : "n/a") + " content_bytes=" + content.length + " expected_version=" + String(args && args.expected_version || "n/a") });
+    const _ledOk = await recordDeployLedger(env, { resource_name: worker, action: _compat.restore ? "compat-restore" : "deploy", version_id: versionNote || null, status: "success", notes: "cf_worker_deploy ok http=" + resp.status + " worker=" + worker + _compatNote + " bindings_preserved=" + bindingsOut.length + " observability=" + _obsNote.slice(0, 60) + (_declLimits ? " limits=" + _limitsNote.slice(0, 60) : "") + (_declPlacement ? " placement=" + _placementNote.slice(0, 60) : "") + (sendEmailRestrictApplied ? " send_email_restrict=applied:" + sendEmailRestrictApplied : _sendEmailNote ? " send_email_restrict=" + _sendEmailNote.slice(0, 60) : "") + (_droppedBindings.length ? " dropped_dangling_bindings=" + _droppedBindings.map(function (d) { return d.name + "->" + d.service; }).join(",") : "") + " etag=" + ((j && j.result && j.result.etag) ? j.result.etag : "n/a") + " content_bytes=" + content.length + " expected_version=" + String(args && args.expected_version || "n/a") + (bindingInstallNote && bindingInstallNote.indexOf("secrets_store_secrets") !== -1 ? " | " + bindingInstallNote.slice(bindingInstallNote.indexOf("secrets_store_secrets"), bindingInstallNote.indexOf("secrets_store_secrets") + 140) : "") });
     return { ledger: _ledOk, ok: true, worker, deployed: true, http: resp.status, dropped_dangling_bindings: _droppedBindings, version: versionNote || "deployed", bindings_preserved: bindingsOut.length, bindings_installed: bindingsInstalled, binding_props_applied: bindingPropsApplied, observability_apply: _obsNote, observability: _obsOut, limits_apply: _limitsNote, limits: _limitsOut, placement_apply: _placementNote, placement: _placementOut, send_email_restrict_applied: sendEmailRestrictApplied, send_email_restrict_note: _sendEmailNote, compatibility_date: _compatDate, compat: _compat, binding_install_note: bindingInstallNote, warning: bindingsOut.length === 0 ? "BINDING-INSTALL-WHEN-EMPTY-1: deployed with ZERO bindings and none installable from wrangler.toml - this worker may be a silent no-op" : null, result: j && j.result ? { id: j.result.id, etag: j.result.etag } : null };
   } catch (e) {
     return { ok: false, error: "cf_worker_deploy failed: " + (e && e.message || String(e)).slice(0, 300) };
