@@ -561,6 +561,41 @@ def record(d1, results, verifier, now=None):
         title_like = "%s: %s %%" % (ISSUE_PREFIX, r["journey"])
         open_rows = d1("SELECT id FROM agent_issues WHERE status = 'open' AND title LIKE ?1", [title_like])
         if r["ok"]:
+            # RELAPSE-HOLD-1 gha-journeys: ensure a prior passing gha run exists at least 10 min earlier and after the issue's last reopen
+            # Fetch the most recent previous gha run for this journey
+            prev_gha = d1(
+                "SELECT ok, ts FROM journey_runs WHERE journey = ?1 AND runner = 'gha' AND ts < ?2 ORDER BY ts DESC LIMIT 1",
+                [r["journey"], at],
+            )
+            # Fetch the issue's last updated timestamp (used for reopen tracking)
+            issue_info = d1(
+                "SELECT updated_at FROM agent_issues WHERE id = ?1",
+                [open_rows[0]["id"]] if open_rows else [None],
+            )
+            keep_open = False
+            # Condition: no prior passing gha run, or it is too recent (<10 min), or it occurred before the issue was (re)opened
+            if not prev_gha or int(prev_gha[0].get("ok") or 0) != 1:
+                keep_open = True
+            else:
+                prev_ts = prev_gha[0].get("ts")
+                # Ensure at least 10 minutes earlier than the current run
+                if prev_ts is None or age_min(prev_ts, now) < 10:
+                    keep_open = True
+                else:
+                    # Compare timestamps: if the previous run is not after the issue's last update, keep open
+                    issue_updated = issue_info[0].get("updated_at") if issue_info else None
+                    if issue_updated is not None:
+                        # Convert ISO timestamp to epoch milliseconds
+                        try:
+                            t_struct = time.strptime(prev_ts[:19], "%Y-%m-%dT%H:%M:%S")
+                            prev_epoch_ms = int((time.mktime(t_struct) - time.timezone) * 1000)
+                        except Exception:  # noqa: BLE001
+                            prev_epoch_ms = None
+                        if prev_epoch_ms is None or prev_epoch_ms <= issue_updated:
+                            keep_open = True
+            if keep_open:
+                actions[r["journey"]] = "kept open: first passing run"
+                continue
             if not open_rows:
                 continue
             other = d1("SELECT ok FROM journey_runs WHERE journey = ?1 AND runner <> 'gha' AND ts > ?2 ORDER BY id DESC LIMIT 1", [r["journey"], since])
