@@ -42,7 +42,10 @@ ok(one("SELECT evidence FROM roadmap_implementation WHERE id = 133").evidence ==
 // the routes the file calls refused are still either probed or registered in the manifest
 const manifest = JSON.parse(rd("../scripts/write-routes.json"));
 const probed = new Set(manifest.probe.map((p) => new URL(p.url).pathname));
-for (const path of ["/mcp", "/mcp/messages", "/exec", "/v1/tools/call", "/ops/deploy", "/send", "/intent", "/code-sessions", "/ab/run"]) ok(probed.has(path), "still probed: " + path);
+for (const path of ["/mcp", "/mcp/messages", "/exec", "/v1/tools/call", "/ops/deploy", "/send", "/intent", "/code-sessions"]) ok(probed.has(path), "still probed: " + path);
+// SUITE-RED-2: qnfo-model-eval was folded into qnfo-ai-calibration (WORKER-COUNT-1.3, PR 7523), which moved POST /ab/run from the probe list to a registered
+// route of the host (/model-eval/ab/run, refused by code). The test asks "probed or registered", so it names the registration instead of a path that no longer exists.
+ok(manifest.register.some((r) => String(r.route).includes("/model-eval/ab/run")), "POST /ab/run is registered in the manifest as /model-eval/ab/run (qnfo-ai-calibration)");
 ok(probed.has("/scan") && probed.has("/run"), "the two open routes are still in the probe list, so the metric keeps counting them");
 
 console.log(`${pass} passed, ${fail} failed`);

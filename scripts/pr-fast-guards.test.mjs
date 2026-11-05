@@ -35,6 +35,8 @@ ok(same(selected(["qnfo-agents/package.json"]), ["dependency-allowlist"]), "a pa
 ok(same(selected(["qnfo-pdf/package-lock.json"]), ["dependency-allowlist"]), "a lock file change selects the dependency gate", selected(["qnfo-pdf/package-lock.json"]));
 ok(same(selected(["scripts/dependency-allowlist.txt"]), ["dependency-allowlist"]), "an allow-list edit selects the dependency gate", selected(["scripts/dependency-allowlist.txt"]));
 ok(!selected(["docs/A.md", "migrations/2026-11-04-x.sql"]).includes("dependency-allowlist"), "docs and migrations do not select the dependency gate");
+ok(selected(["docs/ops-governance/scripts/model_guard.py"]).includes("fleet-lessons-gates"), "a client-guard script change selects the fleet-lessons gates");
+ok(!selected(["qnfo-ai/worker.js", "qnfo-ai/deployed-current.worker.js"]).includes("fleet-lessons-gates"), "a worker change does not select the fleet-lessons gates");
 ok(same(selected(["scripts/narrative-prompt-guard.py"]), ["narrative-prompt-guard", "workers-standards-guard", "d1-like-limit"] ), "the guard's own file selects it (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/narrative-prompt-guard.py"]));
 ok(same(selected(["docs/ops-governance/scripts/customPrompts-canonical.json"]), ["kaizen-gates"]), "a prompt-store change selects the kaizen gates only", selected(["docs/ops-governance/scripts/customPrompts-canonical.json"]));
 ok(same(selected(["scripts/kaizen_gates.py"]), ["kaizen-gates", "workers-standards-guard", "d1-like-limit"]), "the kaizen gate module selects itself (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/kaizen_gates.py"]));

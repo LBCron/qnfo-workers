@@ -74,6 +74,11 @@ GUARDS = [
                                          r"^scripts/(kaizen_gates|pr_fast_guards|cost_ledger|fleet-autoaudit|deploy-drift-guard|mirror-guard)\.py$",
                                          r"^scripts/ux-journeys/apps/fleet\.journeys\.mjs$"),
      ["python3", "scripts/kaizen_gates.py"], None),
+    # FLEET-LESSONS-GATES-1 (roadmap rows RM-GATE-C1, C3, D4, E2, H1, H2, H3; SUITE-RED-2): the repository half of the fleet-lessons gates (about 1 s, offline) was never registered here, so a change to the
+    # client-state guards or the owner-machine scripts it reads reached main unchecked and migrations/c4-gates-roadmap-closeout.test.mjs (detector fm-fleet-lessons-gates-wired) read red. Regression-only like
+    # the other guards: a VIOLATION line the base tree already has never holds an unrelated pull request.
+    ("fleet-lessons-gates", lambda f: any_match(f, r"^docs/ops-governance/scripts/[^/]+\.py$", r"^docs/ops-governance/scripts/chatbox-providers-canonical\.json$", r"^scripts/(fleet_lessons_gates|rotate-social-token|purge-agent-snapshots|skill_pull|deploy_gate)\.py$"),
+     ["python3", "scripts/fleet_lessons_gates.py"], r"^VIOLATION "),
     # DEPENDENCY-ALLOWLIST-1 (BP26-AGENT-CHANGE-GATES-1, roadmap row 1414, OWASP ASI04): a dependency, an install script or an unpinned install in a workflow is declared in
     # scripts/dependency-allowlist.txt, with a reason, in the same change. Regression-only: a violation the base tree already has never holds an unrelated pull request.
     ("dependency-allowlist", lambda f: any_match(f, r"(^|/)package(-lock)?\.json$", r"^\.github/workflows/[^/]+\.ya?ml$", r"^scripts/dependency[-_]allowlist\.(py|txt)$"),
