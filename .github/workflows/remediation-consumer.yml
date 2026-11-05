@@ -420,6 +420,15 @@ jobs:
         run: |
           python3 scripts/cost_ledger.py --selftest && python3 scripts/cost_ledger.py
 
+      # COST-TASK-OUTCOMES-1 (2026-11-05, RM-COST-PER-TASK-ALL-PATHS-1): the per-day outcome of the paths whose outcome table sits in another database
+      # (q08 pieces published, read as a count) and the successful-call unit of every other counted worker, written to qnfo-audit.task_outcomes_daily so
+      # v_cost_per_task_all_paths has no NULL ok_tasks. Seconds long, idempotent, never fails the job.
+      - name: Write the daily task outcomes
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          python3 scripts/cost_task_outcomes.py --selftest && python3 scripts/cost_task_outcomes.py
+
       # D1-EXPORT-BEYOND-TIME-TRAVEL-1: the weekly full export of every account database to R2 (the daily snapshot is in the sweeps job). It stops at
       # EXPORT_BUDGET_SEC and resumes on the next heavy run from export/<database>/_progress.json. Never fails the job.
       - name: Export the account databases to R2
