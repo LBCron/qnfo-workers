@@ -17,8 +17,8 @@ WHY   The "quniverse-fleet-lessons" failure ledger (docs/QUNIVERSE-BACKLOG.md se
           runtime worker advertises (qnfo-ops OPS_PUBLIC_MODEL, the qnfo-ai and personal-api /v1/models entry) and must be listed under that
           provider in chatbox-providers-canonical.json; the default key's provider must be one of the pinned providers (the superseded
           AI-GATEWAY/openai/gpt-4.1 default named a provider the client never registered: 0 of 77).
-      E2  Secrets are read from their file stores. A script that runs on the owner's machine and reads a credential (a variable named *TOKEN, *_KEY,
-          *SECRET, *PASSWORD) from the process environment also consults the file store (~/.env, ~/.qnfo, .deepchat/secrets, ~/tokens) before it
+      E2  Secrets are read from their file stores. A script that runs on the owner's machine and reads a credential (a variable named *TOKEN, *SECRET,
+          *PASSWORD, *API_KEY, *ACCESS_KEY, *AUTH_KEY, *PRIVATE_KEY) from the process environment also consults the file store (~/.env, ~/.qnfo, .deepchat/secrets, ~/tokens) before it
           reports the key missing: a session once judged "missing credential" from the environment while the key sat in the file.
       D4  A wrapper uses the platform-correct command form. Node tools (npx, npm, wrangler ...) are .cmd shims on Windows: a process argv that
           starts with the bare name raises WinError 2 before the guard ever runs. A script that builds one needs a resolver in the same file
@@ -36,7 +36,8 @@ WHY   The "quniverse-fleet-lessons" failure ledger (docs/QUNIVERSE-BACKLOG.md se
       E2 (which store a session looked in) through the blocker_redteam ledger, metric unverified_blocker_claims and fm-e2-credential-missing-claim
       (migrations/2026-11-04-c4-gates-roadmap-closeout.sql).
 
-WHAT  Pure standard library, no network, about 1 s. Reads only files under the root. A missing input is a finding (fail closed).
+WHAT  Pure standard library, no network, a few seconds on a CI runner (slower on a cold Windows disk). Reads only files under the root and writes nothing into it.
+      A missing input, or a script a gate needs and cannot parse, is a finding (fail closed).
       One line per finding, without line numbers, so scripts/regression_gate.py compares runs by text:
           VIOLATION <gate> <path>: <message>
       and one `FLEET-LESSONS-GATES <gate> ok|<n> finding(s)` line per gate.
@@ -64,13 +65,14 @@ JS_SPAWN = re.compile(r"""\b(?:spawn|spawnSync|execFile|execFileSync)\(\s*(["'`]
 JS_RESOLVER = re.compile(r"win32|\.cmd[\"'`]|shell\s*:\s*true|process\.platform")
 
 # E2 --------------------------------------------------------------------------------------------------------------------------------------
-SECRET_NAME = re.compile(r"(?:TOKEN|_KEY|SECRET|PASSWORD|PASS)$")
+SECRET_NAME = re.compile(r"(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|AUTH_KEY|PRIVATE_KEY)$")  # not CACHE_KEY, SORT_KEY or BYPASS
 FILE_STORE = re.compile(r"~/\.env|\.env[\"']|(?:[\\/]|[\"'])\.qnfo|deepchat[\\/]+secrets|[\"']\.deepchat[\"']\s*,\s*[\"']secrets|[\\/]tokens[\\/]|[\"']tokens[\"']")
 
 # H3 --------------------------------------------------------------------------------------------------------------------------------------
 LINK_PROBE = re.compile(r"is_?link|is_?junction|is_symlink|link_probe|samefile|st_nlink|\blstat\b|readlink|realpath|S_ISLNK|REPARSE_POINT")
 DEDUPE_WORDS = re.compile(r"dedup|duplicate|dupe", re.I)
-EXEMPT = re.compile(r"link-probe-exempt:\s*\S+")
+EXEMPT = re.compile(r"link-probe-exempt:[ \t]*\S+")  # a reason on the same line; \s would let the next line count as one
+PROC_CALLS = {"run", "call", "check_call", "check_output", "Popen", "getoutput", "getstatusoutput", "execv", "execvp", "execl", "execlp", "spawnv", "spawnvp", "spawnl", "spawnlp", "create_subprocess_exec"}
 
 # C1 / C3 ---------------------------------------------------------------------------------------------------------------------------------
 KEY_SOURCES = [  # label, file under OPS, identifier that sits on the same line as the {"providerId": ..., "modelId": ...} literal
@@ -85,7 +87,7 @@ STATUS_SOURCES = [("local-config-selfheal.STATUS_WHITELIST", "local-config-selfh
 # provider -> (runtime worker source, pattern whose group 1 is the id the endpoint advertises)
 RUNTIME = {
     "QNFO-OPS": ("qnfo-ops/worker.js", r'OPS_PUBLIC_MODEL\s*=\s*"([\w.-]+)"'),
-    "QNFO-ROUTER": ("qnfo-ai/worker.js", r'id:\s*"([\w.-]+)",\s*object:\s*"model",\s*created:\s*171e7,\s*owned_by:\s*"qnfo",\s*capabilities'),
+    "QNFO-ROUTER": ("qnfo-ai/worker.js", r'id:\s*"([\w.-]+)",\s*object:\s*"model"[^}\n]{0,160}owned_by:\s*"qnfo"'),
     "PERSONAL-TWIN": ("personal-api/worker.js", r'\{\s*id:\s*"([\w.-]+)",\s*object:\s*"model"'),
 }
 
@@ -105,7 +107,7 @@ class Findings:
 
 def read(root, rel):
     try:
-        with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as fh:
+        with open(os.path.join(root, rel), encoding="utf-8-sig", errors="replace") as fh:  # a BOM (Notepad) is not a syntax error
             return fh.read()
     except OSError:
         return None
@@ -118,6 +120,14 @@ def parse(text):
             return ast.parse(text)
     except (SyntaxError, ValueError):
         return None
+
+
+def parse_or_flag(f, gate, rel, text):
+    """Parse a script a gate must read; a script it cannot parse is a finding, not a silent pass (fail closed)."""
+    tree = parse(text)
+    if tree is None:
+        f.add(gate, rel, "cannot be parsed as Python, so the %s gate cannot read it" % gate)
+    return tree
 
 
 def listdir(root, rel, suffix):
@@ -253,19 +263,44 @@ def py_scan_files(root):
     return out
 
 
+def call_name(node):
+    fn = node.func
+    return fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else "")
+
+
+def bare_tool_argvs(tree):
+    """Argv lists that start with a bare node tool and are handed to a process call: directly (subprocess.run(["npx", ...])) or through a variable
+    (cmd = ["npx", ...]; subprocess.run(cmd)). A list of names that is not run (["npm", "pnpm", "yarn"] in a table) is not an argv."""
+    def is_tool_list(n):
+        return isinstance(n, (ast.List, ast.Tuple)) and n.elts and isinstance(n.elts[0], ast.Constant) and isinstance(n.elts[0].value, str) and n.elts[0].value in NODE_TOOLS
+    named = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and is_tool_list(n.value):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    named[t.id] = n.value.elts[0].value
+    found = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and call_name(n) in PROC_CALLS:
+            first = n.args[0] if n.args else next((k.value for k in n.keywords if k.arg == "args"), None)
+            if is_tool_list(first):
+                found.add(first.elts[0].value)
+            elif isinstance(first, ast.Name) and first.id in named:
+                found.add(named[first.id])
+    return sorted(found)
+
+
 def check_d4(root, f):
     for d, fn in py_scan_files(root):
         rel = d + "/" + fn
         text = read(root, rel)
         if text is None or "subprocess" not in text or not NODE_QUOTED.search(text) or RESOLVER.search(text):
             continue
-        tree = parse(text)
+        tree = parse_or_flag(f, "D4", rel, text)
         if tree is None:
             continue
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.List, ast.Tuple)) and node.elts and isinstance(node.elts[0], ast.Constant) \
-                    and isinstance(node.elts[0].value, str) and node.elts[0].value in NODE_TOOLS:
-                f.add("D4", rel, "process argv starts with the bare command %r and the file has no platform resolver (Windows needs %s.cmd: use shutil.which)" % (node.elts[0].value, node.elts[0].value))
+        for tool in bare_tool_argvs(tree):
+            f.add("D4", rel, "process argv starts with the bare command %r and the file has no platform resolver (Windows needs %s.cmd: use shutil.which)" % (tool, tool))
     for fn in listdir(root, "scripts", ".mjs"):
         rel = "scripts/" + fn
         text = read(root, rel)
@@ -278,11 +313,12 @@ def check_d4(root, f):
 
 # E2 --------------------------------------------------------------------------------------------------------------------------------------
 def is_environ(node):
-    return isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and node.value.id == "os"
+    """os.environ, or environ imported from os."""
+    return (isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and node.value.id == "os") or (isinstance(node, ast.Name) and node.id == "environ")
 
 
 def env_secret_reads(tree):
-    """Credential-like names (*TOKEN, *_KEY, *SECRET, *PASSWORD) the module reads from the process environment by a literal name."""
+    """Credential-like names (*TOKEN, *SECRET, *PASSWORD, *API_KEY ...) the module reads from the process environment by a literal name."""
     names = set()
     for n in ast.walk(tree):
         name = None
@@ -290,8 +326,10 @@ def env_secret_reads(tree):
             fn = n.func
             if isinstance(fn, ast.Attribute) and ((fn.attr == "get" and is_environ(fn.value)) or (fn.attr == "getenv" and isinstance(fn.value, ast.Name) and fn.value.id == "os")):
                 name = n.args[0].value
-        elif isinstance(n, ast.Subscript) and is_environ(n.value):
+        elif isinstance(n, ast.Subscript) and is_environ(n.value) and isinstance(n.ctx, ast.Load):  # os.environ["X"] = v and del os.environ["X"] are writes
             key = n.slice
+            if hasattr(ast, "Index") and isinstance(key, getattr(ast, "Index")):  # Python 3.8
+                key = key.value
             if isinstance(key, ast.Constant) and isinstance(key.value, str):
                 name = key.value
         if name and SECRET_NAME.search(name):
@@ -307,25 +345,26 @@ def check_e2(root, f):
         text = read(root, rel)
         if text is None or "environ" not in text and "getenv" not in text:
             continue
-        tree = parse(text)
+        tree = parse_or_flag(f, "E2", rel, text)
         if tree is None:
             continue
         names = env_secret_reads(tree)
-        if names and not FILE_STORE.search(text):
+        code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))  # a comment that names ~/.env is not a read of it
+        if names and not FILE_STORE.search(code):
             f.add("E2", rel, "reads %s from the process environment only and never consults a file store (~/.env, ~/.qnfo, .deepchat/secrets), so a key held there is reported missing" % ", ".join(names))
 
 
 # H1 --------------------------------------------------------------------------------------------------------------------------------------
-def call_name(node):
-    fn = node.func
-    return fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else "")
+ORPHAN_CUTOFF = re.compile(r"""SNAPSHOT_ORPHAN_MIN_AGE_MIN["']?\s*(?:,\s*|\)\s*or\s*)["'](\d+)["']""")  # environ.get(NAME, "180") and environ.get(NAME) or "180"
 
 
 def check_h1(root, f):
     for fn in listdir(root, OPS, ".py"):
         rel = OPS + "/" + fn
         text = read(root, rel)
-        tree = parse(text) if text else None
+        if not text or "agent-snapshot-" not in text:
+            continue
+        tree = parse_or_flag(f, "H1", rel, text)
         if tree is None:
             continue
         creates = any(isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.startswith("agent-snapshot-") and "*" not in n.value for n in ast.walk(tree))
@@ -342,12 +381,15 @@ def check_h1(root, f):
             if not any(isinstance(n, ast.Try) and n.finalbody and any(call_name(c) in ("remove", "unlink") for b in n.finalbody for c in ast.walk(b) if isinstance(c, ast.Call))
                        for m in mains for n in ast.walk(m)):
                 f.add("H1", rel, "creates agent-snapshot-* files but removes them in no finally block of main() (a failed upload leaks the file)")
+            own = ORPHAN_CUTOFF.search(text)
+            if own and int(own.group(1)) > 360:
+                f.add("H1", rel, "its own orphan cutoff defaults to %s minutes; a same-day orphan needs at most 360" % own.group(1))
     purge_fn = OPS + "/purge-agent-snapshots.py"
     text = read(root, purge_fn)
     if text is None:
         f.add("H1", purge_fn, "cannot read the independent purge sweep")
     else:
-        m = re.search(r'SNAPSHOT_ORPHAN_MIN_AGE_MIN"?\s*,\s*"(\d+)"', text)
+        m = ORPHAN_CUTOFF.search(text)
         if not m:
             f.add("H1", purge_fn, "no SNAPSHOT_ORPHAN_MIN_AGE_MIN cutoff: a same-day orphan waits for the daily age limit")
         elif int(m.group(1)) > 360:
@@ -364,15 +406,25 @@ def check_h2(root, f):
     try:
         spec = importlib.util.spec_from_file_location("fl_skill_pull", os.path.join(root, rel))
         mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        keep = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True  # the gate reads the checked tree and writes nothing into it
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.dont_write_bytecode = keep
         verify = getattr(mod, "verify_membership")
     except Exception as e:  # noqa: BLE001 - a script that cannot be loaded or has no verifier is the finding
         f.add("H2", rel, "has no importable verify_membership(src_dirs, dest): %s" % type(e).__name__)
         return
-    tree = parse(text)
-    main_calls = [call_name(c) for n in (tree.body if tree else []) if isinstance(n, ast.FunctionDef) and n.name == "main" for c in ast.walk(n) if isinstance(c, ast.Call)]
-    if "verify_membership" not in main_calls:
+    tree = parse_or_flag(f, "H2", rel, text)
+    mains = [n for n in (tree.body if tree else []) if isinstance(n, ast.FunctionDef) and n.name == "main"]
+    assigned = {t.id for m in mains for n in ast.walk(m) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) and call_name(n.value) == "verify_membership"
+                for t in n.targets if isinstance(t, ast.Name)}
+    if not assigned:
         f.add("H2", rel, "main() never calls verify_membership, so a skill missing from the destination goes unnoticed")
+    elif not any(isinstance(n, ast.If) and any(isinstance(x, ast.Name) and x.id in assigned for x in ast.walk(n.test)) and any(isinstance(c, ast.Call) and call_name(c) == "exit" for b in n.body for c in ast.walk(b))
+                 for m in mains for n in ast.walk(m)):
+        f.add("H2", rel, "main() calls verify_membership but a missing skill does not end the run with an exit code")
     with tempfile.TemporaryDirectory(prefix="fl-h2-") as td:
         src, dest = os.path.join(td, "src"), os.path.join(td, "dest")
         for base, names in ((src, ("alpha", "beta", "gamma")), (dest, ("alpha", "gamma"))):
@@ -393,21 +445,38 @@ def check_h2(root, f):
 # H3 --------------------------------------------------------------------------------------------------------------------------------------
 DELETE_CALL = re.compile(r"rmtree|rmdir|removedirs|\bremove\(|unlink")
 TREE_DELETES = {"rmtree", "rmdir", "removedirs"}
-FILE_DELETES = {"remove", "unlink"}
+
+
+def is_file_delete(call):
+    """os.remove / os.unlink / shutil-style removal and Path.unlink; list.remove and set.remove are not file deletions."""
+    fn = call.func
+    if isinstance(fn, ast.Attribute) and fn.attr == "remove":
+        return isinstance(fn.value, ast.Name) and fn.value.id in ("os", "shutil")
+    return isinstance(fn, ast.Attribute) and fn.attr == "unlink" or (isinstance(fn, ast.Name) and fn.id == "unlink")
+
+
+def exempt_near(lines, lineno):
+    """`link-probe-exempt: <reason>` on the call's own line, or alone on the comment line right above it."""
+    own = lines[lineno - 1] if 0 < lineno <= len(lines) else ""
+    prev = lines[lineno - 2] if lineno >= 2 else ""
+    return bool(EXEMPT.search(own) or (prev.lstrip().startswith("#") and EXEMPT.search(prev)))
 
 
 def check_h3(root, f):
     for fn in listdir(root, OPS, ".py"):
         rel = OPS + "/" + fn
         text = read(root, rel)
-        tree = parse(text) if text and DELETE_CALL.search(text) else None
+        if not text or not DELETE_CALL.search(text):
+            continue
+        tree = parse_or_flag(f, "H3", rel, text)
         if tree is None:
             continue
-        lines = text.splitlines()
+        lines = text.split("\n")  # not splitlines(): form feeds and U+2028 would shift the numbers the AST reports
         funcs = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
             name = call_name(call)
-            if name not in TREE_DELETES | FILE_DELETES:
+            tree_delete = name in TREE_DELETES
+            if not tree_delete and not (name in ("remove", "unlink") and is_file_delete(call)):
                 continue
             owner = None
             for fd in funcs:
@@ -415,10 +484,9 @@ def check_h3(root, f):
                     owner = fd
             scope = (ast.get_source_segment(text, owner) if owner else text) or ""
             dedupe = bool(owner and DEDUPE_WORDS.search(owner.name + " " + (ast.get_docstring(owner) or "")))
-            if name in FILE_DELETES and not dedupe:
+            if not tree_delete and not dedupe:
                 continue
-            around = "\n".join(lines[max(0, call.lineno - 2):call.lineno])
-            if LINK_PROBE.search(scope) or EXEMPT.search(around):
+            if LINK_PROBE.search(scope) or exempt_near(lines, call.lineno):
                 continue
             where = owner.name + "()" if owner else "module level"
             f.add("H3", rel, "%s in %s deletes without a junction/hardlink probe (islink, isjunction, samefile, lstat, st_nlink) and carries no `link-probe-exempt: <reason>`" % (name, where))

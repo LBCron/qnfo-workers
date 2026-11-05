@@ -22,11 +22,17 @@ def secret(name, default=''):
     if v:
         return v
     try:
-        with open(os.path.expanduser('~/.env'), encoding='utf-8', errors='ignore') as fh:
+        with open(os.path.expanduser('~/.env'), encoding='utf-8-sig', errors='ignore') as fh:
             for ln in fh:
                 ln = ln.strip()
-                if ln.startswith(name + '='):
-                    return ln.split('=', 1)[1].strip().strip('"').strip("'")
+                if ln.startswith('export '):
+                    ln = ln[7:].lstrip()
+                k, sep, v = ln.partition('=')
+                if sep and k.strip() == name:
+                    v = v.strip()
+                    if len(v) > 1 and v[0] in '"\'' and v[-1] == v[0]:
+                        return v[1:-1]
+                    return v.split(' #', 1)[0].strip()
     except OSError:
         pass
     return default
@@ -100,7 +106,7 @@ def upload(key, data):
 # purge (purge-agent-snapshots.py, formerly a 24-hour cutoff) could not clean a same-day orphan, so the next run stacked a second one on a full disk. Every run now
 # purges the orphans of earlier runs BEFORE its first snapshot. A file younger than the cutoff may belong to a run still going, and Windows refuses to delete one
 # that is open, so a live snapshot is never taken away. scripts/fleet_lessons_gates.py (gate H1) fails a snapshot writer that does not do this first.
-ORPHAN_MIN_AGE_MIN = float(os.environ.get('SNAPSHOT_ORPHAN_MIN_AGE_MIN', '180'))
+ORPHAN_MIN_AGE_MIN = float(os.environ.get('SNAPSHOT_ORPHAN_MIN_AGE_MIN') or '180')
 ORPHAN_PATTERNS = ('agent-snapshot-*.db', 'agent-snapshot-*.db-wal', 'agent-snapshot-*.db-shm')
 
 def purge_orphan_snapshots(temp_dir=None, min_age_min=None):

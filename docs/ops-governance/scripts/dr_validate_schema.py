@@ -15,11 +15,17 @@ def secret(name, default=''):
     if v:
         return v
     try:
-        with open(os.path.expanduser('~/.env'), encoding='utf-8', errors='ignore') as fh:
+        with open(os.path.expanduser('~/.env'), encoding='utf-8-sig', errors='ignore') as fh:
             for ln in fh:
                 ln = ln.strip()
-                if ln.startswith(name + '='):
-                    return ln.split('=', 1)[1].strip().strip('"').strip("'")
+                if ln.startswith('export '):
+                    ln = ln[7:].lstrip()
+                k, sep, v = ln.partition('=')
+                if sep and k.strip() == name:
+                    v = v.strip()
+                    if len(v) > 1 and v[0] in '"\'' and v[-1] == v[0]:
+                        return v[1:-1]
+                    return v.split(' #', 1)[0].strip()
     except OSError:
         pass
     return default

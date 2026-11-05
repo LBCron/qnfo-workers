@@ -27,9 +27,9 @@ def is_link(path):
     isjunction = getattr(os.path, "isjunction", None)
     if isjunction and isjunction(path):
         return True
-    try:
-        return bool(os.lstat(path).st_file_attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT; the attribute exists on Windows only
-    except (AttributeError, OSError):
+    try:  # a reparse point that is a symlink or a junction; a OneDrive-style placeholder is also a reparse point but not a link to another copy
+        return getattr(os.lstat(path), 'st_reparse_tag', 0) in (0xA000000C, 0xA0000003)  # IO_REPARSE_TAG_SYMLINK, IO_REPARSE_TAG_MOUNT_POINT; Windows only
+    except OSError:
         return False
 
 
@@ -42,8 +42,8 @@ def verify_membership(src_dirs, dest):
         name = os.path.basename(os.path.normpath(sd))
         md = os.path.join(dest, name, "SKILL.md")
         try:
-            with open(md, encoding="utf-8", errors="replace") as fh:
-                ok = fh.read(3) == "---"
+            with open(md, encoding="utf-8-sig", errors="replace") as fh:  # a BOM (Notepad) is not a missing skill
+                ok = fh.read(64).lstrip().startswith("---")
         except OSError:
             ok = False
         if not ok:

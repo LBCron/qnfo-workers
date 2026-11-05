@@ -16,7 +16,7 @@ Scheduled via Windows task QNFO-Snapshot-Purge (daily 03:00), device-bound write
 import glob, os, sys, time
 
 TEMP = os.environ.get("TEMP") or os.path.join(os.environ.get("LOCALAPPDATA", ""), "Temp")
-ORPHAN_MIN_AGE_MIN = float(os.environ.get("SNAPSHOT_ORPHAN_MIN_AGE_MIN", "180"))
+ORPHAN_MIN_AGE_MIN = float(os.environ.get("SNAPSHOT_ORPHAN_MIN_AGE_MIN") or "180")
 AGE_MIN = float(os.environ["SNAPSHOT_AGE_HOURS"]) * 60 if os.environ.get("SNAPSHOT_AGE_HOURS") else ORPHAN_MIN_AGE_MIN
 CUTOFF = time.time() - AGE_MIN * 60
 PATTERNS = ("agent-snapshot-*.db", "agent-snapshot-*-settings.db", "agent-prune-test.db",
