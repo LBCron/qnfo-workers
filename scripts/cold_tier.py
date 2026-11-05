@@ -28,6 +28,16 @@ COLD-TIER-2 (2026-11-05, agent_issues 1001971, roadmap RM-D1-RETENTION-1): cron_
       id is TEXT, its rowid is not time order (heartbeat rows are upserted), and v_trust_ledger / v_process_last_run read it without a 14 day window
       (agent_issues COLD-TIER-3). Restore is the same as for every tier: gunzip the object, INSERT OR IGNORE the lines.
 
+BLOB-TIER-1 (2026-11-05, agent_issues 1001972, roadmap RM-D1-RETENTION-1): mode "blob" keeps the row and moves its heavy columns out. code_task_ctx_archive is the
+      archive CODE-TASKS-CTX-SLIM fills (code_tasks_ctx_slim_heavy_tick copies base and patch of a finished task out of code_tasks.ctx, 40 rows a tick): read 2026-11-05 it
+      held 1,153 rows with 108.6 MB of base and 75.8 MB of patch, about 184 MB of the 1.32 GB file, and no reader of those two columns (fleet-graph impact: only that
+      trigger touches the table, and it reads task_id and slimmed). A chunk is the next rows that are slimmed = 1, older than keep_days and still hold a blob; they are written
+      with ALL their columns (plus _rid, the rowid) to R2, read back and checked, ledgered (mode blob), and only then are base and patch set to NULL (task_id, orig_ctx_bytes,
+      slimmed stay, so the trigger's NOT EXISTS keeps working). Restore: gunzip the object named in cold_archive_ledger.r2_key and
+      UPDATE code_task_ctx_archive SET base = ?, patch = ? WHERE task_id = ? for each line. paper_integrity_backups is NOT here although the issue lists it: ciBackfillRetracted
+      and noticeRepairTick read its body_md to restore a retracted paper from the earliest backup (qnfo-research-exec), and errata_actions / version_queue bodies of unfinished
+      rows are read by the errata and revision pipelines; email_raw_archive is personal-plane text. Those need their own status filters (agent_issues BLOB-TIER-2).
+
 Runs from scripts/continuity_snapshot.py main() (the remediation-consumer workflow), never raises, prints one JSON line per run.
 Self-test: python scripts/cold_tier.py --selftest
 """
@@ -45,7 +55,7 @@ import urllib.parse
 import urllib.request
 
 BUCKET = "qnfo-backups"
-COLD_BUDGET_SEC = float(os.environ.get("COLD_BUDGET_SEC") or 150)
+COLD_BUDGET_SEC = float(os.environ.get("COLD_BUDGET_SEC") or 210)   # 150 until COLD-TIER-2: seven tiers share it now (the workflow step allows 8 minutes for all four stages)
 CHUNKS_PER_TIER = int(os.environ.get("COLD_CHUNKS_PER_TIER") or 6)
 DELETE_BATCH = 400          # D1 rows in one DELETE statement (RETENTION-PRUNE-SPREAD-1: a bigger statement stalls every other query)
 DELETE_PAUSE_SEC = 1.0
@@ -68,6 +78,8 @@ TIERS = [
      "ok": None, "ok_sql": "status = 'ok'", "fail_sql": "status = 'failed'", "num": "cost_neurons", "newer": "id", "roll_days": 16, "chunk": 800},
     {"table": "analytics_action_log", "ts": "fired_at", "keep_days": 30, "mode": "delete", "latest": ("trigger_id", "status"), "dims": ("trigger_id", "status"),
      "ok": None, "ok_sql": "status = 'recovered'", "fail_sql": "status = 'fired'", "num": "metric_value", "newer": "id", "space_ts": True, "roll_days": 70, "chunk": 800},
+    # BLOB-TIER-1: the row stays, base and patch go to R2 (see the docstring). keep_days 0.25: a row is only here once code_tasks.ctx no longer holds the text (slimmed = 1).
+    {"table": "code_task_ctx_archive", "ts": "archived_at", "keep_days": 0.25, "mode": "blob", "cols": ("base", "patch"), "where": "slimmed = 1", "chunk": 10, "chunks": 12},
 ]
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -194,6 +206,9 @@ def _chunk_rows(d1, t, now=None):
     mode copy: rows older than keep_days after the last archived id."""
     tab, ts = t["table"], t["ts"]
     cutoff = _cutoff(t, now)
+    if t["mode"] == "blob":
+        has = " OR ".join('"%s" IS NOT NULL' % c for c in t["cols"])
+        return d1('SELECT rowid AS _rid, * FROM "%s" WHERE %s AND (%s) AND "%s" < ?1 ORDER BY rowid LIMIT %d' % (tab, t["where"], has, ts, t["chunk"]), [cutoff])
     if t["mode"] == "delete":
         edge = _edge_id(d1, tab, ts, cutoff)
         if edge is None:
@@ -206,7 +221,8 @@ def _chunk_rows(d1, t, now=None):
 def archive_chunk(d1, r2, t, rows, now=None, sleep=time.sleep):
     """Write, read back, verify, ledger, then (delete mode) prune. Returns a small dict; never deletes before the verify passes."""
     tab = t["table"]
-    ids = [int(r["id"]) for r in rows]
+    idk = "_rid" if t["mode"] == "blob" else "id"
+    ids = [int(r[idk]) for r in rows]
     lo, hi = min(ids), max(ids)
     data = gz_bytes(rows)
     sha = hashlib.sha256(data).hexdigest()
@@ -217,18 +233,24 @@ def archive_chunk(d1, r2, t, rows, now=None, sleep=time.sleep):
     if back is None or hashlib.sha256(back).hexdigest() != sha:
         return {"error": "verify-sha-mismatch", "key": key}
     lines = gzip.decompress(back).decode("utf-8").splitlines()
-    if len(lines) != len(rows) or sorted(json.loads(x)["id"] for x in lines) != sorted(ids):
+    if len(lines) != len(rows) or sorted(json.loads(x)[idk] for x in lines) != sorted(ids):
         return {"error": "verify-rows-mismatch", "key": key}
     d1("INSERT INTO cold_archive_ledger (src_table, id_min, id_max, rows, bytes, sha256, r2_key, mode, verified) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
        [tab, lo, hi, len(rows), len(data), sha, key, t["mode"]])
     out = {"key": key, "rows": len(rows), "bytes": len(data)}
-    if t["mode"] != "delete":
+    if t["mode"] not in ("delete", "blob"):
         return out
+    blob = t["mode"] == "blob"
+    col = "rowid" if blob else "id"
     for i in range(0, len(ids), DELETE_BATCH):
-        part = ids[i:i + DELETE_BATCH]
-        d1('DELETE FROM "%s" WHERE id IN (%s)' % (tab, ",".join(str(x) for x in part)))
+        part = ",".join(str(x) for x in ids[i:i + DELETE_BATCH])
+        if blob:
+            d1('UPDATE "%s" SET %s WHERE rowid IN (%s)' % (tab, ", ".join('"%s" = NULL' % c for c in t["cols"]), part))
+        else:
+            d1('DELETE FROM "%s" WHERE id IN (%s)' % (tab, part))
         sleep(DELETE_PAUSE_SEC)
-    left = int(d1('SELECT COUNT(*) AS n FROM "%s" WHERE id IN (%s)' % (tab, ",".join(str(x) for x in ids[:900])))[0]["n"] or 0)
+    still = (" AND (" + " OR ".join('"%s" IS NOT NULL' % c for c in t["cols"]) + ")") if blob else ""
+    left = int(d1('SELECT COUNT(*) AS n FROM "%s" WHERE %s IN (%s)%s' % (tab, col, ",".join(str(x) for x in ids[:900]), still))[0]["n"] or 0)
     d1("UPDATE cold_archive_ledger SET deleted_rows = ?1, deleted_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE r2_key = ?2", [len(ids) - left, key])
     out["deleted"] = len(ids) - left
     return out
@@ -246,14 +268,19 @@ def run(d1, r2=None, now=None, sleep=time.sleep, tiers=None, deadline=None):
             import remediation_consumer as RC
             r2 = R2(RC)
         stop = deadline or (time.time() + COLD_BUDGET_SEC)
-        for t in (tiers or TIERS):
+        # COLD-TIER-FAIR-1: the first tiers of the list used to spend the whole budget every run (the 04:07, 04:12 and 04:32Z runs of 2026-11-05 ended with
+        # bp26_probe_results "stopped: budget" and nothing for the tiers after it), so a tier added later never got a chunk while fleet_probe_log had a backlog.
+        # The order now rotates every 15 minutes, so every tier is first in turn.
+        order = list(tiers or TIERS)
+        k = int((now or time.time()) // 900) % len(order)
+        for t in order[k:] + order[:k]:
             res = out["tiers"].setdefault(t["table"], {"rolled": [], "chunks": 0, "rows": 0, "deleted": 0})
             if not IDENT.match(t["table"]):
                 res["error"] = "odd-name"
                 continue
             try:
-                res["rolled"] = rollup(d1, t, now)
-                for _ in range(CHUNKS_PER_TIER):
+                res["rolled"] = [] if t["mode"] == "blob" else rollup(d1, t, now)
+                for _ in range(t.get("chunks") or CHUNKS_PER_TIER):
                     if time.time() > stop:
                         res["stopped"] = "budget"
                         break
@@ -359,6 +386,59 @@ CREATE INDEX idx_aal_trigger_id ON analytics_action_log (trigger_id, id);
     assert " " in _cutoff(T["analytics_action_log"], now) and "T" not in _cutoff(T["analytics_action_log"], now) and "T" in _cutoff(T["cron_fire_log"], now)
 
 
+def selftest_blob(c, d1, st, now, pauses):
+    """BLOB-TIER-1: the row stays, the heavy columns go to R2 after a verified read-back, and only for rows that are slimmed, old enough and still heavy."""
+    c.executescript("""
+CREATE TABLE code_task_ctx_archive (task_id TEXT PRIMARY KEY, base TEXT, patch TEXT, orig_ctx_bytes INTEGER, archived_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), slimmed INTEGER NOT NULL DEFAULT 0);
+""")
+    T = [x for x in TIERS if x["table"] == "code_task_ctx_archive"]
+    assert len(T) == 1 and T[0]["mode"] == "blob", "code_task_ctx_archive is a blob tier"
+    tiers = [dict(T[0], chunk=4)]
+    ins = c.execute
+
+    def put(tid, base, patch, age_h, slimmed):
+        ins("INSERT INTO code_task_ctx_archive (task_id, base, patch, orig_ctx_bytes, archived_at, slimmed) VALUES (?, ?, ?, ?, ?, ?)",
+            [tid, base, patch, len(base or "") + len(patch or ""), _iso(0, now - age_h * 3600), slimmed])
+    for i in range(9):        # nine heavy finished rows, a day old: all go
+        put("old%d" % i, "B" * (500 + i), "P" * (300 + i), 24, 1)
+    put("fresh", "BF" * 100, "PF" * 100, 1, 1)            # an hour old, inside keep_days (6 h)
+    put("unslimmed", "BU" * 100, "PU" * 100, 24, 0)       # code_tasks.ctx still holds the text: the archive row is not final
+    put("light", None, None, 24, 1)                       # nothing heavy to move
+    put("basefree", None, "P" * 50, 24, 1)                # only one column heavy
+    c.commit()
+    want = {r["task_id"]: (r["base"], r["patch"]) for r in d1("SELECT task_id, base, patch FROM code_task_ctx_archive")}
+    for _ in range(6):
+        r = run(d1, st, now, pauses.append, tiers)
+        assert "error" not in r["tiers"]["code_task_ctx_archive"], r
+    got = {r["task_id"]: (r["base"], r["patch"]) for r in d1("SELECT task_id, base, patch FROM code_task_ctx_archive")}
+    assert len(got) == len(want) == 13, "no row is deleted"
+    moved = [k for k in want if got[k] == (None, None) and want[k] != (None, None)]
+    assert sorted(moved) == sorted(["old%d" % i for i in range(9)] + ["basefree"]), moved
+    assert got["fresh"] == want["fresh"] and got["unslimmed"] == want["unslimmed"], "inside keep_days and not slimmed rows keep their text"
+    assert d1("SELECT COUNT(*) n FROM code_task_ctx_archive WHERE slimmed = 1 AND orig_ctx_bytes IS NOT NULL")[0]["n"] == 12, "task_id, orig_ctx_bytes and slimmed stay"
+    led = d1("SELECT SUM(rows) r, SUM(deleted_rows) d, MIN(verified) v, COUNT(*) n FROM cold_archive_ledger WHERE src_table = 'code_task_ctx_archive'")[0]
+    assert led["r"] == led["d"] == 10 and led["v"] == 1 and led["n"] == 3, led
+    # every nulled value is restorable from exactly one object, byte for byte
+    back = {}
+    for k, v in st.o.items():
+        if "/code_task_ctx_archive/" in k:
+            for x in gzip.decompress(v).decode().splitlines():
+                j = json.loads(x)
+                assert j["task_id"] not in back, "once"
+                back[j["task_id"]] = (j["base"], j["patch"])
+    assert all(back[k] == want[k] for k in moved) and sorted(back) == sorted(moved), "the objects hold the original text of every row that was nulled"
+    n_obj = len([k for k in st.o if "/code_task_ctx_archive/" in k])
+    assert run(d1, st, now, pauses.append, tiers)["tiers"]["code_task_ctx_archive"]["rows"] == 0 and len([k for k in st.o if "/code_task_ctx_archive/" in k]) == n_obj, "a finished table is a no-op"
+    # a failed read-back nulls nothing
+    put("late1", "L" * 200, "M" * 200, 24, 1)
+    c.commit()
+    st.corrupt = True
+    bad = run(d1, st, now, pauses.append, tiers)
+    assert bad["tiers"]["code_task_ctx_archive"]["error"] == "verify-sha-mismatch", bad
+    assert d1("SELECT base FROM code_task_ctx_archive WHERE task_id = 'late1'")[0]["base"] == "L" * 200, "nothing is nulled before the verify passes"
+    st.corrupt = False
+
+
 def selftest():
     import sqlite3
     c = sqlite3.connect(":memory:")
@@ -444,6 +524,7 @@ CREATE TABLE remediation_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, cl
     assert d1("SELECT COUNT(*) n FROM cold_archive_ledger")[0]["n"] == n_led and d1("SELECT COUNT(*) n FROM fleet_probe_log")[0]["n"] == n_rows
     st.corrupt = False
     selftest_tier2(c, d1, st, now, pauses)
+    selftest_blob(c, d1, st, now, pauses)
     # kill switch
     d1("INSERT INTO ops_config VALUES ('cold_tier', 'off')")
     assert run(d1, st, now, pauses.append, tiers)["status"] == "off" and d1("SELECT COUNT(*) n FROM fleet_probe_log")[0]["n"] == n_rows
