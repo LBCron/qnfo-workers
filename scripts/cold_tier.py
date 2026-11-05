@@ -20,9 +20,18 @@ WHY   Measured 2026-11-04: qnfo-audit holds 1.55 M rows in 639 tables, 1.45 GB w
       tables; bp26_probe_results (62 k rows) has no retention at all. Restore: read the object named in cold_archive_ledger.r2_key, gunzip, INSERT OR
       IGNORE the lines back (columns are the table's own).
 
+COLD-TIER-2 (2026-11-05, agent_issues 1001971, roadmap RM-D1-RETENTION-1): cron_fire_log (keep 3 days), fleet_runs (7) and analytics_action_log (30) join TIERS.
+      A tier may name its own ok and fail expressions (ok_sql, fail_sql), the column that orders "newer" for the keep-latest check (newer: an indexed
+      column, so the check seeks instead of scanning the key's whole history), a keep-latest key of any length (the newest row of every (cron_name,
+      outcome), (task_id, status) or (trigger_id, status) stays, so "latest ok" and "latest failure" readers still find their row) and space_ts for a
+      table whose timestamps read YYYY-MM-DD HH:MM:SS (the cutoff is written the same way, so the keep window is exact). cloud_ops_events is NOT here: its
+      id is TEXT, its rowid is not time order (heartbeat rows are upserted), and v_trust_ledger / v_process_last_run read it without a 14 day window
+      (agent_issues COLD-TIER-3). Restore is the same as for every tier: gunzip the object, INSERT OR IGNORE the lines.
+
 Runs from scripts/continuity_snapshot.py main() (the remediation-consumer workflow), never raises, prints one JSON line per run.
 Self-test: python scripts/cold_tier.py --selftest
 """
+import calendar
 import gzip
 import hashlib
 import io
@@ -50,6 +59,15 @@ TIERS = [
      "ok": "ok", "num": None, "roll_days": 60, "chunk": 800},
     {"table": "remediation_verifications", "ts": "verified_at", "keep_days": 6, "mode": "copy", "latest": None, "dims": ("class", "transport"),
      "ok": "pass", "num": None, "roll_days": 7, "chunk": 2000},
+    # COLD-TIER-2. Readers (fleet-graph impact, 2026-11-05): v_cron_activity (7 days), v_cron_faults_worker (2 days; errors since the last ok), cronGridDue (last ok and
+    # errors since it, per cron_name) for cron_fire_log; v_cron_faults_task (last 5,000 ids, 24 h), v_cron_activity for fleet_runs; v_persona_recovered_close (newest
+    # row per trigger and status) for analytics_action_log. The keep-latest key therefore carries the status column the reader filters on.
+    {"table": "cron_fire_log", "ts": "fired_at", "keep_days": 3, "mode": "delete", "latest": ("cron_name", "outcome"), "dims": ("cron_name", "outcome"),
+     "ok": None, "ok_sql": "outcome IN ('ok', 'idle')", "fail_sql": "outcome = 'error'", "num": None, "newer": "fired_epoch_ms", "roll_days": 16, "chunk": 800},
+    {"table": "fleet_runs", "ts": "started_at", "keep_days": 7, "mode": "delete", "latest": ("task_id", "status"), "dims": ("task_id", "status"),
+     "ok": None, "ok_sql": "status = 'ok'", "fail_sql": "status = 'failed'", "num": "cost_neurons", "newer": "id", "roll_days": 16, "chunk": 800},
+    {"table": "analytics_action_log", "ts": "fired_at", "keep_days": 30, "mode": "delete", "latest": ("trigger_id", "status"), "dims": ("trigger_id", "status"),
+     "ok": None, "ok_sql": "status = 'recovered'", "fail_sql": "status = 'fired'", "num": "metric_value", "newer": "id", "space_ts": True, "roll_days": 70, "chunk": 800},
 ]
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -92,6 +110,12 @@ def _day(offset_days, now=None):
     return time.strftime("%Y-%m-%d", time.gmtime((now or time.time()) + offset_days * 86400))
 
 
+def _next_day(day):
+    """The calendar day after a YYYY-MM-DD string, in UTC. (mktime minus time.timezone read a local midnight that daylight saving shifted by an hour, so on a machine
+    whose zone has DST the rollup loop stayed on the same day for ever; the runners are UTC, a developer machine is not.)"""
+    return time.strftime("%Y-%m-%d", time.gmtime(calendar.timegm(time.strptime(day, "%Y-%m-%d")) + 86400))
+
+
 def _iso(offset_days, now=None):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime((now or time.time()) + offset_days * 86400))
 
@@ -109,18 +133,20 @@ def rollup(d1, t, now=None, max_days=40):
     out, day = [], max(lo, first)
     while day < today and len(out) < max_days:
         if day not in have:
-            nxt = time.strftime("%Y-%m-%d", time.gmtime(time.mktime(time.strptime(day, "%Y-%m-%d")) - time.timezone + 86400))
+            nxt = _next_day(day)
             ok = t["ok"]
+            ok_sql = t.get("ok_sql") or ('"%s" = 1' % ok if ok else "0")
+            fail_sql = t.get("fail_sql") or ('"%s" = 0' % ok if ok else "0")
             num_avg = 'ROUND(AVG("%s"), 1)' % t["num"] if t["num"] else "NULL"
             num_max = 'MAX("%s")' % t["num"] if t["num"] else "NULL"
             d1('INSERT OR REPLACE INTO cold_rollup_daily (src_table, day, dim1, dim2, n, n_ok, n_fail, v1, v2) '
-               'SELECT ?1, ?2, COALESCE("%s", ""), COALESCE("%s", ""), COUNT(*), COALESCE(SUM("%s" = 1), 0), COALESCE(SUM("%s" = 0), 0), %s, %s '
-               'FROM "%s" WHERE "%s" >= ?2 AND "%s" < ?3 GROUP BY 3, 4' % (d1_dims[0], d1_dims[1], ok, ok, num_avg, num_max, tab, ts, ts),
+               'SELECT ?1, ?2, COALESCE("%s", ""), COALESCE("%s", ""), COUNT(*), COALESCE(SUM(%s), 0), COALESCE(SUM(%s), 0), %s, %s '
+               'FROM "%s" WHERE "%s" >= ?2 AND "%s" < ?3 GROUP BY 3, 4' % (d1_dims[0], d1_dims[1], ok_sql, fail_sql, num_avg, num_max, tab, ts, ts),
                [tab, day, nxt])
             d1("INSERT OR IGNORE INTO cold_rollup_daily (src_table, day, dim1, dim2, n, n_ok, n_fail) "
                "SELECT ?1, ?2, '', '', 0, 0, 0 WHERE NOT EXISTS (SELECT 1 FROM cold_rollup_daily WHERE src_table = ?1 AND day = ?2)", [tab, day])
             out.append(day)
-        day = time.strftime("%Y-%m-%d", time.gmtime(time.mktime(time.strptime(day, "%Y-%m-%d")) - time.timezone + 86400))
+        day = _next_day(day)
     return out
 
 
@@ -145,19 +171,34 @@ def _edge_id(d1, tab, ts, cutoff):
     return best
 
 
+def _cutoff(t, now=None):
+    """keep_days ago, written the way the table writes its timestamps (a table with space_ts reads YYYY-MM-DD HH:MM:SS, the rest ISO with a T and a Z)."""
+    c = _iso(-t["keep_days"], now)
+    return c.replace("T", " ").rstrip("Z") if t.get("space_ts") else c
+
+
+def chunk_sql(t):
+    """Delete-mode candidates: rows older than the cutoff whose day is rolled up and that have a NEWER row with the same keep-latest key. "Newer" is read on
+    t["newer"] when the table has an index that makes the check a seek (cron_fire_log: cron_name + fired_epoch_ms; fleet_runs and analytics_action_log: the key + id),
+    else on the timestamp column."""
+    tab, ts = t["table"], t["ts"]
+    same = " AND ".join('q."%s" = p."%s"' % (k, k) for k in t["latest"])
+    newer = t.get("newer") or ts
+    return ('SELECT p.* FROM "%s" p WHERE p.id <= ?1 AND p."%s" < ?2 AND EXISTS (SELECT 1 FROM "%s" q WHERE %s AND q."%s" > p."%s") '
+            'AND substr(p."%s", 1, 10) IN (SELECT day FROM cold_rollup_daily WHERE src_table = ?3) '
+            'ORDER BY p.id LIMIT %d' % (tab, ts, tab, same, newer, newer, ts, t["chunk"]))
+
+
 def _chunk_rows(d1, t, now=None):
     """The next chunk of rows to archive, oldest id first, as dicts. Mode delete: rows older than keep_days that have a newer row of the same key;
     mode copy: rows older than keep_days after the last archived id."""
     tab, ts = t["table"], t["ts"]
-    cutoff = _iso(-t["keep_days"], now)
+    cutoff = _cutoff(t, now)
     if t["mode"] == "delete":
         edge = _edge_id(d1, tab, ts, cutoff)
         if edge is None:
             return []
-        k1, k2 = t["latest"]
-        return d1('SELECT p.* FROM "%s" p WHERE p.id <= ?1 AND p."%s" < ?2 AND EXISTS (SELECT 1 FROM "%s" q WHERE q."%s" = p."%s" AND q."%s" = p."%s" AND q."%s" > p."%s") '
-                  'AND substr(p."%s", 1, 10) IN (SELECT day FROM cold_rollup_daily WHERE src_table = ?3) '
-                  'ORDER BY p.id LIMIT %d' % (tab, ts, tab, k1, k1, k2, k2, ts, ts, ts, t["chunk"]), [edge, cutoff, tab])
+        return d1(chunk_sql(t), [edge, cutoff, tab])
     last = d1("SELECT COALESCE(MAX(id_max), 0) AS m FROM cold_archive_ledger WHERE src_table = ?1 AND verified = 1", [tab])[0]["m"]
     return d1('SELECT * FROM "%s" WHERE id > ?1 AND "%s" < ?2 ORDER BY id LIMIT %d' % (tab, ts, t["chunk"]), [last, cutoff])
 
@@ -243,6 +284,81 @@ def run(d1, r2=None, now=None, sleep=time.sleep, tiers=None, deadline=None):
 
 
 # ---- self-test -----------------------------------------------------------------------------------------------------------------------
+def selftest_tier2(c, d1, st, now, pauses):
+    """COLD-TIER-2: the three tiers with their own ok expressions, keep-latest keys, newer columns and timestamp format, on tables shaped like the live ones."""
+    c.executescript("""
+CREATE TABLE cron_fire_log (id INTEGER PRIMARY KEY AUTOINCREMENT, cron_name TEXT, task_id TEXT, cron_expr TEXT, fired_at TEXT, fired_epoch_ms INTEGER, outcome TEXT, source TEXT, note TEXT);
+CREATE INDEX idx_cron_fire_log_name_ms ON cron_fire_log (cron_name, fired_epoch_ms);
+CREATE TABLE fleet_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, cron_name TEXT, status TEXT, started_at TEXT, finished_at TEXT, result TEXT, error TEXT, cost_neurons REAL);
+CREATE INDEX idx_fleet_runs_task_status ON fleet_runs (task_id, status, id);
+CREATE TABLE analytics_action_log (id INTEGER PRIMARY KEY AUTOINCREMENT, trigger_id INTEGER, fired_at TEXT, metric_value REAL, action TEXT, queue_target TEXT, status TEXT, notes TEXT);
+CREATE INDEX idx_aal_trigger_id ON analytics_action_log (trigger_id, id);
+""")
+    T = {x["table"]: x for x in TIERS}
+    assert all(n in T for n in ("cron_fire_log", "fleet_runs", "analytics_action_log")), "the three COLD-TIER-2 tiers are in TIERS"
+    HOUR = 3600
+
+    def at(age_h):
+        return now - age_h * HOUR
+
+    # cron_fire_log: A runs hourly for 6 days (one error 134 h ago); B stopped 4 days ago (hourly ok for 2 days, one error 90 h ago)
+    rows = [(h, "A", "error" if h == 134 else "ok") for h in range(144, -1, -1)] + [(h, "B", "ok") for h in range(144, 95, -1)] + [(90, "B", "error")]
+    for h, name, out in sorted(rows, key=lambda r: -r[0]):
+        c.execute("INSERT INTO cron_fire_log (cron_name, fired_at, fired_epoch_ms, outcome, source) VALUES (?, ?, ?, ?, ?)",
+                  [name, _iso(0, at(h))[:-1] + ".123Z", int(at(h) * 1000), out, "worker:" + name])
+    # fleet_runs: task X every 12 h for 10 days, one failed run 192 h ago; task Y only recent
+    runs = [(h, "X", "failed" if h == 192 else "ok") for h in range(240, -1, -12)] + [(h, "Y", "ok") for h in (30, 20, 10, 1)]
+    for h, task, status in sorted(runs, key=lambda r: -r[0]):
+        c.execute("INSERT INTO fleet_runs (task_id, cron_name, status, started_at, cost_neurons) VALUES (?, ?, ?, ?, ?)",
+                  [task, task, status, _iso(0, at(h))[:-1] + ".500Z", float(h % 5)])
+    # analytics_action_log (timestamps with a space): trigger 1 'fired' once a day from 40 days to 6 days ago, trigger 2 'fired' once, 35 days ago
+    acts = [(d * 24 + 1, 1, "fired") for d in range(40, 5, -1)] + [(35 * 24 + 2, 2, "fired"), (5 * 24, 1, "recovering"), (24, 1, "recovered")]
+    for h, trig, status in sorted(acts, key=lambda r: -r[0]):
+        c.execute("INSERT INTO analytics_action_log (trigger_id, fired_at, metric_value, action, status) VALUES (?, ?, 1.5, 'a', ?)",
+                  [trig, _iso(0, at(h)).replace("T", " ").rstrip("Z"), status])
+    c.commit()
+    tiers = [dict(T["cron_fire_log"], chunk=100), dict(T["fleet_runs"], chunk=100), dict(T["analytics_action_log"], chunk=100)]
+    before = {t["table"]: d1('SELECT COUNT(*) n FROM "%s"' % t["table"])[0]["n"] for t in tiers}
+    # the correlated keep-latest check must be an index seek on every new tier, never a scan of the key's whole history
+    for t in tiers:
+        plan = " | ".join(r["detail"] for r in d1("EXPLAIN QUERY PLAN " + chunk_sql(t), [10 ** 9, "9", t["table"]]))
+        assert re.search(r"SEARCH q USING (COVERING )?INDEX idx_", plan), (t["table"], plan)
+    for _ in range(12):
+        r = run(d1, st, now, pauses.append, tiers)
+        assert all("error" not in v for v in r["tiers"].values()), r
+    for t in tiers:
+        tab = t["table"]
+        cut = _cutoff(t, now)
+        led = d1("SELECT SUM(rows) r, SUM(deleted_rows) d, MIN(verified) v, COUNT(*) n FROM cold_archive_ledger WHERE src_table = ?", [tab])[0]
+        left = d1('SELECT COUNT(*) n FROM "%s"' % tab)[0]["n"]
+        assert led["n"] >= 1 and led["v"] == 1 and led["r"] == led["d"] == before[tab] - left, (tab, led, before[tab], left)
+        old = d1('SELECT COUNT(*) n FROM "%s" WHERE "%s" < ?' % (tab, t["ts"]), [cut])[0]["n"]
+        want = {"cron_fire_log": 3, "fleet_runs": 1, "analytics_action_log": 1}[tab]
+        assert old == want, (tab, "rows older than the cutoff that stay are exactly the newest of their key", old, want)
+        seen = []
+        for k, v in st.o.items():
+            if "/%s/" % tab in k:
+                seen += [json.loads(x)["id"] for x in gzip.decompress(v).decode().splitlines()]
+        assert len(seen) == len(set(seen)) == led["r"], (tab, len(seen), led["r"])
+        ro = d1("SELECT SUM(n) n, SUM(n_ok) o, SUM(n_fail) f, MAX(day) hi FROM cold_rollup_daily WHERE src_table = ?", [tab])[0]
+        assert ro["n"] >= led["r"] and ro["hi"] < _day(0, now), (tab, ro)
+    # the readers' "latest ok" and "latest failure" rows are still there
+    b = {x["outcome"]: x["h"] for x in d1("SELECT outcome, MIN(CAST((? - fired_epoch_ms) / 3600000 AS INTEGER)) h FROM cron_fire_log WHERE cron_name = 'B' GROUP BY outcome", [int(now * 1000)])}
+    assert b == {"ok": 96, "error": 90}, b
+    assert d1("SELECT COUNT(*) n FROM cron_fire_log WHERE cron_name = 'A' AND outcome = 'error'")[0]["n"] == 1
+    assert d1("SELECT COUNT(*) n FROM fleet_runs WHERE task_id = 'X' AND status = 'failed'")[0]["n"] == 1
+    assert d1("SELECT COUNT(*) n FROM analytics_action_log WHERE trigger_id = 2")[0]["n"] == 1
+    # rollup expressions: ok_sql and fail_sql counted by the tier's own meaning, not by an ok column
+    rc = d1("SELECT SUM(n_ok) o, SUM(n_fail) f FROM cold_rollup_daily WHERE src_table = 'cron_fire_log' AND dim1 = 'A'")[0]
+    assert rc["f"] == 1 and rc["o"] >= 100, rc
+    rf = d1("SELECT SUM(n_ok) o, SUM(n_fail) f, MAX(v2) m FROM cold_rollup_daily WHERE src_table = 'fleet_runs' AND dim1 = 'X'")[0]
+    assert rf["f"] == 1 and rf["o"] >= 10 and rf["m"] is not None, rf
+    ra = d1("SELECT SUM(n) n FROM cold_rollup_daily WHERE src_table = 'analytics_action_log' AND dim1 = '2'")[0]
+    assert ra["n"] == 1, ra
+    # a timestamp written with a space is compared as written: the cutoff of that tier has no T and no Z
+    assert " " in _cutoff(T["analytics_action_log"], now) and "T" not in _cutoff(T["analytics_action_log"], now) and "T" in _cutoff(T["cron_fire_log"], now)
+
+
 def selftest():
     import sqlite3
     c = sqlite3.connect(":memory:")
@@ -327,6 +443,7 @@ CREATE TABLE remediation_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, cl
     assert bad["tiers"]["fleet_probe_log"]["error"] == "verify-sha-mismatch", bad
     assert d1("SELECT COUNT(*) n FROM cold_archive_ledger")[0]["n"] == n_led and d1("SELECT COUNT(*) n FROM fleet_probe_log")[0]["n"] == n_rows
     st.corrupt = False
+    selftest_tier2(c, d1, st, now, pauses)
     # kill switch
     d1("INSERT INTO ops_config VALUES ('cold_tier', 'off')")
     assert run(d1, st, now, pauses.append, tiers)["status"] == "off" and d1("SELECT COUNT(*) n FROM fleet_probe_log")[0]["n"] == n_rows
