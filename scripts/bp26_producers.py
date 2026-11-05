@@ -230,6 +230,17 @@ def _fresh(last_refreshed, every_min, now):
     return (now - t) < every_min * 60
 
 
+def _stale_first(cols, fresh):
+    """BP26-FAIR-ORDER-1 (RM-TP-8-TRUST-BOUNDARY, c5-resilience): order the collectors so a sweep that spends its budget cannot starve the same tail every time.
+    Modules load in name order and the sweep stops at BUDGET_S, so a collector in a late module (bp26_web, bp26_writeroutes) ran only when every earlier one was
+    still fresh; measured 2026-11-05: the 00:38Z sweep stopped at postmortem_ledger and left the metric registered at 23:59 unmeasured. Never-measured first, then the
+    least recently refreshed; ties keep the module order (sorted() is stable), and collectors that ran together in one sweep stay in the order they ran."""
+    def key(c):
+        stamps = [str(fresh.get(m) or "")[:19].replace(" ", "T") for m in (c.metrics or ())]
+        return min(stamps) if stamps else ""
+    return sorted(cols, key=key)
+
+
 def write_results(d1, results, stamp, collector, producer_note=""):
     """Metric rows first, evidence rows second. Returns (written metrics, skipped unknown metrics, errors)."""
     written, unknown, errors = [], [], []
@@ -290,6 +301,7 @@ def run(d1=None, d1_db=None, http=None, cf=None, root=None, only=None, dry=False
                 fresh[r["metric"]] = r.get("last_refreshed")
         except Exception as e:  # noqa: BLE001
             out["errors"].append({"error": "registry read: " + str(e)[:160]})
+        cols = _stale_first(cols, fresh)
         for c in cols:
             if only and c.name != only:
                 continue
@@ -382,8 +394,39 @@ CREATE TABLE cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, text TEX
     ok(d1("SELECT COUNT(*) n FROM cloud_ops_events WHERE kind = 'bp26-producers'")[0]["n"] == 1, "one run row")
     out2 = run(d1=d1, d1_db=lambda *a: [], root=td)
     ok("a" in out2["skipped"], "a collector whose metrics are fresher than its cadence is skipped: %r" % out2["skipped"])
+    # BP26-SELFTEST-FLAKE-1: the run row id is the second, so the non-dry run above wrote a second row whenever a second boundary fell between the runs and this
+    # check, which then read 2 (1 of 6 selftests failed on main). Compare with the count before the dry run instead of assuming 1.
+    n_rows = d1("SELECT COUNT(*) n FROM cloud_ops_events")[0]["n"]
     out3 = run(d1=d1, d1_db=lambda *a: [], root=td, force=True, dry=True)
-    ok(all(r["metric"] for r in out3["written"]) and d1("SELECT COUNT(*) n FROM cloud_ops_events")[0]["n"] == 1, "dry writes nothing")
+    ok(all(r["metric"] for r in out3["written"]) and d1("SELECT COUNT(*) n FROM cloud_ops_events")[0]["n"] == n_rows, "dry writes nothing")
+    # BP26-FAIR-ORDER-1: never-measured first, then the least recently refreshed; ties keep the module order
+    mk = lambda n, ms: Collector(n, None, ms, 50)  # noqa: E731
+    cols_ = [mk("a_early", ["x1"]), mk("b_mid", ["x2"]), mk("c_tail_new", ["x3"]), mk("d_tail_old", ["x4"]), mk("e_tie", ["x5"]), mk("f_multi", ["x6", "x7"]), mk("g_none", [])]
+    fresh_ = {"x1": "2026-11-05T00:38:30Z", "x2": "2026-11-05T00:38:40Z", "x3": None, "x4": "2026-11-04T23:57:38Z", "x5": "2026-11-05T00:38:30Z", "x6": "2026-11-05T00:10:00Z", "x7": "2026-11-05 00:50:00"}
+    order = [x.name for x in _stale_first(cols_, fresh_)]
+    ok(order == ["c_tail_new", "g_none", "d_tail_old", "f_multi", "a_early", "e_tie", "b_mid"], "never-measured first, then the least recently refreshed, ties keep module order: %r" % order)
+    ok([x.name for x in _stale_first(cols_, {})] == [x.name for x in cols_], "with no freshness data the module order is kept")
+    # a sweep that spends its budget leaves the tail for the NEXT sweep: the starved collector now goes first
+    td2 = tempfile.mkdtemp()
+    os.makedirs(os.path.join(td2, "scripts"))
+    with open(os.path.join(td2, "scripts", "bp26_fair.py"), "w") as f:
+        f.write("import time\nfrom bp26_producers import Result, Collector\n"
+                "def slow(ctx):\n"
+                "    time.sleep(1.3)\n"
+                "    return [Result('m_early', 1, 'slow ran', [])]\n"
+                "def late(ctx):\n"
+                "    time.sleep(1.3)\n"
+                "    return [Result('m_late', 1, 'late ran', [])]\n"
+                "COLLECTORS = [Collector('a_early', slow, ['m_early'], 50), Collector('z_late', late, ['m_late'], 50)]\n")
+    c.execute("INSERT INTO metric_registry VALUES ('m_early', NULL, ?, 'MEASURED', 'runner', 'x [BP26]')", [now_iso(time.time() - 3600)])
+    c.execute("INSERT INTO metric_registry VALUES ('m_late', NULL, NULL, 'UNMEASURED', NULL, 'x [BP26]')")
+    saved_budget = globals()["BUDGET_S"]
+    globals()["BUDGET_S"] = 1.0
+    try:
+        o_fair = run(d1=d1, d1_db=lambda *a: [], root=td2)
+    finally:
+        globals()["BUDGET_S"] = saved_budget
+    ok([x["collector"] for x in o_fair["ran"]] == ["z_late"] and "a_early:budget" in o_fair["skipped"], "the never-measured late collector runs first and the budget cuts the early one: ran %r skipped %r" % (o_fair["ran"], o_fair["skipped"]))
     ctx = Ctx(d1=d1, d1_db=lambda *a: [], root=td)
     try:
         ctx.d1_db("personal-life", "SELECT 1")
