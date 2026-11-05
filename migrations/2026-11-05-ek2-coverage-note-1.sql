@@ -1,0 +1,19 @@
+-- EK-2-COVERAGE-1 note (2026-11-05, charter pillar reach; session W2-G): two measurements taken after the issue was filed (migration 2026-11-05-ek2-coverage-1.sql, PR 7760), appended to its text so its doer starts from them.
+-- (1) Would a Wikipedia-cited-references adapter widen the supply? MediaWiki prop=extlinks for 47 of the 52 replayed dropped candidates (public titles; counts of hosts only): 36 have at least one cited host from a
+--     31-host allowlist (BBC, Guardian, Al Jazeera, DW, NPR, AP, UN, LoC, NARA, state.gov, gov.uk, parliament.uk, europa.eu, ...), 29 have two or more. Restricted to hosts whose own terms permit reuse (public domain, Open
+--     Government Licence, Open Parliament Licence, Creative Commons: un.org, loc.gov, archives.gov, history.state.gov, state.gov, cia.gov, gov.uk, parliament.uk, europa.eu, worldbank.org, nobelprize.org, nato.int,
+--     icj-cij.org, cvce.eu) with at least two hosts and one non-US, a hand count of the same output gives about 10 of 47 (21 percent, from 7.7), before page fetchability is tested.
+--     Decision taken for the owner (DEFAULT-APPROVE-1, reversible): slice 1 uses the reuse-permitting hosts only. Scraping and feeding news sites' full text to a generator conflicts with their terms; news hosts come in
+--     only through a publisher API or licence the owner holds, as an identity-bound step, not by scraping. Revert: widen AF_SOURCE_PROFILES in a later change.
+-- (2) Is the thin source the reason drafts fail the fact-check? The context line of the 14 newest accepted runs reads 4549 to 6000 characters; the 155 most common rejected-run lines read the same range (6000, 5623, 5173, 4891):
+--     source volume does not separate accepted from rejected, so the hypothesis is dropped. What the 24 fact-check rejections since 2026-10-29 hold: 75 unsupported claims, of which the reason says "not in source" or "not stated"
+--     in 39 and "source says X, not Y" in 6 (a draft embellishes beyond the supplied material); the accept rate at that stage is 3 pieces to 24 rejections.
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: UPDATE agent_issues SET description = substr(description, 1, instr(description, char(10) || 'NOTE 2026-11-05 (W2-G, measured after filing)') - 1) WHERE title LIKE 'EK-2-COVERAGE-1:%' AND instr(description, char(10) || 'NOTE 2026-11-05 (W2-G, measured after filing)') > 0;
+-- CAUSE-MAPPED: registers no metric_registry row.
+-- NOOP-OK: the append is guarded by its own marker; a replay changes nothing.
+
+UPDATE agent_issues
+SET description = description || char(10) || 'NOTE 2026-11-05 (W2-G, measured after filing): (1) Wikipedia-cited references: of 47 replayed dropped candidates 36 have a cited host from a 31-host allowlist and 29 have two or more, but most of those hosts are news sites (BBC, Guardian, Al Jazeera, DW, NPR, AP); with reuse-permitting hosts only (un.org, loc.gov, archives.gov, history.state.gov, state.gov, cia.gov, gov.uk, parliament.uk, europa.eu, worldbank.org, nobelprize.org, nato.int, icj-cij.org, cvce.eu), at least two hosts and one non-US, about 10 of 47 (21 percent, from 7.7 percent) before fetchability is tested. Decision (default in effect, reversible): slice 1 reads reuse-permitting hosts only; news hosts only through a publisher API or licence, never by scraping their pages. Add each host to AF_SOURCE_PROFILES with its country and viewpoint. (2) Thin sources are not the cause of the fact-check rejections: accepted and rejected runs read the same 4.5k to 6k characters of context; the 24 rejections since 2026-10-29 hold 75 unsupported claims, 39 of them "not in source" or "not stated". Measure the supply share as companion_contested_supply_share_7d as described above.'
+WHERE title LIKE 'EK-2-COVERAGE-1:%' AND status = 'open' AND instr(description, 'NOTE 2026-11-05 (W2-G, measured after filing)') = 0;
