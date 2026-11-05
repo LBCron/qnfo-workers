@@ -4,6 +4,9 @@ Charter pillar: autonomy (also core and cost). Shipped 2026-10-19. Owner request
 (github.com/Graphify-Labs/graphify) across the Quniverse fleet to improve efficiency and autonomous code and systems
 administration, with no proprietary component, no added cost and no vendor lock-in.
 
+See also `docs/KNOWLEDGE-GRAPH.md` (KG-CURATE-1): the content knowledge graph in the same database (`nodes` / `edges`), curated by `scripts/kg_curate.mjs`
+in this build, joined to this graph at `worker:<name>`, `d1:<db>`, `r2:<bucket>` and `domain:<host>`.
+
 ## What it answers
 
 One call instead of reading thirty `worker.js` files, thirty `wrangler.toml` files and the Cloudflare dashboard:

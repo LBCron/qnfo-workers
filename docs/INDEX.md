@@ -99,6 +99,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [HANDOFF — 2026-10-19 (handoff backlog + R2 Basin Catalog + red drain)](HANDOFF-2026-10-19-red-drain.md) - `docs/HANDOFF-2026-10-19-red-drain.md`
 - [Infrastructure and AI-spend audit, 2026-11-04 (pillar: cost)](INFRA-AUDIT-2026-11-04.md) - `docs/INFRA-AUDIT-2026-11-04.md`
 - [Kill-switch drill protocol (BP26-LEASES-KILLSWITCH-1)](KILL-SWITCH-DRILL.md) - `docs/KILL-SWITCH-DRILL.md`
+- [KG-CURATE-1: the content knowledge graph, curated by the fleet](KNOWLEDGE-GRAPH.md) - `docs/KNOWLEDGE-GRAPH.md`
 - [Leases, fencing tokens, caps, breakers and the kill switch (BP26-LEASES-KILLSWITCH-1)](LEASES-FENCING.md) - `docs/LEASES-FENCING.md`
 - [Main push policy (MAIN-PUSH-POLICY-1, 2026-11-04)](MAIN-PUSH-POLICY.md) - `docs/MAIN-PUSH-POLICY.md`
 - [Tiered agent memory: how it is measured (RM-MEMORY-TIERING-1)](MEMORY-TIERING-EVAL.md) - `docs/MEMORY-TIERING-EVAL.md`

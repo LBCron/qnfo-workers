@@ -16,6 +16,13 @@
         "\"scopes\":[",
         "\"status\":\"ok\""
       ]
+    },
+    {
+      "url": "https://qnfo-memory-mcp.q08.workers.dev/kg",
+      "contains": [
+        "KG-CURATE-1",
+        "/kg/neighbors"
+      ]
     }
   ]
 }

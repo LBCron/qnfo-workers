@@ -43,6 +43,9 @@ ok(/W1:main.t1/.test(m.md) && /ai:12k\/d/.test(m.md) && /cron:1/.test(m.md), "wo
 ok(/vz:idx-a 1k?v? ?.*q7d:33 \| W:w1 \| R:w1,w2/.test(m.md) || /vz:idx-a 1k.*W:w1 \| R:w1,w2/.test(m.md), "Vectorize line separates writers from readers by code");
 ok(/svc:1/.test(m.md) && /w1\(1\)/.test(m.md), "service-binding hub counts");
 ok(m.json.workers.length === 2 && m.json.vectorize[0].writers[0] === "w1", "JSON form matches");
+ok(!m.md.includes("## Knowledge graph"), "no knowledge-graph section until a curation has run");
+const mk = SM.buildSystemMap({ graphs: [g], extra: Object.assign({}, extra, { kg: { nodes_active: 10500, edges_active: 17000, edge_density: 1.6, orphan_share: 6.6, giant_component_share: 83.7, paper_unrelated_share: 43.8 } }), root: tmp, sha: "abcdef123456", now: "2026-11-04T00:00:00Z" });
+ok(/## Knowledge graph \(content; KG-CURATE-1.*11k active nodes, 17k edges \(1\.6\/node\), orphans 6\.6%, giant component 83\.7%/.test(mk.md) && mk.md.includes("/kg/neighbors?id="), "the knowledge-graph section carries the curated health and where to ask");
 
 // 2. committed map
 let doc = "", js = null;

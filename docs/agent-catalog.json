@@ -516,6 +516,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/KILL-SWITCH-DRILL.md"
     },
     {
+      "path": "docs/KNOWLEDGE-GRAPH.md",
+      "title": "KG-CURATE-1: the content knowledge graph, curated by the fleet",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/KNOWLEDGE-GRAPH.md"
+    },
+    {
       "path": "docs/LEASES-FENCING.md",
       "title": "Leases, fencing tokens, caps, breakers and the kill switch (BP26-LEASES-KILLSWITCH-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/LEASES-FENCING.md"

@@ -6,7 +6,7 @@ var PROTOCOL_VERSION = "2024-11-05";
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var NL = String.fromCharCode(10);
 var SERVER_NAME = "qnfo-memory-mcp";
-var VERSION = "2.10.1";
+var VERSION = "2.11.0";
 /* 2.7.2: Batch semantic memory D1 enrichment to one query per search. */ /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -77,7 +77,16 @@ var TOOLS = [
   { name: "fleet_graph_worker", description: "Everything about one worker: version, declared vs live bindings and crons, routes, secret names, D1 tables it reads/writes, workers it calls and that call it, its findings.", inputSchema: { type: "object", properties: { worker: { type: "string" } }, required: ["worker"] }, annotations: { readOnlyHint: true } },
   { name: "fleet_graph_resource", description: "Who uses a resource: a D1 database or table, KV, R2 bucket, Vectorize index, queue, service or external host. Lists binders, readers, writers, triggers and views.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] }, annotations: { readOnlyHint: true } },
   { name: "fleet_graph_findings", description: "Current fleet graph findings: binding/cron drift, env reads with no binding, SQL against missing tables, untracked or undeployed workers, orphaned resources, unused bindings, trigger depth.", inputSchema: { type: "object", properties: { kind: { type: "string" }, severity: { type: "string", enum: ["warn", "info"] }, subject: { type: "string" }, limit: { type: "number", default: 200 } } }, annotations: { readOnlyHint: true } },
-  { name: "fleet_graph_freshness", description: "When each graph scope (code, live, findings) was last built, from which commit, and how many rows changed.", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } }
+  { name: "fleet_graph_freshness", description: "When each graph scope (code, live, findings) was last built, from which commit, and how many rows changed.", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } },
+  { name: "kg_health", description: "Health of the content knowledge graph: orphan share, edge density, giant-component share, papers with no content relation, duplicate groups, similarity precision proxy, edges by source and relationship, age of the last curation and a trend. Start here.", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } },
+  { name: "kg_find", description: "Find content graph nodes (papers, concepts, tags, works, workers, issues, metrics, failure modes, decisions ...) by id or name.", inputSchema: { type: "object", properties: { query: { type: "string" }, label: { type: "string" }, limit: { type: "number" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
+  { name: "kg_node", description: "One content graph node with its active edges both ways (relationship, weight, confidence, origin: legacy or the kg: source that derived it), PageRank, component and community.", inputSchema: { type: "object", properties: { id: { type: "string" }, limit: { type: "number" }, include_stale: { type: "boolean" } }, required: ["id"] }, annotations: { readOnlyHint: true } },
+  { name: "kg_neighbors", description: "Ego graph around a node, depth 1-3, structural CONTAINS edges and hub nodes (tags, categories) hidden by default: nodes with label, PageRank and community, plus every active edge between them.", inputSchema: { type: "object", properties: { id: { type: "string" }, depth: { type: "number" }, limit: { type: "number" }, structural: { type: "boolean" }, hubs: { type: "boolean" }, min_weight: { type: "number" } }, required: ["id"] }, annotations: { readOnlyHint: true } },
+  { name: "kg_path", description: "Shortest path between two content graph nodes: semantic edges first, structural edges as the fallback.", inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, max_depth: { type: "number" } }, required: ["from", "to"] }, annotations: { readOnlyHint: true } },
+  { name: "kg_central", description: "The most central nodes by PageRank over non-structural edges, optionally for one label (Paper, Concept, Worker ...).", inputSchema: { type: "object", properties: { label: { type: "string" }, limit: { type: "number" } } }, annotations: { readOnlyHint: true } },
+  { name: "kg_gaps", description: "Open graph gaps: isolated papers, bridge papers across communities, and link candidates (two papers with shared neighbours and no link).", inputSchema: { type: "object", properties: { kind: { type: "string" }, limit: { type: "number" } } }, annotations: { readOnlyHint: true } },
+  { name: "kg_orphans", description: "Active nodes with no active edge at all, optionally for one label.", inputSchema: { type: "object", properties: { label: { type: "string" }, limit: { type: "number" } } }, annotations: { readOnlyHint: true } },
+  { name: "kg_communities", description: "Paper communities (label propagation over citation, similarity and coupling edges) with their size and representative.", inputSchema: { type: "object", properties: { limit: { type: "number" } } }, annotations: { readOnlyHint: true } }
 ];
 // FULLSCOPE-1: write-scope tools. MCP_TOKEN is the full read+write credential; MCP_READ_TOKEN (optional)
 // grants read tools only, the same split as qnfo-tools-mcp (MCP-TOKEN-NO-SCOPE-SEPARATION, 954).
@@ -923,6 +932,170 @@ async function fgTool(name, args, env) {
   return { content: [{ type: "text", text: JSON.stringify(out) }], isError: !!out.error };
 }
 __name(fgTool, "fgTool");
+// KG-CURATE-1: the content knowledge graph's read side. scripts/kg_curate.mjs (run by fleet-graph.yml) curates qnfo-graph `nodes` / `edges`;
+// these open, read-only, parameterised queries answer from them: health, node, neighbors, path, central, gaps, orphans, find, communities.
+// Active means status NULL or 'active'; a stale edge, a ghost or quarantined paper is hidden unless include_stale is passed. The open routes
+// never serve the owner's notes or people (labels Note, Person, Vault): those are for authenticated MCP clients only.
+var KG_STRUCTURAL = ["CONTAINS", "CONTAINS_PHASE", "CONTAINS_TASK", "ULTRA_CONTAINS", "HAS_ROUTE", "HAS_ENDPOINT", "HAS_DOMAIN", "SAME_AS"];
+var KG_HUB_LABELS = ["Tag", "Category", "Vault", "Domain", "Bucket", "Database"];
+var KG_PRIVATE_LABELS = ["Note", "Person", "Vault"];
+var KG_EDGE_ACTIVE = "(e.status IS NULL OR e.status = 'active')";
+var KG_NOT_PRIVATE = "label NOT IN ('" + KG_PRIVATE_LABELS.join("','") + "')";
+var KG_MAX_QUERIES = 40; // one walk never runs more D1 queries than this
+async function kgResolve(env, ref, open) {
+  const q = fgStr(ref);
+  if (!q) return { error: "id required" };
+  const exact = await env.GRAPH_DB.prepare("SELECT id, label, name, status, source, canonical_id FROM nodes WHERE id = ?1 LIMIT 1").bind(q).first();
+  if (exact) return open && KG_PRIVATE_LABELS.indexOf(exact.label) >= 0 ? { error: "withheld: personal notes and people are served to authenticated MCP clients only" } : { id: exact.id, node: exact };
+  const rows = ((await env.GRAPH_DB.prepare("SELECT id, label, name, status FROM nodes WHERE lower(name) = lower(?1) AND status IS NULL" + (open ? " AND " + KG_NOT_PRIVATE : "") + " LIMIT 12").bind(q).all()).results) || [];
+  if (rows.length === 1) return { id: rows[0].id, node: rows[0] };
+  if (rows.length > 1) return { error: "ambiguous: " + rows.length + " nodes are named " + q + "; pass one id", candidates: rows };
+  return { error: "no node with id or name " + q + "; use kg_find" };
+}
+async function kg_find(env, args, open) {
+  const q = fgStr(args.query || args.q);
+  if (!q) return { error: "query required" };
+  const label = fgStr(args.label), limit = fgInt(args.limit, 20, 1, 100);
+  const sql = "SELECT id, label, name, status FROM nodes WHERE (id = ?1 OR instr(lower(name), lower(?1)) > 0)" + (label ? " AND label = ?2" : "") + (open ? " AND " + KG_NOT_PRIVATE : "") + " ORDER BY CASE WHEN id = ?1 OR lower(name) = lower(?1) THEN 0 ELSE 1 END, length(name) LIMIT " + limit;
+  const st = env.GRAPH_DB.prepare(sql), r = label ? await st.bind(q, label).all() : await st.bind(q).all();
+  return { query: q, count: (r.results || []).length, results: r.results || [] };
+}
+async function kg_node(env, args, open) {
+  const res = await kgResolve(env, args.id, open);
+  if (res.error) return res;
+  const limit = fgInt(args.limit, 60, 1, 300), stale = args.include_stale === true || args.include_stale === "true";
+  const act = stale ? "1 = 1" : KG_EDGE_ACTIVE, hide = open ? " AND (n.label IS NULL OR n.label NOT IN ('" + KG_PRIVATE_LABELS.join("','") + "'))" : "";
+  const props = await env.GRAPH_DB.prepare("SELECT properties, created_at, updated_at, last_seen FROM nodes WHERE id = ?1").bind(res.id).first();
+  const stats = await env.GRAPH_DB.prepare("SELECT degree, deg_sem, pagerank, component, community FROM kg_node_stats WHERE node_id = ?1").bind(res.id).first().catch(() => null);
+  const out = await env.GRAPH_DB.prepare("SELECT e.relationship_type AS rel, e.target_id AS other, n.label, n.name, e.weight, e.confidence, e.source AS origin, e.status FROM edges e LEFT JOIN nodes n ON n.id = e.target_id WHERE e.source_id = ?1 AND " + act + hide + " ORDER BY COALESCE(e.weight, 1) DESC, e.relationship_type LIMIT " + limit).bind(res.id).all();
+  const inc = await env.GRAPH_DB.prepare("SELECT e.relationship_type AS rel, e.source_id AS other, n.label, n.name, e.weight, e.confidence, e.source AS origin, e.status FROM edges e LEFT JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1 AND " + act + hide + " ORDER BY COALESCE(e.weight, 1) DESC, e.relationship_type LIMIT " + limit).bind(res.id).all();
+  const tally = (rows) => rows.reduce((m, x) => { m[x.rel] = (m[x.rel] || 0) + 1; return m; }, {});
+  let p = {}; try { p = JSON.parse((props && props.properties) || "{}"); if (typeof p === "string") p = JSON.parse(p); } catch (e) { p = {}; }
+  return { id: res.id, node: Object.assign({}, res.node, { properties: p && typeof p === "object" ? p : {}, created_at: props && props.created_at, updated_at: props && props.updated_at, last_seen: props && props.last_seen }), stats: stats || null, out: out.results || [], in: inc.results || [], out_by_relationship: tally(out.results || []), in_by_relationship: tally(inc.results || []) };
+}
+// Level-by-level walk, one query per level chunk (frontier as one JSON parameter), at most KG_MAX_QUERIES in all. Structural edges
+// (CONTAINS ...) are skipped unless asked for, a hub label (Tag, Category ...) is shown but not expanded past depth 1, and an open walk drops
+// private labels. `truncated` says a query hit its row limit or the query budget ran out, so "not reached" may be "not looked at".
+async function kgWalk(env, start, opts) {
+  const seen = new Map([[start, { depth: 0, from: null, rel: null }]]);
+  let frontier = [start], capped = false, truncated = false, queries = 0;
+  const rel = opts.structural ? "" : " AND e.relationship_type NOT IN ('" + KG_STRUCTURAL.join("','") + "')";
+  const labelOf = new Map();
+  for (let d = 1; d <= opts.depth && frontier.length; d++) {
+    const next = [], fset = new Set(frontier);
+    for (let i = 0; i < frontier.length; i += 300) {
+      if (queries >= KG_MAX_QUERIES) { truncated = true; break; }
+      queries++;
+      const chunk = JSON.stringify(frontier.slice(i, i + 300));
+      const sql = "SELECT e.source_id AS s, e.target_id AS t, e.relationship_type AS r, e.weight AS w FROM edges e WHERE e.source_id IN (SELECT value FROM json_each(?1)) AND " + KG_EDGE_ACTIVE + rel + " UNION ALL SELECT e.source_id, e.target_id, e.relationship_type, e.weight FROM edges e WHERE e.target_id IN (SELECT value FROM json_each(?1)) AND " + KG_EDGE_ACTIVE + rel + " LIMIT 6000";
+      const r = await env.GRAPH_DB.prepare(sql).bind(chunk).all();
+      if ((r.results || []).length >= 6000) truncated = true;
+      for (const x of r.results || []) {
+        const here = fset.has(x.s) ? x.s : x.t, there = here === x.s ? x.t : x.s;
+        if (opts.minWeight && (x.w == null ? 1 : x.w) < opts.minWeight) continue;
+        if (!seen.has(there)) { seen.set(there, { depth: d, from: here, rel: x.r }); next.push(there); if (seen.size >= opts.cap) { capped = true; break; } }
+      }
+      if (capped) break;
+    }
+    if (opts.target && seen.has(opts.target)) break;
+    if (capped || (truncated && queries >= KG_MAX_QUERIES)) break;
+    if ((!opts.hubs || opts.hidePrivate) && next.length) {
+      if (queries >= KG_MAX_QUERIES) { truncated = true; break; }
+      queries++;
+      const lab = await env.GRAPH_DB.prepare("SELECT id, label FROM nodes WHERE id IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(next.slice(0, 2000))).all();
+      for (const x of lab.results || []) labelOf.set(x.id, x.label);
+      if (opts.hidePrivate) for (const id of next) if (KG_PRIVATE_LABELS.indexOf(labelOf.get(id)) >= 0) seen.delete(id);
+      frontier = next.filter((id) => seen.has(id) && (opts.hubs || KG_HUB_LABELS.indexOf(labelOf.get(id)) < 0));
+    } else frontier = next;
+  }
+  return { seen, capped, truncated, queries };
+}
+async function kg_neighbors(env, args, open) {
+  const res = await kgResolve(env, args.id, open);
+  if (res.error) return res;
+  const depth = fgInt(args.depth, 1, 1, 3), cap = fgInt(args.limit, 150, 5, 500);
+  const structural = args.structural === true || args.structural === "true";
+  const w = await kgWalk(env, res.id, { depth, cap, structural, hubs: args.hubs === true || args.hubs === "true", minWeight: Number(args.min_weight) || 0, hidePrivate: !!open });
+  const ids = Array.from(w.seen.keys()), meta = new Map(), stat = new Map();
+  for (let i = 0; i < ids.length; i += 400) {
+    const part = JSON.stringify(ids.slice(i, i + 400));
+    for (const x of ((await env.GRAPH_DB.prepare("SELECT id, label, name, status FROM nodes WHERE id IN (SELECT value FROM json_each(?1))").bind(part).all()).results) || []) meta.set(x.id, x);
+    for (const x of ((await env.GRAPH_DB.prepare("SELECT node_id, pagerank, community FROM kg_node_stats WHERE node_id IN (SELECT value FROM json_each(?1))").bind(part).all().catch(() => ({ results: [] }))).results) || []) stat.set(x.node_id, x);
+  }
+  const nodes = ids.map((id) => { const m = meta.get(id) || {}, s = stat.get(id) || {}; return { id, label: m.label || null, name: m.name || null, depth: w.seen.get(id).depth, pagerank: s.pagerank == null ? null : s.pagerank, community: s.community || null }; });
+  // Every active edge between the nodes shown (a walk finds the tree; the view needs the cross links too).
+  const edges = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const part = JSON.stringify(ids.slice(i, i + 500));
+    const r = await env.GRAPH_DB.prepare("SELECT e.source_id AS s, e.target_id AS t, e.relationship_type AS r, e.weight AS w, e.confidence AS c, e.source AS origin FROM edges e WHERE e.source_id IN (SELECT value FROM json_each(?1)) AND e.target_id IN (SELECT value FROM json_each(?1)) AND " + KG_EDGE_ACTIVE + (structural ? "" : " AND e.relationship_type NOT IN ('" + KG_STRUCTURAL.join("','") + "')") + " LIMIT 3000").bind(part).all();
+    for (const e of r.results || []) edges.push(e);
+  }
+  return { center: res.id, depth, count: nodes.length, truncated: w.capped || w.truncated, nodes, edges };
+}
+async function kg_path(env, args, open) {
+  const a = await kgResolve(env, args.from, open), b = await kgResolve(env, args.to, open);
+  if (a.error) return { error: "from: " + a.error, candidates: a.candidates };
+  if (b.error) return { error: "to: " + b.error, candidates: b.candidates };
+  const maxd = fgInt(args.max_depth, 5, 1, 7);
+  let truncated = false;
+  for (const structural of [false, true]) {
+    const w = await kgWalk(env, a.id, { depth: maxd, cap: 30000, structural, hubs: structural, target: b.id, hidePrivate: !!open });
+    truncated = truncated || w.capped || w.truncated;
+    if (!w.seen.has(b.id)) continue;
+    const steps = []; let cur = b.id;
+    while (cur && cur !== a.id) { const s = w.seen.get(cur); steps.unshift({ from: s.from, rel: s.rel, to: cur }); cur = s.from; }
+    return { from: a.id, to: b.id, length: steps.length, via_structural_edges: steps.some((x) => KG_STRUCTURAL.indexOf(x.rel) >= 0), truncated, path: steps };
+  }
+  return { from: a.id, to: b.id, path: null, truncated, note: truncated ? "no path found, but the search was cut short (query or row budget): this is not proof there is none" : "no path within " + maxd + " steps" };
+}
+async function kg_central(env, args, open) {
+  const label = fgStr(args.label), limit = fgInt(args.limit, 25, 1, 200);
+  const sql = "SELECT s.node_id AS id, n.label, n.name, s.pagerank, s.deg_sem, s.community FROM kg_node_stats s JOIN nodes n ON n.id = s.node_id WHERE n.status IS NULL" + (label ? " AND n.label = ?1" : "") + (open ? " AND n.label NOT IN ('" + KG_PRIVATE_LABELS.join("','") + "')" : "") + " ORDER BY s.pagerank DESC LIMIT " + limit;
+  const st = env.GRAPH_DB.prepare(sql), r = label ? await st.bind(label).all() : await st.all();
+  return { label: label || null, note: "PageRank over non-structural active edges, scaled so the mean is 1", count: (r.results || []).length, results: r.results || [] };
+}
+async function kg_gaps(env, args) {
+  const kind = fgStr(args.kind), limit = fgInt(args.limit, 50, 1, 300);
+  const tot = ((await env.GRAPH_DB.prepare("SELECT kind, COUNT(*) AS n FROM kg_gap WHERE status = 'open' GROUP BY kind ORDER BY n DESC").all()).results) || [];
+  const sql = "SELECT id, kind, subject, detail, score, first_seen, last_seen FROM kg_gap WHERE status = 'open'" + (kind ? " AND kind = ?1" : "") + " ORDER BY score DESC, first_seen LIMIT " + limit;
+  const st = env.GRAPH_DB.prepare(sql), r = kind ? await st.bind(kind).all() : await st.all();
+  return { totals: tot, count: (r.results || []).length, note: "isolated-paper: no content relation; bridge-paper: neighbours in 3+ communities; link-candidate: two papers with shared neighbours and no link (Adamic-Adar, a lead not an edge)", results: (r.results || []).map((x) => Object.assign({}, x, { detail: fgAttrs(x.detail) })) };
+}
+async function kg_orphans(env, args, open) {
+  const label = fgStr(args.label), limit = fgInt(args.limit, 50, 1, 300);
+  const sql = "SELECT n.id, n.label, n.name FROM nodes n WHERE n.status IS NULL" + (label ? " AND n.label = ?1" : "") + (open ? " AND n.label NOT IN ('" + KG_PRIVATE_LABELS.join("','") + "')" : "") + " AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.source_id = n.id AND " + KG_EDGE_ACTIVE + ") AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.target_id = n.id AND " + KG_EDGE_ACTIVE + ") LIMIT " + limit;
+  const st = env.GRAPH_DB.prepare(sql), r = label ? await st.bind(label).all() : await st.all();
+  return { label: label || null, count: (r.results || []).length, results: r.results || [] };
+}
+async function kg_communities(env, args) {
+  const limit = fgInt(args.limit, 30, 1, 100);
+  const r = ((await env.GRAPH_DB.prepare("SELECT s.community AS id, COUNT(*) AS members, n.name AS representative FROM kg_node_stats s LEFT JOIN nodes n ON n.id = s.community WHERE s.community IS NOT NULL GROUP BY s.community ORDER BY members DESC LIMIT " + limit).all()).results) || [];
+  return { note: "label propagation over paper-to-paper CITES / SIMILAR_TO / COUPLED_WITH, split into connected parts; the id is the highest-PageRank member", count: r.length, results: r };
+}
+async function kg_health(env) {
+  const row = await env.GRAPH_DB.prepare("SELECT ts, version, metrics, CAST((julianday('now') - julianday(ts)) * 1440 AS INTEGER) AS age_min FROM kg_health ORDER BY ts DESC LIMIT 1").first();
+  if (!row) return { error: "the knowledge graph has not been curated yet (kg_health is empty)" };
+  const trend = ((await env.GRAPH_DB.prepare("SELECT ts, json_extract(metrics, '$.orphan_share') AS orphan_share, json_extract(metrics, '$.edge_density') AS edge_density, json_extract(metrics, '$.giant_component_share') AS giant_component_share, json_extract(metrics, '$.paper_unrelated_share') AS paper_unrelated_share, json_extract(metrics, '$.edges_active') AS edges_active FROM kg_health ORDER BY ts DESC LIMIT 48").all()).results) || [];
+  const state = ((await env.GRAPH_DB.prepare("SELECT k, v, updated_at FROM kg_state WHERE k IN ('lastRun', 'simAdjust')").all()).results) || [];
+  const tomb = await env.GRAPH_DB.prepare("SELECT COUNT(*) AS n FROM kg_tombstone").first();
+  let m = {}; try { m = JSON.parse(row.metrics); } catch (e) { m = {}; }
+  return { as_of: row.ts, age_min: row.age_min, stale: row.age_min > 180, curator_version: row.version, metrics: m, tombstones: tomb ? tomb.n : null, state: Object.fromEntries(state.map((x) => [x.k, x.v])), trend_newest_first: trend, how: "scripts/kg_curate.mjs inside fleet-graph.yml; docs/KNOWLEDGE-GRAPH.md" };
+}
+var KG_ROUTES = { health: kg_health, find: kg_find, node: kg_node, neighbors: kg_neighbors, path: kg_path, central: kg_central, gaps: kg_gaps, orphans: kg_orphans, communities: kg_communities };
+async function kgCall(name, args, env, open) {
+  // MEMORY-MCP-ENV-LEAK-1: a route name is a URL segment; only the table's own properties are routes (KG_ROUTES["constructor"] is Object).
+  const fn = typeof name === "string" && Object.prototype.hasOwnProperty.call(KG_ROUTES, name) ? KG_ROUTES[name] : null;
+  if (!fn) return { error: "unknown knowledge graph query " + name, queries: Object.keys(KG_ROUTES) };
+  try { return await fn(env, args || {}, !!open); }
+  catch (e) { const m = String(e && e.message || e); return { error: /no such (table|column)/.test(m) ? "the knowledge graph has not been curated yet (" + m.slice(0, 80) + ")" : "query failed: " + m.slice(0, 300) }; }
+}
+async function kgTool(name, args, env) {
+  const out = await kgCall(name.replace(/^kg_/, ""), args, env, false);
+  return { content: [{ type: "text", text: JSON.stringify(out) }], isError: !!out.error };
+}
+__name(kgTool, "kgTool");
+// A self-contained viewer: a force layout drawn on a canvas, fed by /kg/neighbors or /fleet-graph/impact (same origin, fixed paths).
+var KG_VIEW_HTML = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QNFO knowledge graph</title><style>html,body{margin:0;height:100%;font:14px system-ui,sans-serif;background:#0f1218;color:#dbe2ee}#bar{display:flex;gap:8px;padding:8px;align-items:center;flex-wrap:wrap}input,select,button{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #394150;background:#1a202b;color:inherit}input{min-width:16em}canvas{display:block;width:100vw;height:calc(100vh - 92px);touch-action:none}#info{padding:4px 10px;color:#9fb0c8;min-height:1.4em}</style><div id="bar"><input id="q" placeholder="node id or name (paper:..., worker:qnfo-ops)"><select id="d"><option>1</option><option selected>2</option><option>3</option></select><button id="go">Show neighbours</button><span id="n"></span></div><div id="info">Click a node to centre on it.</div><canvas id="c"></canvas><script>(function(){var C=document.getElementById("c"),X=C.getContext("2d"),info=document.getElementById("info"),N=[],E=[],W=0,H=0,dpr=window.devicePixelRatio||1,hue={};function col(l){if(!hue[l]){var h=0;for(var i=0;i<(l||"?").length;i++)h=(h*31+(l||"?").charCodeAt(i))%360;hue[l]=h}return"hsl("+hue[l]+",65%,60%)"}function size(){W=C.clientWidth;H=C.clientHeight;C.width=W*dpr;C.height=H*dpr;X.setTransform(dpr,0,0,dpr,0,0)}function load(id,d){info.textContent="Loading\\u2026";var u=id.indexOf("worker:")===0||id.indexOf("d1")===0||id.indexOf("fn:")===0?"/fleet-graph/impact?direction=down&depth="+d+"&id="+encodeURIComponent(id):"/kg/neighbors?depth="+d+"&id="+encodeURIComponent(id);fetch(u).then(function(r){return r.json()}).then(function(j){if(j.error){info.textContent=j.error;return}var map={};if(j.nodes){N=j.nodes.map(function(n){return{id:n.id,label:n.label||"?",name:n.name||n.id,x:W/2+(Math.random()-.5)*200,y:H/2+(Math.random()-.5)*200,vx:0,vy:0,c:n.id===j.center}});E=j.edges.map(function(e){return{s:e.s,t:e.t,r:e.r}})}else{N=[{id:j.id,label:"center",name:j.id,x:W/2,y:H/2,vx:0,vy:0,c:true}].concat((j.results||[]).map(function(n){return{id:n.id,label:n.kind||"?",name:n.name||n.id,x:W/2+(Math.random()-.5)*200,y:H/2+(Math.random()-.5)*200,vx:0,vy:0,c:false}}));E=(j.results||[]).filter(function(n){return n.from}).map(function(n){return{s:n.from,t:n.id,r:n.via}})}N.forEach(function(n){map[n.id]=n});E=E.filter(function(e){return map[e.s]&&map[e.t]});info.textContent=N.length+" nodes, "+E.length+" edges"+(j.truncated?" (truncated)":"");for(var k=0;k<160;k++)step(map)}).catch(function(e){info.textContent=String(e)})}function step(map){var i,j,a,b,dx,dy,d2,f;for(i=0;i<N.length;i++){a=N[i];for(j=i+1;j<N.length;j++){b=N[j];dx=a.x-b.x;dy=a.y-b.y;d2=dx*dx+dy*dy+.01;f=900/d2;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f}}for(i=0;i<E.length;i++){a=map[E[i].s];b=map[E[i].t];dx=b.x-a.x;dy=b.y-a.y;f=.02;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f}for(i=0;i<N.length;i++){a=N[i];a.vx+=(W/2-a.x)*.004;a.vy+=(H/2-a.y)*.004;a.x+=Math.max(-20,Math.min(20,a.vx));a.y+=Math.max(-20,Math.min(20,a.vy));a.vx*=.6;a.vy*=.6}}function draw(){X.clearRect(0,0,W,H);var m={};N.forEach(function(n){m[n.id]=n});X.strokeStyle="#3a4558";X.lineWidth=1;E.forEach(function(e){var a=m[e.s],b=m[e.t];X.beginPath();X.moveTo(a.x,a.y);X.lineTo(b.x,b.y);X.stroke()});N.forEach(function(n){X.fillStyle=col(n.label);X.beginPath();X.arc(n.x,n.y,n.c?9:5,0,6.3);X.fill();if(N.length<60||n.c){X.fillStyle="#dbe2ee";X.fillText(String(n.name).slice(0,34),n.x+8,n.y+3)}});requestAnimationFrame(draw)}C.addEventListener("click",function(ev){var r=C.getBoundingClientRect(),x=ev.clientX-r.left,y=ev.clientY-r.top,best=null,bd=400;N.forEach(function(n){var d=(n.x-x)*(n.x-x)+(n.y-y)*(n.y-y);if(d<bd){bd=d;best=n}});if(best){info.textContent=best.label+": "+best.name+" ("+best.id+")";document.getElementById("q").value=best.id;load(best.id,+document.getElementById("d").value)}});document.getElementById("go").onclick=function(){load(document.getElementById("q").value.trim(),+document.getElementById("d").value)};window.addEventListener("resize",size);size();var q=new URLSearchParams(location.search).get("id");if(q){document.getElementById("q").value=q;load(q,2)}draw()})()</script>';
 async function callTool(name, args, env) {
   const handlers = {
     search_papers: tool_search_papers,
@@ -943,6 +1116,7 @@ async function callTool(name, args, env) {
     exuvia_engage: async (args, env) => exOut(await exuviaEngageTick(env), false)
   };
   if (/^fleet_graph_/.test(String(name))) return await fgTool(name, args, env);
+  if (/^kg_/.test(String(name))) return await kgTool(name, args, env);
   const fn = ownEntry(handlers, name);
   return fn ? await fn(args, env) : { content: [{ type: "text", text: "Unknown tool: " + name }], isError: true };
 }
@@ -1011,7 +1185,7 @@ async function handleRpc(body, env, scope, sessionId) {
     const p = params && typeof params === "object" ? params : null;
     const name = p ? String(p.name || "") : "";
     if (!name) return { err: rpcErr(id, -32602, "Invalid params: tools/call needs params.name") };
-    if (TOOLS.every((t) => t.name !== name) && !/^fleet_graph_/.test(name)) return { err: rpcErr(id, -32602, "unknown tool: " + name) };
+    if (TOOLS.every((t) => t.name !== name) && !/^fleet_graph_/.test(name) && !/^kg_/.test(name)) return { err: rpcErr(id, -32602, "unknown tool: " + name) };
     if (!scope.write && WRITE_TOOLS.indexOf(name) >= 0) return { err: rpcErr(id, -32003, "forbidden: token lacks write scope for '" + name + "'") };
     const args = p.arguments && typeof p.arguments === "object" && !Array.isArray(p.arguments) ? p.arguments : {};
     try {
@@ -1054,11 +1228,25 @@ var worker_default = {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
     if (url.pathname === "/health") {
-      return json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION, protocol: SUPPORTED_PROTOCOLS, auth: !!env.MCP_TOKEN, read_token: !!env.MCP_READ_TOKEN, query_token: true, exuvia_key: !!env.EXUVIA_API_KEY, audit: !!env.AUDIT, capabilities: ["mcp", "sse", "streamable-http", "persistent-memory", "knowledge-graph", "vector-recall", "fleet-graph"], limitations: ["bearer token or ?token= required on /mcp, /mcp/sse and /mcp/messages", "fails closed (503) when no token is configured", "the tool list is served only to authenticated clients", "GET /fleet-graph/* is open and read-only (OPEN-ACCESS-1); secret names are withheld there", "write tools (remember_fact, exuvia_publish_paper) need the full MCP_TOKEN, not MCP_READ_TOKEN"] });
+      return json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION, protocol: SUPPORTED_PROTOCOLS, auth: !!env.MCP_TOKEN, read_token: !!env.MCP_READ_TOKEN, query_token: true, exuvia_key: !!env.EXUVIA_API_KEY, audit: !!env.AUDIT, capabilities: ["mcp", "sse", "streamable-http", "persistent-memory", "knowledge-graph", "vector-recall", "fleet-graph", "kg-curation"], limitations: ["bearer token or ?token= required on /mcp, /mcp/sse and /mcp/messages", "fails closed (503) when no token is configured", "the tool list is served only to authenticated clients", "GET /fleet-graph/* is open and read-only (OPEN-ACCESS-1); secret names are withheld there", "write tools (remember_fact, exuvia_publish_paper) need the full MCP_TOKEN, not MCP_READ_TOKEN"] });
     }
     // FLEET-GRAPH-1: open, read-only, parameterised queries (OPEN-ACCESS-1). No caller SQL, bounded depth and rows.
     if (url.pathname === "/fleet-graph" || url.pathname === "/fleet-graph/") {
       return json({ graph: "qnfo fleet code + topology graph (FLEET-GRAPH-1)", queries: Object.keys(FG_ROUTES).map((q) => "/fleet-graph/" + q), examples: ["/fleet-graph/find?query=agent_issues", "/fleet-graph/impact?id=d1t:qnfo-audit.agent_issues&depth=2", "/fleet-graph/worker?worker=qnfo-ops", "/fleet-graph/findings?severity=warn", "/fleet-graph/freshness"], snapshot: "R2 qnfo-backups/fleet-graph/latest.json.gz (node-link JSON)" });
+    }
+    // KG-CURATE-1: the content knowledge graph, open and read-only like the fleet graph (OPEN-ACCESS-1).
+    if (url.pathname === "/kg" || url.pathname === "/kg/") {
+      return json({ graph: "qnfo content knowledge graph (KG-CURATE-1)", queries: Object.keys(KG_ROUTES).map((q) => "/kg/" + q), view: "/kg/view?id=paper:<slug>", examples: ["/kg/health", "/kg/find?query=ultrametric", "/kg/neighbors?id=worker:qnfo-ops&depth=2", "/kg/gaps?kind=isolated-paper", "/kg/central?label=Paper"], docs: "docs/KNOWLEDGE-GRAPH.md" });
+    }
+    if (url.pathname === "/kg/view" && request.method === "GET") {
+      return new Response(KG_VIEW_HTML, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+    }
+    if (url.pathname.startsWith("/kg/") && request.method === "GET") {
+      const q = url.pathname.slice("/kg/".length).replace(/\/+$/, "");
+      const out = await kgCall(q, Object.fromEntries(url.searchParams.entries()), env, true);
+      const r = json(out, out.error ? (/^unknown/.test(out.error) ? 404 : /not been curated/.test(out.error) ? 503 : 400) : 200);
+      if (!out.error) r.headers.set("Cache-Control", "public, max-age=60");
+      return r;
     }
     if (url.pathname.startsWith("/fleet-graph/") && request.method === "GET") {
       const q = url.pathname.slice("/fleet-graph/".length).replace(/\/+$/, "");

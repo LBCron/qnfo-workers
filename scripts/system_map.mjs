@@ -153,6 +153,8 @@ export function buildSystemMap({ graphs, extra, root, sha, now }) {
     "## Hot paths",
     "- Most-bound workers (service-binding callers): " + (hubs.join(", ") || "-"),
     "- Most-touched D1 tables (w=writer workers, r=reader workers): " + hotT.join(", "),
+    ...(extra.kg ? ["", "## Knowledge graph (content; KG-CURATE-1, docs/KNOWLEDGE-GRAPH.md): " + k(extra.kg.nodes_active) + " active nodes, " + k(extra.kg.edges_active) + " edges (" + extra.kg.edge_density + "/node), orphans " + extra.kg.orphan_share + "%, giant component " + extra.kg.giant_component_share + "% (Note vault excluded), papers without a content relation " + extra.kg.paper_unrelated_share + "%",
+      "- Ask it what relates to a node: https://qnfo-memory-mcp.q08.workers.dev/kg/neighbors?id=<paper:slug|worker:name|issue:id|metric:key>, /kg/health, /kg/gaps, /kg/central?label=Worker (where open issues and failure modes concentrate); MCP tools kg_*"] : []),
     "",
     "## Look up ONE thing (open, read-only, https://qnfo-memory-mcp.q08.workers.dev/fleet-graph/...)",
     "- find?query=<text> gives exact node ids (worker:<n>, fn:<w>#<f>, d1t:<db>.<t>, vz:<idx>, binding:<w>.<B>, cron:<w>@<expr>)",
@@ -182,6 +184,8 @@ export async function collectMapExtra(cf, snap, auditDbId) {
   ex.ai_paths = p || [];
   const t = await soft("ai_total", () => q("SELECT SUM(neurons) / 3.0 AS neurons, SUM(in_tok) / 3.0 AS in_tok FROM ai_call_counters WHERE day >= date('now','-4 day') AND day < date('now')"));
   ex.ai_total = t && t[0] ? t[0] : null;
+  const kgRow = await soft("kg_health", () => cf.d1("a1954b92-d681-4d02-b1f6-f9a2eb4c265d", "SELECT metrics FROM kg_health ORDER BY ts DESC LIMIT 1"));
+  if (kgRow && kgRow[0]) { try { ex.kg = JSON.parse(kgRow[0].metrics); } catch (e) { ex.errors.push("kg_health: unparsable"); } }
   const c = await soft("cost", () => q("SELECT mtd_usd, forecast_month_usd, budget_month_usd FROM v_cost_all_in"));
   if (c && c[0]) { const l = await soft("cost_lines", () => q("SELECT product, mtd_usd FROM v_cost_lines_month WHERE mtd_usd > 0 ORDER BY mtd_usd DESC LIMIT 4")); ex.cost = Object.assign({}, c[0], { lines: l || [] }); }
   // vector counts, last write, queries in 7 days
