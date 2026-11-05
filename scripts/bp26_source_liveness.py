@@ -30,10 +30,22 @@ SQL = ("SELECT cited_url, MIN(citing_slug) AS slug FROM paper_citations WHERE ci
 
 
 def _check(ctx, url):
+    """
+    Perform a HEAD request first. If the HEAD fails (status >= 400, timeout, or any error),
+    fall back to a GET request. Return the response that best represents the URL's availability.
+    """
     r = ctx.http(url, method="HEAD", external=True, timeout=12, max_bytes=2048)
-    if r.status in (403, 405, 501) or (r.status == 0 and r.error and (r.error == "timeout" or r.error.startswith("error:"))):
+
+    # Determine if we need to retry with GET:
+    need_get = (
+        r.status >= 400
+        or (r.status == 0 and r.error)          # transport error (timeout, DNS, TLS, etc.)
+        or r.status in (403, 405, 501)          # servers that explicitly reject HEAD
+    )
+    if need_get:
         r2 = ctx.http(url, external=True, timeout=12, max_bytes=2048)
-        if r2.status or not r.status:
+        # Prefer the GET result if it succeeded (status < 400) or if the original HEAD gave no status.
+        if (r2.status and r2.status < 400) or (r.status == 0):
             r = r2
     return r
 
