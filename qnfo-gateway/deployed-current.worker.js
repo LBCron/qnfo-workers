@@ -165,7 +165,7 @@ function formatPaper(source, record) {
 }
 // PAPER-FORMAT-2:END
 // 3.48.7 PAPER-REVISION-QUALITY-1 (2026-11-03, pillar reach): recover split revision titles and record abstracts at public rendering, and reject cached refusals from both summary surfaces.
-var VERSION="3.58.1-codeagent";
+var VERSION="3.60.0-codeagent";
 /* 3.54.2 SEO-404-PATHS-1 follow-up: the paper page script no longer requests /api/paper-context/undefined when the page data block is missing (first path recorded in seo_404_paths). */ /* 3.54.0 SEO-404-PATHS-1 and INDEXNOW-BACKOFF-1 (merged): see the two notes below. GET /api/seo/crawl also returns notFound, the top 50 crawler 404 paths of the window, so the dashboard UX auditor reads them from the open route. INDEXNOW-BACKOFF-1: an IndexNow endpoint that failed its last 6 logged runs is tried once per 3 hours and a 429 is not retried. */ /* SEO-404-PATHS-1 (2026-11-04, pillar reach): a crawler request that answers 404 records its path in living-paper seo_404_paths (day, host, path, n; 500 paths a day, 14 days kept). seo_crawl_log counted 1,875 crawler 404s on 2026-11-02 (qnfo.org, every bot, kind other) and kept no path to fix. */ // 3.52.0 QWAV-DEMOS-1 (2026-11-04, pillar reach; minor: the QWAV page lists the ten interactive demos that only the retired Pages site linked, with a Demos nav item, a hero action and a footer link; the page is now the whole of qwav.org through a qwav.org/* route, so unknown paths redirect home instead of answering 200). Revert: restore 3.51.0. // 3.51.0 earlier history follows: // 3.51.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: every QDS page gains a family bar linking QNFO, QWAV and q08, a Keep exploring module (newest and random papers from the open API, the three family sites, topic chips) and a family line in the footer; QDS 1.1.0; visible ask links use ask.qwav.org per DOMAIN-PLANE-1). Prediction: pages per session on qwav.org and qnfo.org rise and clicks between the three sites become non-zero. Revert: restore 3.50.0. // 3.50.0 earlier history follows: // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports. /* main 3.53.1 */ // 3.53.1 PAPER-TTFB-1 (2026-11-04, pillar reach; patch): a paper page whose plain summary kept failing the readability gate ran two model generations inside every request (17 to 44 s to first byte for a-minimal-generative-grammar-of-coordination..., 1.2 s for its neighbours); the fill now runs after the response and once per PLAIN_RETRY_MS per paper per colo. Revert: restore 3.53.0. // 3.53.0 earlier history follows: // 3.53.0 CROSS-LINK-2 (2026-11-04, pillar reach; minor: papers.qnfo.org index and paper pages, rendered by lpDoc, gain the family bar and a Keep exploring strip linking QWAV, Ask, ideas and q08, so the pages a search lands on lead to the rest of the family). Revert: restore 3.52.0. // 3.52.0 earlier history follows: // 3.52.0 QWAV-DEMOS-1 (2026-11-04, pillar reach; minor: the QWAV page lists the ten interactive demos that only the retired Pages site linked, with a Demos nav item, a hero action and a footer link; the page is now the whole of qwav.org through a qwav.org/* route, so unknown paths redirect home instead of answering 200). Revert: restore 3.51.0. // 3.51.0 earlier history follows: // 3.51.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: every QDS page gains a family bar linking QNFO, QWAV and q08, a Keep exploring module (newest and random papers from the open API, the three family sites, topic chips) and a family line in the footer; QDS 1.1.0; visible ask links use ask.qwav.org per DOMAIN-PLANE-1). Prediction: pages per session on qwav.org and qnfo.org rise and clicks between the three sites become non-zero. Revert: restore 3.50.0. // 3.50.0 earlier history follows: // 3.50.0 PAPER-CITATION-ALIASES-1 (#5577, pillar research; minor): expose the documented /papers/<slug>/cite.* routes alongside the existing API exports.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -7682,6 +7682,43 @@ var utmTableReady = false;
 function utmClean(v) {
   return String(v || "").toLowerCase().trim().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
 }
+// ---- REACH-AE-1b:BEGIN (pillar reach, agent_issues 1000699, GitHub #5727): the first-party per-page reach stream. A GET that answers 200 text/html on a reach-layer host from a user agent that
+// does not name itself a crawler or link previewer writes one Workers Analytics Engine data point to the dataset qnfo_reach (binding REACH_AE, the only binding for it in the fleet):
+// blob1 reach, blob2 host, blob3 path (no query, 200 characters; never /health or /api/), blob4 referrer host ("" none, "self" a fleet host), blob5 utm_source (utmClean), blob6 country; double1 1; index1 host.
+// writeDataPoint is synchronous and fire and forget: it is not awaited, a missing or throwing binding changes nothing, and no IP, user agent string, full Referer or query value is kept.
+// Undeclared automation looks like a visitor here as everywhere at the edge (READER-YIELD-1), so qnfo-infra stores these as page loads of quality unknown. qnfo-infra REACH_AE_HOST_SQL
+// and REACH_AE_PAGE_SQL read this layout: change them together.
+var REACH_AE_FLEET_RE = /(^|\.)(qnfo\.org|q08\.org|qwav\.org|workers\.dev)$/;
+function reachAeEvent(request, res) {
+  try {
+    if (!request || request.method !== "GET" || !res || res.status !== 200) return null;
+    if (!/text\/html/i.test(res.headers.get("Content-Type") || "")) return null;
+    const u = new URL(request.url);
+    const host = u.hostname.toLowerCase();
+    if (!RL_HOSTS[host]) return null;
+    const path = u.pathname.replace(/\/+$/, "") || "/";
+    if (path === "/health" || path.indexOf("/api/") === 0) return null;
+    if (UTM_BOT_RE.test(request.headers.get("User-Agent") || "")) return null;
+    let ref = "";
+    try { ref = new URL(request.headers.get("Referer") || "").hostname.toLowerCase().slice(0, 80); } catch (e) { ref = ""; }
+    if (ref && (ref === host || REACH_AE_FLEET_RE.test(ref))) ref = "self";
+    const cf = request.cf || {};
+    return { blobs: ["reach", host, path.slice(0, 200), ref, utmClean(u.searchParams.get("utm_source")), typeof cf.country === "string" ? cf.country.slice(0, 2).toUpperCase() : ""], doubles: [1], indexes: [host] };
+  } catch (e) {
+    return null;
+  }
+}
+function reachAeWrite(env, ev) {
+  try {
+    if (!ev || !env || !env.REACH_AE) return false;
+    env.REACH_AE.writeDataPoint(ev);
+    return true;
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "qnfo-gateway", where: "reachAeWrite", error: String(e && e.message || e).slice(0, 160) }));
+    return false;
+  }
+}
+// ---- REACH-AE-1b:END
 // The row a response earns, or null: GET, a utm_source on the URL, a 200 HTML answer.
 function utmClickRow(request, res, nowMs) {
   try {
@@ -8457,6 +8494,8 @@ var gateway_worker_default = {
     // UTM-CLICK-LEDGER-1: count a tagged page load after the answer is built; never delays or changes the response.
     const utmRow = utmClickRow(request, served);
     if (utmRow && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(utmRecord(env, utmRow).catch(function(e) { console.error(JSON.stringify({ worker: "qnfo-gateway", where: "fetch", error: String(e && e.message || e) })); }));
+    // REACH-AE-1b: one Analytics Engine data point per human page load, written after the answer is built; never awaited, never changes the response.
+    reachAeWrite(env, reachAeEvent(request, served));
     return withFleetCtl(await withReachLayer(served, request));
   },
   async serve(request, env, ctx) {

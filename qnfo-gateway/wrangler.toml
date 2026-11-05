@@ -61,6 +61,13 @@ bucket_name = "qnfo-releases"
 binding = "PDF_SVC"
 service = "qnfo-pdf"
 
+# REACH-AE-1b (2026-11-05, pillar reach, agent_issues 1000699 and 1001879): the one Workers Analytics Engine binding for first-party per-page reach events. The fetch tail writes one
+# data point per human HTML page load (reachAeEvent, reachAeWrite); qnfo-infra reads dataset qnfo_reach back every hour into reach_signals (source reach-ae). The dataset is created
+# by the first write. Revert: remove this block and the call in the fetch tail (a missing binding writes nothing).
+[[analytics_engine_datasets]]
+binding = "REACH_AE"
+dataset = "qnfo_reach"
+
 # Secrets (wrangler secret put): SYNC_TOKEN, TURNSTILE_SECRET
 
 # CRON-DETACH-1 (2026-10-25, agent_issues 100450): a raw PUT /content deploy on 2026-10-20 left this trigger
