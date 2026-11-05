@@ -9,7 +9,7 @@
 // JOBSEARCH-CV-1 (1.5.0): the CV is part of this worker (page /cv): a yes/no interview that builds the claim bank, review of unconfirmed claims, roles, achievements and publications edited in D1, a resume per job (summary, roles, selected work, education, skills) and a cover note, history and backup. The search is tied to that bank (evidence the owner can back up weighs more; what the CV lacks is shown as a gap), decided postings (rejected, applied, approved) never come back under another id, rejections carry a reason the search learns from, and a wider net: stretch matches outside the stated preferences, more boards and aggregators.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.5.1";
+var VERSION = "1.6.0";
 const WORKER = "qnfo-jobsearch";
 const LEDGER = {
  "ledger_verified_on": "2026-10-01",
@@ -345,7 +345,7 @@ async function setMeta(env, k, v) {
 // feed key -> id prefix of the postings it produced (a feed that failed this run never expires anything)
 function feedPrefix(feed) {
   const [kind, arg] = feed.split(":");
-  return { greenhouse: `gh:${arg}:`, lever: `lv:${arg}:`, ashby: `ab:${arg}:`, recruitee: `rc:${arg}:`, remotive: "rm:", muse: "mu:", jobicy: "jb:", arbeitnow: "an:", remoteok: "rok:", himalayas: "him:", hn: "hn:", publicsector: `ps:${arg}:` }[kind];
+  return { greenhouse: `gh:${arg}:`, lever: `lv:${arg}:`, ashby: `ab:${arg}:`, recruitee: `rc:${arg}:`, smartrecruiters: `sr:${arg}:`, remotive: "rm:", muse: "mu:", jobicy: "jb:", arbeitnow: "an:", remoteok: "rok:", himalayas: "him:", hn: "hn:", publicsector: `ps:${arg}:` }[kind];
 }
 const dedupeKey = (j) => `${j.company}|${j.title}|${j.location}`.toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -358,7 +358,8 @@ const BOARDS = {
     "givedirectly", "goodfire", "ionq", "psiquantum", "riverlane", "turing", "via", "catawiki", "labelbox"],
   lever: ["palantir", "mistral", "mendix", "brookings", "oliverwyman", "zoox", "apolloresearch", "metr", "rigetti"],
   ashby: ["openai", "cohere", "notion", "elevenlabs", "mollie", "mapbox", "perplexity", "snowflake", "faculty", "wayve", "cerebras", "anyscale", "modal", "fireworks", "redwoodresearch", "pinecone", "runway", "miro"],
-  recruitee: ["bunq", "msf", "solvinity"],
+  recruitee: ["bunq", "msf", "solvinity", "sweco"],   // sweco: transport, urban and water planning consultancy (probed 2026-11-05: 179 offers, Netherlands among them)
+  smartrecruiters: ["oecd"],                           // JOBSEARCH-SOURCES-1 (JS-7): OECD policy research and statistics roles (probed 2026-11-05: 22 postings)
   remotive: ["data", "product", "all-others", "q=research", "q=policy", "q=scientist", "q=quantum", "q=program manager", "q=analyst"],
   muse: ["Amsterdam, Netherlands|", "Amsterdam, Netherlands|Data and Analytics", "Amsterdam, Netherlands|Project & Product Management", "Amsterdam, Netherlands|Management", "Flexible / Remote|Data and Analytics", "Flexible / Remote|Project & Product Management", "Flexible / Remote|Management", "Flexible / Remote|Consulting"],
   jobicy: ["netherlands", "europe", "emea", "tag:research", "tag:data science", "tag:policy", "tag:machine learning"],
@@ -371,7 +372,7 @@ const BOARDS = {
 const ACTIVE_FEEDS = new Set(Object.entries(BOARDS).flatMap(([kind, args]) =>
   kind === "arbeitnow" ? ["arbeitnow"] : args.map((arg) => `${kind}:${arg}`)
 ));
-const DISPLAY = { openai: "OpenAI", scaleai: "Scale AI", gitlab: "GitLab", mongodb: "MongoDB", anthropic: "Anthropic", databricks: "Databricks", elastic: "Elastic", stripe: "Stripe", palantir: "Palantir", mistral: "Mistral", cohere: "Cohere", notion: "Notion", elevenlabs: "ElevenLabs", adyen: "Adyen", bird: "Bird", datadog: "Datadog", cloudflare: "Cloudflare", canonical: "Canonical", grafanalabs: "Grafana Labs", mozilla: "Mozilla", wikimedia: "Wikimedia Foundation", khanacademy: "Khan Academy", codeforamerica: "Code for America", givewell: "GiveWell", dataiku: "Dataiku", fivetran: "Fivetran", nesta: "Nesta", gallup: "Gallup", rti: "RTI International", ideo: "IDEO", waymo: "Waymo", nuro: "Nuro", lyft: "Lyft", mendix: "Mendix", brookings: "Brookings Institution", oliverwyman: "Oliver Wyman", zoox: "Zoox", mollie: "Mollie", mapbox: "Mapbox", perplexity: "Perplexity", snowflake: "Snowflake", givedirectly: "GiveDirectly", goodfire: "Goodfire", ionq: "IonQ", psiquantum: "PsiQuantum", riverlane: "Riverlane", turing: "The Alan Turing Institute", via: "Via", catawiki: "Catawiki", labelbox: "Labelbox", apolloresearch: "Apollo Research", metr: "METR", rigetti: "Rigetti", faculty: "Faculty", wayve: "Wayve", cerebras: "Cerebras", anyscale: "Anyscale", modal: "Modal", fireworks: "Fireworks AI", redwoodresearch: "Redwood Research", pinecone: "Pinecone", runway: "Runway", miro: "Miro", bunq: "bunq", msf: "Doctors Without Borders (MSF)", solvinity: "Solvinity",
+const DISPLAY = { openai: "OpenAI", scaleai: "Scale AI", gitlab: "GitLab", mongodb: "MongoDB", anthropic: "Anthropic", databricks: "Databricks", elastic: "Elastic", stripe: "Stripe", palantir: "Palantir", mistral: "Mistral", cohere: "Cohere", notion: "Notion", elevenlabs: "ElevenLabs", adyen: "Adyen", bird: "Bird", datadog: "Datadog", cloudflare: "Cloudflare", canonical: "Canonical", grafanalabs: "Grafana Labs", mozilla: "Mozilla", wikimedia: "Wikimedia Foundation", khanacademy: "Khan Academy", codeforamerica: "Code for America", givewell: "GiveWell", dataiku: "Dataiku", fivetran: "Fivetran", nesta: "Nesta", gallup: "Gallup", rti: "RTI International", ideo: "IDEO", waymo: "Waymo", nuro: "Nuro", lyft: "Lyft", mendix: "Mendix", brookings: "Brookings Institution", oliverwyman: "Oliver Wyman", zoox: "Zoox", mollie: "Mollie", mapbox: "Mapbox", perplexity: "Perplexity", snowflake: "Snowflake", givedirectly: "GiveDirectly", goodfire: "Goodfire", ionq: "IonQ", psiquantum: "PsiQuantum", riverlane: "Riverlane", turing: "The Alan Turing Institute", via: "Via", catawiki: "Catawiki", labelbox: "Labelbox", apolloresearch: "Apollo Research", metr: "METR", rigetti: "Rigetti", faculty: "Faculty", wayve: "Wayve", cerebras: "Cerebras", anyscale: "Anyscale", modal: "Modal", fireworks: "Fireworks AI", redwoodresearch: "Redwood Research", pinecone: "Pinecone", runway: "Runway", miro: "Miro", bunq: "bunq", msf: "Doctors Without Borders (MSF)", solvinity: "Solvinity", sweco: "Sweco",
     deepmind: "DeepMind", tno: "TNO", cwi: "CWI", "european-commission": "European Commission", nwo: "NWO", "university-of-amsterdam": "University of Amsterdam" };
 
 function decodeEntities(s) {
@@ -481,39 +482,134 @@ const FETCHERS = {
     }
     return out;
   },
-  // Public-sector boards with no open RSS/API feed (issue #1000643): we read the public listing HTML pages
-  // (robots.txt and site terms were read first; only public listing pages are fetched, one page per board per run,
-  // a 25s timeout, and the site's own job URLs are passed through unchanged). Every arg was probed live before adding.
-  async publicsector(arg) {
-    const sources = {
-      werkenvoornederland: { url: "https://www.werkenvoornederland.nl/vacatures", base: "https://www.werkenvoornederland.nl", company: "Werken voor Nederland (Rijksoverheid)" },
-      academictransfer: { url: "https://www.academictransfer.com/en/jobs/", base: "https://www.academictransfer.com", company: "Academic Transfer (Dutch universities)" },
-      euraxess: { url: "https://euraxess.ec.europa.eu/jobs/search", base: "https://euraxess.ec.europa.eu", company: "EURAXESS (EU research careers)" },
-    };
-    const s = sources[arg];
-    if (!s) return [];
-    const html = await getHtml(s.url);
+  // JOBSEARCH-SOURCES-1 (JS-7): SmartRecruiters company boards (public API, intended for syndication). The list holds no text, so a posting whose title
+  // could be in the owner's lane gets one detail request (at most 40 a run); the others are listed by title and location and the gates drop them.
+  async smartrecruiters(id) {
+    const list = await getJson(`https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(id)}/postings?limit=100`);
     const out = [];
-    const seen = new Set();
-    // listing pages expose each posting as an <a> whose href carries the job path; we keep anchors with a
-    // job-like href and a text length typical of a title, and skip navigation/cookie/script links.
-    const re = /<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let m;
-    while ((m = re.exec(html))) {
-      let href = decodeEntities(m[1]);
-      const text = stripHtml(m[2]);
-      if (!/\/(vacature|vacatures|job|jobs|vacancy|vacancies|position)\b/i.test(href)) continue;
-      if (!/^https?:/.test(href)) href = s.base + (href.startsWith("/") ? href : "/" + href);
-      if (!href.startsWith(s.base)) continue;
-      if (text.length < 5 || text.length > 200) continue;
-      const key = (s.company + "|" + text).toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ id: `ps:${arg}:${await sha256hex(href).then((h) => h.slice(0, 16))}`, source: "publicsector", company: s.company, title: text, location: arg === "werkenvoornederland" ? "Netherlands" : (arg === "academictransfer" ? "Netherlands" : "EU"), url: href, desc: "" });
+    let detailed = 0;
+    for (const p of Array.isArray(list.content) ? list.content : []) {
+      const loc = p.location || {};
+      const job = { id: `sr:${id}:${p.id}`, source: "smartrecruiters", company: (p.company && p.company.name) || id, title: p.name || "", location: [loc.city, loc.country && String(loc.country).toUpperCase()].filter(Boolean).join(", ") + (loc.remote ? " (Remote)" : ""), url: `https://jobs.smartrecruiters.com/${encodeURIComponent(id)}/${p.id}`, desc: "" };
+      if (detailed < 40 && titleCandidate(job.title)) {
+        detailed++;
+        try {
+          const d = await getJson(`https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(id)}/postings/${p.id}`);
+          const secs = (d.jobAd && d.jobAd.sections) || {};
+          job.desc = stripHtml(["companyDescription", "jobDescription", "qualifications", "additionalInformation"].map((k) => (secs[k] && secs[k].text) || "").join("\n"));
+          if (d.postingUrl) job.url = d.postingUrl;
+        } catch (e) { logErr("smartrecruiters-detail", e); }
+      }
+      out.push(job);
     }
     return out;
   },
+  // JOBSEARCH-NL-PUBLIC-SECTOR-1 (JS-11, issue #1000643): the work the owner knows best (policy, transport and planning, public-sector research) is posted on
+  // Dutch government, university and EU research sites that publish no RSS or API. Terms were read first (robots.txt fetched 2026-11-05, recorded in PUBLIC_SECTOR below).
+  async publicsector(arg) {
+    const s = PUBLIC_SECTOR[arg];
+    if (!s) return [];
+    return s.sitemap ? publicSectorSitemap(arg, s) : publicSectorListing(arg, s);
+  },
 };
+
+// A title that could be in the owner's lane: no hard-noise word, and a role family or a generic management title. Used to spend detail requests only where they can pay off.
+function titleCandidate(title) {
+  const t = String(title || "").toLowerCase();
+  if (ABSOLUTE_EXCLUDE.some((x) => t.includes(x) && !ENGINEERING_WORDS.includes(x))) return false;
+  return has(t, TITLE_MEDIUM).length > 0 || Object.values(FAMILIES).some((kws) => has(t, kws).length > 0);
+}
+const familyTitle = (title) => { const t = String(title || "").toLowerCase(); return Object.values(FAMILIES).some((kws) => has(t, kws).length > 0); };
+// The answer to lever (1) of the issue, per site: what robots.txt and the terms allow, and how this reader behaves.
+//  werkenvoornederland.nl  robots: allow all except /login, Request-rate 10/1, publishes sitemap-vacatures.xml (about 1,300 open vacancies of Dutch ministries and agencies) ->
+//                          read the sitemap (1 request), then at most 30 posting pages an hour, one a second, each through its schema.org JobPosting JSON-LD.
+//  academictransfer.com    robots: User-agent * allow, Crawl-delay 10; AI training crawlers (GPTBot, ClaudeBot, Google-Extended, CCBot) are disallowed, and this is not one: it is one
+//                          person's job lookup that never trains a model -> the sitemap only (1 request an hour), titles from the URL, no posting pages (they would take 10 s each).
+//  euraxess.ec.europa.eu   robots: no URLs with a query string and no api paths, so only the plain listing page /jobs/search, one request an hour.
+//  jobs.ac.uk              robots allow reading, but the postings are UK on-site; not read.
+//  LinkedIn and Indeed are never read (LinkedIn User Agreement 8.2).
+const PUBLIC_SECTOR = {
+  werkenvoornederland: { sitemap: "https://www.werkenvoornederland.nl/sitemap-vacatures.xml", base: "https://www.werkenvoornederland.nl", company: "Rijksoverheid (Werken voor Nederland)", detail: 30, delayMs: 1000, titleFrom: "wvn" },
+  academictransfer: { sitemap: "https://www.academictransfer.com/sitemap-vacancies.xml", base: "https://www.academictransfer.com", company: "Academic Transfer (Dutch universities)", detail: 0, delayMs: 10000, titleFrom: "at", max: 150 },
+  euraxess: { url: "https://euraxess.ec.europa.eu/jobs/search", base: "https://euraxess.ec.europa.eu", company: "EURAXESS (EU research careers)", location: "EU" },
+};
+function sitemapUrls(xml) {
+  const out = [];
+  for (const m of String(xml || "").matchAll(/<url>([\s\S]*?)<\/url>/gi)) {
+    const loc = (/<loc>\s*([^<\s]+)\s*<\/loc>/i.exec(m[1]) || [])[1];
+    if (loc) out.push({ loc: decodeEntities(loc), lastmod: (/<lastmod>\s*([^<\s]+)\s*<\/lastmod>/i.exec(m[1]) || [])[1] || "" });
+  }
+  return out;
+}
+// the vacancy title as the URL slug writes it: ".../vacatures/projectleider-effectief-toezicht-NVWA-2026-4529" -> "projectleider effectief toezicht"
+function slugTitle(loc, from) {
+  let last = String(loc || "").replace(/[?#].*$/, "").replace(/\/+$/, "").split("/").pop() || "";
+  try { last = decodeURIComponent(last); } catch (e) { logErr("publicsector-slug", e); }
+  if (from === "wvn") last = last.replace(/-[A-Za-z0-9]{2,12}-\d{4}-\d+$/, "");
+  return last.replace(/-+/g, " ").replace(/\s+/g, " ").trim();
+}
+async function publicSectorSitemap(arg, s) {
+  const urls = sitemapUrls(await getText(s.sitemap));
+  if (!urls.length) throw new Error("the sitemap listed no vacancies");
+  const cands = [];
+  for (const u of urls) {
+    if (!u.loc.startsWith(s.base)) continue;
+    const title = slugTitle(u.loc, s.titleFrom);
+    if (!title || !titleCandidate(title)) continue;
+    cands.push({ ...u, title, fam: familyTitle(title) });
+  }
+  cands.sort((a, b) => (b.fam - a.fam) || String(b.lastmod).localeCompare(String(a.lastmod)));
+  const picked = cands.slice(0, s.detail || s.max || 100);
+  const out = [];
+  let failed = 0;
+  for (const c of picked) {
+    const job = { id: `ps:${arg}:${(await sha256hex(c.loc)).slice(0, 16)}`, source: "publicsector", company: s.company, title: c.title, location: "Netherlands", url: c.loc, desc: "" };
+    if (s.detail) {
+      await new Promise((r) => setTimeout(r, s.delayMs));
+      try {
+        const ld = jsonLdPosting(await getHtml(c.loc));
+        if (ld) {
+          if (ld.title) job.title = ld.title;
+          if (ld.company && ld.company.trim()) job.company = ld.company.trim();
+          if (ld.location) job.location = ld.location;
+          job.desc = ld.desc || "";
+        } else failed++;
+      } catch (e) { failed++; logErr("publicsector-posting", e); }
+    }
+    out.push(job);
+  }
+  if (s.detail && picked.length >= 5 && failed === picked.length) throw new Error(`no posting page of ${picked.length} could be read`);
+  return out;
+}
+// A plain listing page: each posting is an <a> whose href carries the job path; anchors with a job-like href and a title-like text are kept.
+async function publicSectorListing(arg, s) {
+  const html = await getHtml(s.url);
+  const out = [], seen = new Set();
+  const re = /<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    let href = decodeEntities(m[1]);
+    const text = stripHtml(m[2]);
+    if (!/\/(vacature|vacatures|job|jobs|vacancy|vacancies|position)\b/i.test(href)) continue;
+    if (!/^https?:/.test(href)) href = s.base + (href.startsWith("/") ? href : "/" + href);
+    if (!href.startsWith(s.base)) continue;
+    if (text.length < 5 || text.length > 200) continue;
+    const key = (s.company + "|" + text).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id: `ps:${arg}:${(await sha256hex(href)).slice(0, 16)}`, source: "publicsector", company: s.company, title: text, location: s.location || "Netherlands", url: href, desc: "" });
+  }
+  return out;
+}
+async function getText(url) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 25000);
+  try {
+    const r = await fetch(url, { headers: { "user-agent": "qnfo-jobsearch/1.0 (+https://qnfo.org; contact via https://qnfo.org)", "accept": "application/xml,text/xml;q=0.9,text/html;q=0.8" }, signal: ac.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.text();
+  } finally { clearTimeout(t); }
+}
 
 // ------------------------------------------------------------------ matching (port of match.py)
 // ------------------------------------------------------------------ search profile (JOBSEARCH-PROFILE-1)
@@ -549,15 +645,20 @@ const SURVEY = [
 const SURVEY_IDS = new Set(SURVEY.map((q) => q[0]));
 // role families: title terms (a hit means the title is in your lane) and the survey question that switches the family on or off
 const FAMILIES = {
-  fam_policy: ["policy analyst", "policy advisor", "policy adviser", "policy officer", "policy manager", "policy lead", "head of policy", "director of policy", "public policy", "policy researcher", "senior policy", "policy and research", "science policy", "policy specialist", "policy director"],
-  fam_transport: ["transport", "mobility", "urban planner", "urban planning", "regional planning", "spatial planning", "transport planner", "city planner", "land use", "transport model", "smart city", "traffic", "infrastructure planning", "urban development"],
-  fam_data: ["data scientist", "head of data", "director of data", "analytics manager", "analytics lead", "director of analytics", "head of analytics", "head of insights", "data science manager", "chief data", "data strategy", "insights manager", "data analytics manager", "lead data", "principal data", "data product", "data lead"],
+  fam_policy: ["policy analyst", "policy advisor", "policy adviser", "policy officer", "policy manager", "policy lead", "head of policy", "director of policy", "public policy", "policy researcher", "senior policy", "policy and research", "science policy", "policy specialist", "policy director",
+    "beleidsadviseur", "beleidsmedewerker", "beleidsonderzoeker", "beleidsmanager", "beleidsstrateeg", "beleidscoordinator", "adviseur beleid", "hoofd beleid", "strategisch adviseur"],   // JOBSEARCH-NL-PUBLIC-SECTOR-1: the Dutch titles of the same work
+  fam_transport: ["transport", "mobility", "urban planner", "urban planning", "regional planning", "spatial planning", "transport planner", "city planner", "land use", "transport model", "smart city", "traffic", "infrastructure planning", "urban development",
+    "verkeerskundige", "verkeersmodelleur", "vervoerplanner", "mobiliteitsadviseur", "mobiliteitsmanager", "adviseur mobiliteit", "verkeer en vervoer", "stedenbouwkundige", "ruimtelijk planner", "ruimtelijke ordening", "gebiedsontwikkeling"],
+  fam_data: ["data scientist", "head of data", "director of data", "analytics manager", "analytics lead", "director of analytics", "head of analytics", "head of insights", "data science manager", "chief data", "data strategy", "insights manager", "data analytics manager", "lead data", "principal data", "data product", "data lead",
+    "datascientist", "data-analist", "data analist", "data-adviseur", "data adviseur", "datamanager", "hoofd data"],
   fam_product: ["product manager", "product owner", "head of product", "group product", "product lead", "director of product", "principal product", "product management"],
-  fam_program: ["program manager", "programme manager", "project manager", "portfolio manager", "pmo", "delivery manager", "head of programs", "head of programmes", "director of programs", "programme director", "program director", "program lead", "programme lead"],
-  fam_research: ["research manager", "research director", "research program", "research programme", "head of research", "director of research", "research operations", "research lead", "grants manager", "research coordinator", "research partnerships", "research strategy", "senior researcher", "principal researcher", "research advisor", "research adviser", "research fellow", "evaluation manager", "monitoring and evaluation"],
+  fam_program: ["program manager", "programme manager", "project manager", "portfolio manager", "pmo", "delivery manager", "head of programs", "head of programmes", "director of programs", "programme director", "program director", "program lead", "programme lead",
+    "programmamanager", "programmaleider", "programmadirecteur", "portfoliomanager", "projectmanager", "projectleider"],
+  fam_research: ["research manager", "research director", "research program", "research programme", "head of research", "director of research", "research operations", "research lead", "grants manager", "research coordinator", "research partnerships", "research strategy", "senior researcher", "principal researcher", "research advisor", "research adviser", "research fellow", "evaluation manager", "monitoring and evaluation",
+    "onderzoeker", "onderzoeksleider", "onderzoeksmanager", "onderzoeksadviseur", "hoofd onderzoek", "wetenschappelijk onderzoeker"],
   fam_consult: ["consultant", "engagement manager", "advisory", "associate partner", "management consult*", "strategy consult*"],
   fam_nonprofit: ["executive director", "managing director", "country director", "chief of staff", "director of operations", "foundation"],
-  fam_gis: ["gis", "geospatial", "geographic information", "spatial data", "spatial analyst"],
+  fam_gis: ["gis", "geospatial", "geographic information", "spatial data", "spatial analyst", "geo-informatie", "geo informatie"],
   fam_contract: ["contracting officer", "contract manager", "contracts manager", "procurement manager", "vendor manager", "sourcing manager"],
   fam_social: ["housing", "social policy", "community development", "ageing", "aging", "livability", "affordable"],
   fam_climate: ["sustainability", "climate", "energy transition", "esg", "net zero", "decarbon"],
@@ -569,12 +670,12 @@ const FAMILIES = {
 };
 const CLUSTER_KW = {
   research_mgmt: ["research program", "research portfolio", "research operations", "research management", "program management", "research strategy", "head of research", "research lead", "grant", "wetenschappelijk", "onderzoek"],
-  federal: ["federal government", "federal agenc*", "government agenc*", "public sector", "public administration", "government", "ministry", "municipal", "european commission"],
-  transport_modeling: ["transportation", "travel demand", "mobility", "transit", "forecasting", "traffic", "infrastructure"],
-  urban_planning: ["urban planning", "regional planning", "land use", "spatial planning", "urban development", "city planning", "smart city"],
-  gis: ["gis", "geospatial", "arcgis", "qgis", "spatial analysis", "geographic information"],
-  policy_research: ["public policy", "policy research", "survey", "social science", "evidence-based", "policy analysis", "stakeholder"],
-  social_policy: ["housing", "affordab*", "ageing", "aging", "older adults", "livability", "community development", "social policy"],
+  federal: ["federal government", "federal agenc*", "government agenc*", "public sector", "public administration", "government", "ministry", "municipal", "european commission", "rijksoverheid", "ministerie", "gemeente", "provincie", "waterschap", "overheid"],
+  transport_modeling: ["transportation", "travel demand", "mobility", "transit", "forecasting", "traffic", "infrastructure", "mobiliteit", "verkeersmodel", "vervoersmodel", "verkeer en vervoer"],
+  urban_planning: ["urban planning", "regional planning", "land use", "spatial planning", "urban development", "city planning", "smart city", "ruimtelijke ordening", "ruimtelijke planning", "stedelijke ontwikkeling", "gebiedsontwikkeling"],
+  gis: ["gis", "geospatial", "arcgis", "qgis", "spatial analysis", "geographic information", "geo-informatie", "geografische informatie"],
+  policy_research: ["public policy", "policy research", "survey", "social science", "evidence-based", "policy analysis", "stakeholder", "beleidsonderzoek", "beleidsevaluatie", "beleidsanalyse", "beleidsadvies"],
+  social_policy: ["housing", "affordab*", "ageing", "aging", "older adults", "livability", "community development", "social policy", "volkshuisvesting", "woningmarkt", "ouderenbeleid", "leefbaarheid"],
   survey_methods: ["statistical", "econometric", "survey methodology", "statistics", "modelling", "modeling", "quantitative"],
   ai_systems: ["llm", "large language model", "ai agent", "agentic", "generative ai", "applied ai", "machine learning", "ai evaluation", "evals", "rag "],
   research_integrity: ["research integrity", "reproducib*", "peer review", "scientific integrity", "open science", "provenance", "responsible ai", "ai governance", "ai safety", "audit", "trustworthy"],
@@ -600,11 +701,13 @@ const MANAGE_RE = /\b(head of|director|manager|lead|chief|vp|vice president)\b/i
 // hard noise: never your lane, whatever else the title says
 const ABSOLUTE_EXCLUDE = ["intern", "junior", "entry", "graduate", "new grad", "apprentice", "trainee", "engineer", "architect", "counsel", "attorney", "lawyer", "paralegal", "legal", "marketing", "forward deployed", "deployment strategist",
   "sales", "account executive", "account manager", "business development", "recruit", "talent", "payroll", "accountant", "accounting", "treasury", "fp&a", "tax ", "facilities", "warehouse", "driver", "nurse", "technician",
-  "customer success", "customer support", "customer service", "support specialist", "financial", "webinar", "solutions", "devops", "site reliability", "designer", "finance", "people partner", "hr ", "receptionist", "assistant"];
+  "customer success", "customer support", "customer service", "support specialist", "financial", "webinar", "solutions", "devops", "site reliability", "designer", "finance", "people partner", "hr ", "receptionist", "assistant",
+  "stagiair", "stageplaats", "afstudeer", "assistent", "administratief", "secretaresse", "verpleegkundige", "chauffeur", "jurist", "juridisch", "advocaat", "controller", "salaris", "monteur", "schoonmaak", "beveiliger", "handhaver", "toezichthouder", "rechercheur", "boa ", "verpleegkundig", "stage "];   // the Dutch forms of the same noise (JOBSEARCH-NL-PUBLIC-SECTOR-1)
 const TITLE_EXCLUDE_SOFT = ["scientist"];
 const ENGINEERING_WORDS = ["engineer", "architect"];   // excluded unless the title is a research-engineering title and the posting shows evidence of the owner record
 const LOC_BAD_REMOTE = ["us only", "united states only", "us-only", "usa only", "canada only", "uk only", "india only", "latam", "apac only"];
-const HOME = ["amsterdam", "netherlands", "nederland", "rotterdam", "utrecht", "eindhoven", "the hague", "den haag", "delft", "leiden", "groningen", "haarlem", "almere", "amersfoort"];
+const HOME = ["amsterdam", "netherlands", "nederland", "rotterdam", "utrecht", "eindhoven", "the hague", "den haag", "delft", "leiden", "groningen", "haarlem", "almere", "amersfoort",
+  "maastricht", "zwolle", "arnhem", "nijmegen", "tilburg", "apeldoorn", "enschede", "zoetermeer", "dordrecht", "leeuwarden", "alkmaar", "deventer", "hilversum", "amstelveen", "lelystad", "heerlen", "roermond", "hoofddorp", "nieuwegein", "zaandam", "zaanstad", "schiedam", "wageningen", "veenendaal", "hengelo", "almelo", "middelburg", "vlissingen", "rijswijk", "zeist", "bilthoven", "venlo", "helmond", "hertogenbosch", "den bosch", "noord-holland", "zuid-holland", "flevoland", "gelderland", "overijssel", "drenthe", "friesland"];   // JOBSEARCH-NL-PUBLIC-SECTOR-1: Dutch government postings name any municipality; names under six letters stay out because the test is a substring (ede is in sweden)
 const REGION_WIDE = ["europe", "emea", "european", "eu ", "eu-", "worldwide", "anywhere", "global"];
 const EUROPE_OTHER = ["germany", "berlin", "munich", "france", "paris", "london", "uk", "united kingdom", "ireland", "dublin", "spain", "madrid", "barcelona", "portugal", "lisbon", "italy", "belgium", "brussels", "denmark", "copenhagen", "sweden", "stockholm", "norway", "oslo", "finland", "helsinki", "austria", "vienna", "switzerland", "zurich", "poland", "warsaw", "czech", "prague", "luxembourg", "estonia", "latvia", "lithuania", "hungary", "romania", "greece", "croatia", "slovenia", "slovakia", "bulgaria", "malta", "cyprus"];
 const US_RE = /\b(us|usa|united states|san francisco|new york|seattle|washington|boston|austin|chicago|los angeles|palo alto|mountain view|menlo park|sf|nyc|dc)\b|, (ca|ny|wa|ma|tx|il|dc)\b/;
@@ -846,7 +949,7 @@ const byRecency = (a, b) => endYr(b) - endYr(a) || (parseInt(b.start, 10) || 0) 
 const rolePeriod = (r) => (r.start === r.end ? r.start : `${r.start} to ${r.end}`);
 const roleHead = (r) => `**${r.title}**, ${r.org}${r.location ? ", " + r.location : ""} | ${rolePeriod(r)}`;
 const roleLite = (r) => `${r.title}, ${r.org} (${rolePeriod(r)})`;
-const pubLine = (p) => `${p.title} (${p.year})` + (p.doi ? `, https://doi.org/${p.doi}` : "");
+const pubLine = (p) => `${p.title} (${p.year})` + (p.doi ? `, https://doi.org/${p.doi}` : p.url ? `, ${p.url}` : "");
 let BANK = BANK_SEED, BANK_REV = 0, OWNED = null, FACTS = {}, P = LEDGER.person, STATIC = new Set(), LEDGER_LOW = "", LEDGER_SKILLS = "";
 const HEADS = Object.fromEntries(LEDGER.headlines.map((h) => [h.id, h]));
 function applyBank(b, rev) {
@@ -1046,38 +1149,89 @@ async function collectAndRank(ctx, onlyGroups) {
 // (drafts are still assembled from the ledger afterwards and re-verified). A failed, malformed or empty answer
 // leaves the deterministic order untouched. The call goes through the qnfo-ai service binding with caller
 // qnfo-jobsearch, and is skipped when it would cost more than the cheapest Workers AI model (BUDGET-SOFT-ROUTE-1).
+// Working path (the first version asked a service binding named AI for an infer route that qnfo-ai does not have, and this worker never declared that binding,
+// so it returned the deterministic order on every run). The model is called through the QNFO_AI service binding (props caller qnfo-jobsearch,
+// CLAUDE.md 1703: no key copy) on the router's chat route, pinned to one cheap Workers AI model (BUDGET-SOFT-ROUTE-1: the router downgrades at a cap, never refuses).
+// Deterministic guards, none of which trusts the model: (1) the answer must order every one of the numbered postings exactly once, otherwise the
+// order stands; (2) a reason is shown only when reasonOk accepts it: one plain sentence, no first or second person, no markup or link, and every number
+// and proper noun in it already appears in the posting or in the deterministic signals (a model cannot add a claim about the owner or the employer);
+// (3) only match.why gets an "LLM: " line: score, tier, flags, the posting and the drafts are never touched, and the resume and note are built afterwards
+// from the ledger and re-verified, so no model word can reach them. The outcome of each run is written to jobsearch_meta rerank_status.
+const RERANK_TOP = 25;
+const RERANK_MODEL = "@cf/zai-org/glm-5.3-flash";   // the cheapest model the floor policy allows; the router sets reasoning_effort low for an answer of at most 2048 tokens (REASONING-BUDGET-1)
+const RERANK_SYSTEM = "You order job postings for one job seeker. You may ONLY reorder the numbered postings and write one short plain sentence per posting saying why it ranks where it does, using only words and numbers that appear in the posting fields or signals you are given. Never write or suggest resume, cover letter or note text, never say anything about the job seeker's experience, years, degrees, employers or skills, and never add a fact. Answer with JSON only: {\"order\":[posting numbers, best first, each number exactly once],\"reasons\":{\"<number>\":\"one sentence\"}}.";
+function rerankMessages(top) {
+  const items = top.map((j, i) => ({ n: i + 1, title: j.title, company: j.company, location: j.location || "", score: j.match.score, signals: (j.match.why || []).filter((w) => !/^LLM: /.test(w)).slice(0, 5) }));
+  return [{ role: "system", content: RERANK_SYSTEM }, { role: "user", content: JSON.stringify(items) }];
+}
+// {order: [0-based indexes], reasons: {index: text}} or null when the answer is not a full permutation of 1..n
+function parseRerank(text, n) {
+  const s = String(text || ""), a = s.indexOf("{"), b = s.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  let o; try { o = JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+  if (!o || !Array.isArray(o.order) || o.order.length !== n) return null;
+  const seen = new Set(), order = [];
+  for (const v of o.order) {
+    const k = Number(v);
+    if (!Number.isInteger(k) || k < 1 || k > n || seen.has(k)) return null;
+    seen.add(k); order.push(k - 1);
+  }
+  const reasons = {};
+  if (o.reasons && typeof o.reasons === "object") for (const [k, v] of Object.entries(o.reasons)) { const i = Number(k) - 1; if (Number.isInteger(i) && i >= 0 && i < n && typeof v === "string") reasons[i] = v; }
+  return { order, reasons };
+}
+// a reason the model wrote is displayed only when it makes no claim the posting does not make
+function reasonOk(reason, job) {
+  const r = String(reason == null ? "" : reason).replace(/\s+/g, " ").trim();
+  if (r.length < 8 || r.length > 240) return null;
+  if (/[<>`{}\[\]\\]|https?:|www\./i.test(r)) return null;
+  if (/\b(i|i'm|i've|me|my|we|our|you|your|you're|candidate|applicant|owner)\b/i.test(r)) return null;
+  const corpus = [job.title, job.company, job.location, String(job.desc || "").slice(0, 4000), ...((job.match && job.match.why) || [])].join(" ").toLowerCase();
+  for (const m of r.matchAll(/\d[\d.,%+]*/g)) if (!corpus.includes(m[0].replace(/[.,]+$/, "").toLowerCase())) return null;
+  const words = r.split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i].replace(/^[("']+|[)"'.,;:!?]+$/g, "");
+    const acronym = /^[A-Z]{2,}$/.test(w), proper = i > 0 && /^[A-Z][a-z]{2,}$/.test(w) && !/[.!?:]$/.test(words[i - 1]);
+    if ((acronym || proper) && !corpus.includes(w.toLowerCase())) return null;
+  }
+  return r;
+}
+async function rerankAsk(env, messages) {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 45000);
+  try {
+    const r = await env.QNFO_AI.fetch("https://qnfo-ai.internal/v1/chat/completions", {
+      method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
+      body: JSON.stringify({ model: RERANK_MODEL, messages, max_tokens: 2000, temperature: 0, stream: false }),
+    });
+    if (!r.ok) throw Object.assign(new Error("http " + r.status), { code: "http-" + r.status });
+    const j = await r.json();
+    return (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
+  } finally { clearTimeout(t); }
+}
+// returns {kept, status}; status is one of no-binding, empty, ok, reordered, bad-answer, http-NNN, error
+async function llmRerankRun(env, kept) {
+  if (!env.QNFO_AI || typeof env.QNFO_AI.fetch !== "function") return { kept, status: "no-binding" };
+  if (kept.length < 2) return { kept, status: "empty" };
+  const top = kept.slice(0, RERANK_TOP), rest = kept.slice(RERANK_TOP);
+  let text;
+  try { text = await rerankAsk(env, rerankMessages(top)); }
+  catch (e) { logErr("llm-rerank", e); return { kept, status: (e && e.code) || "error" }; }
+  const p = parseRerank(text, top.length);
+  if (!p) return { kept, status: "bad-answer" };
+  const next = p.order.map((i) => top[i]);
+  next.forEach((j, k) => { j.match.why = (j.match.why || []).concat(["LLM: rank " + (k + 1) + " of " + next.length]); });   // the owner sees what the AI changed
+  for (const [i, reason] of Object.entries(p.reasons)) {
+    const ok = reasonOk(reason, top[i]);
+    if (ok) top[i].match.why = (top[i].match.why || []).concat(["LLM: " + ok]);
+  }
+  return { kept: next.concat(rest), status: p.order.every((v, i) => v === i) ? "ok" : "reordered" };
+}
 async function llmRerank(env, kept) {
   try {
-    if (!env.AI || !kept.length) return kept;          // no binding: keep deterministic order
-    const top = kept.slice(0, 25), rest = kept.slice(25);
-    const items = top.map((j, i) => ({ index: i, id: j.id, title: j.title, company: j.company, location: j.location || "", score: j.match.score, reasons: (j.match.why || []).slice(0, 5) }));
-    const r = await env.AI.fetch("https://qnfo-ai/infer", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        caller: "qnfo-jobsearch",
-        task: "rerank",
-        model: "cheapest",                              // BUDGET-SOFT-ROUTE-1: never costlier than the cheapest Workers AI model
-        budget_guard: "skip this call if it would cost more than the cheapest Workers AI model",
-        prompt: "Order the following job postings by fit to the candidate's claim ledger. You may ONLY reorder these postings and give one short sentence of reason per posting. Do not write, rewrite or suggest any resume, cover letter or note text. Answer as JSON: {\"order\":[ids in best-first order],\"reasons\":{\"<id>\":\"one sentence\"}}.",
-        items,
-      }),
-    });
-    if (!r.ok) return kept;                             // binding error: keep deterministic order
-    const out = await r.json();
-    if (!out || out.skipped_for_budget || !Array.isArray(out.order) || !out.order.length) return kept;
-    const by = new Map(top.map((j) => [String(j.id), j]));
-    const seen = new Set(), next = [];
-    for (const id of out.order) {
-      const j = by.get(String(id));
-      if (j && !seen.has(j.id)) { seen.add(j.id); next.push(j); }
-    }
-    if (next.length !== top.length) return kept;        // incomplete/unknown ids: do not trust the reorder
-    for (const j of next) {                             // annotate only; reasons land in why_json prefixed LLM:
-      const rsn = out.reasons && out.reasons[j.id];
-      if (typeof rsn === "string" && rsn.trim()) j.match.why = (j.match.why || []).concat(["LLM: " + rsn.trim().replace(/\s+/g, " ").slice(0, 300)]);
-    }
-    return next.concat(rest);
-  } catch (e) { logErr("llm-rerank", e); return kept; } // any failure: deterministic order stands
+    const r = await llmRerankRun(env, kept);
+    try { await setMeta(env, "rerank_status", r.status); await setMeta(env, "rerank_at", new Date().toISOString()); } catch (e) { logErr("llm-rerank-status", e); }
+    return r.kept;
+  } catch (e) { logErr("llm-rerank", e); return kept; }   // any failure: the deterministic order stands
 }
 function artifactsFor(j) {
   const res = buildResume(j, j.match), note = buildNote(j, j.match);
@@ -1194,6 +1348,7 @@ async function run(env) {
     .bind(started, JSON.stringify(["run did not finish: closed by the next run"]), iso(t0 - 15 * 60 * 1000)).run();
   const rid = (await env.JOBS_DB.prepare("INSERT INTO jobsearch_runs (started_at) VALUES (?)").bind(started).run()).meta.last_row_id;
   try {
+    await ensureResearchPubs(env).catch((e) => logErr("research-pubs", e));   // before loadCtx so the context sees the merged bank
     const ctx = await loadCtx(env);
     const prefsHash = await sha256hex(JSON.stringify([ctx.a, [...ctx.learned.boost].sort(), [...ctx.learned.block].sort(), [...OWNED].sort(), [...ctx.learned.coPen].sort(), [...ctx.learned.coDrop].sort()]));
     const prefsChanged = (await getMeta(env, "prefs_hash")) !== prefsHash;
@@ -1307,14 +1462,33 @@ async function loadBank(env) {
   bankAt = Date.now();
   return BANK;
 }
+// JOBSEARCH-RESEARCH-PORTFOLIO-1 (issue 1000707): the owner's QNFO papers that public search surfaces first and the bank lacked. Read from living-paper on 2026-11-05 (status published,
+// release gate passed, the pages answer 200 on papers.qnfo.org). None has a DOI (0 of 723 published papers has one), so each carries its papers.qnfo.org address, which pubLine prints.
+// They are added once to the owner's bank, additive and tagged so a resume lists them when the posting is in their field; after that the bank is the owner's: a deleted entry stays deleted.
+// The fleet's edit does not count as a re-verification (verified_on is kept). The stronger claims in the issue (co-directing a travel survey, predictive analytics at Epsilon) stay out until the owner states them.
+const RESEARCH_PUBS = [
+  { id: "P09", title: "Quantum Laws of Form", year: 2026, doi: "", url: "https://papers.qnfo.org/papers/quantum-laws-of-form", tags: ["quantum", "physics_theory", "research_integrity"] },
+  { id: "P10", title: "Dimensionless Physics", year: 2025, doi: "", url: "https://papers.qnfo.org/papers/dimensionless-physics", tags: ["physics_theory", "numerics"] },
+  { id: "P11", title: "Proof-of-Concept for Auditable Attention using Ultrametric Tree Distances", year: 2026, doi: "", url: "https://papers.qnfo.org/papers/proof-of-concept-for-auditable-attention-using-ultrametric-tree-distances", tags: ["llm", "research_integrity", "physics_theory"] },
+];
+async function ensureResearchPubs(env) {
+  if ((await getMeta(env, "research_pubs_v1")) === "done") return false;
+  await mutateBank(env, (b) => {
+    b.publications = b.publications || [];
+    for (const p of RESEARCH_PUBS) if (!b.publications.some((x) => x.id === p.id || String(x.title).toLowerCase() === p.title.toLowerCase())) b.publications.push({ ...p, tags: [...p.tags] });
+    return b;
+  }, { keepVerified: true });
+  await setMeta(env, "research_pubs_v1", "done");
+  return true;
+}
 // Optimistic lock: the write only lands if the revision it read is still current, otherwise it re-reads and re-applies (two tabs cannot overwrite each other).
-async function mutateBank(env, fn) {
+async function mutateBank(env, fn, opts = {}) {
   await ensure(env);
   for (let attempt = 0; attempt < 4; attempt++) {
     const row = await env.JOBS_DB.prepare("SELECT v, rev FROM jobsearch_bank WHERE k='bank'").first();
     const cur = row ? JSON.parse(row.v) : JSON.parse(JSON.stringify(BANK_SEED)), rev = row ? row.rev : 0;
     const next = fn(cur) || cur;
-    next.verified_on = new Date().toISOString().slice(0, 10);
+    if (!opts.keepVerified) next.verified_on = new Date().toISOString().slice(0, 10);   // a change the fleet makes is not a re-verification by the owner
     const v = JSON.stringify(next), now = iso(Date.now());
     const res = row
       ? await env.JOBS_DB.prepare("UPDATE jobsearch_bank SET v=?1, rev=rev+1, updated_at=?2 WHERE k='bank' AND rev=?3").bind(v, now, rev).run()
@@ -1526,6 +1700,7 @@ async function opsReport(env) {
   const counts = (await db.prepare("SELECT status, COUNT(*) AS n FROM jobsearch_matches GROUP BY status").all()).results;
   const blockedN = (await db.prepare("SELECT COUNT(*) AS n FROM jobsearch_matches WHERE verified=0 AND status='pending_owner_approval'").first()).n;
   const stalePending = (await db.prepare("SELECT COUNT(*) AS n FROM jobsearch_matches WHERE status='pending_owner_approval' AND last_seen < ?").bind(iso(now - 72 * 3600000)).first()).n;
+  const rerank = Object.fromEntries(((await db.prepare("SELECT k, v FROM jobsearch_meta WHERE k IN ('rerank_status','rerank_at')").all()).results || []).map((r) => [r.k, r.v]));   // JOBSEARCH-LLM-RERANK-1: what the last run's AI re-rank did
   const ageMin = last ? Math.round((now - Date.parse(last.finished_at)) / 60000) : null;
   const ledgerAge = Math.floor((now - Date.parse(LEDGER_VERIFIED_ON)) / 86400000);
   const checks = [
@@ -1538,7 +1713,7 @@ async function opsReport(env) {
     { fm: "jobsearch-intake-collapse", ok: !(recent.length >= 3 && recent.every((r) => Number(r.fetched) < 1000 || Number(r.passed) === 0)), detail: recent.map((r) => `${r.fetched}/${r.passed}`).join(" ") + " (fetched/passed, last 3 runs)" },
     { fm: "jobsearch-auth-unavailable", ok: !!env.EMAIL || !!env.LOOP_TOKEN, detail: `email sign-in ${env.EMAIL ? "bound" : "missing"}, loop token ${env.LOOP_TOKEN ? "set" : "not set"}` },
   ];
-  return { worker: WORKER, version: VERSION, status: checks.every((c) => c.ok) ? "ok" : "degraded", checked_at: iso(now), last_run: last ? { id: last.id, finished_at: last.finished_at, fetched: last.fetched, passed: last.passed, stored: last.stored, blocked: last.blocked } : null, feeds, matches_by_status: Object.fromEntries(counts.map((c) => [c.status, c.n])), checks };
+  return { worker: WORKER, version: VERSION, status: checks.every((c) => c.ok) ? "ok" : "degraded", checked_at: iso(now), last_run: last ? { id: last.id, finished_at: last.finished_at, fetched: last.fetched, passed: last.passed, stored: last.stored, blocked: last.blocked } : null, rerank: { status: rerank.rerank_status || "never", at: rerank.rerank_at || null, binding: !!env.QNFO_AI }, feeds, matches_by_status: Object.fromEntries(counts.map((c) => [c.status, c.n])), checks };
 }
 const INDEX = {
   worker: WORKER, version: VERSION,
@@ -1685,7 +1860,7 @@ const handler = {
     return J({ error: "not found", see: "/api" }, 404);
   },
 };
-handler.__test = { evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK };
+handler.__test = { evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK, llmRerank, llmRerankRun, ensureResearchPubs, RESEARCH_PUBS, pubLine, parseRerank, reasonOk, rerankMessages, artifactsFor, titleCandidate, sitemapUrls, slugTitle, PUBLIC_SECTOR, opsReport };
 export default handler;
 
 // ------------------------------------------------------------------ web UI (light theme, plain JS, talks only to the API above)

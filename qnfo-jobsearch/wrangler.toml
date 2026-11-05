@@ -43,3 +43,11 @@ database_id = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
 binding = "EMAIL"
 service = "qnfo-email"
 props = { caller = "qnfo-jobsearch" }
+
+# JOBSEARCH-LLM-RERANK-1 (JS-6): the reorder-only re-rank asks the qnfo-ai router through this binding (props caller, no key copy).
+# Without it llmRerank answered "no-binding" on every run, which is what production did before this block.
+[[services]]
+binding = "QNFO_AI"
+service = "qnfo-ai"
+environment = "production"
+props = { caller = "qnfo-jobsearch" }

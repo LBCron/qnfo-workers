@@ -8,6 +8,13 @@
       "contains": [
         "\"worker\":\"qnfo-jobsearch\""
       ]
+    },
+    {
+      "url": "https://qnfo-jobsearch.q08.workers.dev/api/ops",
+      "contains": [
+        "\"rerank\":{\"status\"",
+        "\"checks\":["
+      ]
     }
   ]
 }

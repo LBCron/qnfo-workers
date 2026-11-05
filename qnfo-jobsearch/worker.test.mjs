@@ -84,19 +84,25 @@ const env = { JOBS_DB: { prepare: (s) => stmt(s), batch: async (a) => { for (con
 
 // ---- stub feeds: one good posting, one engineer; every other feed returns nothing
 const realFetch = globalThis.fetch;
+// the WVN posting here sits in Tokyo so the location gate drops it and this baseline keeps exactly one stored match (rerank-sources.test.mjs reads a passing Dutch posting)
+// JOBSEARCH-NL-PUBLIC-SECTOR-1: werkenvoornederland and academictransfer are read through their sitemaps (WVN also through each posting's JSON-LD), euraxess through its listing page
+const WVN_URL = "https://www.werkenvoornederland.nl/vacatures/senior-beleidsadviseur-mobiliteit-RWS-2026-1234";
+const publicStub = (u) => {
+  const xml = (body) => new Response(body, { status: 200, headers: { "content-type": "application/xml" } });
+  if (u.includes("werkenvoornederland.nl/sitemap-vacatures.xml")) return xml(`<urlset><url><loc>${WVN_URL}</loc><lastmod>2026-11-03T10:00:00Z</lastmod></url><url><loc>https://www.werkenvoornederland.nl/vacatures/stage-juridisch-inkoop-RWS-2026-1</loc></url></urlset>`);
+  if (u === WVN_URL) return new Response('<html><script type="application/ld+json">' + JSON.stringify({ "@context": "https://schema.org/", "@type": "JobPosting", title: "Senior beleidsadviseur mobiliteit", description: "Beleidsonderzoek en mobiliteit voor het ministerie.", hiringOrganization: { "@type": "Organization", name: " Rijkswaterstaat " }, jobLocation: { "@type": "Place", address: { "@type": "PostalAddress", addressLocality: "Tokyo", addressCountry: "JP" } } }) + "</script></html>", { status: 200, headers: { "content-type": "text/html" } });
+  if (u.includes("academictransfer.com/sitemap-vacancies.xml")) return xml('<urlset><url><loc>https://www.academictransfer.com/en/jobs/361300/researcher-in-urban-studies/</loc></url><url><loc>https://www.academictransfer.com/en/jobs/361301/phd-lensless-3d-optical-imaging/</loc></url></urlset>');
+  if (u.includes("euraxess.ec.europa.eu/jobs/search")) return new Response('<a href="/jobs/intern-policy-research">Intern, Policy Research</a>', { status: 200, headers: { "content-type": "text/html" } });
+  return null;
+};
 globalThis.fetch = async (u) => {
   const j = (o) => new Response(JSON.stringify(o), { status: 200 });
+  const pub = publicStub(u);
+  if (pub) return pub;
   if (u.includes("api.ashbyhq.com/posting-api/job-board/openai")) return j({ jobs: [
     { id: "a1", title: "Research Program Manager, Frontier Assurance", location: "Amsterdam", isRemote: false, jobUrl: "https://jobs/a1", descriptionPlain: JOB.desc },
     { id: "a2", title: "Staff Software Engineer", location: "Amsterdam", jobUrl: "https://jobs/a2", descriptionPlain: "code" }] });
   if (u.includes("boards-api.greenhouse.io/v1/boards/anthropic")) return j({ jobs: [] });
-  const publicListings = {
-    "werkenvoornederland.nl/vacatures": '<a href="/vacatures/intern-policy-research">Intern, Policy Research</a>',
-    "academictransfer.com/en/jobs/": '<a href="/en/jobs/intern-policy-research">Intern, Policy Research</a>',
-    "euraxess.ec.europa.eu/jobs/search": '<a href="/jobs/intern-policy-research">Intern, Policy Research</a>',
-  };
-  const publicListing = Object.entries(publicListings).find(([path]) => u.includes(path));
-  if (publicListing) return new Response(publicListing[1], { status: 200, headers: { "content-type": "text/html" } });
   return j(u.includes("lever") ? [] : { jobs: [], data: [] });
 };
 const call = async (path, init, e = env) => { const r = await w.fetch(new Request("https://x" + path, init), e, ctxStub); return [r.status, await r.json().catch(() => null), r]; };
@@ -110,7 +116,7 @@ await settle();
 const runs = (await call("/api/runs"))[1].runs;
 ok(runs.length === 1 && runs[0].stored === 1 && runs[0].blocked === 0, "run stored 1 verified match", runs[0]);
 const publicFeeds = db.prepare("SELECT feed, last_count, last_error FROM jobsearch_feeds WHERE feed LIKE 'publicsector:%' ORDER BY feed").all();
-ok(publicFeeds.length === 3 && publicFeeds.every((f) => f.last_count === 1 && !f.last_error), "public-sector listing pages yield one posting each", publicFeeds);
+ok(publicFeeds.length === 3 && publicFeeds.every((f) => f.last_count === 1 && !f.last_error), "each public-sector source yields one posting (sitemap candidates, listing anchors) with no error", publicFeeds);
 const list = (await call("/api/matches"))[1];
 ok(list.count === 1 && list.matches[0].title.startsWith("Research Program Manager") && list.matches[0].status === "pending_owner_approval", "list", list);
 const id = list.matches[0].id;
@@ -204,6 +210,8 @@ ok((await call("/api/run", { method: "POST" }))[0] === 429, "run cooldown");
   db.prepare("INSERT INTO jobsearch_matches (id, first_seen, last_seen, company, title, location, url, tier, score, why_json, flags_json, verified, status) VALUES ('gh:anthropic:gone', ?1, ?1, 'A', 'Old role', 'x', 'u', 'B', 50, '[]', '[]', 1, 'pending_owner_approval')").run(new Date(Date.now() - 5 * 86400000).toISOString());
   db.prepare("INSERT INTO jobsearch_matches (id, first_seen, last_seen, company, title, location, url, tier, score, why_json, flags_json, verified, status) VALUES ('lv:palantir:keep', ?1, ?1, 'P', 'Old role 2', 'x', 'u', 'B', 50, '[]', '[]', 1, 'pending_owner_approval')").run(new Date(Date.now() - 5 * 86400000).toISOString());
   globalThis.fetch = async (u) => {
+    const pub = publicStub(u);
+    if (pub) return pub;
     if (u.includes("lever.co")) throw new Error("boom");               // palantir feed down: its match must survive
     if (u.includes("boards-api.greenhouse.io/v1/boards/anthropic")) return new Response(JSON.stringify({ jobs: [] }), { status: 200 });
     return new Response(JSON.stringify({ jobs: [], data: [] }), { status: 200 });
