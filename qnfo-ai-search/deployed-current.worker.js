@@ -13,6 +13,9 @@
 //   GET  /paper, /paper/<slug> LIVING-PAPER-1 (2.16.0): a published paper with live equations (tap one for a plain-language
 //                              explanation), explain-selected-text and a question box, all through POST /api/ask with the paper pinned
 //   GET  /api/paper?slug=      that page's paper text (published only; cached an hour per slug; misses rate limited)
+//   GET  /reproduce, /reproduce/<slug>  REPRODUCE-1 (2.17.0): a paper's recorded verification script with the claims and the output recorded on
+//                              the server; a button runs it in the reader's browser (Pyodide in a Web Worker, loader pinned with an integrity hash)
+//   GET  /api/reproduce?slug=&run=  that record: run ledger row, script and report read from the public research repository at the recorded commit
 //
 // ASK-LOOP-1 (hourly cron :41; daily work in the 03:41 tick). Nothing here depends on a Claude session.
 //   MEASURE   every answer writes one ask_events row (latency, sources, citation validity, tokens, cost, error, config
@@ -32,7 +35,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.16.0-codeagent";
+var VERSION = "2.17.0-codeagent";
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
@@ -317,11 +320,16 @@ var worker_default = {
       var pm = path.match(/^\/paper\/([a-z0-9][a-z0-9-]{2,180})\/?$/);
       if (pm && method === "GET") return navPage(PAPER_PAGE.replace('href="https://ask.qwav.tech/paper"', 'href="https://ask.qwav.tech/paper/' + pm[1] + '"'));
       if (path === "/api/paper" && method === "GET") return paperRoute(request, env, ctx);
+      // REPRODUCE-1 (2.17.0): the recorded verification script of a paper, runnable in the reader's browser.
+      if ((path === "/reproduce" || path === "/reproduce/") && method === "GET") return navPage(REPRODUCE_PAGE);
+      var rm = path.match(/^\/reproduce\/([a-z0-9][a-z0-9-]{2,180})\/?$/);
+      if (rm && method === "GET") return navPage(REPRODUCE_PAGE.replace('href="https://ask.qwav.tech/reproduce"', 'href="https://ask.qwav.tech/reproduce/' + rm[1] + '"'));
+      if (path === "/api/reproduce" && method === "GET") return reproRoute(request, env, ctx);
       if (path === "/api/loop") return loopReport(env);
       // ASK-CRAWLER-GATE-1 (2.5.0): a renderer that honours robots.txt loads the page but does not post the question.
-      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /api/ask\nDisallow: /api/feedback\nDisallow: /api/consistency\nDisallow: /api/paper\nSitemap: https://ask.qwav.tech/sitemap.xml\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
+      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /api/ask\nDisallow: /api/feedback\nDisallow: /api/consistency\nDisallow: /api/paper\nDisallow: /api/reproduce\nSitemap: https://ask.qwav.tech/sitemap.xml\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
       if (path === "/sitemap.xml" && method === "GET") {
-        return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ask.qwav.tech/</loc></url><url><loc>https://ask.qwav.tech/concepts</loc></url><url><loc>https://ask.qwav.tech/consistency</loc></url><url><loc>https://ask.qwav.tech/paper</loc></url></urlset>\n', { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
+        return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ask.qwav.tech/</loc></url><url><loc>https://ask.qwav.tech/concepts</loc></url><url><loc>https://ask.qwav.tech/consistency</loc></url><url><loc>https://ask.qwav.tech/paper</loc></url><url><loc>https://ask.qwav.tech/reproduce</loc></url></urlset>\n', { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
       }
       return json({ error: "Not found", path: path }, 404);
     } catch (e) {
@@ -448,7 +456,7 @@ function health(env) {
     status: "ok",
     worker: WORKER,
     version: VERSION,
-    capabilities: ["ai-search-query", "ai-search-ingest", "instance-list", "ask-page", "grounded-answer-stream", "knowledge-graph-subgraph", "answer-feedback", "ask-loop-measure", "ask-loop-eval", "ask-loop-tune", "ask-loop-fix-dispatch", "ask-named-paper", "ask-crawler-gate", "living-paper"],
+    capabilities: ["ai-search-query", "ai-search-ingest", "instance-list", "ask-page", "grounded-answer-stream", "knowledge-graph-subgraph", "answer-feedback", "ask-loop-measure", "ask-loop-eval", "ask-loop-tune", "ask-loop-fix-dispatch", "ask-named-paper", "ask-crawler-gate", "living-paper", "paper-reproduce"],
     limitations: [
       "POST /ingest needs X-Sync-Token; every other route is a public read or a capped public write (OPEN-ACCESS-1)",
       "answers are written only from qnfo-corpus excerpts by one cheap Workers AI model chosen by ASK-TUNE-1; the model is told to say when the corpus does not cover a question",
@@ -694,7 +702,7 @@ function navHead(title, desc, path, extra) {
 }
 function navTop(current) {
   var a = function (href, label, key) { return '<a href="' + href + '"' + (current === key ? ' aria-current="page"' : "") + ">" + label + "</a>"; };
-  return '<a class="skip" href="#main">Skip to main content</a><header class="top"><a class="brand" href="/">Ask QWAV</a><nav aria-label="Primary">' + a("/", "Ask", "ask") + a("/concepts", "Concepts", "concepts") + a("/consistency", "Consistency", "consistency") + a("/paper", "Read", "paper") + a("https://papers.qnfo.org/papers", "Papers", "papers") + "</nav></header>";
+  return '<a class="skip" href="#main">Skip to main content</a><header class="top"><a class="brand" href="/">Ask QWAV</a><nav aria-label="Primary">' + a("/", "Ask", "ask") + a("/concepts", "Concepts", "concepts") + a("/consistency", "Consistency", "consistency") + a("/paper", "Read", "paper") + a("/reproduce", "Reproduce", "reproduce") + a("https://papers.qnfo.org/papers", "Papers", "papers") + "</nav></header>";
 }
 var CONCEPTS_PAGE = navHead("Concept navigator | Ask QWAV", "Search the QNFO research knowledge graph and follow links between papers, concepts, findings and open questions.", "/concepts") + navTop("concepts") + String.raw`<main id="main" data-page="concept-nav">
 <h1>Concept navigator</h1>
@@ -977,7 +985,7 @@ var PAPER_PAGE = navHead("Living paper | Ask QWAV", "Read a published QNFO paper
 <p class="note" id="howto">Tap or press an equation for a plain-language explanation of the sentence around it. Select a passage and press Explain selected text for the same. The explanations are written from the paper's text and are not part of it.</p>
 <form id="askf" role="search"><label for="aq">Ask this paper a question</label><input id="aq" type="text" autocomplete="off" maxlength="300" placeholder="for example: what is the main result?"><button class="go" type="submit">Ask</button></form>
 <div class="ans" id="ans" hidden aria-live="polite"></div>
-<div class="toolbar"><button type="button" class="sm" id="exsel">Explain selected text</button><span class="meta" id="selmsg" role="status"></span><a id="lorig" href="https://papers.qnfo.org/papers">Open on papers.qnfo.org</a><a id="lcons" href="/consistency">Consistency check</a></div>
+<div class="toolbar"><button type="button" class="sm" id="exsel">Explain selected text</button><span class="meta" id="selmsg" role="status"></span><a id="lorig" href="https://papers.qnfo.org/papers">Open on papers.qnfo.org</a><a id="lrep" href="/reproduce">Reproduce its computations</a><a id="lcons" href="/consistency">Consistency check</a></div>
 <div class="doc" id="body"></div>
 </article>
 <noscript><p class="note">The living paper needs JavaScript. You can still <a href="/">ask a question</a> or <a href="https://papers.qnfo.org/papers">read the papers</a>.</p></noscript>
@@ -1110,7 +1118,7 @@ function load(){
     document.title=d.title+' | Living paper | Ask QWAV';$('pt').textContent=d.title;
     $('pm').textContent=[(d.authors||[]).join(', '),d.version?'Version '+d.version:'',d.published?'Published '+d.published:'',d.license||'',d.doi?'DOI '+d.doi:''].filter(Boolean).join(' '+String.fromCharCode(183)+' ');
     if(d.provenance)$('pv').textContent='Provenance: '+d.provenance;
-    $('lorig').href=d.url;$('lcons').href='/consistency#'+encodeURIComponent(SLUG);
+    $('lorig').href=d.url;$('lrep').href='/reproduce/'+encodeURIComponent(SLUG);$('lcons').href='/consistency#'+encodeURIComponent(SLUG);
     renderDoc(d.body_md);
     if(d.truncated)body.appendChild(el('p',{'class':'note'},'This view shows the first part of a long paper. Read the rest on papers.qnfo.org.'))
   })
@@ -1130,6 +1138,220 @@ if(SLUG)load();
 })();
 </script></body></html>`;
 // ---- LIVING-PAPER-1:END
+// ---- REPRODUCE-1:BEGIN (roadmap_implementation row 36 RM-VISION-REPRODUCE-BUTTON-1, 2026-11-05, pillar research; first vertical slice)
+// GET /reproduce and GET /reproduce/<slug> (the page) and GET /api/reproduce?slug=&run= (the record). The research pipeline writes, for most papers, a
+// verification script (verification.py) and a report (verification.md: the claims it extracted, the script, the output of the server-side run) into the
+// public research repository, and the run ledger (qnfo-audit research_run_ledger) says where. This route reads the ledger and the two files at the
+// commit the ledger names and returns them with the claims and the recorded output; the page shows them next to each other and offers a button that
+// runs the script in the reader's browser with Pyodide (Python compiled to WebAssembly) in a Web Worker, so no server compute is spent. Pyodide is loaded
+// on that click only, from a pinned version on jsdelivr, with its loader checked against an integrity hash before it is run.
+var REPRO_SCRIPT_CHARS = 80000, REPRO_OUTPUT_CHARS = 6000, REPRO_CLAIMS_MAX = 60, REPRO_RUNS_MAX = 5, REPRO_PER_IP_HOUR = 30, REPRO_GLOBAL_HOUR = 300;
+var REPRO_REPO_RE = /^QNFO\/[A-Za-z0-9._-]{1,80}$/, REPRO_PATH_RE = /^[A-Za-z0-9._\/-]{1,200}$/, REPRO_SHA_RE = /^[0-9a-f]{40}$/, REPRO_RUN_RE = /^[A-Za-z0-9_.-]{1,80}$/;
+async function reproRuns(env, slug) {
+  var d = db(env);
+  if (!d) return [];
+  var r = await d.prepare("SELECT run_id, repo, run_path, cycle, paper_version, status, commit_sha, deposited_at FROM research_run_ledger WHERE slug = ?1 AND run_path IS NOT NULL AND status IN ('ok','landed-unverified','verified','deposited') ORDER BY deposited_at DESC LIMIT ?2").bind(slug, REPRO_RUNS_MAX).all();
+  return ((r && r.results) || []).filter(function (x) { return REPRO_REPO_RE.test(String(x.repo || "")) && String(x.repo).indexOf("..") < 0 && REPRO_PATH_RE.test(String(x.run_path || "")) && String(x.run_path).indexOf("..") < 0; });
+}
+async function rawText(url, cap) {
+  var ctrl = new AbortController(), t = setTimeout(function () { ctrl.abort(); }, 8000);
+  try {
+    var r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": WORKER + "/" + VERSION }, cf: { cacheTtl: 3600, cacheEverything: true } });
+    if (!r.ok) return null;
+    return (await r.text()).slice(0, cap + 1);
+  } catch (e) { return logErr("reproduce raw " + String(url).slice(0, 80), e); } finally { clearTimeout(t); }
+}
+function reproParse(md) {
+  md = String(md || "");
+  var claims = [], cm = md.match(/## Extracted claims\s*\n([\s\S]*?)\n## /);
+  if (cm) {
+    try {
+      var j = JSON.parse(cm[1].replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "").trim());
+      if (Array.isArray(j)) claims = j.slice(0, REPRO_CLAIMS_MAX).map(function (c) { return { id: String((c && c.id) || "").slice(0, 40), statement: String((c && c.statement) || "").slice(0, 400), inputs: String((c && c.inputs) || "").slice(0, 300), formula: String((c && c.formula) || "").slice(0, 300) }; }).filter(function (c) { return c.id; });
+    } catch (e) { logErr("reproduce claims", e); }
+  }
+  var out = null, ex = null, at = md.indexOf("## Execution output");
+  if (at >= 0) {
+    var a = md.indexOf("```", at), nl = a >= 0 ? md.indexOf("\n", a) : -1, b = nl >= 0 ? md.indexOf("\n```", nl) : -1;
+    if (b > nl) out = md.slice(nl + 1, b);
+  }
+  if (out !== null) { var em = out.match(/\[exit (\d+)\]\s*$/); ex = em ? Number(em[1]) : null; out = out.trim().slice(0, REPRO_OUTPUT_CHARS); }
+  return { claims: claims, output: out, exit: ex };
+}
+async function reproView(env, slug, wantRun) {
+  slug = String(slug || "").trim().toLowerCase();
+  if (!PAPER_SLUG_RE.test(slug)) return { status: 400, body: { error: "slug required" } };
+  var p = await up(env, "GATEWAY", UP.papers, "/papers/" + encodeURIComponent(slug), null, PAPER_DETAIL_TIMEOUT_MS);
+  if (!p || p.slug !== slug || !p.title || !PAPER_PUBLIC_RE.test(String(p.status || "published"))) return { status: 404, body: { error: "No published paper has this address", slug: slug } };
+  var runs = await reproRuns(env, slug).catch(function (e) { return logErr("reproduce ledger", e) || []; });
+  var body = { slug: slug, title: String(p.title).slice(0, 300), url: "https://papers.qnfo.org/papers/" + slug, version: String(p.version_semver || p.version || "").slice(0, 40) || null,
+    runs: runs.map(function (x) { return { run_id: x.run_id, cycle: x.cycle || null, paper_version: x.paper_version || null, deposited: String(x.deposited_at || "").slice(0, 10) || null }; }), run: null };
+  if (!runs.length) { body.note = "No verification script has been recorded for this paper."; return { status: 200, body: body }; }
+  var order = wantRun ? runs.filter(function (x) { return x.run_id === wantRun; }) : runs;
+  if (!order.length) { body.note = "That run is not on record for this paper."; return { status: 200, body: body }; }
+  for (var i = 0; i < Math.min(order.length, 3) && !body.run; i++) {
+    var x = order[i], refs = REPRO_SHA_RE.test(String(x.commit_sha || "")) ? [x.commit_sha, "main"] : ["main"];
+    for (var k = 0; k < refs.length && !body.run; k++) {
+      var root = "https://raw.githubusercontent.com/" + x.repo + "/" + refs[k] + "/" + x.run_path + "/";
+      var got = await Promise.all([rawText(root + "verification.py", REPRO_SCRIPT_CHARS), rawText(root + "verification.md", 400000)]);
+      if (!got[0]) continue;
+      var rec = reproParse(got[1]);
+      body.run = { run_id: x.run_id, cycle: x.cycle || null, paper_version: x.paper_version || null, deposited: String(x.deposited_at || "").slice(0, 10) || null, source_url: "https://github.com/" + x.repo + "/tree/" + refs[k] + "/" + x.run_path,
+        script: got[0].slice(0, REPRO_SCRIPT_CHARS), script_truncated: got[0].length > REPRO_SCRIPT_CHARS, claims: rec.claims, recorded: { exit: rec.exit, output: rec.output } };
+    }
+  }
+  if (!body.run) body.note = "A run is on record, but its script could not be read just now. Try again in a few minutes.";
+  return { status: 200, body: body };
+}
+async function reproRoute(request, env, ctx) {
+  var url = new URL(request.url), slug = String(url.searchParams.get("slug") || "").trim().toLowerCase(), run = String(url.searchParams.get("run") || "");
+  if (!PAPER_SLUG_RE.test(slug) || (run && !REPRO_RUN_RE.test(run))) return json({ error: "slug required" }, 400, { "Cache-Control": "no-store" });
+  var key = new Request(url.origin + "/api/reproduce?slug=" + encodeURIComponent(slug) + (run ? "&run=" + encodeURIComponent(run) : ""), { method: "GET" });
+  var hit = await caches.default.match(key);
+  if (hit) return hit;
+  if (!(await viewAdmit(env, request, "rp", REPRO_PER_IP_HOUR, REPRO_GLOBAL_HOUR))) return json({ error: "Too many records opened just now. Try again in a few minutes." }, 429, { "Retry-After": "600", "Cache-Control": "no-store" });
+  var r = await reproView(env, slug, run);
+  var ok = r.status === 200 && r.body.run;
+  var res = json(r.body, r.status, { "Cache-Control": ok ? "public, max-age=3600" : r.status === 200 || r.status === 404 ? "public, max-age=60" : "no-store" });
+  if (r.status === 200 || r.status === 404) ctx.waitUntil(caches.default.put(key, res.clone()));
+  return res;
+}
+var PYODIDE_VERSION = "0.29.5", PYODIDE_BASE = "https://cdn.jsdelivr.net/pyodide/v" + PYODIDE_VERSION + "/full/", PYODIDE_SRI = "sha384-VR47TfKeAmT7vMej7bwOVg0tHTQLLGMSIpsXtFMCZG5OpKZSIXoSLtGY//qHcxc6";
+var REPRO_CSS = String.raw`pre.out{max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-word;border:1px solid var(--rule);border-radius:8px;background:var(--surface);padding:12px;font:13px/1.45 ui-monospace,Consolas,monospace;margin:0 0 14px}
+.rtab{overflow-x:auto;margin:0 0 8px}.rtab table{border-collapse:collapse;font:14px/1.4 var(--sans);min-width:100%}.rtab th,.rtab td{border:1px solid var(--rule);padding:6px 10px;text-align:left;vertical-align:top}
+td.yes{color:var(--teal);font-weight:600}td.no{color:var(--n-question);font-weight:600}details.code summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+`;
+var REPRODUCE_PAGE = navHead("Reproduce | Ask QWAV", "Run the script that checked a published QNFO paper's computations in your own browser, and see its output next to the claims the paper makes.", "/reproduce", KATEX_CSS_TAG + "<style>" + LIVING_CSS + REPRO_CSS + "</style>" + KATEX_JS_TAG) + navTop("reproduce") + String.raw`<main id="main" data-page="reproduce">
+<section id="pick">
+<h1>Reproduce</h1>
+<p class="lede">Pick a published paper and run, in your own browser, the script its computations were checked with. You see the script, what was recorded when the research pipeline ran it, and what your run prints next to the claims the paper makes. A match shows that the arithmetic reproduces the stated number. It does not show that the paper's physics is right.</p>
+<form id="f" role="search"><label for="q">Find a paper</label><input id="q" type="search" autocomplete="off" placeholder="for example: ultrametric state counting"><button class="go" type="submit">Search</button></form>
+<ul class="list" id="results" aria-live="polite"></ul>
+</section>
+<article id="doc" hidden>
+<p class="crumb"><a href="/reproduce">Reproduce</a> / <span id="slugl"></span></p>
+<h1 id="pt">Loading the record</h1>
+<p class="meta" id="pm"></p>
+<p class="meta" id="runs"></p>
+<div id="rb" hidden>
+<h2>What the script checks</h2>
+<div class="rtab" id="ctw"><table id="ct"><thead><tr><th>Claim</th><th>Stated in the paper</th><th>Computed in your browser</th><th>Expected</th><th>Script's verdict</th></tr></thead><tbody id="cb"></tbody></table></div>
+<p class="meta" id="cn"></p>
+<h2>Recorded when the pipeline ran it</h2>
+<p class="meta" id="rs"></p>
+<pre class="out" id="rec"></pre>
+<h2>The script</h2>
+<details class="code"><summary id="csum">Show the script</summary><pre class="out" id="code"></pre></details>
+<h2>Run it in your browser</h2>
+<p class="note" id="warn">The script runs in a background thread of this tab, with no access to the page, but it can use the network like any web page. It comes from the public research repository, so read it first. The first run downloads Python (about 10 MB) from cdn.jsdelivr.net, then the packages the script imports; the script's output stays in your browser.</p>
+<div class="toolbar"><button type="button" class="go" id="run">Run in my browser</button><button type="button" class="sm" id="stop" hidden>Stop</button><span class="meta" id="rstat" role="status"></span></div>
+<pre class="out" id="rout" aria-live="polite" hidden></pre>
+</div>
+<p class="note" id="nonote" hidden></p>
+</article>
+<noscript><p class="note">Running a script needs JavaScript. You can still <a href="https://papers.qnfo.org/papers">read the papers</a>.</p></noscript>
+</main>
+<script>
+(function(){
+` + LIVING_LIB + String.raw`var SLUG=(location.pathname.match(/^\/reproduce\/([a-z0-9][a-z0-9-]{2,180})\/?$/)||[])[1]||'';
+var RUNID=new URLSearchParams(location.search).get('run')||'',CODE='',worker=null,timer=null;
+var PYBASE='` + PYODIDE_BASE + String.raw`',PYSRI='` + PYODIDE_SRI + String.raw`',RUN_MS=180000,OUT_MAX=200000;
+function get(u,cb){fetch(u).then(function(r){return r.json().then(function(j){cb(r.status,j)})}).catch(function(){cb(0,null)})}
+function search(q){
+  var ul=$('results');clear(ul);if(q.length<2)return;
+  ul.appendChild(el('li',{'class':'meta'},'Searching...'));
+  get('/api/concepts?q='+encodeURIComponent(q),function(s,d){
+    clear(ul);var ns=((d&&d.nodes)||[]).filter(function(n){return n.label==='Paper'&&n.slug});
+    if(!ns.length){ul.appendChild(el('li',{'class':'meta'},s===200?'No published paper matches that. Try other words from its title.':'The paper list could not be reached. Try again in a minute.'));return}
+    ns.slice(0,20).forEach(function(n){var li=el('li'),c=el('div',{'class':'card'});c.appendChild(el('a',{href:'/reproduce/'+encodeURIComponent(n.slug)},n.name));li.appendChild(c);ul.appendChild(li)})
+  })
+}
+function parseOut(t){
+  var claims={},summary='';
+  String(t).split('\n').forEach(function(l){
+    l=l.trim();var m=/^CLAIM\s+([A-Za-z0-9_.-]+)\s*:\s*(.*)$/.exec(l);
+    if(m){var kv={},re=/(\w+)=(\S+)/g,x;while((x=re.exec(m[2])))kv[x[1]]=x[2];claims[m[1]]=kv}
+    var s=/^VERIFICATION SUMMARY:\s*(.*)$/.exec(l);if(s)summary=s[1]
+  });
+  return {claims:claims,summary:summary}
+}
+function fillResults(text){
+  var r=parseOut(text);
+  Object.keys(r.claims).forEach(function(id){
+    var row=document.getElementById('c-'+id);if(!row)return;var kv=r.claims[id],cells=row.children;
+    cells[2].textContent=kv.computed||'-';cells[3].textContent=kv.expected||'-';
+    var v=String(kv.match||'').toLowerCase();cells[4].textContent=v||'-';cells[4].className=v==='yes'?'yes':v==='no'?'no':''
+  });
+  return r
+}
+function showRun(d){
+  var r=d.run;$('rb').hidden=false;CODE=r.script;
+  $('pm').textContent='Paper version now: '+(d.version||'unknown')+'. Script recorded for version '+(r.paper_version||'unknown')+(r.deposited?' on '+r.deposited:'')+'.';
+  var rl=$('runs');clear(rl);rl.appendChild(document.createTextNode('Source: '));rl.appendChild(el('a',{href:r.source_url},r.cycle||'the research repository'));
+  if(d.runs&&d.runs.length>1){rl.appendChild(document.createTextNode('. Other recorded runs: '));d.runs.forEach(function(x,i){if(x.run_id===r.run_id)return;rl.appendChild(el('a',{href:'/reproduce/'+SLUG+'?run='+encodeURIComponent(x.run_id)},(x.cycle||'run')+(x.paper_version?' (version '+x.paper_version+')':'')));rl.appendChild(document.createTextNode(' '))})}
+  rl.appendChild(document.createTextNode('. '));rl.appendChild(el('a',{href:'/paper/'+SLUG},'Read it as a living paper'));
+  var cb=$('cb');clear(cb);
+  (r.claims||[]).forEach(function(c){var tr=el('tr',{id:'c-'+c.id}),a=el('td',null,c.id),b=el('td');inline(b,c.statement);tr.appendChild(a);tr.appendChild(b);['-','-','-'].forEach(function(x){tr.appendChild(el('td',null,x))});cb.appendChild(tr)});
+  $('ctw').hidden=!(r.claims&&r.claims.length);$('cn').textContent=r.claims&&r.claims.length?'The claims are the ones the pipeline extracted from the paper before it wrote the script. The last three columns fill in when the script prints a line for the claim.':'The record lists no extracted claims for this run, so the output is shown as the script printed it.';
+  var rec=r.recorded||{};
+  $('rs').textContent=rec.output===null||rec.output===undefined?'The record holds no output for this run.':(rec.exit===0?'The server run finished (exit 0).':'The server run ended with exit '+(rec.exit===null||rec.exit===undefined?'unknown':rec.exit)+'. Its output is below; a run can fail on the server where yours succeeds when the server lacked a package the script imports.');
+  $('rec').textContent=rec.output||'';$('rec').hidden=!rec.output;
+  var n=r.script.split('\n').length;$('csum').textContent='Show the script ('+n+' lines)';$('code').textContent=r.script;
+  if(r.script_truncated){$('run').disabled=true;$('rstat').textContent='The script is too long to run here. Open it in the repository.'}
+}
+function stopRun(msg){
+  if(timer){clearTimeout(timer);timer=null}
+  if(worker){worker.terminate();worker=null}
+  $('run').disabled=false;$('stop').hidden=true;if(msg)$('rstat').textContent=msg
+}
+function startRun(){
+  if(worker||!CODE)return;
+  var rout=$('rout'),text='',t0=Date.now();rout.hidden=false;rout.textContent='';$('run').disabled=true;$('stop').hidden=false;$('rstat').textContent='Fetching the Python runtime...';
+  Array.prototype.forEach.call(document.querySelectorAll('#cb tr'),function(tr){tr.children[2].textContent='-';tr.children[3].textContent='-';tr.children[4].textContent='-';tr.children[4].className=''});
+  fetch(PYBASE+'pyodide.js',{integrity:PYSRI,mode:'cors'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(function(lib){
+    var glue=['var BASE="'+PYBASE+'",py=null;','function out(t){postMessage({k:"out",t:String(t)})}',
+      'onmessage=async function(e){try{',
+      'if(!py){postMessage({k:"status",t:"Starting Python..."});py=await loadPyodide({indexURL:BASE,stdout:out,stderr:function(t){out("[stderr] "+t)}})}',
+      'postMessage({k:"status",t:"Loading the packages the script imports..."});await py.loadPackagesFromImports(e.data.code);',
+      'postMessage({k:"status",t:"Running the script..."});py.FS.writeFile("verification.py",e.data.code);',
+      'var g=py.globals.get("dict")();g.set("__file__","verification.py");g.set("__name__","__main__");',
+      'await py.runPythonAsync(e.data.code,{globals:g});g.destroy();postMessage({k:"done",ok:true})',
+      '}catch(err){postMessage({k:"done",ok:false,err:String(err&&err.message||err)})}};'].join('\n');
+    var url=URL.createObjectURL(new Blob([lib,'\n',glue],{type:'text/javascript'}));
+    worker=new Worker(url);
+    timer=setTimeout(function(){stopRun('Stopped after '+Math.round(RUN_MS/1000)+' seconds.')},RUN_MS);
+    worker.onmessage=function(e){
+      var m=e.data||{};
+      if(m.k==='status')$('rstat').textContent=m.t;
+      else if(m.k==='out'){if(text.length<OUT_MAX){text+=m.t+'\n';rout.textContent=text}}
+      else if(m.k==='done'){
+        var r=fillResults(text),secs=Math.round((Date.now()-t0)/100)/10;
+        if(!m.ok){text+='\n[error] '+String(m.err||'').slice(0,2000)+'\n';rout.textContent=text}
+        stopRun((m.ok?'Finished in '+secs+' s.':'The script stopped with an error after '+secs+' s.')+(r.summary?' The script reports: '+r.summary+'.':''))
+      }
+    };
+    worker.onerror=function(e){stopRun('The Python runtime could not start in this browser.')};
+    worker.postMessage({code:CODE})
+  }).catch(function(e){stopRun('The Python runtime could not be loaded ('+String(e&&e.message||e).slice(0,120)+'). Check the connection and try again.')})
+}
+function fail(msg){$('pt').textContent='No record to show';$('nonote').hidden=false;$('nonote').textContent=msg}
+function load(){
+  $('pick').hidden=true;$('doc').hidden=false;$('slugl').textContent=SLUG;
+  get('/api/reproduce?slug='+encodeURIComponent(SLUG)+(RUNID?'&run='+encodeURIComponent(RUNID):''),function(s,d){
+    if(s===429){fail('Too many records opened just now. Try again in a few minutes.');return}
+    if(s===404){fail('No published paper has this address.');return}
+    if(s!==200||!d){fail('The record could not be loaded. Try again in a minute.');return}
+    document.title=d.title+' | Reproduce | Ask QWAV';$('pt').textContent=d.title;
+    if(!d.run){$('nonote').hidden=false;$('nonote').textContent=d.note||'No verification script has been recorded for this paper.';$('runs').appendChild(el('a',{href:'/paper/'+SLUG},'Read it as a living paper'));return}
+    showRun(d)
+  })
+}
+$('run').addEventListener('click',startRun);$('stop').addEventListener('click',function(){stopRun('Stopped.')});
+$('f').addEventListener('submit',function(ev){ev.preventDefault();search($('q').value.trim())});
+if(SLUG)load();
+})();
+</script></body></html>`;
+// ---- REPRODUCE-1:END
 function keywords(q) {
   var raw = String(q).toLowerCase().match(/[a-z0-9]+(?:-[a-z0-9]+)*/g) || [];
   var uniq = Array.from(new Set(raw.filter(function (w) { return (w.length >= 5 || /-/.test(w)) && !STOP.has(w); })));

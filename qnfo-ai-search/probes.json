@@ -1,5 +1,5 @@
 {
-  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving. CONCEPT-NAV-1 and CONSISTENCY-1 add the two pages and the concept search; LIVING-PAPER-1 adds the reader page and the paper route.",
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving. CONCEPT-NAV-1 and CONSISTENCY-1 add the two pages and the concept search; LIVING-PAPER-1 adds the reader page and the paper route; REPRODUCE-1 adds the reproduce page and the record route.",
   "mode": "revert",
   "health": "https://qnfo-ai-search.q08.workers.dev/health",
   "http": [
@@ -41,6 +41,20 @@
       "contains": [
         "\"slug\":\"twisted-cuprate-twistronics\"",
         "\"body_md\":"
+      ]
+    },
+    {
+      "url": "https://ask.qwav.org/reproduce",
+      "contains": [
+        "data-page=\"reproduce\"",
+        "Reproduce"
+      ]
+    },
+    {
+      "url": "https://ask.qwav.org/api/reproduce?slug=ultrametric-state-counting-a-p-adic-alternative-to-planck-s-black-body-statistic",
+      "contains": [
+        "\"script\":",
+        "\"recorded\":"
       ]
     }
   ]
