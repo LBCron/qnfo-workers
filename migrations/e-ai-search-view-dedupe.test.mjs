@@ -1,0 +1,42 @@
+// AI-SEARCH-COST-3 offline suite. Run: node migrations/e-ai-search-view-dedupe.test.mjs
+// The same AI Search charge must not be summed twice: the invoice source is a fallback while cost_vendor_month holds a meter row for the month.
+import { DatabaseSync } from "node:sqlite"; import { readFileSync } from "node:fs";
+const read = (f) => readFileSync(new URL(f, import.meta.url), "utf8");
+const prior = read("./2026-11-04-vendor-cost-ledger.sql");
+const viewOf = (t, name) => { const i = t.indexOf("CREATE VIEW IF NOT EXISTS " + name + " AS"); const j = t.indexOf(";\n", i); return t.slice(i, j + 1).replace("IF NOT EXISTS ", ""); };
+const db = new DatabaseSync(":memory:");
+db.exec(`CREATE TABLE cost_daily (date TEXT NOT NULL, source TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'fleet', usd REAL NOT NULL DEFAULT 0, requests INTEGER DEFAULT 0, note TEXT, PRIMARY KEY (date, source, scope));
+CREATE TABLE cost_vendor_month (month TEXT, vendor TEXT, product TEXT, metric TEXT, evidence TEXT, net_mtd_usd REAL, net_forecast_usd REAL, rate_daily_3d_usd REAL);
+CREATE TABLE cost_source_registry (source TEXT PRIMARY KEY, label TEXT NOT NULL, scope TEXT NOT NULL, payer TEXT NOT NULL, observable_via TEXT NOT NULL, notes TEXT);
+CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, verify_probe TEXT, action TEXT, status TEXT, attempts INTEGER, last_verdict TEXT, deferred_since TEXT, next_due_at TEXT, precondition TEXT, verify_transport TEXT, max_attempts INTEGER, escalate_to TEXT, expected_cadence_h INTEGER, module TEXT);
+CREATE TABLE roadmap_implementation (id INTEGER PRIMARY KEY, item TEXT, status TEXT, evidence TEXT);`);
+db.exec("INSERT INTO remediation_contracts (class, issue_id, verify_probe, status) VALUES ('issue-1000651', 1000651, 'OLD', 'active'); INSERT INTO roadmap_implementation VALUES (1694, 'RM-AISEARCH-GA-MIGRATE-1', 'planned', 'docs');");
+db.exec(viewOf(prior, "v_cost_lines_month"));
+db.exec(read("./2026-11-05-e-ai-search-cost.sql"));
+let fail = 0; const ok = (c, m) => { if (!c) { fail++; console.log("FAIL " + m); } };
+const iso = (d) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+const month = new Date().toISOString().slice(0, 7);
+const ins = db.prepare("INSERT INTO cost_daily (date, source, usd) VALUES (?, ?, ?)");
+for (let d = 1; d <= 6; d++) { ins.run(iso(d), "workers_ai", 10); ins.run(iso(d), "ai_search:usage", 2); }
+const lines = () => db.prepare("SELECT vendor, product, evidence, mtd_usd, forecast_month_usd, rate_daily_usd FROM v_cost_lines_month WHERE product = 'ai_search'").all();
+const meterRow = () => db.prepare("INSERT INTO cost_vendor_month VALUES (?, 'cloudflare', 'ai_search', 'ingestion_tokens', 'meter', 0, 0.66, 0.15)").run(month);
+meterRow();
+ok(lines().length === 2, "before the fix the invoice line and the meter line are both in the view (the double count): " + JSON.stringify(lines()));
+const sql = read("./2026-11-05-e-ai-search-view-dedupe.sql");
+db.exec(sql);
+const after = lines();
+ok(after.length === 1 && after[0].evidence === "meter" && Math.abs(after[0].forecast_month_usd - 0.66) < 1e-9, "with a meter row only the meter line stays: " + JSON.stringify(after));
+db.exec("DELETE FROM cost_vendor_month");
+const fb = lines();
+ok(fb.length === 1 && fb[0].evidence === "invoice" && Math.abs(fb[0].rate_daily_usd - 2) < 1e-6, "with no meter row the invoice line is the fallback: " + JSON.stringify(fb));
+meterRow();
+const wai = db.prepare("SELECT vendor, evidence, rate_daily_usd FROM v_cost_lines_month WHERE product = 'workers_ai'").get();
+ok(wai && wai.vendor === "cloudflare" && wai.evidence === "meter" && Math.abs(wai.rate_daily_usd - 10) < 1e-6, "the other lines are unchanged: " + JSON.stringify(wai));
+ok(/ai_search:usage/.test(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'v_cost_lines_month'").get().sql), "the view still reads ai_search:usage (the contract probe of issue 1000651 depends on it)");
+const probe = db.prepare(db.prepare("SELECT verify_probe p FROM remediation_contracts WHERE class = 'issue-1000651'").get().p).get();
+ok(probe && typeof probe.observed === "string" && /no fresh readable AI Search snapshot/.test(probe.observed), "the probe of issue 1000651 still runs against the new view and reads no snapshot as not live: " + JSON.stringify(probe));
+db.exec(sql);
+ok(db.prepare("SELECT COUNT(*) n FROM bak_20261105_e_ai_search_dedupe").get().n === 1, "re-running keeps one backup row");
+ok(/instr\(sql, 'ai_search:usage'\)|ai_search:usage/.test(db.prepare("SELECT sql FROM bak_20261105_e_ai_search_dedupe").get().sql) && !/NOT \(source = 'ai_search:usage'/.test(db.prepare("SELECT sql FROM bak_20261105_e_ai_search_dedupe").get().sql), "the backup is the view text before this file");
+ok(/^-- APPLY-BY: ci$/m.test(sql) && /^-- DB: qnfo-audit$/m.test(sql) && /^-- Rollback: /m.test(sql) && /^-- BACKUP: /m.test(sql), "migration header lines");
+console.log(fail ? fail + " failed" : "all passed"); process.exit(fail ? 1 : 0);
