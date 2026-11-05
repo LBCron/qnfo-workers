@@ -105,6 +105,21 @@ const run = async (env) => { calls.length = 0; const pending = []; await w.sched
   assert.equal(env.AUDIT.log.filter((r) => r.outcome === "Evidence-backed reply draft prepared; not posted").length, 1, "a second run does not duplicate the draft");
 }
 
+// 1b. a quiet feed says how close it came: the log line carries the unmatched count and the best vector score (a threshold that is too high can be told from a feed with nothing to answer)
+{
+  const logs = [], realLog = console.log;
+  console.log = (...a) => { logs.push(a.join(" ")); };
+  const env = makeEnv({ ops: { exuvia_engage: "on" } });
+  env.PAPER_VZ.query = async () => ({ matches: [{ id: "v", score: 0.71, metadata: { slug: paper.slug, title: paper.title } }] });
+  await run(env);
+  console.log = realLog;
+  const line = JSON.parse(logs.find((l) => l.includes('"exuvia-cron"')));
+  assert.equal(line.draft.drafts, 0, "no draft below the threshold");
+  assert.equal(line.draft.unmatched, 1, "the post is counted as unmatched");
+  assert.equal(line.draft.best_score, 0.71, "the best score is logged");
+  assert.equal(line.draft.errors, 0);
+}
+
 // 2. both switches off: the cron reads nothing and posts nothing
 {
   const env = makeEnv({ drafts: [draft(1)] });

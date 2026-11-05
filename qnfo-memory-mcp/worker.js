@@ -6,7 +6,7 @@ var PROTOCOL_VERSION = "2024-11-05";
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var NL = String.fromCharCode(10);
 var SERVER_NAME = "qnfo-memory-mcp";
-var VERSION = "2.9.1";
+var VERSION = "2.10.1";
 /* 2.7.2: Batch semantic memory D1 enrichment to one query per search. */ /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -584,7 +584,7 @@ async function exuviaEngageTick(env) {
   const posts = feed.data && feed.data.data && Array.isArray(feed.data.data.posts) ? feed.data.data.posts : [];
   const drafts = [];
   const errors = [];
-  let unmatched = 0;
+  let unmatched = 0, best = 0;   // best: the highest vector score any post reached, so a quiet feed can be told from a threshold that is too high
   for (const post of posts.slice(0, 10)) {
     const postId = sanitize(post && post.id);
     const query = sanitizeLong([post && post.title, post && post.abstract].filter(Boolean).join("\n"));
@@ -602,6 +602,7 @@ async function exuviaEngageTick(env) {
       const searched = await tool_search_papers({ query, limit: 5 }, env);
       matches = JSON.parse(searched.content[0].text).results || [];
     } catch (e) { errors.push({ post_id: postId, error: "paper search failed" }); continue; }
+    for (const m of matches) { const sc = Number(m && m.score); if (Number.isFinite(sc) && sc > best) best = sc; }
     let draft = null;
     for (const match of matches) {
       const score = Number(match.score);
@@ -644,7 +645,7 @@ async function exuviaEngageTick(env) {
       else errors.push({ post_id: postId, error: "draft audit write unavailable" });
     } catch (e) { errors.push({ post_id: postId, error: "draft audit write failed" }); }
   }
-  return { posts_seen: posts.length, drafts, unmatched, errors };
+  return { posts_seen: posts.length, drafts, unmatched, errors, best_score: Math.round(best * 1000) / 1000 };
 }
 // EXUVIA-ENGAGE-1 (2.8.0): the reply step. A comment on Exuvia is public and no agent can delete it, so this runs ONLY when ops_config
 // exuvia_engage_post is 'on' (the row ships absent). It posts stored drafts (decision_log, written by exuviaEngageTick) through
@@ -736,7 +737,7 @@ async function exuviaCron(env) {
     try { out[name] = await fn(env); }
     catch (e) { out[name] = { error: String(e && e.message || e).slice(0, 200) }; console.error(JSON.stringify({ worker: SERVER_NAME, where: "exuvia-cron-" + name, error: out[name].error })); }
   }
-  console.log(JSON.stringify({ worker: SERVER_NAME, where: "exuvia-cron", draft: out.draft && (out.draft.skipped || out.draft.error || { seen: out.draft.posts_seen, drafts: (out.draft.drafts || []).length }), reply: out.reply && (out.reply.skipped || out.reply.error || { posted: (out.reply.posted || []).length, refused: (out.reply.refused || []).length }) }));
+  console.log(JSON.stringify({ worker: SERVER_NAME, where: "exuvia-cron", draft: out.draft && (out.draft.skipped || out.draft.error || { seen: out.draft.posts_seen, drafts: (out.draft.drafts || []).length, unmatched: out.draft.unmatched, errors: (out.draft.errors || []).length, best_score: out.draft.best_score }), reply: out.reply && (out.reply.skipped || out.reply.error || { posted: (out.reply.posted || []).length, refused: (out.reply.refused || []).length }) }));
   return out;
 }
 // ---------------------------------------------------------------------------------------------------------------------------
