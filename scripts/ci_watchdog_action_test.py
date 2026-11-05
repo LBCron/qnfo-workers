@@ -156,4 +156,15 @@ root = HERE.parent / ".github" / "workflows"
 for f, needle in [("cf-ops-actions.yml", "run-name: cf-ops-actions ${{ inputs.action }}"), ("owner-client-keys.yml", "run-name: owner-client-keys ${{ inputs.mode }}"),
                   ("fleet-autodeploy.yml", "format('fleet-autodeploy {0}', inputs.mode)")]:
     ok(needle in (root / f).read_text(), f + " names the action in its run title")
+# CI-WATCHDOG-LEDGER-1: the watchdog made 270 POSTs a day to ops.qnfo.org/v1/desires, a route qnfo-ops does not have (404, answer discarded).
+import urllib.request
+calls = []
+_real = urllib.request.urlopen
+urllib.request.urlopen = lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(AssertionError("network call"))
+os.environ["OPS_ROUTER_AUTH_KEY"] = "test-key-not-real"
+W.DRY = False
+res = W.post_ledger({"x": 1})
+urllib.request.urlopen = _real
+ok(not calls and res.startswith("skipped (no ledger ingress"), "post_ledger makes no network call and says where the summary lives")
+ok("Request(\"https://ops.qnfo.org/v1/desires\"" not in (HERE / "ci_watchdog.py").read_text(), "ci_watchdog.py no longer builds a request for the dead /v1/desires route")
 print("%d passed, %d failed" % (passed, failed)); sys.exit(1 if failed else 0)

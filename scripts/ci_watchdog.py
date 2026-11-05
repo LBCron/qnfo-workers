@@ -849,29 +849,21 @@ def main() -> int:
     return 1 if unactionable else 0
 
 
-def post_ledger(summary: dict) -> str:
-    """Cross-platform: mirror the summary into the QNFO fleet ledger.
+# CI-WATCHDOG-LEDGER-1 (2026-11-05, RM-52 traffic read, pillar cost): the watchdog posted its summary to https://ops.qnfo.org/v1/desires on every run, a
+# route qnfo-ops does not have (HTTP 404; 270 requests a day from Python-urllib, GraphQL httpRequestsAdaptiveGroups, 24 h to 2026-11-05). The call was best
+# effort and its answer was thrown away, so nothing read the ledger it claimed to feed. The 2026-09-27 repoint to POST /v1/jobs (commit 01085000) is not the
+# fix: a job is an ops-exec model run, which would spend on every watchdog run. The summary is already in ci-watchdog-summary.json (uploaded by the
+# workflow) and in the run log; failures are filed as agent_issues by the watchdog itself. Revert: restore the previous body from git history.
+LEDGER_ENDPOINT = None
 
-    Best-effort by design -- a missing key or an unreachable endpoint must not
-    turn the watchdog red, because the watchdog's own exit code is the gate.
-    """
-    key = os.environ.get("OPS_KEY") or os.environ.get("OPS_ROUTER_AUTH_KEY") or ""
-    if not key:
-        return "skipped (OPS_ROUTER_AUTH_KEY not configured)"
+
+def post_ledger(summary: dict) -> str:
+    """No network call: report where the summary lives. Kept as a function so the caller and the printed `ledger:` line do not change."""
+    if LEDGER_ENDPOINT is None:
+        return "skipped (no ledger ingress: summary is in ci-watchdog-summary.json and the run log)"
     if DRY:
         return "DRY_RUN"
-    body = json.dumps({
-        "desire": "ci-watchdog summary: " + json.dumps(summary)[:4000],
-        "source": "github-actions/ci-watchdog",
-    }).encode()
-    req = urllib.request.Request("https://ops.qnfo.org/v1/desires", data=body, method="POST")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("Authorization", "Bearer " + key)
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return f"http-{r.status}"
-    except Exception as e:
-        return f"skipped ({e})"
+    return "skipped (LEDGER_ENDPOINT is set but no sender is wired)"
 
 
 def _wf_file(inventory: list[dict], name: str) -> str:
