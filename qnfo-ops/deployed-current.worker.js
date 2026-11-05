@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.66.1-tool-arg-alias";
+var VERSION = "2.67.0-tool-arg-alias";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -6932,6 +6932,79 @@ async function policyGateShadow(env, name, args) {
   } catch (_) {}
 }
 __name(policyGateShadow, "policyGateShadow");
+// ---- OPS-DEGRADED-1:BEGIN
+// OPS-DEGRADED-1 (qnfo-ops 2.65.0, agent_issues 1001911, roadmap RM-S1-REDUNDANCY-1 second half, charter pillar autonomy): a small in-isolate circuit breaker for the qnfo-audit D1.
+// While qnfo-audit answers "D1 DB is overloaded" (spof_registry: a 345 M rows read fleet_tick fan-out in 24 h on 2026-11-04; qnfo-model-eval POST /run answered 500 with that text at 2026-11-04T23:04Z)
+// every tool that writes qnfo-audit failed partway and late, and callers could not tell it from a bug. Three such errors inside 60 s now put the gateway in degraded mode for 60 s: the tools that write
+// qnfo-audit are refused before they start with {degraded: true, d1: "overloaded", retry_after_s: N} (HTTP 503 and Retry-After on POST /v1/tools/call), and every tool that does not need D1 keeps running
+// (cf_*, r2_*, kv_*, fleet probes, git, workspace and container tools, cf_worker_deploy and the /ops/deploy content PUT). The refusal itself writes nothing to D1 (that would add load to the thing that is
+// overloaded; the best-effort run-event ledger of an agent run and nothing else still writes): it is counted in /health degraded.refused and logged as one console line {evt: "ops-degraded-refusal"}. Only an error that names D1 or SQLite together with "overloaded" or "too many resources" feeds
+// the breaker (the EDC-BATCH-1 pattern also takes "rate limit" and "timed out", which a GitHub or model call produces too and would trip a D1 mode that is not needed). After the window the next call goes through
+// (half open): the error list was cleared, so three new errors are needed to trip again. The state is per isolate; another isolate learns from its own first errors.
+var OPS_D1_TRIP_ERRORS = 3;
+var OPS_D1_WINDOW_MS = 60000;
+var OPS_D1_DEGRADED_MS = 60000;
+// Tools whose effect is a write to qnfo-audit, directly (ops_d1_write on the audit database, idea_submit) or through the worker they start (ops_issue_run starts the backlog run, ops_research_kick and research_queue start research work):
+// starting more D1-heavy work while the database is refusing statements only deepens the overload. email_mark and email_respond go through the email service, cf_worker_deploy through the Cloudflare API, and the tools that only log afterwards
+// stay available. ops_d1_write on another database (living, graph, portfolio and the rest) is not refused: those databases are not the one that is overloaded.
+var OPS_D1_WRITING_TOOLS = ["ops_d1_write", "ops_issue_run", "ops_research_kick", "research_queue", "idea_submit"];
+var __opsD1Breaker = { errs: [], until: 0, since: null, trips: 0, refused: 0, last_error: "" };
+function opsD1IsOverload(text) {
+  var t = String(text == null ? "" : text);
+  if (!t) return false;
+  if (/overloaded|too many resources/i.test(t) && /\bD1\b|SQLITE_|qnfo-audit|\bdatabase\b/i.test(t)) return true;
+  return /\bD1_ERROR\b/.test(t) && /\btimed out\b/i.test(t);
+}
+function opsD1Note(now, text) {
+  var b = __opsD1Breaker;
+  if (!opsD1IsOverload(text)) return false;
+  now = Number(now) || Date.now();
+  b.last_error = String(text).slice(0, 160);
+  if (b.until > now) return false;
+  b.errs = b.errs.filter(function(t) { return now - t < OPS_D1_WINDOW_MS; });
+  b.errs.push(now);
+  if (b.errs.length >= OPS_D1_TRIP_ERRORS && b.until <= now) {
+    b.until = now + OPS_D1_DEGRADED_MS;
+    b.since = new Date(now).toISOString();
+    b.trips++;
+    b.errs = [];
+    console.error(JSON.stringify({ evt: "ops-degraded-trip", until: new Date(b.until).toISOString(), trips: b.trips, last_error: b.last_error }));
+    return true;
+  }
+  return false;
+}
+function opsD1TargetsAudit(name, args) {
+  var n = String(name);
+  if (n !== "ops_d1_write" && n !== "ops_d1_query") return true;
+  var key = String(args && args.db || "audit");
+  var map = typeof DB_MAP !== "undefined" ? DB_MAP : { audit: "QNFO_AUDIT" };
+  return (map[key] || map.audit) === "QNFO_AUDIT";
+}
+// A dry run is not a write: ops_issue_run without confirm only counts the backlog, ops_research_kick/research_queue with express:false only read related papers.
+function opsD1WritesNow(name, args) {
+  var n = String(name);
+  if (OPS_D1_WRITING_TOOLS.indexOf(n) < 0) return false;
+  if (n === "ops_issue_run") return !!(args && args.confirm);
+  if (n === "research_queue") return !(args && args.express === false);
+  return opsD1TargetsAudit(n, args);
+}
+function opsD1Gate(now, name, args) {
+  var b = __opsD1Breaker;
+  now = Number(now) || Date.now();
+  if (b.until <= now || !opsD1WritesNow(name, args)) return null;
+  var retry = Math.max(1, Math.ceil((b.until - now) / 1000));
+  b.refused++;
+  console.error(JSON.stringify({ evt: "ops-degraded-refusal", tool: String(name), retry_after_s: retry, refused: b.refused }));
+  return { retry_after_s: retry, body: { ok: false, degraded: true, d1: "overloaded", retry_after_s: retry, tool: String(name), error: "qnfo-audit is overloaded (OPS-DEGRADED-1): " + String(name) + " writes qnfo-audit and was refused before it started. Do not retry it for " + retry + " s; tools that do not need D1 (cf_*, r2_*, kv_*, fleet probes, git, workspace, container) still work, or end the turn with a report." } };
+}
+function opsD1Health(now) {
+  var b = __opsD1Breaker;
+  now = Number(now) || Date.now();
+  var on = b.until > now;
+  return { state: on ? "degraded" : "ok", d1: on ? "overloaded" : "ok", since: b.since, retry_after_s: on ? Math.max(1, Math.ceil((b.until - now) / 1000)) : 0, trips: b.trips, refused: b.refused, trip_errors: OPS_D1_TRIP_ERRORS, window_s: OPS_D1_WINDOW_MS / 1000, degraded_s: OPS_D1_DEGRADED_MS / 1000 };
+}
+function opsD1Reset() { __opsD1Breaker = { errs: [], until: 0, since: null, trips: 0, refused: 0, last_error: "" }; }
+// ---- OPS-DEGRADED-1:END
 async function execTool(env, name, rawArgs, userText, resultCap) {
   let args = {};
   try {
@@ -6940,6 +7013,9 @@ async function execTool(env, name, rawArgs, userText, resultCap) {
     args = { _parseError: String(e && e.message || e) };
   }
   args = opsUnwrapToolArgs(name, args); // OPS-TOOL-ERRSHAPE-1: {name:<tool>, arguments:{...}} envelope sent as the arguments
+  // OPS-DEGRADED-1: while qnfo-audit is overloaded a tool that writes it is refused before it starts (nothing is written, not even the tool event).
+  const __dg = opsD1Gate(Date.now(), name, args);
+  if (__dg) return { tool_call_id: null, name, ok: false, degraded: true, retry_after_s: __dg.retry_after_s, text: JSON.stringify(__dg.body) };
   const t0 = Date.now();
   let res;
   // POLICY-GATE-1:shadow - observe deterministic irreversible-call rules before dispatch; telemetry must never fail the tool.
@@ -7027,6 +7103,8 @@ async function execTool(env, name, rawArgs, userText, resultCap) {
     res = { ok: false, error: "tool crashed: " + (e && e.message ? e.message : String(e)) };
   }
   const ms = Date.now() - t0;
+  // OPS-DEGRADED-1: a qnfo-audit overload in the result feeds the breaker (another database named by the tool does not).
+  try { if (res && res.ok === false && opsD1TargetsAudit(name, args)) opsD1Note(Date.now(), res.error || res.message); } catch (e) { console.error(JSON.stringify({ worker: "qnfo-ops", where: "ops-degraded-feed", error: String(e && e.message || e) })); }
   const audit = composioAuditPayload(name, args, res);
   await logToolEvent(env, name, audit.args, audit.result, ms);
   /* OPS-TOOL-MAILBOX-LOGIN-LINKS-1: a mailbox read never hands a login link, one-time code or token to the model. */
@@ -9257,7 +9335,7 @@ function manifest() {
     version: VERSION,
     base_url: "https://ops.qnfo.org",
     purpose: "QNFO ops/infrastructure AI execution endpoint: queue-and-query cloud-native services (research_queue -> intent orchestrator -> autonomous backend batch execution), full-fleet health, multi-DB read-only query, Vectorize/R2/KV read, machine-readable service registry.",
-    capabilities: ["ops-ai-gateway", "openai-compatible", "chat", "agent", "code", "tool-execution", "fleet-probes", "full-fleet-probes", "multi-db-query", "vectorize-search", "r2-access", "kv-access", "research-queue", "queue-query", "analytics", "self-registration", "service-registry", "capability-advertising-audit", "telemetry", "self-heal", "isolated-ops-logging", "pure-server-exec", "streamed-answers", "async-jobs", "run-to-completion", "self-chaining-jobs", "workspace-edit", "workspace-grep", "workspace-glob", "workspace-diff", "workspace-patch", "run-code-net", "exec-pipeline", "git-ops", "parallel-reads", "claude-code-parity", "full-stack-shell", "cloudflare-containers", "real-python-interpreter", "real-node-interpreter", "bash-execution", "pip-install", "npm-install", "git-clone", "firecracker-vm", "agents-sdk", "durable-agent-sessions", "websocket-hibernation", "agent-http-rpc", "tool-bridge", "agent-schedule", "session-autocontinue"],
+    capabilities: ["ops-ai-gateway", "ops-degraded-mode", "openai-compatible", "chat", "agent", "code", "tool-execution", "fleet-probes", "full-fleet-probes", "multi-db-query", "vectorize-search", "r2-access", "kv-access", "research-queue", "queue-query", "analytics", "self-registration", "service-registry", "capability-advertising-audit", "telemetry", "self-heal", "isolated-ops-logging", "pure-server-exec", "streamed-answers", "async-jobs", "run-to-completion", "self-chaining-jobs", "workspace-edit", "workspace-grep", "workspace-glob", "workspace-diff", "workspace-patch", "run-code-net", "exec-pipeline", "git-ops", "parallel-reads", "claude-code-parity", "full-stack-shell", "cloudflare-containers", "real-python-interpreter", "real-node-interpreter", "bash-execution", "pip-install", "npm-install", "git-clone", "firecracker-vm", "agents-sdk", "durable-agent-sessions", "websocket-hibernation", "agent-http-rpc", "tool-bridge", "agent-schedule", "session-autocontinue"],
     routes: ROUTES,
     tools: OPS_TOOLS.map(function(t) {
       return { name: t.name, description: t.description, parameters: t.parameters };
@@ -10681,6 +10759,7 @@ function opsSurfaceOf(toolName) {
 async function opsSurfaceSizeLog(env, label, surface, chars, reqChars) {
   try {
     if (!env || !env.QNFO_AUDIT) return false;
+    if (typeof opsD1Health === "function" && opsD1Health(Date.now()).state === "degraded") return false; /* OPS-DEGRADED-1: a size sample is not worth a statement against the overloaded database */
     await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
       .bind(randId("evt-"), iso(), "ops-surface-size", String(label || "").slice(0, 80), JSON.stringify({ surface: surface, chars: Number(chars) || 0, req_chars: Number(reqChars) || 0 }), "qnfo-ops", "ok").run();
     return true;
@@ -10701,13 +10780,13 @@ async function ownerRestRoutes(request, env, path, method) {
   const run = async function(name, args) {
     const r = await execTool(env, name, JSON.stringify(args || {}), "", 20000);
     let parsed = null; try { parsed = JSON.parse(r.text); } catch (e) { parsed = r.text; }
-    return { ok: r.ok, result: parsed };
+    return r.degraded ? { ok: r.ok, result: parsed, degraded: true, retry_after_s: r.retry_after_s } : { ok: r.ok, result: parsed };
   };
   if (path === "/v1/run-state" && method === "GET") return json(await opsRunState(env, new URL(request.url).searchParams.get("run_id"))); // TRACE-FOLD-1
-  if (path === "/v1/ideas" && method === "POST") { let b = {}; try { b = await request.json(); } catch (e) { return json({ error: "invalid JSON body" }, 400); } return json(await ideaSubmit(env, b)); }
+  if (path === "/v1/ideas" && method === "POST") { let b = {}; try { b = await request.json(); } catch (e) { return json({ error: "invalid JSON body" }, 400); } const __ig = opsD1Gate(Date.now(), "idea_submit", b); if (__ig) return new Response(JSON.stringify(Object.assign({ ok: false, result: __ig.body }, __ig.body)), { status: 503, headers: Object.assign({}, CORS_HEADERS, { "Retry-After": String(__ig.retry_after_s) }) }); return json(await ideaSubmit(env, b)); }
   if (path === "/v1/queue" && method === "GET") { const u = new URL(request.url); const a = {}; u.searchParams.forEach(function(v, k) { a[k] = v; }); return json(await queueRead(env, a)); }
   if (path === "/v1/tools" && method === "GET") return json({ object: "list", data: opsRestToolList(true).map(function(t) { return { type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }; }) });
-  if (path === "/v1/tools/call" && method === "POST") { let b = {}; try { b = await request.json(); } catch (e) { return json({ error: "invalid JSON body" }, 400); } if (!b.name) return json({ error: "name required" }, 400); return json(await run(String(b.name), b.arguments || {})); }
+  if (path === "/v1/tools/call" && method === "POST") { let b = {}; try { b = await request.json(); } catch (e) { return json({ error: "invalid JSON body" }, 400); } if (!b.name) return json({ error: "name required" }, 400); const __tr = await run(String(b.name), b.arguments || {}); if (__tr.degraded) return new Response(JSON.stringify(Object.assign({ ok: false, result: __tr.result }, __tr.result)), { status: 503, headers: Object.assign({}, CORS_HEADERS, { "Retry-After": String(__tr.retry_after_s) }) }); return json(__tr); }
   if (path === "/mcp") {
     if (method === "GET") return new Response("MCP endpoint: POST JSON-RPC", { status: 405, headers: Object.assign({ Allow: "POST" }, CORS_HEADERS) });
     if (method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -10781,7 +10860,8 @@ var worker_default = {
     const method = request.method;
     const ua = request.headers.get("User-Agent") || "";
     try {
-      if (env.QNFO_AUDIT && (pathRaw.indexOf("chat") >= 0 || pathRaw.indexOf("model") >= 0 || pathRaw.indexOf("completion") >= 0 || pathRaw.indexOf("response") >= 0 || pathRaw.indexOf("/v1") === 0)) {
+      /* OPS-DEGRADED-1: the request log is a debug trail; it is not written while qnfo-audit is overloaded (two statements per request would add load to the database that is refusing). */
+      if (env.QNFO_AUDIT && opsD1Health(Date.now()).state !== "degraded" && (pathRaw.indexOf("chat") >= 0 || pathRaw.indexOf("model") >= 0 || pathRaw.indexOf("completion") >= 0 || pathRaw.indexOf("response") >= 0 || pathRaw.indexOf("/v1") === 0)) {
         await env.QNFO_AUDIT.prepare("CREATE TABLE IF NOT EXISTS ops_req_log (id TEXT PRIMARY KEY, ts TEXT, method TEXT, path TEXT, auth_prefix TEXT, auth_len INTEGER, ua TEXT, clen TEXT)").run();
         await env.QNFO_AUDIT.prepare("INSERT INTO ops_req_log (id, ts, method, path, auth_prefix, auth_len, ua, clen) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)").bind(randId("req-"), iso(), method, pathRaw, (request.headers.get("Authorization") || "").slice(0, 10), (request.headers.get("Authorization") || "").length, ua.slice(0, 60), request.headers.get("Content-Length") || "").run();
       }
@@ -10898,7 +10978,7 @@ var worker_default = {
       bindings.github_token = !!env.GITHUB_TOKEN;
       bindings.gh_app = __ghAppState;
       bindings.ai = !!env.WAI;
-      return json({ status: "ok", worker: WORKER, version: VERSION, capabilities: manifest().capabilities, limitations: OPS_ENDPOINT_LIMITATIONS, routes: ROUTES, models: opsModelIds(), bindings, gh_app: __ghAppState, generatedAt: iso() });
+      return json({ status: "ok", worker: WORKER, version: VERSION, capabilities: manifest().capabilities, limitations: OPS_ENDPOINT_LIMITATIONS, routes: ROUTES, models: opsModelIds(), bindings, gh_app: __ghAppState, degraded: opsD1Health(), generatedAt: iso() });
     }
     if (path === "/agents/ops-exec" || path.startsWith("/agents/ops-exec")) {
       if (!env.AGENTIC_OPS_EXEC) return json({ error: "AgenticOpsExec DO not bound", code: 503 }, 503);

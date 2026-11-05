@@ -8,6 +8,13 @@
         "\"ok\":true",
         "\"registry\":["
       ]
+    },
+    {
+      "url": "https://qnfo-ops.q08.workers.dev/health",
+      "contains": [
+        "\"ops-degraded-mode\"",
+        "\"degraded\":{\"state\":\""
+      ]
     }
   ],
   "d1": [
