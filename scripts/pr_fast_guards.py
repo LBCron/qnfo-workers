@@ -12,6 +12,7 @@ WHAT   Runs the guards that apply to the files the pull request changes, in para
       non-slow check, so a failure blocks the merge before it happens instead of turning main red after.
 APPLIES  narrative-prompt-guard   a worker.js, a mirror, or the guard itself      worker-load-gate   a worker.js, a mirror, _shared or the gate
          metric-cause             migrations/                                      code-anchor-once   migrations/ or a worker.js (it reads the anchored files)
+         kaizen-gates             a worker.js, a wrangler.toml, the prompt-store scripts, or an enforcer file (scripts/kaizen_gates.py; RM-KAIZEN-GATE-CANDIDATES-1)
          suite-regressions        the suites the change selects (scripts/run-suites.mjs); any change outside docs, ci-status and audits.
                                   The post-merge full-set run of deploy-gate was red in the 6 of 6 failed push runs sampled on 2026-11-04 (9 failing suites each).
 USAGE  python3 scripts/pr_fast_guards.py [--base REF] [--all] [--with-suites] [--jobs N] [--list]
@@ -62,6 +63,11 @@ GUARDS = [
     # blocks an unrelated pull request, and the base tree (which adds nothing) passes it. The rest of deploy-gate stays advisory (MERGE-STREAMLINE-1). GUARD_BASE (set in main) is its base.
     ("workers-standards-guard", lambda f: any_match(f, r"^[^/]+/worker\.js$", r"^[^/]+/wrangler\.(toml|jsonc)$", r"^scripts/[^/]+\.py$", r"^scripts/workers-standards-allowlist\.txt$"),
      ["python3", "scripts/workers_standards_guard.py"], r"violation\(s\) added|^\S+:\d+ \[[a-z0-9-]+\]|failing closed|cannot read the diff"),
+    ("kaizen-gates", lambda f: any_match(f, WORKER.pattern, r"(^|/)wrangler\.toml$", r"^docs/ops-governance/scripts/", r"^qnfo-fleet-dashboard/probes\.json$",
+                                         r"^\.github/workflows/(canonical-deploy|fleet-autodeploy)\.yml$",
+                                         r"^scripts/(kaizen_gates|pr_fast_guards|cost_ledger|fleet-autoaudit|deploy-drift-guard|mirror-guard)\.py$",
+                                         r"^scripts/ux-journeys/apps/fleet\.journeys\.mjs$"),
+     ["python3", "scripts/kaizen_gates.py"], None),
     ("suite-regressions", lambda f: any(not f_.startswith(("docs/", "ci-status/", "audits/")) for f_ in f),
      suites_cmd, r"^FAIL\s+<t>\s+\S+$|expired|malformed"),
 ]
