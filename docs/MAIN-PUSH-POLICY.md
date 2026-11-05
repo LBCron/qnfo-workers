@@ -40,7 +40,7 @@ stop writing to main. `reader` is what a grep of the repository and the workers 
 | canonical-deploy | `ci-status/canonical-deploy.json` | none in code | c | via `push_artifact.sh` |
 | fleet-telemetry-probe | `ci-status/fleet-telemetry.json` | none in code | c | via `push_artifact.sh` |
 | ux-journeys | `ci-status/ux-journeys-{live,local}.json` | none in code | c | via `push_artifact.sh` |
-| attach-jobs-q08-route, attach-me-q08-route, attach-mind-q08-route, attach-surface-routes, attach-travel-host, attach-watch-q08-route | `ci-status/attach-*.json` | none in code | c | via `push_artifact.sh` |
+| attach-surface-routes (the other five attach-* workflows were retired in TP-3b, archive/ATTACH-WORKFLOWS-MANIFEST.md) | `ci-status/attach-*.json` | none in code | c | via `push_artifact.sh` |
 | attach-ask-qwav-route, attach-lifecycle-custom-domain | `ci-status/<name>.json` | none in code | c | `push_head.sh artifact` |
 | dup-worker-name-gate, guard-timebudget, remediation-bridge, remediation-consumer | `ci-status/<name>.json` | none in code (code comments describe the file as public; `status_unchanged.py` diffs against `origin/main`, see risks) | c | `push_head.sh artifact` |
 | container-config-autoverify, container-config-selfheal-cron, deploy-containers-pilot, restore-container-config-1485 | `ci-status/<name>.json` | none in code | c | `push_head.sh artifact` |
