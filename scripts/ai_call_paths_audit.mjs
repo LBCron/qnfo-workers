@@ -28,9 +28,7 @@ export const DIRECT_ALLOW = {
 // shape of scripts/cron-tempo-allowlist.txt): a line past its expiry is a finding whether or not the worker is metered by then, so the list cannot rot.
 // A line whose worker has become metered is only a note (stale), so the single-file change that wraps the worker never fails main for leaving this
 // file alone, and the next change here removes the line.
-export const UNMETERED_BASELINE = {
-  "qnfo-ai-calibration:qnfo-model-eval": { expires: "2026-11-12", why: "benchmark calls (6 sites) of the member folded into qnfo-ai-calibration on 2026-11-05: its env is built from the raw host env, so the host's __aiAttrEnv never reaches it; qnfo-ai-calibration/worker.js was claimed by another session, fix filed as AI-METER-COVER-3a (code-task on qnfo-ai-calibration/worker.js, the member's own env function)" },
-};
+export const UNMETERED_BASELINE = {};
 
 // env.AI.run( and a binding named like WAI (qnfo-ops calls env.WAI.run)
 const BINDING_RUN = /\b\w*AI\.run\(/;
