@@ -1734,11 +1734,6 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-arxiv-radar/README.md"
     },
     {
-      "path": "qnfo-auditor/README.md",
-      "title": "qnfo-auditor",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-auditor/README.md"
-    },
-    {
       "path": "qnfo-calendar-intake/README.md",
       "title": "qnfo-calendar-intake",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-calendar-intake/README.md"
@@ -1824,11 +1819,6 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-errata-watch/README.md"
     },
     {
-      "path": "qnfo-events/README.md",
-      "title": "qnfo-events",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-events/README.md"
-    },
-    {
       "path": "qnfo-evolve/README.md",
       "title": "qnfo-evolve — EVOLVE-1",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-evolve/README.md"
@@ -1847,11 +1837,6 @@
       "path": "qnfo-fleet-dashboard/README.md",
       "title": "qnfo-fleet-dashboard",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-fleet-dashboard/README.md"
-    },
-    {
-      "path": "qnfo-fleet-deploy/README.md",
-      "title": "qnfo-fleet-deploy — fleet self-heal control plane",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-fleet-deploy/README.md"
     },
     {
       "path": "qnfo-gateway/README.md",
@@ -2029,11 +2014,6 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-pdf/README.md"
     },
     {
-      "path": "qnfo-proof/README.md",
-      "title": "qnfo-proof - adversarial proof verification ledger",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-proof/README.md"
-    },
-    {
       "path": "qnfo-research-exec/CLOSEOUT-2026-10-17.md",
       "title": "CLOSEOUT — 2026-10-17 · publication pipeline (qnfo-research-exec)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-research-exec/CLOSEOUT-2026-10-17.md"
@@ -2047,11 +2027,6 @@
       "path": "qnfo-research-radar/README.md",
       "title": "qnfo-research-radar",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-research-radar/README.md"
-    },
-    {
-      "path": "qnfo-scorecard/README.md",
-      "title": "qnfo-scorecard",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-scorecard/README.md"
     },
     {
       "path": "qnfo-social/README.md",
@@ -2072,11 +2047,6 @@
       "path": "qnfo-twin-maintain/README.md",
       "title": "qnfo-twin-maintain",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-twin-maintain/README.md"
-    },
-    {
-      "path": "qnfo-venue-radar/README.md",
-      "title": "qnfo-venue-radar",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-venue-radar/README.md"
     },
     {
       "path": "qnfo-web-unified/README.md",
@@ -2102,16 +2072,6 @@
       "path": "research-code/ultrametric-lean/README.md",
       "title": "ultrametric-lean",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/research-code/ultrametric-lean/README.md"
-    },
-    {
-      "path": "research-daily-brief/README.md",
-      "title": "research-daily-brief",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/research-daily-brief/README.md"
-    },
-    {
-      "path": "retired-deposit-stage/README.md",
-      "title": "Retired journal deposit stage",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/retired-deposit-stage/README.md"
     }
   ]
 }
