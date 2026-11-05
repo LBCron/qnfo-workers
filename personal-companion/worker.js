@@ -3232,7 +3232,7 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.45.3";
+var VERSION = "1.45.4";
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -7458,6 +7458,44 @@ async function companionStallDetector(env, nowMs) {
   await env.AUDIT.prepare("INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at) SELECT ?1, ?2, 'personal-companion', 'reliability', ?5, 'open', ?3, ?3 WHERE NOT EXISTS (SELECT 1 FROM agent_issues WHERE status='open' AND title LIKE ?4)").bind(title, desc, now, STALL_TITLE + ":%", prio).run();
   return { hours: hours, stalled: true, filed: true, priority: prio };
 }
+// BEGIN TURNSTILE-SELFTEST-1
+// TURNSTILE-SELFTEST-1 (agent_issues 1000681-1000683, pillar security): after TURNSTILE_SECRET was set on three workers nothing could show the
+// new value works, because Cloudflare answers a wrong secret and a wrong visitor token with the same 403 to the visitor. siteverify itself tells
+// them apart: a valid secret with a dummy token answers invalid-input-response, a wrong secret answers invalid-input-secret. At most once an hour
+// this posts the bound secret with a dummy token and records the verdict as one cloud_ops_events row (kind turnstile-selftest, job = the worker,
+// id = worker + hour, so a repeat in the same hour is a no-op). The secret is never logged or stored; nothing runs while TURNSTILE_SECRET is unbound.
+var TURNSTILE_SELFTEST_WORKER = "personal-companion";
+var turnstileSelfTestHour = "";
+async function turnstileSelfTest(env) {
+  var db = env && (env.AUDIT || env.QNFO_AUDIT);
+  if (!env || !env.TURNSTILE_SECRET || !db) return { ran: false, reason: "no-secret-or-db" };
+  var now = new Date(), hour = now.toISOString().slice(0, 13);
+  if (turnstileSelfTestHour === hour) return { ran: false, reason: "done-this-hour" };
+  turnstileSelfTestHour = hour;
+  var id = "turnstile-selftest-" + TURNSTILE_SELFTEST_WORKER + "-" + hour;
+  try {
+    var seen = await db.prepare("SELECT 1 AS x FROM cloud_ops_events WHERE id = ?1").bind(id).first();
+    if (seen) return { ran: false, reason: "done-this-hour" };
+    var body = new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: "turnstile-selftest-dummy-token" });
+    var r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: body, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) { turnstileSelfTestHour = ""; return { ran: true, recorded: false, reason: "siteverify-" + r.status }; }
+    var j = await r.json();
+    var codes = ((j && j["error-codes"]) || []).map(String);
+    var wrong = codes.indexOf("invalid-input-secret") >= 0 || codes.indexOf("missing-input-secret") >= 0;
+    var testing = !!(j && j.metadata && j.metadata.result_with_testing_key);
+    var accepted = !wrong && !testing && codes.indexOf("invalid-input-response") >= 0;
+    var verdict = accepted ? "accepted" : wrong ? "rejected" : testing ? "testing-key" : "unknown";
+    var text = "turnstile siteverify self-test (" + TURNSTILE_SELFTEST_WORKER + "): secret " + verdict + (accepted ? " by Cloudflare" : "") + " [" + codes.join(",").slice(0, 80) + "]";
+    await db.prepare("INSERT OR IGNORE INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'turnstile-selftest', ?3, ?4, ?5, ?6)")
+      .bind(id, now.toISOString(), text, JSON.stringify({ worker: TURNSTILE_SELFTEST_WORKER, secret: verdict, codes: codes.slice(0, 4), source: "selftest" }), TURNSTILE_SELFTEST_WORKER, accepted ? "ok" : "error").run();
+    return { ran: true, recorded: true, verdict: verdict };
+  } catch (e) {
+    turnstileSelfTestHour = "";
+    console.error(JSON.stringify({ worker: TURNSTILE_SELFTEST_WORKER, where: "turnstileSelfTest", error: String((e && e.message) || e).slice(0, 160) }));
+    return { ran: true, recorded: false, error: "caught" };
+  }
+}
+// END TURNSTILE-SELFTEST-1
 var worker_default = {
   async fetch(request, env, ctx) {
     if (new URL(request.url).pathname === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n", { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400" } }); // SEO-HYGIENE-1: a private tool / private reading surface, kept out of search engines
@@ -7664,6 +7702,7 @@ var worker_default = {
       ctx.waitUntil(sendDigest(env).catch(function (eLog) { logCaught("scheduled", eLog); }));
       return;
     }
+    ctx.waitUntil(turnstileSelfTest(env)); // TURNSTILE-SELFTEST-1: at most one siteverify self-test an hour, no visitor needed
     ctx.waitUntil((async function() {
       var hbOk = 1;
       // BROADCAST-BATCH-1: continue an unfinished broadcast or digest before anything else on the hourly tick.
