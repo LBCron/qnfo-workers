@@ -294,6 +294,16 @@ def main():
         print(json.dumps({"ok": False, "error": "need CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID"}))
         return 3
 
+    # Stop embedding repo content into Vectorize until a consumer exists.
+    # A reader can set the environment variable QNFO_REPO_CONTENT_READER=1 to enable indexing.
+    if os.getenv("QNFO_REPO_CONTENT_READER") != "1":
+        print(json.dumps({
+            "ok": True,
+            "note": "no reader for Vectorize index qnfo-repos; skipping embedding",
+            "index": idx
+        }))
+        return 0
+
     idx = ensure_index(acct, token)
     if not idx.get("exists"):
         print(json.dumps({"ok": False, "error": "vectorize index", "detail": idx}))
