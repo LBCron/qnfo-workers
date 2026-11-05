@@ -1598,16 +1598,6 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/jnl-referee/README.md"
     },
     {
-      "path": "jnl-reviser/README.md",
-      "title": "jnl-reviser",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/jnl-reviser/README.md"
-    },
-    {
-      "path": "jnl-watch/README.md",
-      "title": "jnl-watch",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/jnl-watch/README.md"
-    },
-    {
       "path": "jobsearch/README.md",
       "title": "jobsearch: verified-claims job matcher (JOBSEARCH-POC-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/jobsearch/README.md"
@@ -1632,11 +1622,6 @@
       "path": "obsidian-writer/README.md",
       "title": "obsidian-writer",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/obsidian-writer/README.md"
-    },
-    {
-      "path": "ops-gateway/README.md",
-      "title": "ops-gateway",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/ops-gateway/README.md"
     },
     {
       "path": "ops-workspace/closeouts/2026-10-17-fleet-capacity-quotas.md",
@@ -1677,21 +1662,6 @@
       "path": "personal-events-radar/README.md",
       "title": "personal-events-radar worker (QNFO.OPS.010 Stage B, 2026-09-02)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/personal-events-radar/README.md"
-    },
-    {
-      "path": "personal-life-indexer/README.md",
-      "title": "personal-life-indexer",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/personal-life-indexer/README.md"
-    },
-    {
-      "path": "personal-life-maintain/README.md",
-      "title": "personal-life-maintain",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/personal-life-maintain/README.md"
-    },
-    {
-      "path": "personal-life-search/README.md",
-      "title": "personal-life-search",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/personal-life-search/README.md"
     },
     {
       "path": "q08-signal-engine/README.md",
@@ -1772,11 +1742,6 @@
       "path": "qnfo-calendar-intake/README.md",
       "title": "qnfo-calendar-intake",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-calendar-intake/README.md"
-    },
-    {
-      "path": "qnfo-chameleon/README.md",
-      "title": "qnfo-chameleon — Autonomous Preference-Adaptive Output System",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-chameleon/README.md"
     },
     {
       "path": "qnfo-citation-watch/README.md",
@@ -2097,11 +2062,6 @@
       "path": "qnfo-subscribers/README.md",
       "title": "qnfo-subscribers",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-subscribers/README.md"
-    },
-    {
-      "path": "qnfo-thread-ingest/README.md",
-      "title": "qnfo-thread-ingest",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-thread-ingest/README.md"
     },
     {
       "path": "qnfo-tools-mcp/README.md",

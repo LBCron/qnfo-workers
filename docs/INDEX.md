@@ -331,13 +331,10 @@ and [the machine-readable catalog](agent-catalog.json).
 - [calendar-api Worker (QNFO.OPS.010)](../calendar-api/README.md) - `calendar-api/README.md`
 - [events-radar worker (QNFO.OPS.009 — supersedes conference-radar QNFO.OPS.008, 2026-09-02)](../events-radar/README.md) - `events-radar/README.md`
 - [jnl-referee](../jnl-referee/README.md) - `jnl-referee/README.md`
-- [jnl-reviser](../jnl-reviser/README.md) - `jnl-reviser/README.md`
-- [jnl-watch](../jnl-watch/README.md) - `jnl-watch/README.md`
 - [jobsearch: verified-claims job matcher (JOBSEARCH-POC-1)](../jobsearch/README.md) - `jobsearch/README.md`
 - [Machine-Readability Expansion (QNFO x Cloudflare self-knowledge)](../machine-readability/README.md) - `machine-readability/README.md`
 - [Self-Documenting Prompt Template (machine-readable, machine-optimized)](../machine-readability/self-documentation.prompt.md) - `machine-readability/self-documentation.prompt.md`
 - [obsidian-writer](../obsidian-writer/README.md) - `obsidian-writer/README.md`
-- [ops-gateway](../ops-gateway/README.md) - `ops-gateway/README.md`
 - [CLOSEOUT — fleet capacity, quotas, triage (session 2026-10-17)](../ops-workspace/closeouts/2026-10-17-fleet-capacity-quotas.md) - `ops-workspace/closeouts/2026-10-17-fleet-capacity-quotas.md`
 - [osf-integrity-check](../osf-integrity-check/README.md) - `osf-integrity-check/README.md`
 - [Companion best practices: what the research says and what changed](../personal-api/COMPANION-BEST-PRACTICES.md) - `personal-api/COMPANION-BEST-PRACTICES.md`
@@ -346,9 +343,6 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Outlook.com mail in the twin (Microsoft Graph, read-only)](../personal-api/msgraph/README.md) - `personal-api/msgraph/README.md`
 - [personal-companion](../personal-companion/README.md) - `personal-companion/README.md`
 - [personal-events-radar worker (QNFO.OPS.010 Stage B, 2026-09-02)](../personal-events-radar/README.md) - `personal-events-radar/README.md`
-- [personal-life-indexer](../personal-life-indexer/README.md) - `personal-life-indexer/README.md`
-- [personal-life-maintain](../personal-life-maintain/README.md) - `personal-life-maintain/README.md`
-- [personal-life-search](../personal-life-search/README.md) - `personal-life-search/README.md`
 - [q08-signal-engine](../q08-signal-engine/README.md) - `q08-signal-engine/README.md`
 - [qnfo-agent-ws](../qnfo-agent-ws/README.md) - `qnfo-agent-ws/README.md`
 - [qnfo-agents](../qnfo-agents/README.md) - `qnfo-agents/README.md`
@@ -365,7 +359,6 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-arxiv-radar](../qnfo-arxiv-radar/README.md) - `qnfo-arxiv-radar/README.md`
 - [qnfo-auditor](../qnfo-auditor/README.md) - `qnfo-auditor/README.md`
 - [qnfo-calendar-intake](../qnfo-calendar-intake/README.md) - `qnfo-calendar-intake/README.md`
-- [qnfo-chameleon — Autonomous Preference-Adaptive Output System](../qnfo-chameleon/README.md) - `qnfo-chameleon/README.md`
 - [qnfo-citation-watch](../qnfo-citation-watch/README.md) - `qnfo-citation-watch/README.md`
 - [qnfo-cloud-ops — scheduled cloud operations (2026-08-28)](../qnfo-cloud-ops/README.md) - `qnfo-cloud-ops/README.md`
 - [qnfo-code-orchestrator v0.3.0](../qnfo-code-orchestrator/README.md) - `qnfo-code-orchestrator/README.md`
@@ -430,7 +423,6 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-scorecard](../qnfo-scorecard/README.md) - `qnfo-scorecard/README.md`
 - [qnfo-social](../qnfo-social/README.md) - `qnfo-social/README.md`
 - [qnfo-subscribers](../qnfo-subscribers/README.md) - `qnfo-subscribers/README.md`
-- [qnfo-thread-ingest](../qnfo-thread-ingest/README.md) - `qnfo-thread-ingest/README.md`
 - [qnfo-tools-mcp](../qnfo-tools-mcp/README.md) - `qnfo-tools-mcp/README.md`
 - [qnfo-twin-maintain](../qnfo-twin-maintain/README.md) - `qnfo-twin-maintain/README.md`
 - [qnfo-venue-radar](../qnfo-venue-radar/README.md) - `qnfo-venue-radar/README.md`

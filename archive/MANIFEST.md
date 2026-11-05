@@ -31,9 +31,26 @@ Companion manifests in this directory: `APPLIER-WORKFLOWS-MANIFEST.md`, `ATTACH-
 | archive/skills-discovery | qnfo-skills-discovery | RETIRED | 2026-10-01 899f5d876 | not deployed, nothing consumes it (FOOTPRINT-MARKERS-1) | no node | none |
 | archive/qnfo-cf-one-dashboard | (no wrangler.toml) | RETIRED | 2026-10-28 8d863971 | worker_count breach (38 against 30) and a 404 health route; marker-only directory | no node | none |
 
+## Batch 2 (moved 2026-11-05, 10 directories)
+
+Eight of the ten have a README.md that `docs/agent-catalog.json` and `docs/INDEX.md` listed (qnfo-analytics and qnfo-impact hold only a marker and a `deployed-current.worker.js`), so both files are regenerated with `node scripts/build-agent-catalog.mjs` in the same pull request (`archive/` is outside the catalog by `isSystemDocument`).
+
+| archive path | worker name declared | marker | last commit (date, short sha) | why it is dead | impact (fleet graph) | dependents found |
+| --- | --- | --- | --- | --- | --- | --- |
+| archive/personal-life-indexer | (no wrangler.toml) | RETIRED | 2026-10-11 3fc959bc9 | absent from the account; only a `deployed-current.worker.js` (and a README) remained (AUTOAUDIT-ACTIONABLE-2) | no node | none (URL strings in `qnfo-ai/QUICKSTART.md` and `qnfo-ai/scripts/verify-runtime.py` point at the dead host and are documentation) |
+| archive/personal-life-maintain | (no wrangler.toml) | RETIRED | 2026-10-11 3fc959bc9 | same as above | no node | none |
+| archive/personal-life-search | (no wrangler.toml) | RETIRED | 2026-10-11 3fc959bc9 | same as above | no node | none (two suites assert the name is absent from code, they do not read the directory) |
+| archive/qnfo-analytics | (no wrangler.toml) | RETIRED | 2026-10-11 3fc959bc9 | same as above | no node | none |
+| archive/qnfo-impact | (no wrangler.toml) | RETIRED | 2026-10-21 e1889bd2c | same as above | no node | none (a `qnfo-impact/0.1` user-agent string in qnfo-infra and qnfo-paper-indexer is not a path) |
+| archive/qnfo-thread-ingest | (no wrangler.toml) | RETIRED | 2026-10-11 3fc959bc9 | same as above | no node | none |
+| archive/jnl-reviser | jnl-reviser | RETIRED | 2026-10-10 ffeaf08e3 | retired before 2026-09-15 (commit "remove stale bindings from 3 retired workers") | no node | none (strings in the still-parked jnl-pipeline) |
+| archive/jnl-watch | jnl-watch | RETIRED | 2026-10-10 ffeaf08e3 | not deployed, nothing consumes it (FOOTPRINT-MARKERS-1) | no node | none (strings in the still-parked jnl-pipeline) |
+| archive/ops-gateway | (no wrangler.toml) | RETIRED | 2026-10-01 899f5d876 | not deployed, nothing consumes it (FOOTPRINT-MARKERS-1) | no node | none |
+| archive/qnfo-chameleon | qnfo-chameleon | RETIRED | 2026-10-01 899f5d876 | a parked M0 plan (preference telemetry for personal-life) that was never deployed | no node | none |
+
 ## Not moved yet, with the dependent that keeps each one (read 2026-11-05)
 
-These stay at the top level until the named dependent changes. The next batches take the directories with no dependent first (candidates read 2026-11-05 with no workflow, script, suite or binding naming the path: personal-life-indexer, personal-life-maintain, personal-life-search, qnfo-analytics, qnfo-impact, qnfo-thread-ingest, jnl-reviser, jnl-watch, ops-gateway, qnfo-chameleon, qnfo-events, qnfo-proof, qnfo-venue-radar, research-daily-brief, retired-deposit-stage; each has a README.md that `docs/agent-catalog.json` and `docs/INDEX.md` list, so those two files are regenerated in the same pull request).
+These stay at the top level until the named dependent changes. The next batch takes the directories with no dependent first (read 2026-11-05 with no workflow, script, suite or binding naming the path: qnfo-events, qnfo-proof, qnfo-venue-radar, research-daily-brief, retired-deposit-stage; each has a README.md, so the catalog is regenerated in that pull request too).
 
 | directories | dependent that keeps them |
 | --- | --- |
