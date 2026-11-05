@@ -13,6 +13,7 @@ WHAT   Runs the guards that apply to the files the pull request changes, in para
 APPLIES  narrative-prompt-guard   a worker.js, a mirror, or the guard itself      worker-load-gate   a worker.js, a mirror, _shared or the gate
          metric-cause             migrations/                                      code-anchor-once   migrations/ or a worker.js (it reads the anchored files)
          kaizen-gates             a worker.js, a wrangler.toml, the prompt-store scripts, or an enforcer file (scripts/kaizen_gates.py; RM-KAIZEN-GATE-CANDIDATES-1)
+         d1-like-limit            any .sql, .js, .mjs or .py file (diff-only: a LIKE or GLOB pattern literal over 50 bytes that the change adds; D1 refuses it)
          dependency-allowlist     a package.json, a lock file, a workflow or scripts/dependency-allowlist.txt (BP26-AGENT-CHANGE-GATES-1)
          suite-regressions        the suites the change selects (scripts/run-suites.mjs); any change outside docs, ci-status and audits.
                                   The post-merge full-set run of deploy-gate was red in the 6 of 6 failed push runs sampled on 2026-11-04 (9 failing suites each).
@@ -59,6 +60,10 @@ GUARDS = [
      ["node", "migrations/metric-family-cluster-b.test.mjs"], None),
     ("code-anchor-once", lambda f: any_match(f, r"^migrations/", WORKER.pattern),
      ["node", "migrations/code-anchor-once.test.mjs"], None),
+    # D1-LIKE-LIMIT-GUARD-1 (PAPER-LEARN-1 learning 5677, agent_issues 1000871): D1 refuses a LIKE or GLOB pattern over 50 bytes, so a probe or query that adds one errors on every run. The same defect was fixed one file
+    # at a time on 2026-10-13 and again in PRs 7277, 7281, 7282 and 7283 on 2026-11-04. Diff-only like workers-standards-guard: it judges only what the change ADDS (about 1 s), so existing patterns never block a change.
+    ("d1-like-limit", lambda f: any_match(f, r"\.(sql|js|mjs|py)$"),
+     ["python3", "scripts/d1_like_limit_guard.py"], r"violation\(s\) added|^\S+:\d+ \[[a-z0-9-]+\]|failing closed|cannot read the diff"),
     # WORKERS-STANDARDS-GUARD-1 on the pull request (DEFAULT-APPROVE-1, agent_issues 1000657, owner card 200; owner directive 2026-10-19: reversible decisions take the recommended
     # option): the diff-only Workers anti-pattern guard (about 15 s) is the ONE deploy-gate step that blocks a pull request. It judges only what the change ADDS, so existing debt never
     # blocks an unrelated pull request, and the base tree (which adds nothing) passes it. The rest of deploy-gate stays advisory (MERGE-STREAMLINE-1). GUARD_BASE (set in main) is its base.
