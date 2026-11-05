@@ -8,6 +8,12 @@
       "contains": [
         "\"worker\":\"qnfo-github-steward\""
       ]
+    },
+    {
+      "url": "https://qnfo-github-steward.q08.workers.dev/report",
+      "contains": [
+        "\"last_run\""
+      ]
     }
   ]
 }

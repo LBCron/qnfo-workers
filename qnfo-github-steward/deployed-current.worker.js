@@ -28,7 +28,7 @@
 // 0.10.10 TRACKER-UNLABELLED-ISSUE-STATE-1 (#1991, pillar autonomy; patch): state sync reads all open issues so removing the mirror label cannot hide a GitHub/D1 state mismatch; relinking still requires the mirror label.
 // 0.10.5 PORTFOLIO-BACKFILL-1 (2026-11-01, pillar autonomy; patch): process portfolio milestone and roadmap issue backfills at the existing 40-item sync rate to keep a 206-row backlog within the 120-minute issue SLA.
 // 0.10.4 CAPABILITY-CONTRACT-REFRESH-1 (#2852, pillar autonomy; patch: re-publish the declared /health lists for a fresh live capability audit).
-var VERSION = "0.16.0-built-verify";
+var VERSION = "0.17.0-built-verify";
 // 0.15.1 FOLD-BACKLOG-LIVE-FIRST-1 (patch): foldOverloadBacklog selects only live rows (state tracked or queued). Before, its 5 per run went to the ~290 dispatch rows whose GitHub issue was already closed (two GitHub calls and a comment each), so the 42 open legacy mirrors waited; measured 2026-11-04 20:00Z, created rows 44 -> 42 in 40 minutes. 0.15.0 COST-LEDGER-ALLVENDOR-1 (pillar cost; minor: a capability it did not have): reads GitHub billing usage (organization Actions and storage, owner Copilot AI units) hourly into cost_vendor_month, evidence invoice. prior 0.14.0-codeagent; 0.13.0 D1-OVERLOAD-FOLD-1 (pillar autonomy; minor: a decision it now takes on its own): a worker-observability dispatch row about "D1 DB is overloaded" is folded into the umbrella issue instead of opening its own GitHub issue (45 of 87 open issues on 2026-11-04). prior 0.12.5-codeagent; 0.10.8 TRACKER-MERGED-METADATA-REPAIR-1 (#100300, pillar autonomy; patch): restore merged_at when a task is already marked merged but its confirmed merged PR timestamp is missing. 0.10.6 TRACKER-STATE-VERIFY-1 (2026-11-01, pillar autonomy; patch): mass mismatches are verified per issue before D1 state is reconciled; list omissions do not trigger state changes.  0.10.3 NARRATIVE-GUARD-WORDING-1 (2026-11-01, pillar autonomy; patch): a comment in psPlace (0.10.1) used a phrase that scripts/narrative-prompt-guard.py bans in every worker source, comments included, so the NARRATIVE-PROMPT-GUARD-1 step of deploy-gate went red on main from #5526 onward; the comment and its tag are reworded (the tag is now PIN-PROGRAM-ROW-1). No behaviour change. 0.10.2 FM-ACTOR-1-INDIVIDUAL-1 (2026-11-01, pillar autonomy; patch): every FM-ACTOR-1 issue is mirrored individually at every priority, excluded from digests, and reopened if GitHub closes it while D1 remains open. 0.10.1 PLACE-ALL-OPEN-1 + PS-SCOPE-SUBQUERY-1 (2026-10-30, pillar autonomy; patch): (a) psPlace places every open agent_issue on a project, mirrored or not (it joined gh_issue_links, so the 149 high and medium issues that ISSUE-ROLLUP-1 stopped mirroring had no issue_project_map row and every program roll-up ignored them); an issue that names an active worker in its title goes to that worker's project before the fleet-control fallback; (b) the roadmap mirror step and GET /roadmap no longer bind roadmap_mirror_scope as a NOT IN list (138 sources against D1's 100 bound variables: "D1_ERROR: too many SQL variables" on every tick since 0.8.0, GET /roadmap answered 500, 82 roadmap rows stayed unmirrored and portfolio_drift read 83); with the table present the filter is a subquery on it. // 0.10.0 ISSUE-ROLLUP-1 (owner directive 2026-10-26 "reduce open issues to <100", pillar autonomy; minor: a decision the worker now takes on its own): an agent_issues row whose priority is not in ops_config gh_individual_priorities (default critical) is no longer its own GitHub issue; its mirror is closed not_planned and D1 stays authoritative and open; one [digest] issue per program lists the rolled rows (gh_digest_links), and one lists the goals while roadmap_mirror_scope has goals at mirrored = 0. Deleting the ops_config key restores one issue per row. // 0.9.1 PS-KEEP-CATALOGUE-PROJECT-1 (2026-10-26, agent_issues 2993, pillar autonomy; patch): psPlace keeps an open issue on an active project that is not a W.<worker> project (a catalogue project such as BP26.EDITORIAL) instead of placing it by owner onto W.<owner>; the 30 BP26 catalogue issues had all been moved to W.qnfo-ops, which left five BP26 projects with no mapped issue and the no-mapped-work detector reporting them. 0.9.0 ROADMAP-TWIN-ROWS-1 (2026-10-26, pillar autonomy; minor: a decision the worker now takes on its own): a roadmap row whose artifact_type is agent_issue is the twin of a TRACKER-SYNC-1 ticket and is never a GitHub issue, whatever source writes it; the source best-practice-2026 had doubled 31 tickets in an hour. 0.8.0 PORTFOLIO-NOT-ISSUES-1 (owner question 2026-10-26 "why are there over 800 GitHub issues?", pillar autonomy; minor: the worker now decides which roadmap sources are Issues): 181 of the 381 open roadmap issues could never close or were a second ticket (77 projects, 75 metric-breach twins of METRIC-TRIGGER issues, 29 failure_modes registry rows). Sources with mirrored = 0 in roadmap_mirror_scope (default projects, metric-breach, failure_modes while the table is absent) are no longer filed, are never placed, and an open GitHub issue for one is closed not_planned with a comment that says it is not a verification and is never reopened; the public /roadmap count skips them. // 0.7.6 FLEET-PR-SHARE-1 (agent_issues 100420): hourly fleet_authored_pr_share_7d from two GitHub search counts; CLOSE-PROVENANCE-1 also finds RED-DRAIN-1 goals. // 0.7.5 CLOSE-PROVENANCE-1: a completed close comment names the merged fleet PR, or states that no code changed. // 0.7.4 HEALTH-CONTRACT-1 (agent_issues 2852, capability_contract_conformance, pillar autonomy; patch, no behaviour change): /health declares capabilities[] and limitations[] (module constants CAPABILITIES and LIMITATIONS), so the fleet snapshot counts this worker as conforming (it was one of the two empty rows holding the metric at 0.9412). // 0.7.3 MODEL-FLOOR-GUARD-RUNS-OBJECT-1 (agent_issues 100258, pillar autonomy; patch: a read that always came back empty): the workflow-runs endpoint answers an object {workflow_runs: [...]}, and paginate() keeps only array bodies, so recordModelFloorGuardRun never created model_floor_guard_runs (the table does not exist in qnfo-audit) and modelFloorGuardVisibility (0.7.2) wrote status "empty", runs 0 on every run although the workflow has 400+ runs on main. DESIRED_REPO is the settings object, not a repository name, so both also built the path QNFO/[object Object] (the recorder returned before its first read, the visibility call would have answered 404); both now name qnfo-workers as mainRulesVisibility does. Both now read body.workflow_runs through workflowRuns(), and a non-200 answer is recorded as status http_<n> instead of reading as no runs. model-floor-guard-visibility.test.mjs. // 0.7.0 PROTECTION-VISIBLE-1 (agent_issues 2927 INTEG-GITHUB-HARDEN-1, pillar security): the branch-protection step ignored every answer except 404 and 200, so a credential that cannot read protection (403 "Resource not accessible by integration") produced repos_protected 0, errors 0 and drift 0 for every run since 2026-10-17 while 55 public repositories stayed unprotected. A GET that answers anything else is now counted (result.protection_unreadable: count, status map, GitHub's own text, an example repository) and written as one limitation; and the run records the rules that apply to QNFO/qnfo-workers main (result.main_rules: status, rule types, whether required_status_checks and pull_request are among them; one public GET), so the DoD of 2927 is a number in github_steward_runs.detail on every tick. // 0.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): the tracker tick moves to the 5-minute grid (:05, :15 ... :55) and the repository reconcile runs hourly on the :15 fire (it ran every 6 hours on its own trigger). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 0.5.0 TRACKER-DRAIN-1 (agent_issues 2940 follow-up): ISSUE-SYNC-FORWARD-1 closes the GitHub issue of a resolved worker-observability dispatch row (and reopens it on a recurrence, before the reverse leg can swallow it); the state sync runs oldest D1 change first inside a time/subrequest budget and stops on 403/429 instead of a flat 20; the mass-flip guard refuses only unexplained disagreement (explained = D1 moved across open/closed since the link last agreed, not an updated_at window); a 403 stops the tick only when GitHub says rate limit (one shared flag), a per-issue 403 is skipped; the subrequest budget counts D1 calls; one status mapping (monitoring is closed not_planned naming its twin, never a completed close with no evidence); superseded attempt PRs outside the recent window are matched by stem and recorded with head_ref and task_ref; v_tracker_drift gains age_min and metric tracker_drift_oldest_min. // 0.4.8 TRACKER-REPAIR-ROUND-1 (agent_issues 2940): a codeagent-<stem>-rN pull request of an earlier repair round is matched to its task by the branch stem, so it is no longer pr-without-task drift. // 0.4.6 PORTFOLIO-HEARTBEAT-1 (2026-10-18): publish the portfolio run as in_progress BEFORE the work, so a tick killed by the CPU budget is distinguishable from a record that was never writtenIVENESS-1 (2026-10-18): this worker, on its own 10-minute cron and outside the qnfo-code-orchestrator process, reads the freshest fleet_crons.last_fired and files liveness:dispatcher-stalled when the per-minute dispatcher has been quiet for over 20 minutes -- the one stall no watchdog inside that failure domain can report, because NEVER-STALL-1 is itself a fleet_cron dispatched by the tick it would be reporting on. // 0.4.4 NOTIFY-ATTEMPT-TITLE-1 (2026-10-18): a re-run notification title ("workflow run, Attempt #2 failed") is parsed like the first attempt, so its resolved thread is cleared (three were kept at 10:52Z). // 0.4.3 TRACKER-SYNC-1: stale pr-without-task rows are cleared every tick; a merge fix reads merged_by from the single PR; 0.4.2 TRACKER-SYNC-1: the recent-PR window is a deliberate partial read (every post-backfill tick refused it); 0.4.1 org projects declared on (the portfolio board needs them); 0.4.0 PORTFOLIO-SYNC-1: projects derived from the census, metric breaches as roadmap objectives, programs/projects/issues/roadmap mirrored to GitHub labels, milestones, issues and a Projects board every 10 minutes; 0.3.1 a task is matched to its PR by number too (pr-without-task false positive on PR 381); 0.3.0 TRACKER-SYNC-1: agent_issues <-> GitHub issues and code_tasks <-> PRs every 10 minutes (0.2.2 ISSUE-SYNC-1)
 
 // 0.11.0 REPOSITORY-AGE-POLICY-1 (pillar autonomy): seven-day not-planned issues stay closed; canonical D1 work stays open.
@@ -159,6 +159,7 @@ async function reconcileOrg(env, result) {
     result.errors.push({ scope: "org:" + ORG, status: r.status, why: "cannot read org" });
     return;
   }
+  try { await stewardSettingsOrg(env, r.body, result, result.settings_mode); } catch (eS) { result.errors.push({ scope: "org-settings", why: String(eS && eS.message || eS).slice(0, 140) }); }
   var patch = {};
   Object.keys(DESIRED_ORG).forEach(function (k) {
     if (r.body[k] !== DESIRED_ORG[k]) patch[k] = DESIRED_ORG[k];
@@ -267,7 +268,165 @@ async function reconcileRepo(env, listed, result) {
   } else {
     result.limitations.push(full + ":branch_protection (needs GitHub Pro on a private repo)");
   }
+
+  /* GITHUB-STEWARD-2: the settings the steward did not declare before (public repositories only; the pass reports in dry mode and writes in on). */
+  try { await stewardSettingsRepo(env, listed, repo, result, result.settings_mode); } catch (eS) { result.errors.push({ scope: full + ":settings", why: String(eS && eS.message || eS).slice(0, 140) }); }
 }
+
+// ---- GITHUB-STEWARD-2:BEGIN (#5530, pillar security; docs/FLEET-AUDIT-2026-10-30.md section 4) ----
+// Settings the steward did not declare before: the default workflow token and whether workflows may approve pull requests, secret scanning and push protection,
+// Actions and code scanning on forks, and the organisation website. Switch: ops_config steward_settings_enforce = off | dry | on (default dry: the drift is computed and
+// reported on GET /report, nothing is written). Public, non-fork, non-archived repositories of the organisation only (forks for their own two settings); private
+// repositories, archived repositories and the owner's personal account are never read or written. A refusal is recorded with its status and a trimmed text and is not retried
+// with another credential; a plan limit is a limitation; a rate limit latches GH_LIMIT like every other stage.
+var DESIRED_WORKFLOW_PERMS = { default_workflow_permissions: "read", can_approve_pull_request_reviews: false };
+// conflict-repair, mirror-autosync and code-task-publish open or merge pull requests with the workflow token in this repository (the setting "Allow GitHub Actions to create and approve pull requests").
+var WORKFLOW_PERMS_EXCEPTIONS = { "QNFO/qnfo-workers": { can_approve_pull_request_reviews: true } };
+var DESIRED_ORG_BLOG = "https://qnfo.org";
+var STEWARD_SETTINGS_READ_CAP = 240;
+function stewardSettingsMode(v) {
+  var m = String(v == null ? "" : v).trim().toLowerCase();
+  return m === "off" || m === "on" ? m : "dry";
+}
+function desiredWorkflowPerms(full) {
+  return Object.assign({}, DESIRED_WORKFLOW_PERMS, WORKFLOW_PERMS_EXCEPTIONS[full] || {});
+}
+// Pure: the writes one repository needs, from what was read. reads = { workflow, actions, codeScanning } (each a parsed body or null when unread); repo = the single-repository body.
+function stewardSettingsPlan(listed, repo, reads) {
+  var plan = [];
+  if (!listed || listed.private === true || listed.archived === true || !listed.full_name || String(listed.full_name).indexOf(ORG + "/") !== 0) return plan;
+  var full = listed.full_name, r = reads || {};
+  if (listed.fork === true) {
+    if (r.actions && r.actions.enabled === true) plan.push({ field: "fork_actions", method: "PUT", path: "/repos/" + full + "/actions/permissions", body: { enabled: false }, current: "enabled", desired: "disabled" });
+    if (r.codeScanning && r.codeScanning.state && r.codeScanning.state !== "not-configured") plan.push({ field: "fork_code_scanning", method: "PATCH", path: "/repos/" + full + "/code-scanning/default-setup", body: { state: "not-configured" }, current: String(r.codeScanning.state), desired: "not-configured" });
+    return plan;
+  }
+  if (r.workflow) {
+    var want = desiredWorkflowPerms(full), diff = {}, cur = [];
+    Object.keys(want).forEach(function (k) { if (r.workflow[k] !== want[k]) { diff[k] = want[k]; cur.push(k + "=" + r.workflow[k]); } });
+    if (Object.keys(diff).length) plan.push({ field: "workflow_permissions", method: "PUT", path: "/repos/" + full + "/actions/permissions/workflow", body: want, current: cur.join(","), desired: JSON.stringify(want) });
+  }
+  var sa = repo && repo.security_and_analysis;
+  if (sa && typeof sa === "object") {
+    var sab = {}, ss = sa.secret_scanning && sa.secret_scanning.status, pp = sa.secret_scanning_push_protection && sa.secret_scanning_push_protection.status;
+    if (ss && ss !== "enabled") sab.secret_scanning = { status: "enabled" };
+    if (pp && pp !== "enabled") sab.secret_scanning_push_protection = { status: "enabled" };
+    if (Object.keys(sab).length) plan.push({ field: "secret_scanning", method: "PATCH", path: "/repos/" + full, body: { security_and_analysis: sab }, current: "secret_scanning=" + ss + ",push_protection=" + pp, desired: "enabled,enabled" });
+  }
+  return plan;
+}
+function stewardSettingsState(result) {
+  return result.settings || (result.settings = { mode: "dry", repos_considered: 0, reads: 0, drift: {}, fixed: {}, refused: [], limitations: [], org_actions_workflow: null, org_blog: null });
+}
+function stewardSettingsNote(result, field, fixed) {
+  var s = stewardSettingsState(result);
+  s.drift[field] = (s.drift[field] || 0) + 1;
+  if (fixed) s.fixed[field] = (s.fixed[field] || 0) + 1;
+}
+// One read, counted against the per-run cap; null when the cap is spent, GitHub is rate limiting, or the answer is not a 200 (the status is returned for the ledger).
+async function stewardSettingsRead(env, result, path) {
+  var s = stewardSettingsState(result);
+  if (s.reads >= STEWARD_SETTINGS_READ_CAP || ghLimited()) return { status: 0, body: null };
+  s.reads++;
+  var r = await gh(env, "GET", path);
+  return { status: r.status, body: r.status === 200 ? r.body : null, text: r.text };
+}
+async function stewardSettingsWrite(env, result, repoFull, item) {
+  var s = stewardSettingsState(result);
+  var w = await gh(env, item.method, item.path, item.body);
+  if (w.status >= 200 && w.status < 300) { stewardSettingsNote(result, item.field, true); return true; }
+  stewardSettingsNote(result, item.field, false);
+  if (w.limited) return false;
+  var why = String(w.text || "").replace(/\s+/g, " ").slice(0, 160);
+  if (w.status === 422 || (w.status === 403 && /plan|upgrade|not available|advanced security/i.test(why))) s.limitations.push(repoFull + ":" + item.field + " (" + w.status + " " + why.slice(0, 100) + ")");
+  else s.refused.push({ repo: repoFull, field: item.field, status: w.status, why: why });
+  return false;
+}
+async function stewardSettingsRepo(env, listed, repo, result, mode) {
+  if (mode === "off" || !listed || listed.private === true || listed.archived === true || String(listed.full_name || "").indexOf(ORG + "/") !== 0) return;
+  var s = stewardSettingsState(result);
+  s.mode = mode;
+  s.repos_considered++;
+  var full = listed.full_name, reads = {};
+  if (listed.fork === true) {
+    var a = await stewardSettingsRead(env, result, "/repos/" + full + "/actions/permissions");
+    reads.actions = a.body;
+    var c = await stewardSettingsRead(env, result, "/repos/" + full + "/code-scanning/default-setup");
+    if (c.status === 200) reads.codeScanning = c.body;
+    else if (c.status && c.status !== 404) s.limitations.push(full + ":fork_code_scanning (read " + c.status + ")");
+  } else {
+    var wf = await stewardSettingsRead(env, result, "/repos/" + full + "/actions/permissions/workflow");
+    reads.workflow = wf.body;
+    if (!wf.body && wf.status && wf.status !== 404) s.refused.push({ repo: full, field: "workflow_permissions", status: wf.status, why: String(wf.text || "").replace(/\s+/g, " ").slice(0, 160) });
+  }
+  var plan = stewardSettingsPlan(listed, repo, reads);
+  for (var i = 0; i < plan.length; i++) {
+    if (mode === "on" && !ghLimited()) await stewardSettingsWrite(env, result, full, plan[i]);
+    else stewardSettingsNote(result, plan[i].field, false);
+  }
+}
+// Organisation: the workflow-token defaults are only reported (they also govern private repositories whose workflows were not audited); the website is written only when empty.
+async function stewardSettingsOrg(env, orgBody, result, mode) {
+  if (mode === "off") return;
+  var s = stewardSettingsState(result);
+  s.mode = mode;
+  var o = await stewardSettingsRead(env, result, "/orgs/" + ORG + "/actions/permissions/workflow");
+  s.org_actions_workflow = o.body ? { default_workflow_permissions: o.body.default_workflow_permissions, can_approve_pull_request_reviews: o.body.can_approve_pull_request_reviews } : { status: o.status };
+  if (!orgBody) return;
+  var blog = String(orgBody.blog == null ? "" : orgBody.blog).trim();
+  s.org_blog = blog;
+  if (blog) return;
+  var item = { field: "org_blog", method: "PATCH", path: "/orgs/" + ORG, body: { blog: DESIRED_ORG_BLOG } };
+  if (mode === "on" && !ghLimited()) await stewardSettingsWrite(env, result, ORG, item);
+  else stewardSettingsNote(result, "org_blog", false);
+}
+async function stewardSettingsModeRead(env) {
+  if (!env || !env.AUDIT) return "dry";
+  try {
+    var r = await env.AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'steward_settings_enforce'").first();
+    return stewardSettingsMode(r && r.value);
+  } catch (e) { console.error(JSON.stringify({ worker: "qnfo-github-steward", where: "steward-settings-mode", error: String(e && e.message || e).slice(0, 160) })); return "dry"; }
+}
+async function stewardSettingsSave(env, result) {
+  var s = result.settings;
+  if (!s || !env.AUDIT) return;
+  var summary = { at: new Date().toISOString(), version: VERSION, mode: s.mode, repos_considered: s.repos_considered, reads: s.reads, drift: s.drift, fixed: s.fixed, refused: s.refused.slice(0, 20), limitations: s.limitations.slice(0, 20), org_actions_workflow: s.org_actions_workflow, org_blog: s.org_blog };
+  try { await tsState(env, "settings_last_run", JSON.stringify(summary).slice(0, 20000)); } catch (e) { console.error(JSON.stringify({ worker: "qnfo-github-steward", where: "steward-settings-save", error: String(e && e.message || e).slice(0, 160) })); }
+}
+// ---- GITHUB-STEWARD-2:END ----
+
+// ---- BP26-KILLSWITCH-READERS-1:BEGIN (docs/KILL-SWITCH-DRILL.md; reader 3 of 9 after qnfo-deploy-guard and qnfo-code-orchestrator) ----
+// The global kill switch is one ops_config row, fleet_kill_switch = on | off. While it is on this worker starts nothing that reaches outside the fleet: no GitHub issue, comment,
+// label, project or repository setting is written by a scheduled run, and the billing read waits too. The read is cached for 30 seconds and FAILS OPEN: an unreadable row
+// is treated as off and logged, so a D1 overload can never stop the steward. A scheduled run that finds the switch on records one cloud_ops_events row of kind
+// kill-switch.observed per five minutes (job qnfo-github-steward), which the monthly drill reads. POST /tick and the other keyed routes are a person's explicit request and stay.
+var KS_CACHE = { at: 0, on: false };
+async function killSwitchOn(env) {
+  var n = Date.now();
+  if (n - KS_CACHE.at < 30000) return KS_CACHE.on;
+  try {
+    var r = await env.AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'fleet_kill_switch'").first();
+    KS_CACHE = { at: n, on: !!r && String(r.value == null ? "" : r.value).trim().toLowerCase() === "on" };
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "qnfo-github-steward", where: "kill-switch-read", failed_open: true, error: String(e && e.message || e).slice(0, 160) }));
+    KS_CACHE = { at: n, on: false };
+  }
+  return KS_CACHE.on;
+}
+async function killSwitchObserved(env, what) {
+  try {
+    var since = new Date(Date.now() - 300000).toISOString();
+    var ex = await env.AUDIT.prepare("SELECT id FROM cloud_ops_events WHERE kind = 'kill-switch.observed' AND job = 'qnfo-github-steward' AND ts > ?1 LIMIT 1").bind(since).first();
+    if (ex) return false;
+    await env.AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, job, status) VALUES (?1, ?2, 'kill-switch.observed', ?3, 'qnfo-github-steward', 'ok')")
+      .bind("ks-qnfo-github-steward-" + Date.now(), new Date().toISOString(), ("skipped " + String(what || "scheduled run") + " while fleet_kill_switch = on").slice(0, 300)).run();
+    return true;
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "qnfo-github-steward", where: "kill-switch-observed", error: String(e && e.message || e).slice(0, 160) }));
+    return false;
+  }
+}
+// ---- BP26-KILLSWITCH-READERS-1:END ----
 
 async function auditWorkflows(env, repo, result) {
   var r = await gh(env, "GET", "/repos/" + repo.full_name + "/actions/workflows");
@@ -1900,6 +2059,7 @@ async function runReconcile(env, opts) {
     drift: [], workflow_issues: [], limitations: [], errors: [], issue_sync: null, issue_sync_reverse: null
   };
 
+  result.settings_mode = await stewardSettingsModeRead(env);
   await reconcileOrg(env, result);
 
   var repos = await paginate(env, "/orgs/" + ORG + "/repos?type=all");
@@ -1928,6 +2088,7 @@ async function runReconcile(env, opts) {
   }
 
   protectionLimitation(result);
+  await stewardSettingsSave(env, result);
   try { await mainRulesVisibility(env, result); } catch (eM) { result.errors.push({ scope: "main_rules", why: String(eM && eM.message || eM).slice(0, 140) }); }
   try { await modelFloorGuardVisibility(env, result); } catch (eM) { result.errors.push({ scope: "model_floor_guard", why: String(eM && eM.message || eM).slice(0, 140) }); }
 
@@ -2004,9 +2165,12 @@ var CAPABILITIES = [
   "model-floor-guard-visibility: records the model-floor-guard workflow runs on main as a countable fact",
   "dispatch-liveness: files liveness:dispatcher-stalled when the per-minute dispatcher has been quiet for over 20 minutes, from outside that failure domain",
   "reports: GET /report, GET /tracker, GET /portfolio and GET /roadmap return the last run of each stage",
+  "kill-switch-reader: while ops_config fleet_kill_switch is on a scheduled run starts nothing that writes outside the fleet and records a kill-switch.observed event; the read is cached 30 s and fails open (BP26-KILLSWITCH-READERS-1)",
+  "settings-reconcile: declares the default workflow token (read) and whether workflows may approve pull requests (only in qnfo-workers), secret scanning and push protection on public repositories, Actions and code scanning off on public forks, and the organisation website; ops_config steward_settings_enforce is off, dry (default: drift reported on GET /report, nothing written) or on (GITHUB-STEWARD-2)",
   "github-billing-ledger: reads the organization and owner billing usage summaries hourly into qnfo-audit cost_vendor_month (list value, discount, net) so the all-vendor monthly cost ledger carries GitHub as an invoice-evidence line (COST-LEDGER-ALLVENDOR-1)"
 ];
 var LIMITATIONS = [
+  "settings-reconcile touches public repositories of the QNFO organisation only: private repositories, archived repositories and the personal account are never read or written, the organisation workflow-token defaults are reported and never written, and a plan limit (422, or a 403 that names the plan) is a limitation, not an error (GITHUB-STEWARD-2)",
   "additive only: never deletes a repository, archives one, pushes a commit or rewrites a workflow file; workflow findings are reported, not edited",
   "a setting the platform refuses (branch protection and auto-merge on a private repository on the free plan) is recorded as a permanent limitation and not retried as a failure",
   "organisation two_factor_requirement_enabled cannot be set through the REST API on this plan",
@@ -2035,7 +2199,9 @@ export default {
     }
 
     if (p === "/report" && request.method === "GET") {
-      return json({ version: VERSION, last_run: await lastRun(env) });
+      var settingsLast = null;
+      try { settingsLast = JSON.parse(await tsState(env, "settings_last_run") || "null"); } catch (eSl) { settingsLast = { error: String(eSl && eSl.message || eSl).slice(0, 160) }; }
+      return json({ version: VERSION, last_run: await lastRun(env), settings: settingsLast });
     }
 
     if (p === "/tracker" && request.method === "GET") {
@@ -2142,6 +2308,8 @@ async function githubBillingTick(env, nowMs) {
 }
 // ---- COST-LEDGER-ALLVENDOR-1:END
 async function stewardScheduled(event, env, ctx) {
+    // BP26-KILLSWITCH-READERS-1: with fleet_kill_switch on, a scheduled run starts nothing that writes outside the fleet; it records that it saw the switch.
+    if (await killSwitchOn(env)) { await killSwitchObserved(env, "scheduled run " + String((event && event.cron) || "")); return; }
     // COST-LEDGER-ALLVENDOR-1: hourly (throttled inside), before the tracker and reconcile work; a failure is logged and never fails the fire.
     try { var gb = await githubBillingTick(env); if (gb && !gb.skipped) console.log(JSON.stringify({ worker: "qnfo-github-steward", version: VERSION, cron: event && event.cron, billing: gb })); } catch (eB) { console.error(JSON.stringify({ worker: "qnfo-github-steward", where: "githubBillingTick", error: String(eB && eB.message || eB).slice(0, 200) })); }
     if (event && event.cron === TS_CRON) {

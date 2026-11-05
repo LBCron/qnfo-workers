@@ -102,6 +102,26 @@ A failed or partial GitHub read changes nothing. If more than half the links dis
 
 `GET /tracker` shows the last tick; `POST /tracker/tick` (`x-steward-key`) runs one now.
 
+## Settings the audit found undeclared (GITHUB-STEWARD-2, 0.16.0)
+
+Source: `docs/FLEET-AUDIT-2026-10-30.md` section 4 (#5530). The hourly reconcile also declares, for **public, non-fork, non-archived QNFO repositories**: the default workflow token `read` and
+workflow pull-request approval `false` (`QNFO/qnfo-workers` keeps approval `true`: conflict-repair, mirror-autosync and code-task-publish open or merge pull requests with the workflow token);
+secret scanning and push protection `enabled`. For **public forks**: Actions disabled and code scanning default setup `not-configured`. For the **organisation**: the website `https://qnfo.org`
+when empty; the organisation workflow-token defaults are reported (`org_actions_workflow`) and never written, because they also govern the private repositories whose workflows were not audited.
+Private repositories, archived repositories and the personal account `rwnq8` are never read or written.
+
+* Switch: `ops_config steward_settings_enforce` = `off` | `dry` | `on`. **Default `dry`**: the drift is computed and written to `GET /report` under `settings` (`drift` and `fixed` per setting,
+  `refused` with repository, field, status and a trimmed text, `limitations`), nothing is written. `on` writes the differences, one write per difference; the next run reads `drift = {}`.
+* A 403 is a recorded refusal, never retried with another credential; a 422 (or a 403 naming the plan) is a limitation; a rate limit latches `GH_LIMIT` like every other stage; at most 240 settings
+  reads a run. Push protection can refuse a fleet write that contains a secret-like string: the ledger records the repository and status, never the content.
+* Rollback: set the value to `off`. Re-enable Actions on a fork, or turn secret scanning off, in the repository's settings if ever needed; nothing here deletes anything.
+* Tests: `settings-reconcile.test.mjs` (diff per setting, forks, the qnfo-workers exception, private and archived untouched, off/dry/on, convergence, 403/422/429, read cap, kill switch).
+
+## Kill switch (BP26-KILLSWITCH-READERS-1)
+
+While `ops_config fleet_kill_switch` is `on`, a scheduled run starts nothing that writes outside the fleet and records one `kill-switch.observed` event (job `qnfo-github-steward`) per five minutes.
+The read is cached for 30 seconds and fails open. `POST /tick` and the other keyed routes are a person's explicit request and stay. Protocol: `docs/KILL-SWITCH-DRILL.md`.
+
 ## Known limits — recorded, not hidden
 
 * **12 limitations are permanent on this plan.** Branch protection and auto-merge require
