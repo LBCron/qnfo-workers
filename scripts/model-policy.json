@@ -10,6 +10,7 @@
     { "id": "gemma-4-26b-a4b-it", "family": "google", "wa": "@cf/google/gemma-4-26b-a4b-it", "ctx": 256000, "reasoning": false },
     { "id": "glm-5.3", "family": "zai", "wa": "@cf/zai-org/glm-5.3", "ctx": 1048576, "reasoning": true },
     { "id": "gpt-oss-120b", "family": "openai", "wa": "@cf/openai/gpt-oss-120b", "ctx": 128000, "reasoning": true },
+    { "id": "gpt-oss-20b", "family": "openai", "wa": "@cf/openai/gpt-oss-20b", "ctx": 128000, "reasoning": true },
     { "id": "deepseek-v4-flash-wa", "family": "deepseek", "wa": "@cf/deepseek-ai/deepseek-v4-flash-0731", "ctx": 1048576, "reasoning": true },
     { "id": "deepseek-v4-pro-wa", "family": "deepseek", "wa": "@cf/deepseek-ai/deepseek-v4-pro-0813", "ctx": 1048576, "reasoning": true }
   ],

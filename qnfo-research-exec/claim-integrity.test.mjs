@@ -103,6 +103,43 @@ assert.equal(a1.confirmed.length, 2);
 const a2 = await claimAudit(envWith({ "@cf/openai/gpt-oss-120b": "[]", "@cf/zai-org/glm-5.3-flash": "" }), paper);
 assert.equal(a2.ok, false);
 assert.equal(a2.confirmed.length, a2.candidates);
+// MODEL-MATRIX-1 (agent_issues 1000709): the extraction call runs on gpt-oss-20b first and asks gpt-oss-120b the same request only when the reply is empty or unparseable;
+// the confirming model is untouched; ops_config claim_scan_model = off restores gpt-oss-120b for every request.
+const countingEnv = (replies, cfg) => {
+  const calls = [];
+  return {
+    calls,
+    QNFO_AUDIT: { prepare: (sql) => ({ first: async () => (/claim_scan_model/.test(sql) && cfg ? { value: cfg } : null), bind: () => ({ run: async () => ({}), first: async () => null }) }) },
+    AI: { run: async (model) => { calls.push(model); const r = replies[model]; return { response: typeof r === "function" ? r() : r }; } },
+  };
+};
+const CONFIRM = '[{"n":1,"verdict":"FABRICATED"},{"n":2,"verdict":"FABRICATED"},{"n":3,"verdict":"PROPOSED"}]';
+let ce = countingEnv({ "@cf/openai/gpt-oss-20b": ext, "@cf/openai/gpt-oss-120b": "SHOULD NOT BE ASKED", "@cf/zai-org/glm-5.3-flash": CONFIRM });
+let ca = await claimAudit(ce, paper);
+assert.deepEqual(ce.calls, ["@cf/openai/gpt-oss-20b", "@cf/zai-org/glm-5.3-flash"], "the 20b extraction answers, the 120b is not asked");
+assert.equal(ca.extractModel, "@cf/openai/gpt-oss-20b");
+assert.equal(ca.candidates, 3);
+assert.equal(ca.confirmed.length, 2);
+ce = countingEnv({ "@cf/openai/gpt-oss-20b": "", "@cf/openai/gpt-oss-120b": ext, "@cf/zai-org/glm-5.3-flash": CONFIRM });
+ca = await claimAudit(ce, paper);
+assert.deepEqual(ce.calls, ["@cf/openai/gpt-oss-20b", "@cf/openai/gpt-oss-120b", "@cf/zai-org/glm-5.3-flash"], "an empty 20b reply is asked again of the 120b for the same request");
+assert.equal(ca.extractModel, "@cf/openai/gpt-oss-120b");
+assert.equal(ca.confirmed.length, 2);
+ce = countingEnv({ "@cf/openai/gpt-oss-20b": "I could not produce JSON, sorry.", "@cf/openai/gpt-oss-120b": ext, "@cf/zai-org/glm-5.3-flash": CONFIRM });
+ca = await claimAudit(ce, paper);
+assert.equal(ca.extractModel, "@cf/openai/gpt-oss-120b", "an unparseable 20b reply falls back too");
+ce = countingEnv({ "@cf/openai/gpt-oss-20b": "[]", "@cf/openai/gpt-oss-120b": ext, "@cf/zai-org/glm-5.3-flash": CONFIRM });
+ca = await claimAudit(ce, paper);
+assert.equal(ca.extractModel, "@cf/openai/gpt-oss-20b", "a valid empty list is an answer, not a reason to ask again");
+assert.ok(!ce.calls.includes("@cf/openai/gpt-oss-120b"));
+ce = countingEnv({ "@cf/openai/gpt-oss-20b": ext, "@cf/openai/gpt-oss-120b": ext, "@cf/zai-org/glm-5.3-flash": CONFIRM }, "off");
+ca = await claimAudit(ce, paper);
+assert.deepEqual(ce.calls, ["@cf/openai/gpt-oss-120b", "@cf/zai-org/glm-5.3-flash"], "ops_config claim_scan_model = off skips the 20b entirely");
+assert.equal(ca.extractModel, "@cf/openai/gpt-oss-120b");
+ce = countingEnv({ "@cf/openai/gpt-oss-20b": ext, "@cf/zai-org/glm-5.3-flash": "" });
+ca = await claimAudit(ce, paper, { scanOnly: true });
+assert.deepEqual(ce.calls, [], "scanOnly asks no model at all");
+
 const gates = { ok: true, fixes: [], reason: "" };
 await claimGate(envWith({ "@cf/openai/gpt-oss-120b": "[]", "@cf/zai-org/glm-5.3-flash": "" }), { id: 1 }, paper, gates);
 assert.equal(gates.ok, false);

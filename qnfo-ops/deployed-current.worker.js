@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.67.0-tool-arg-alias";
+var VERSION = "2.68.0-tool-arg-alias";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -1337,6 +1337,56 @@ async function logRouterMetric(env, rec) {
   }
 }
 __name(logRouterMetric, "logRouterMetric");
+// MODEL-MATRIX-1 (agent_issues 1000708, docs/MODEL-MATRIX.md row gate-decision), shadow mode only: next to the real routing of a chat turn, the decision model clef-flash is asked the
+// two questions the gate would route on (which class of model answers this task: free_small, cheap_mid or frontier; does it need a tool) and its answer is written to cost_router_metrics
+// as task_class gate-decision-shadow with the tier it predicted, the model that actually served the turn, and the agreement. Nothing is routed on it and it never blocks or fails the turn.
+// Routing on it needs agreement >= 0.7 with the incumbent over 200 rows (v_model_matrix_gate_shadow); the canary measured 0.125 on real data, so the first result may be "do not route".
+// ops_config model_matrix_gate = off stops it, model_matrix_gate_rate (0..1, default 1) samples it.
+var MM_GATE_MODEL = "@cf/cloudflare/clef-flash";
+var MM_GATE_TIERS = { free_small: 1, cheap_mid: 2, frontier: 3 };
+var MM_GATE_QUESTIONS = {
+  tier: { type: "choice", instructions: "Which class of model answers this fleet-operations request well at the lowest cost?", criteria: { free_small: "A lookup, a status read, a classification or a short reformat that a small free model answers correctly", cheap_mid: "Multi-step reasoning over several fleet sources, a summary of long text or code reading of moderate size", frontier: "Hard reasoning, a plan or a code change, or anything where a wrong answer is costly or irreversible" } },
+  needs_tools: { type: "noul", instructions: "Does answering need a tool call, that is a read of live fleet state or an action on the fleet?" }
+};
+function mmGateParse(out) {
+  const a = out && out.answers || {};
+  const t = a.tier;
+  let label = t && typeof t === "object" ? t.choice || t.chosen || t.label || t.option : typeof t === "string" ? t : null;
+  label = typeof label === "string" ? label.trim().toLowerCase().replace(/[^a-z_]+/g, "_") : null;
+  const nt = a.needs_tools;
+  const p = typeof nt === "number" ? nt : nt && typeof nt.noul === "number" ? nt.noul : null;
+  return { tier: label && MM_GATE_TIERS[label] ? label : null, needs_tools: p };
+}
+async function modelMatrixGateShadow(env, rec) {
+  try {
+    if (!env.WAI || typeof env.WAI.run !== "function" || !env.QNFO_AUDIT) return { skipped: "no-binding" };
+    const cfg = await env.QNFO_AUDIT.prepare("SELECT key, value FROM ops_config WHERE key IN ('model_matrix_gate', 'model_matrix_gate_rate')").all();
+    const conf = {};
+    ((cfg && cfg.results) || []).forEach(function(r) { conf[r.key] = r.value; });
+    if (String(conf.model_matrix_gate == null ? "shadow" : conf.model_matrix_gate).trim().toLowerCase() !== "shadow") return { skipped: "off" };
+    const rate = Number(conf.model_matrix_gate_rate == null ? 1 : conf.model_matrix_gate_rate);
+    if (!(Math.random() < (Number.isFinite(rate) ? Math.min(1, Math.max(0, rate)) : 1))) return { skipped: "sampled-out" };
+    const prompt = String(rec && rec.prompt || "").trim();
+    if (prompt.length < 8) return { skipped: "short" };
+    const t0 = Date.now();
+    const out = await env.WAI.run(MM_GATE_MODEL, { model: "clef-flash", state: prompt.slice(0, 800), questions: MM_GATE_QUESTIONS });
+    const g = mmGateParse(out);
+    const predicted = g.tier ? MM_GATE_TIERS[g.tier] : 0;
+    const agree = predicted > 0 && predicted === rec.tier ? 1 : 0;
+    const usedTools = (rec.toolCalls || 0) > 0;
+    const toolsAgree = g.needs_tools == null ? 0 : (g.needs_tools >= 0.5) === usedTools ? 1 : 0;
+    const inTok = Number(out && out.usage && out.usage.input_tokens || 0);
+    // columns reused for the shadow row: tier = the tier clef-flash predicted (0 when it named none), model = the model that served the turn,
+    // tool_calls = the tool calls the turn made, tool_calls_ok = 1 when needs_tools agreed with them, success = 1 when the predicted tier equals the actual tier
+    await env.QNFO_AUDIT.prepare("INSERT INTO cost_router_metrics (ts, worker, task_class, tier, model, in_tokens, out_tokens, cost_usd, latency_ms, cache_hit, escalations, tool_calls, tool_calls_ok, success) VALUES (?1,?2,?3,?4,?5,?6,0,0,?7,0,0,?8,?9,?10)")
+      .bind(iso(), WORKER, "gate-decision-shadow", predicted, String(rec.model || "").slice(0, 120), inTok, Date.now() - t0, rec.toolCalls || 0, toolsAgree, agree).run();
+    return { predicted, actual: rec.tier, agree, tools_agree: toolsAgree };
+  } catch (e) {
+    console.log("model_matrix_gate_shadow failed:", e && e.message || e);
+    return { skipped: "error" };
+  }
+}
+__name(modelMatrixGateShadow, "modelMatrixGateShadow");
 async function logEscalation(env, taskClass, fromModel, toModel, kind, reason) {
   try {
     await env.QNFO_AUDIT.prepare("INSERT INTO model_ladder_escalations (ts, task_class, from_tier, to_tier, model, kind, reason, budget_blocked) VALUES (?1,?2,?3,?4,?5,?6,?7,0)").bind(iso().slice(0, 19).replace("T", " "), taskClass || "chat", costTierOfModel(fromModel), costTierOfModel(toModel), String(toModel || "").slice(0, 80), kind || "escalation", String(reason || "").slice(0, 300)).run();
@@ -8638,6 +8688,7 @@ async function handleChatCore(env, body, ua, ctx, pub) {
     if (_chain > 0) escalations += _chain;
     const _tier = cacheHit ? 0 : costTierOfModel(String(servedBy || "").split("->").pop());
     ctx.waitUntil(logRouterMetric(env, { worker: WORKER, task_class: strategy, tier: _tier, model: servedBy || wanted, in_tokens: promptTokens, out_tokens: completionTokens, cost_usd: costUsd, latency_ms: latencyMs, cache_hit: cacheHit, escalations: escalations, tool_calls: toolLog.length, tool_calls_ok: toolLog.filter(function(t) { return t.ok; }).length, success: okFlag }));
+    if (!pub && !cacheHit && !clientHandoff) ctx.waitUntil(modelMatrixGateShadow(env, { prompt, tier: _tier, model: servedBy || wanted, toolCalls: toolLog.length })); // MODEL-MATRIX-1 shadow gate: observe only
     if (_chain > 0) {
       const _parts = String(servedBy || "").split("->").map(function(s) { return s.trim(); }).filter(Boolean);
       ctx.waitUntil(logEscalation(env, strategy, _parts[0] || UPSTREAM_MODEL, _parts[_parts.length - 1] || UPSTREAM_MODEL, "cascade-fallback", "servedBy chain: " + String(servedBy || "").slice(0, 200)));
