@@ -182,7 +182,9 @@ def parse_dmarc_report(raw_text):
                     continue
                 for a in list(ar):
                     if _local(a.tag) == "dkim":
-                        n_sigs += 1
+                        # RFC 7489 auth_results/dkim/result: "none" means the message carried no signature; every other value is a signature that was evaluated.
+                        if (_child_text(a, "result") or "").lower() != "none":
+                            n_sigs += 1
                     elif _local(a.tag) == "spf":
                         spf_auth.append(((_child_text(a, "domain") or "").lower(), (_child_text(a, "result") or "").lower()))
             is_foreign = is_foreign_source(dk, sp, disp, (_child_text(rec, "identifiers", "header_from") or "").lower(), n_sigs, spf_auth)
@@ -672,13 +674,16 @@ CREATE TABLE bp26_dns_email_auth (domain TEXT PRIMARY KEY, spf TEXT, spf_ok INTE
     forged = "<auth_results><spf><domain>qnfo.org</domain><result>softfail</result></spf></auth_results>"
     other_bounce = "<auth_results><spf><domain>mail.third-party.example</domain><result>pass</result></spf></auth_results>"
     signed_bad = "<auth_results><dkim><domain>qnfo.org</domain><result>fail</result><selector>s1</selector></dkim><spf><domain>qnfo.org</domain><result>softfail</result></spf></auth_results>"
+    dkim_none = "<auth_results><dkim><domain></domain><result>none</result></dkim><spf><domain>qnfo.org</domain><result>softfail</result></spf></auth_results>"
     fr = parse_dmarc_report(mime(xml_report("qnfo.org", "google.com", now - 3600, [
         (6, "pass", "pass", "none", ""),
         (3, "fail", "fail", "reject", forged, "198.51.100.7"),
         (1, "fail", "fail", "none", forged, "198.51.100.8"),
         (1, "fail", "fail", "reject", other_bounce, "198.51.100.9"),
-        (1, "fail", "fail", "reject", signed_bad, "198.51.100.10")]), "text/xml", "f.xml"))
-    ok(fr["foreign"] == [False, True, False, False, False] and fr["foreign_ips"] == {"198.51.100.7"}, "only the unsigned, SPF-negative, receiver-rejected forgery is foreign: %r" % (fr["foreign"],))
+        (1, "fail", "fail", "reject", signed_bad, "198.51.100.10"),
+        (2, "fail", "fail", "reject", dkim_none, "198.51.100.11")]), "text/xml", "f.xml"))
+    ok(fr["foreign"] == [False, True, False, False, False, True] and fr["foreign_ips"] == {"198.51.100.7", "198.51.100.11"},
+       "the unsigned, SPF-negative, receiver-rejected forgeries are foreign, a reporter's dkim result none is no signature: %r" % (fr["foreign"],))
     ok(is_foreign_source("fail", "fail", "reject", "qnfo.org", 0, [("bounce.qnfo.org", "fail")]) and not is_foreign_source("fail", "fail", "reject", "qnfo.org", 0, []), "a subdomain SPF fail counts, no SPF evidence does not")
     c.execute("DELETE FROM email_raw_archive")
     c.execute("INSERT INTO email_raw_archive VALUES (1, ?)", [mime(xml_report("qnfo.org", "google.com", now - 3600, [
