@@ -177,5 +177,11 @@
    "taps": 1,
    "typing": 0
   }
+ },
+ "signal": {
+  "archive-open": {
+   "taps": 0,
+   "typing": 0
+  }
  }
 }

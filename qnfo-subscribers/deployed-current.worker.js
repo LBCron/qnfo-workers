@@ -2,7 +2,8 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "1.5.8-codeagent"; /* 1.5.8 CRON-D1-RETRY-1 (pillar autonomy; patch): the fleet_heartbeat upsert retries transient D1 errors (overloaded, timeout, reset) with backoff, so a short D1 overload no longer leaves the worker looking silent to CRON-WATCH-1 (worker-silent:qnfo-subscribers). */ /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
+var VERSION = "1.6.0-codeagent";
+/* 1.5.8 CRON-D1-RETRY-1 (pillar autonomy; patch): the fleet_heartbeat upsert retries transient D1 errors (overloaded, timeout, reset) with backoff, so a short D1 overload no longer leaves the worker looking silent to CRON-WATCH-1 (worker-silent:qnfo-subscribers). */ /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
 // 1.2.0 (2026-10-12, pillar reach, issue 1753) SUBSCRIBE-FUNNEL-1: every step of the sign-up
 // funnel is counted in qnfo-audit.subscribe_funnel (day, stage, source, n; a counter, never an address): box and page views,
 // submits by outcome (accepted, honeypot, invalid, rate-limited, suppressed, repeat), confirmation mails sent or failed,
@@ -504,6 +505,13 @@ async function recordRun(env, since, now, papers, recipients, sent, failed, stat
 __name(recordRun, "recordRun");
 async function runDigest(env, opts) {
   opts = opts || {};
+  // WEEKLY-SIGNAL-1: a human-approved "claim, check, limits" issue for today's slot replaces the roll-up; a run with an explicit
+  // window or start (an on-demand roll-up) keeps today's behaviour, and so does every week without an approved issue.
+  if (!opts.since && !(Number(opts.windowDays) > 0)) {
+    const sig = await signalForSlot(env);
+    if (sig && (sig.status === "sent" || sig.status === "sending")) return { ok: true, skipped: "signal-already-sent", signal: sig.send_date };
+    if (sig && sig.status === "approved") return signalSend(env, sig);
+  }
   const windowDays = Number(opts.windowDays) > 0 ? Number(opts.windowDays) : DIGEST_WINDOW_DAYS;
   const since = opts.since || new Date(Date.now() - windowDays * 864e5).toISOString().slice(0, 19).replace("T", " ");
   const now = (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace("T", " ");
@@ -560,6 +568,425 @@ async function runDigest(env, opts) {
   return { ok: true, papers: papers.length, recipients: subs.length, sent, failed };
 }
 __name(runDigest, "runDigest");
+// ---- WEEKLY-SIGNAL-1:BEGIN (RM-BS-WEEKLY-SIGNAL-1, blue-sky bet B16, pillar reach) ----
+// One weekly "claim, check, limits" issue instead of a roll-up of every paper, with a human in the loop and the voice disclosed.
+// The hourly tick drafts the issue for the next Sunday 16:00 UTC slot, by rule (no model call, no new binding), from papers
+// published in the last seven days that have a plain-language summary and no open erratum: the claim is that summary, the
+// check and the limits are quoted from the paper's own text, and a missing one is said to be missing. The draft is stored in
+// qnfo-audit.weekly_signal_issues as 'draft' and mailed once to the owner with a review link. A GET on that link never changes
+// anything (mail scanners fetch every link, as for /confirm); only its Approve or Reject button (POST) does. runDigest sends
+// an approved issue to confirmed, non-suppressed subscribers and nobody else; with no approved issue it sends the paper
+// roll-up exactly as before. There is no audio yet: the issue says so, and says the voice will be synthetic and labelled.
+var OWNER_REVIEW_TO = "rwnquni@outlook.com";
+var SIGNAL_HOST = "https://qnfo-subscribers.q08.workers.dev";
+var SIGNAL_LEAD_MS = 96 * 36e5;
+var SIGNAL_MAX_ITEMS = 3;
+var SIGNAL_CANDIDATES = 30;
+var SIGNAL_BODY_CHARS = 70000;
+var SIGNAL_VOICE = "Audio edition: not yet published. When it is, the voice is synthetic and will be labelled as such.";
+var SIGNAL_HOW = "How this issue was made: the text is drafted by rule from papers QNFO published in the past seven days (no language model is called in this step) and is read and approved by a human editor before it is sent. The Claim lines are QNFO's plain-language summaries, which a model wrote; the Check and Limits lines are quoted from the paper itself.";
+var SIG_RE_EXPERIMENT = /^\*\*(?:\([a-z]\)\s*)?Smallest falsifying experiment\.?\*\*\s*/i;
+var SIG_RE_FALSIFY = /^\*\*Falsification\.?\*\*\s*/i;
+var SIG_RE_FALSIFY_H = /^#{2,4}[ \t]*(?:\d+(?:\.\d+)*\.?[ \t]*)?(?:Falsification|Falsifiability)\b[^\n]*$/im;
+var SIG_RE_LIMITS = /^\*\*Limitations?[^*\n]{0,40}\*\*\s*/i;
+var SIG_RE_LIMITS_ALT = /^\*\*What the results do and do not claim\.?\*\*\s*/i;
+var SIG_SPLIT = /(?<!\b(?:e\.g|i\.e|vs|Fig|Figs|Sec|Eq|Eqs|Ref|Refs|cf|approx|al)\.)(?<=[.!?])\s+(?=[A-Z0-9("])/;
+var SIG_RE_LIMITS_H = /^#{2,4}[ \t]*(?:\d+(?:\.\d+)*\.?[ \t]*)?Limitations?\b[^\n]*$/im;
+// The Sunday 16:00 UTC slot at or after nowMs (the slot of the weekly digest cron), and its date.
+function signalSlot(nowMs) {
+  var d = new Date(nowMs);
+  var base = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 16, 0, 0);
+  var slot = base + ((7 - d.getUTCDay()) % 7) * 864e5;
+  if (slot <= nowMs) slot += 7 * 864e5;
+  return slot;
+}
+function signalDate(slotMs) {
+  return new Date(slotMs).toISOString().slice(0, 10);
+}
+// Plain text from a markdown excerpt: no emphasis, links, citation numbers or formulas (a formula becomes "(formula)").
+function sigClean(s) {
+  return String(s == null ? "" : s).replace(/\r/g, "")
+    .replace(/\$\$[\s\S]*?\$\$/g, "(formula)").replace(/\$[^$\n]{1,200}\$/g, "(formula)")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*+|__|`/g, "")
+    .replace(/\s*\[\d+(?:\s*[,;\u2013-]\s*\d+)*\]/g, "").replace(/\s+/g, " ").trim();
+}
+// Up to maxSent whole sentences within about maxChars; a sentence that still carries formula markup is left out.
+function sigPick(text, maxChars, maxSent) {
+  var sents = sigClean(text).split(SIG_SPLIT), out = [], len = 0;
+  for (var i = 0; i < sents.length && out.length < maxSent; i++) {
+    var s = sents[i].trim();
+    if (!s || /[$\\]/.test(s) || (s.match(/\(formula\)/g) || []).length > 2) { if (out.length) break; continue; }
+    if (out.length && len + s.length + 1 > maxChars) break;
+    if (s.length > maxChars) s = s.slice(0, maxChars - 1).replace(/\s+\S*$/, "") + "\u2026";
+    out.push(s);
+    len += s.length + 1;
+  }
+  return out.join(" ");
+}
+// The paragraph that opens with a bold label (the way the QNFO paper template writes "**Falsification.**"), and the one after it.
+function sigBlock(body, re) {
+  var blocks = String(body || "").split(/\n[ \t]*\n/);
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i].trim(), m = re.exec(b);
+    if (m) return { text: b.slice(m[0].length), next: blocks[i + 1] || "" };
+  }
+  return null;
+}
+// The first paragraph under a heading (older papers use headings instead of bold labels).
+function sigHeading(body, re) {
+  body = String(body || "");
+  var m = re.exec(body);
+  if (!m) return null;
+  var blocks = body.slice(m.index + m[0].length).split(/\n[ \t]*\n/);
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i].trim();
+    if (!b) continue;
+    if (b.charAt(0) === "#") return null;
+    return { text: b, next: blocks[i + 1] || "" };
+  }
+  return null;
+}
+function sigCheck(body) {
+  var b = sigBlock(body, SIG_RE_EXPERIMENT) || sigBlock(body, SIG_RE_FALSIFY) || sigHeading(body, SIG_RE_FALSIFY_H);
+  return b ? sigPick(b.text, 520, 3) : "";
+}
+function sigLimits(body) {
+  var b = sigBlock(body, SIG_RE_LIMITS) || sigHeading(body, SIG_RE_LIMITS_H) || sigBlock(body, SIG_RE_LIMITS_ALT);
+  if (!b) return "";
+  var lead = sigClean(b.text), more = !lead || /:\s*$/.test(lead);
+  var lines = (b.text + (more ? "\n" + b.next : "")).split("\n"), items = [];
+  for (var i = 0; i < lines.length && items.length < 2; i++) {
+    var m = /^\s*(?:\d+[.)]|[-*])\s+(.*)$/.exec(lines[i]);
+    if (m) { var one = sigPick(m[1], 200, 1); if (one) items.push(one); }
+  }
+  if (items.length) return "Limits the paper states: (1) " + items[0] + (items[1] ? " (2) " + items[1] : "");
+  return sigPick(b.text, 360, 2);
+}
+function sigNotChecked(body) {
+  var m = /^[ \t]*[-*][ \t]*Not checked:[ \t]*([^\n]+)/im.exec(String(body || ""));
+  return m ? sigPick(m[1], 360, 2) : "";
+}
+// One item of the issue from a paper row (slug, title, created_at, version, plain, grade), its body text and its open-erratum count.
+function sigItem(p, body, errataOpen) {
+  var check = sigCheck(body), limits = sigLimits(body), notChecked = sigNotChecked(body);
+  return {
+    slug: p.slug, title: String(p.title || "").replace(/\s+/g, " ").trim(), created_at: fmtDate(p.created_at), version: String(p.version || ""),
+    claim: sigPick(p.plain, 420, 3), check: check, check_found: !!check, limits: limits, limits_found: !!limits, not_checked: notChecked,
+    errata_open: errataOpen, grade: Number(p.grade) || 0
+  };
+}
+function signalCompose(items, sendDate) {
+  var lines = [];
+  lines.push("QNFO weekly signal, " + sendDate);
+  lines.push("");
+  lines.push("Each item gives one claim, the check the paper itself proposes, and what it does not show. QNFO papers are machine-assisted preprints and are not independently peer-reviewed: read the limits before you rely on a claim.");
+  lines.push("");
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    lines.push(i + 1 + ". " + it.title);
+    lines.push("   Published " + it.created_at + (it.version ? ", version " + it.version : ""));
+    lines.push("   Claim (plain-language summary, written by a model): " + (it.claim || "No summary available."));
+    lines.push("   Check: " + (it.check_found ? it.check : "No falsification test or runnable check was found in the paper text; read the paper before you rely on this claim."));
+    var lim = ["Not independently peer-reviewed.", it.errata_open === 0 ? "No open erratum is recorded." : "Open errata: " + it.errata_open + "."];
+    if (it.limits_found) lim.unshift(it.limits); else lim.unshift("The paper has no limitations section that this step could read.");
+    if (it.not_checked) lim.push("Not checked, per the paper's own provenance note: " + it.not_checked);
+    lines.push("   Limits: " + lim.join(" "));
+    lines.push("   Read: " + utmLink("/papers/" + it.slug, "digest", it.slug));
+    lines.push("");
+  }
+  lines.push(SIGNAL_HOW);
+  lines.push("");
+  lines.push(SIGNAL_VOICE);
+  return {
+    subject: "QNFO weekly signal, " + sendDate + ": " + items.length + (items.length === 1 ? " claim" : " claims") + " with checks and limits",
+    body: lines.join("\n")
+  };
+}
+function signalPlaceholders(n) {
+  var out = [];
+  for (var i = 0; i < n; i++) out.push("?" + (i + 1));
+  return out.join(",");
+}
+// Draft the issue for sendDate. Returns { ok, drafted } or { ok, skipped } or { ok: false, error }; stores nothing when nothing qualifies.
+async function signalDraft(env, nowMs, sendDate) {
+  var since = new Date(nowMs - 7 * 864e5).toISOString().slice(0, 19).replace("T", " "), cands;
+  try {
+    var pr = await env.LIVING.prepare(
+      "SELECT p.slug, p.title, p.created_at, p.version, p.paper_type, s.text AS plain, s.grade AS grade FROM papers p JOIN plain_summary s ON s.slug = p.slug " +
+      "WHERE p.status IN ('published','distributed') AND p.slug IS NOT NULL AND p.created_at >= ?1 AND s.text != '' AND s.grade <= 12 AND s.rev LIKE 'pl1|' || p.version || '|%' " +
+      "ORDER BY p.created_at DESC LIMIT " + SIGNAL_CANDIDATES
+    ).bind(since).all();
+    cands = pr && pr.results || [];
+  } catch (e) {
+    return { ok: false, error: "papers query failed: " + String(e && e.message || e).slice(0, 200) };
+  }
+  if (!cands.length) return { ok: true, skipped: "no-candidates", send_date: sendDate };
+  var open = new Map();
+  try {
+    var er = await env.AUDIT.prepare(
+      "SELECT target_ref, COUNT(*) AS n FROM internal_errata WHERE target_kind = 'paper' AND status = 'open' AND target_ref IN (" + signalPlaceholders(cands.length) + ") GROUP BY target_ref"
+    ).bind(...cands.map(function (c) { return c.slug; })).all();
+    var erl = er && er.results || [];
+    for (var i = 0; i < erl.length; i++) open.set(String(erl[i].target_ref), Number(erl[i].n) || 0);
+  } catch (e) {
+    return { ok: false, error: "errata query failed: " + String(e && e.message || e).slice(0, 200) };
+  }
+  var clean = cands.filter(function (c) { return !open.get(String(c.slug)); }).slice(0, 12);
+  if (!clean.length) return { ok: true, skipped: "all-candidates-have-open-errata", send_date: sendDate };
+  var bodies = new Map();
+  try {
+    var br = await env.LIVING.prepare(
+      "SELECT slug, substr(body_md, 1, " + SIGNAL_BODY_CHARS + ") AS b FROM papers WHERE slug IN (" + signalPlaceholders(clean.length) + ")"
+    ).bind(...clean.map(function (c) { return c.slug; })).all();
+    var brl = br && br.results || [];
+    for (var j = 0; j < brl.length; j++) bodies.set(String(brl[j].slug), String(brl[j].b || ""));
+  } catch (e2) {
+    return { ok: false, error: "bodies query failed: " + String(e2 && e2.message || e2).slice(0, 200) };
+  }
+  var items = clean.map(function (c) { return sigItem(c, bodies.get(String(c.slug)) || "", 0); });
+  // Rule-based order, not a quality judgement: papers that state both a check and their limits first, then the newest.
+  var order = items.map(function (it, idx) { return { it: it, idx: idx, score: (it.check_found ? 2 : 0) + (it.limits_found ? 1 : 0) }; });
+  order.sort(function (a, b) { return b.score - a.score || a.idx - b.idx; });
+  items = order.slice(0, SIGNAL_MAX_ITEMS).map(function (o) { return o.it; });
+  var text = signalCompose(items, sendDate);
+  try {
+    var ins = await env.AUDIT.prepare(
+      "INSERT OR IGNORE INTO weekly_signal_issues (send_date, status, subject, body_text, items_json, voice_disclosure) VALUES (?1, 'draft', ?2, ?3, ?4, ?5)"
+    ).bind(sendDate, text.subject, text.body, JSON.stringify(items), SIGNAL_VOICE).run();
+    return { ok: true, drafted: Number(ins && ins.meta && ins.meta.changes || 0) === 1, send_date: sendDate, items: items.length, with_check: items.filter(function (x) { return x.check_found; }).length };
+  } catch (e3) {
+    return { ok: false, error: "insert failed: " + String(e3 && e3.message || e3).slice(0, 200) };
+  }
+}
+// The review capability: an HMAC of the send date under SUBSCRIBERS_TOKEN, never the secret itself. Null when the secret is absent.
+async function signalToken(env, sendDate) {
+  if (!env.SUBSCRIBERS_TOKEN) return null;
+  var key = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(env.SUBSCRIBERS_TOKEN)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  var sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("signal-review|" + sendDate)));
+  var out = "";
+  for (var i = 0; i < 20; i++) out += sig[i].toString(16).padStart(2, "0");
+  return out;
+}
+async function signalReviewUrl(env, sendDate) {
+  var t = await signalToken(env, sendDate);
+  return t ? SIGNAL_HOST + "/review?week=" + sendDate + "&token=" + t : null;
+}
+async function signalMailOwner(env, row) {
+  var url = await signalReviewUrl(env, row.send_date);
+  if (!url) return { ok: false, skipped: "no-review-key" };
+  var text = [
+    "A weekly-signal draft is waiting for your review. Nothing goes to subscribers unless you approve it.",
+    "",
+    "Review link (opening it changes nothing; the Approve and Reject buttons on that page do):",
+    url,
+    "",
+    "Approve before Sunday " + row.send_date + " 16:00 UTC. If you do nothing, the paper roll-up goes out as before and this draft expires.",
+    "The link is for you only.",
+    "",
+    "--- draft ---",
+    "",
+    row.body_text
+  ].join("\n");
+  var r = await sendEmail(env, OWNER_REVIEW_TO, "QNFO weekly signal draft for " + row.send_date + ": review before Sunday 16:00 UTC", text, "signal-review");
+  try {
+    if (r && r.ok) await env.AUDIT.prepare("UPDATE weekly_signal_issues SET owner_mailed_at = datetime('now'), mail_attempts = mail_attempts + 1 WHERE send_date = ?1").bind(row.send_date).run();
+    else await env.AUDIT.prepare("UPDATE weekly_signal_issues SET mail_attempts = mail_attempts + 1 WHERE send_date = ?1").bind(row.send_date).run();
+  } catch (e) {
+  }
+  return r && r.ok ? { ok: true, mailed: true } : { ok: false, error: String(r && r.error || "send failed").slice(0, 200) };
+}
+// The hourly step: expire what was never reviewed in time, draft inside the lead window, mail the owner once (three attempts at most).
+async function signalTick(env, nowMs, opts) {
+  nowMs = nowMs || Date.now();
+  opts = opts || {};
+  if (!env.AUDIT || !env.LIVING) return { ok: true, skipped: "no-binding" };
+  var today = new Date(nowMs).toISOString().slice(0, 10), row;
+  try {
+    await env.AUDIT.prepare("UPDATE weekly_signal_issues SET status = 'expired', notes = 'not sent: the slot passed while the issue was ' || status WHERE status IN ('draft','approved') AND send_date < ?1").bind(today).run();
+  } catch (e) {
+    return { ok: false, error: "weekly_signal_issues unreadable: " + String(e && e.message || e).slice(0, 200) };
+  }
+  var slot = signalSlot(nowMs), sendDate = signalDate(slot);
+  if (!opts.force && slot - nowMs > SIGNAL_LEAD_MS) return { ok: true, skipped: "outside-window", send_date: sendDate };
+  try {
+    row = await env.AUDIT.prepare("SELECT send_date, status, body_text, owner_mailed_at, mail_attempts FROM weekly_signal_issues WHERE send_date = ?1").bind(sendDate).first();
+    if (!row) {
+      var d = await signalDraft(env, nowMs, sendDate);
+      if (!d.ok || !d.drafted) return d;
+      await logEvent(env, "subscribers-signal", "drafted", "weekly signal drafted for " + sendDate, { send_date: sendDate, items: d.items, with_check: d.with_check });
+      row = await env.AUDIT.prepare("SELECT send_date, status, body_text, owner_mailed_at, mail_attempts FROM weekly_signal_issues WHERE send_date = ?1").bind(sendDate).first();
+    }
+  } catch (e2) {
+    return { ok: false, error: "signal tick failed: " + String(e2 && e2.message || e2).slice(0, 200) };
+  }
+  if (row && row.status === "draft" && !row.owner_mailed_at && Number(row.mail_attempts || 0) < 3 && !opts.noMail) {
+    var m = await signalMailOwner(env, row);
+    return { ok: m.ok, send_date: sendDate, status: row.status, owner_mail: m.ok ? "sent" : m.skipped || m.error };
+  }
+  return { ok: true, send_date: sendDate, status: row ? row.status : null };
+}
+async function signalBearerOk(request, env) {
+  var token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  return !!(env.SUBSCRIBERS_TOKEN && token && await safeEqual(token, env.SUBSCRIBERS_TOKEN));
+}
+// Send the approved issue for today's slot. The row is claimed ('sending') before the first mail, so a retry of the cron
+// can never mail it twice; a crash mid-send leaves 'sending' and the issue is not resent. Subscribers only: confirmed, not suppressed.
+async function signalSend(env, row) {
+  var now = (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace("T", " ");
+  var claim = await env.AUDIT.prepare("UPDATE weekly_signal_issues SET status = 'sending' WHERE send_date = ?1 AND status = 'approved'").bind(row.send_date).run();
+  if (!(claim && claim.meta && Number(claim.meta.changes) === 1)) return { ok: true, skipped: "signal-not-claimable" };
+  var subs = [];
+  try {
+    var sr = await env.AUDIT.prepare(
+      "SELECT email, unsub_token FROM subscribers WHERE status='subscribed' AND NOT EXISTS (SELECT 1 FROM email_suppression es WHERE lower(es.email) = lower(subscribers.email)) ORDER BY created_at LIMIT " + MAX_RECIPIENTS
+    ).all();
+    subs = sr && sr.results || [];
+  } catch (e) {
+    await env.AUDIT.prepare("UPDATE weekly_signal_issues SET status = 'approved' WHERE send_date = ?1 AND status = 'sending'").bind(row.send_date).run();
+    return { ok: false, error: "subscribers query failed: " + String(e && e.message || e) };
+  }
+  var items = [];
+  try { items = JSON.parse(row.items_json || "[]"); } catch (e) { items = []; }
+  if (!subs.length) {
+    await env.AUDIT.prepare("UPDATE weekly_signal_issues SET status = 'approved' WHERE send_date = ?1 AND status = 'sending'").bind(row.send_date).run();
+    await recordRun(env, now, now, items.length, 0, 0, 0, "skipped", "weekly-signal " + row.send_date + ": no confirmed subscribers");
+    return { ok: true, skipped: "no-subscribers", signal: row.send_date, recipients: 0, sent: 0, failed: 0 };
+  }
+  var sent = 0, failed = 0, BATCH = 8;
+  for (var i = 0; i < subs.length; i += BATCH) {
+    var results = await Promise.all(subs.slice(i, i + BATCH).map(function (s) {
+      var text = row.body_text + "\n\nKnow someone who should read this? Forward this issue, or send them here:\n" + SITE + "/?utm_source=digest&utm_campaign=signal-forward\n\nUnsubscribe: " + unsubUrl(s.unsub_token) + "\n\n\u2014 QNFO";
+      return sendEmail(env, s.email, row.subject, text, "digest", listUnsubscribeHeaders(s.unsub_token));
+    }));
+    for (var j = 0; j < results.length; j++) {
+      if (results[j] && results[j].ok) sent++;
+      else failed++;
+    }
+  }
+  try {
+    await env.AUDIT.prepare("UPDATE weekly_signal_issues SET status = 'sent', sent_at = datetime('now'), sent_count = ?1 WHERE send_date = ?2").bind(sent, row.send_date).run();
+    if (sent > 0) await env.AUDIT.prepare("UPDATE subscribers SET last_digest_at = datetime('now') WHERE status='subscribed'").run();
+  } catch (e) {
+  }
+  await recordRun(env, now, now, items.length, subs.length, sent, failed, failed ? "partial" : "ok", "weekly-signal " + row.send_date);
+  await logEvent(env, "subscribers-signal", "sent", "weekly signal sent for " + row.send_date, { send_date: row.send_date, recipients: subs.length, sent: sent, failed: failed });
+  return { ok: true, signal: row.send_date, items: items.length, recipients: subs.length, sent: sent, failed: failed };
+}
+// Today's slot decides: an approved issue is sent, a sent one is not followed by the roll-up, anything else falls through to the roll-up.
+async function signalForSlot(env) {
+  try {
+    var today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    return await env.AUDIT.prepare("SELECT send_date, status, subject, body_text, items_json FROM weekly_signal_issues WHERE send_date = ?1").bind(today).first();
+  } catch (e) {
+    return null;
+  }
+}
+function signalShell(o) {
+  var t = escAttr(o.title), d = escAttr(o.description);
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>' + t + '</title><meta name="description" content="' + d + '">' +
+    (o.robots ? '<meta name="robots" content="' + o.robots + '"><meta name="referrer" content="no-referrer">' : "") +
+    (o.canonical ? '<link rel="canonical" href="' + escAttr(o.canonical) + '"><meta property="og:url" content="' + escAttr(o.canonical) + '">' : "") +
+    '<meta property="og:title" content="' + t + '"><meta property="og:description" content="' + d + '"><meta property="og:type" content="website"><meta property="og:site_name" content="QNFO"><meta name="twitter:card" content="summary">' +
+    '<style>body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#faf7f2;color:#1b1915;line-height:1.6}main{max-width:42rem;margin:0 auto;padding:1.5rem 1.1rem 3rem}h1{font-family:Georgia,serif;font-size:1.6rem;font-weight:600;line-height:1.25}p{margin:.8rem 0}a{color:#24315e;overflow-wrap:anywhere}.meta{color:#6b6558;font-size:.95rem}.issue p{overflow-wrap:anywhere}button{font:inherit;min-height:48px;min-width:48px;padding:.6rem 1.4rem;margin:.4rem .6rem .4rem 0;border-radius:8px;border:1px solid #24315e;background:#24315e;color:#fff;cursor:pointer}button.alt{background:#fff;color:#24315e}ul.list{padding-left:1.1rem}ul.list li{margin:.5rem 0}</style></head><body><main>' + o.body + '<p class="meta"><a href="' + SITE + '">qnfo.org</a></p></main></body></html>';
+}
+function signalHtml(body, status, extraHeaders) {
+  return new Response(body, { status: status || 200, headers: Object.assign({ "Content-Type": "text/html; charset=utf-8" }, extraHeaders || {}) });
+}
+// Plain issue text as paragraphs; every address in it becomes a link.
+function sigBodyHtml(text) {
+  return String(text || "").split(/\n{2,}/).map(function (blk) {
+    return "<p>" + escAttr(blk).replace(/\n/g, "<br>").replace(/(https:\/\/[^\s<]+)/g, '<a href="$1" rel="noopener">$1</a>') + "</p>";
+  }).join("");
+}
+// Public archive: sent issues only. A D1 error still answers 200 with the shell, so a probe on this page says nothing about D1 load.
+async function handleSignalIndex(request, env) {
+  var u = new URL(request.url), list = "", failed = false;
+  try {
+    var r = await env.AUDIT.prepare("SELECT send_date, subject, items_json FROM weekly_signal_issues WHERE status = 'sent' ORDER BY send_date DESC LIMIT 60").all();
+    var rows = r && r.results || [];
+    list = rows.length ? '<ul class="list">' + rows.map(function (x) {
+      var n = 0;
+      try { n = JSON.parse(x.items_json || "[]").length; } catch (e) { n = 0; }
+      return '<li><a href="/signal/' + escAttr(x.send_date) + '">' + escAttr(x.subject) + '</a> <span class="meta">(' + escAttr(x.send_date) + ", " + n + (n === 1 ? " item" : " items") + ")</span></li>";
+    }).join("") + "</ul>" : "<p>No issue has been sent yet. The first goes out after a human editor approves it.</p>";
+  } catch (e) {
+    failed = true;
+    list = "<p>The archive cannot be read right now. Try again in a few minutes.</p>";
+  }
+  var body = "<h1>QNFO weekly signal</h1><p>One short issue a week: a claim from a QNFO paper, the check the paper itself proposes, and what it does not show. A human editor approves every issue before it is sent.</p>" + list +
+    "<p>" + escAttr(SIGNAL_VOICE) + '</p><p class="meta">Sign up for the weekly signal at <a href="' + SITE + '/subscribe">qnfo.org/subscribe</a>. Subscribing uses a double opt-in and every issue carries an unsubscribe link.</p>';
+  return signalHtml(signalShell({ title: "QNFO weekly signal", description: "A weekly issue from QNFO: one claim, the check the paper proposes, and its limits. Human-approved; any audio edition will use a labelled synthetic voice.", canonical: u.origin + "/signal", body: body }), 200, { "Cache-Control": failed ? "no-store" : "public, max-age=300" });
+}
+async function handleSignalIssue(request, env, sendDate) {
+  var u = new URL(request.url), row = null;
+  try {
+    row = await env.AUDIT.prepare("SELECT send_date, subject, body_text FROM weekly_signal_issues WHERE send_date = ?1 AND status = 'sent'").bind(sendDate).first();
+  } catch (e) {
+    return signalHtml(signalShell({ title: "QNFO weekly signal", description: "QNFO weekly signal.", body: "<h1>QNFO weekly signal</h1><p>This issue cannot be read right now. Try again in a few minutes.</p>" }), 503, { "Cache-Control": "no-store" });
+  }
+  if (!row) return signalHtml(signalShell({ title: "Issue not found - QNFO weekly signal", description: "No such issue.", robots: "noindex", body: '<h1>Issue not found</h1><p>No sent issue has this date. <a href="/signal">All issues</a></p>' }), 404);
+  var desc = sigPick(String(row.body_text).split("\n\n")[1] || row.subject, 200, 1) || row.subject;
+  return signalHtml(signalShell({ title: row.subject, description: desc, canonical: u.origin + "/signal/" + row.send_date, body: '<p class="meta"><a href="/signal">All issues</a></p><div class="issue">' + sigBodyHtml(row.body_text) + "</div>" }), 200, { "Cache-Control": "public, max-age=300" });
+}
+function signalReviewPage(row, note, canAct) {
+  var forms = "";
+  if (canAct) {
+    forms = '<form method="post" action="/review"><input type="hidden" name="week" value="' + escAttr(row.send_date) + '"><input type="hidden" name="token" value="' + escAttr(note.token) + '">' +
+      (row.status === "draft" ? '<button type="submit" name="decision" value="approve">Approve</button>' : "") +
+      '<button type="submit" name="decision" value="reject" class="alt">' + (row.status === "approved" ? "Withdraw approval" : "Reject") + "</button></form>";
+  }
+  var body = "<h1>Weekly signal for " + escAttr(row.send_date) + "</h1><p><strong>Status: " + escAttr(row.status) + "</strong>" + (note.message ? " &mdash; " + escAttr(note.message) : "") + "</p>" + forms +
+    '<p class="meta">Nothing is sent unless the status is approved when the Sunday ' + escAttr(row.send_date) + ' 16:00 UTC slot arrives. Opening this page changes nothing.</p><h2>' + escAttr(row.subject) + '</h2><div class="issue">' + sigBodyHtml(row.body_text) + "</div>";
+  return signalHtml(signalShell({ title: "Review the weekly signal " + row.send_date, description: "Owner review of the QNFO weekly signal draft.", robots: "noindex,nofollow", body: body }), 200, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+}
+function signalReviewError(title, text, status) {
+  return signalHtml(signalShell({ title: title, description: title, robots: "noindex", body: "<h1>" + escAttr(title) + "</h1><p>" + escAttr(text) + "</p>" }), status, { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+}
+async function handleSignalReview(request, env) {
+  var u = new URL(request.url), method = request.method.toUpperCase(), week = u.searchParams.get("week") || "", token = u.searchParams.get("token") || "", decision = "";
+  if (method === "POST") {
+    try {
+      var f = await request.formData();
+      week = String(f.get("week") || week);
+      token = String(f.get("token") || token);
+      decision = String(f.get("decision") || "");
+    } catch (e) {
+      return signalReviewError("Bad request", "The form could not be read.", 400);
+    }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(week) || !/^[0-9a-f]{40}$/.test(token)) return signalReviewError("Link incomplete", "This review link is incomplete.", 400);
+  var want = await signalToken(env, week);
+  if (!want || !await safeEqual(token, want)) return signalReviewError("Link not recognised", "This review link is not valid.", 403);
+  var row;
+  try {
+    row = await env.AUDIT.prepare("SELECT send_date, status, subject, body_text, drafted_at FROM weekly_signal_issues WHERE send_date = ?1").bind(week).first();
+  } catch (e) {
+    return signalReviewError("Something went wrong", "Please try again later.", 500);
+  }
+  if (!row) return signalReviewError("No such draft", "There is no issue for this date.", 404);
+  var slotPassed = Date.now() >= Date.parse(week + "T16:00:00Z");
+  var canAct = !slotPassed && (row.status === "draft" || row.status === "approved");
+  var message = "";
+  if (method === "POST") {
+    if (!canAct) {
+      message = slotPassed ? "the send slot has passed, so this issue can no longer be changed" : "this issue is already " + row.status;
+    } else if (decision === "approve" && row.status === "draft") {
+      var a = await env.AUDIT.prepare("UPDATE weekly_signal_issues SET status = 'approved', reviewed_at = datetime('now'), reviewed_by = 'owner-link' WHERE send_date = ?1 AND status = 'draft'").bind(week).run();
+      message = Number(a && a.meta && a.meta.changes) === 1 ? "approved; it will be sent to confirmed subscribers at the Sunday slot" : "not changed";
+      await logEvent(env, "subscribers-signal", "approved", "weekly signal approved for " + week, { send_date: week, drafted_at: row.drafted_at });
+    } else if (decision === "reject") {
+      var r = await env.AUDIT.prepare("UPDATE weekly_signal_issues SET status = 'rejected', reviewed_at = datetime('now'), reviewed_by = 'owner-link' WHERE send_date = ?1 AND status IN ('draft','approved')").bind(week).run();
+      message = Number(r && r.meta && r.meta.changes) === 1 ? "rejected; the paper roll-up goes out as before" : "not changed";
+      await logEvent(env, "subscribers-signal", "rejected", "weekly signal rejected for " + week, { send_date: week, drafted_at: row.drafted_at });
+    } else {
+      message = "no change was made";
+    }
+    row = await env.AUDIT.prepare("SELECT send_date, status, subject, body_text, drafted_at FROM weekly_signal_issues WHERE send_date = ?1").bind(week).first() || row;
+    canAct = !slotPassed && (row.status === "draft" || row.status === "approved");
+  }
+  return signalReviewPage(row, { message: message, token: token }, canAct);
+}
+// ---- WEEKLY-SIGNAL-1:END ----
 async function health(env) {
   let confirmed = null, pending = null;
   try {
@@ -569,12 +996,21 @@ async function health(env) {
   } catch (e) {
     confirmed = "err";
   }
+  // WEEKLY-SIGNAL-1: the newest issue's date and state (no text, no address), so a read of /health shows whether a draft exists.
+  let signal = null;
+  try {
+    const sg = await env.AUDIT.prepare("SELECT send_date, status FROM weekly_signal_issues ORDER BY send_date DESC LIMIT 1").first();
+    signal = sg ? { send_date: sg.send_date, status: sg.status } : { send_date: null, status: "none" };
+  } catch (e) {
+    signal = { send_date: null, status: "unreadable" };
+  }
   return json({
     status: "ok",
     worker: "qnfo-subscribers",
     version: VERSION,
-    capabilities: ["subscribe", "double-opt-in", "unsubscribe", "weekly-digest", "subscribe-page", "funnel-counts"],
-    limitations: ["no send before double opt-in", "a confirmation link confirms only when its page's button is pressed (POST); a GET never confirms", "the digest sends only on the Sunday 16:00 UTC cron or an authenticated POST /run/digest", "suppressed addresses are never mailed", "a pending address gets at most one confirmation mail an hour", "GET /funnel shows counts only; a view is counted only on this worker's /subscribe page or when a surface reports it"],
+    capabilities: ["subscribe", "double-opt-in", "unsubscribe", "weekly-digest", "subscribe-page", "funnel-counts", "weekly-signal"],
+    weekly_signal_latest: signal,
+    limitations: ["a weekly-signal issue is drafted by rule, mailed only to the owner for review, and sent to subscribers only after the owner approves it; with no approved issue the paper roll-up is sent", "no send before double opt-in", "a confirmation link confirms only when its page's button is pressed (POST); a GET never confirms", "the digest sends only on the Sunday 16:00 UTC cron or an authenticated POST /run/digest", "suppressed addresses are never mailed", "a pending address gets at most one confirmation mail an hour", "GET /funnel shows counts only; a view is counted only on this worker's /subscribe page or when a surface reports it"],
     subscribers: confirmed,
     pending,
     send_email: !!env.SEND_EMAIL,
@@ -631,6 +1067,21 @@ var worker_default = {
     if (p === "/funnel/view" && method === "POST") return handleFunnelView(request, env);
     if (p === "/confirm" && (method === "GET" || method === "POST")) return handleConfirm(request, env);
     if (p === "/unsubscribe" && (method === "GET" || method === "POST")) return handleUnsubscribe(request, env);
+    // WEEKLY-SIGNAL-1: the public archive of sent issues, and the owner's review page (a GET shows, a POST decides).
+    if (p === "/signal" && method === "GET") return handleSignalIndex(request, env);
+    const signalIssue = /^\/signal\/(\d{4}-\d{2}-\d{2})$/.exec(p);
+    if (signalIssue && method === "GET") return handleSignalIssue(request, env, signalIssue[1]);
+    if (p === "/review" && (method === "GET" || method === "POST")) return handleSignalReview(request, env);
+    if (p === "/run/signal/draft" && method === "POST") {
+      if (!await signalBearerOk(request, env)) return json({ ok: false, error: "unauthorized" }, 401);
+      let so = {};
+      try {
+        so = await request.json();
+      } catch (e) {
+        so = {};
+      }
+      return json(await signalTick(env, Date.now(), { force: !!so.force, noMail: !!so.noMail }));
+    }
     if (p === "/run/digest" && method === "POST") {
       const auth = request.headers.get("Authorization") || "";
       const token = auth.replace(/^Bearer\s+/i, "");
@@ -664,6 +1115,15 @@ function subscribersScheduled(event, env, ctx) {
       } catch (e) {
         ok = 0;
         console.error(JSON.stringify({ event: "scheduled_digest_failed", error: String(e && e.message || e).slice(0, 200) }));
+      }
+      // WEEKLY-SIGNAL-1: the hourly tick drafts the next weekly signal inside its lead window and mails the owner the review link once.
+      try {
+        if (event && event.cron && event.cron !== SUBSCRIBERS_DIGEST_CRON) {
+          const sr = await signalTick(env, Date.now(), {});
+          if (sr && sr.ok === false) console.error(JSON.stringify({ event: "weekly_signal_tick_failed", error: String(sr.error || sr.owner_mail || "").slice(0, 200) }));
+        }
+      } catch (e) {
+        console.error(JSON.stringify({ event: "weekly_signal_tick_threw", error: String(e && e.message || e).slice(0, 200) }));
       }
       try {
         await writeSubscriberAttribution(env);
@@ -785,6 +1245,14 @@ export {
   funnelSource,
   safeEqual,
   ensureSubscriberUtm,
-  writeSubscriberAttribution
+  writeSubscriberAttribution,
+  signalSlot,
+  signalDate,
+  signalTick,
+  signalDraft,
+  signalToken,
+  sigPick,
+  sigCheck,
+  sigLimits
 };
 //# sourceMappingURL=worker.js.map
