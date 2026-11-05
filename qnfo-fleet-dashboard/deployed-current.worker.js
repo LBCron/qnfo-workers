@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.95.0";
+var VERSION = "1.95.1";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -13925,7 +13925,7 @@ async function cmdRoutes(request, env, ctx, path, owner) {
 // `cf zones`, `cf dns <zone>` ... answer with no model; `lee <question>` runs Lee's tool loop (read tools only) as a polled job (cmd_log kind lee). Lee's write tools (rollback, DNS and route
 // changes, Pages create) are NOT ported: a model that can delete a DNS record on a sentence is the wrong shape for the fleet, so they come back as confirm buttons behind a fresh code
 // (ROADMAP-1 row filed with this change). Flag: ops_config cmd_lee ('off' switches Lee off without a deploy; any other value or no row is on). Owner session only.
-var LEE_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+var LEE_MODEL = "@cf/zai-org/glm-5.3-flash";
 var LEE_MAX_STEPS = 5;
 var LEE_BUDGET_MS = 40e3;
 var LEE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;

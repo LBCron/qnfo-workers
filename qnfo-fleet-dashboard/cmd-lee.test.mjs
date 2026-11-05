@@ -148,6 +148,10 @@ try {
   globalThis.fetch = realFetch;
 }
 ok(/data-c="cf help">lee</.test(src), "the page has a lee chip");
+// MODEL-FLOOR-1: the original Lee ran a llama model, which the model floor bans (scripts/model-floor-guard.mjs flagged var LEE_MODEL on 2026-11-05); the default must be in the policy table.
+const leeModel = /var LEE_MODEL = "([^"]+)"/.exec(src)[1];
+const policy = JSON.parse(readFileSync(new URL("../scripts/model-policy.json", import.meta.url), "utf8"));
+ok(policy.allowed.some((r) => r.wa === leeModel) && !/llama/i.test(leeModel), "Lee's default model is in the model policy table and not a banned family", leeModel);
 
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
