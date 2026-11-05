@@ -206,7 +206,12 @@ def transform_guest(guest, src, member_version_const):
             die("the guest exports " + ", ".join(others) + " besides its default (Durable Object or Workflow classes move by hand)")
         gsrc = gsrc[:em.start()] + "\nreturn " + dflt[0][: -len(" as default")].strip() + ";\n"
     elif gsrc.count("\nexport default {") == 1:
-        gsrc = gsrc.replace("\nexport default {", "\nreturn {")
+        # FOLD-RETURN-ORDER-1 (qnfo-model-eval fold, 2026-11-05): a guest written as `export default {...}` may carry top-level statements after it
+        # (`var CRON_GRID_CFG = ...`), which are legal in a module because the default export is only a binding. An inline `return {` ended the IIFE
+        # before them, so the folded member's `scheduled` read an undefined config and threw on every tick. The default is held in a variable and
+        # returned after the guest's last statement.
+        holder = "__fk_" + g + "_guestDefault"
+        gsrc = gsrc.replace("\nexport default {", "\nvar " + holder + " = {") + "\nreturn " + holder + ";\n"
     else:
         die("no recognisable default export in the guest")
     if re.search(r"^export\s", gsrc, re.M):

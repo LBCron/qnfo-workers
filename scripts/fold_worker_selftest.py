@@ -151,6 +151,14 @@ try:
     ok(t.returncode == 0 and " 0 failed" in t.stdout, "the generated suite passes", t.stdout + t.stderr)
     ok('"PERSONAL"' not in hsrc.split("keys: ")[1].split("\n")[0], "the member's env keys leave out the host's personal-plane binding")
 
+    # FOLD-RETURN-ORDER-1: a guest written as `export default {...}` with top-level statements after it keeps them running before the member is returned.
+    shutil.rmtree(tmp); tmp = tempfile.mkdtemp(prefix="foldkit-")
+    late = GUEST.split("var worker_default = {")[0] + "export default {\n  async fetch(request, env, ctx) { return new Response(\"g\" + LATE_CFG.tick); },\n  async scheduled(event, env, ctx) { return LATE_CFG.tick; }\n};\nvar LATE_CFG = {\"tick\": \"20 * * * *\"};\n"
+    repo(tmp, guest=late)
+    r = run(tmp)
+    ok(r.returncode == 0, "the kit folds a guest with `export default {` and a statement after it", r.stderr or r.stdout)
+    hl = open(os.path.join(tmp, "h-one", "worker.js")).read().split("FOLD-KIT-1:g-one:BEGIN")[1].split("FOLD-KIT-1:g-one:END")[0]
+    ok("\nvar __fk_gOne_guestDefault = {" in hl and "\nreturn {" not in hl and hl.index("var LATE_CFG") < hl.index("return __fk_gOne_guestDefault;"), "the default is held in a variable and returned after the guest's last top-level statement", hl[-900:])
     # FOLD-KIT-2: public routes with methods, a named non-qnfo caller, a derived env value and a constant.
     shutil.rmtree(tmp); tmp = tempfile.mkdtemp(prefix="foldkit-")
     repo(tmp, guest=GUEST.replace('(env.GDB ? "db" : "nodb")', '(env.GDB ? "db" : "nodb") + (env.GKEY ? "k" : "") + (env.GBASE || "")'),

@@ -3,7 +3,7 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 var PROBER_CRON = "*/20 * * * *";
 
 // worker.js
-var VERSION = "1.8.0";
+var VERSION = "1.8.1";
 /* 1.6.6 MODEL-PROBE-FALLBACK-1 (2026-11-01, pillar cost): retain router 5xx as route failures while using direct confirmation for known model IDs before updating model health. */ /* 1.6.1 BUDGET-PROBE-REFRESH-1 (2026-10-19, pillar cost, agent_issues 2828 and 2829 closeout): the prober member skipped an ok row for 9 hours after its last probe (PROBE_OK_INTERVAL_MS), so the rows BUDGET-PROBE-1 exists for kept the verdict of the OLD ping-only probe after the 12:25Z deploy: glm-5.3-flash (last probed 12:00:37Z, 0.506 error share over 6,346 calls) and qwen3.8-27b (09:30:42Z, 0.763 over 118) were still ok, and eight other rows were probed only as their own 9 hours lapsed. An ok row whose last probe predates BUDGET_PROBE_SINCE_MS (the 1.6.0 deploy) is now due on the next tick, once; after that probe it carries a budget-shaped verdict and the 9-hour interval applies again. The sweep already probes every model on its full tick. Tests: budget-probe.test.mjs. */ /* 1.6.0 BUDGET-PROBE-1 (2026-10-19, pillar cost, agent_issues 2829 path A): ai_model_health stops reading ok for a model that answers a one-token ping and an empty reply to a real request (glm-5.3-flash 0.53 error share over 5,991 calls, qwen3.8-27b 0.77 over 105, both ok). Both writers of status ok, the sweep (probeBudgetCompletion) and the folded prober member 2.3.16 (applyBudgetProbe), keep the cheap ping and send text models one more request: a trivial sum, max_tokens 256, a DONE marker; empty content (finish_reason length) or no marker is a failed probe on the existing degraded then failing path, with no new status value. Models with a Workers AI id are probed through env.AI.run by both writers (probeBudgetDirect): the router's small-answer lane (reasoning_effort low or none at max_tokens <= 2048) would hide the empty reply; only deepseek-v4-flash and -thinking use the router. ai_calibration_config budget_probe = off reverts to the ping-only verdict without a deploy (control_registry ai-calibration-budget-probe-switch); fm-health-ok-but-empty detects ok rows with a 0.5 error share. */
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -3748,7 +3748,8 @@ async function manifest(env) {
   };
 }
 
-return {
+// FOLD-RETURN-ORDER-1: the guest default is held in a variable and returned after the last top-level statement of the guest, so the statements that follow its `export default` (var CRON_GRID_RETRIES, var CRON_GRID_CFG) run before the host calls scheduled.
+var __fk_qnfoModelEval_guestDefault = {
   async fetch(req, env) {
     const url = new URL(req.url);
     const p = url.pathname.replace(/\/$/, "") || "/";
@@ -3964,6 +3965,7 @@ async function cronGridRun(db, event, ctx, cfg, run) {
 }
 // ---- CRON-GRID-1:END ----
 var CRON_GRID_CFG = {"worker": "qnfo-model-eval", "tick": "20 * * * *", "tickMin": 60, "jobs": [{"cron": "17 */6 * * *", "periodMin": 360, "retry": true}], "own": "self"};
+return __fk_qnfoModelEval_guestDefault;
 })();
 var __fk_qnfoModelEval_default = __foldWrap(__fk_qnfoEvolve_default, {
   name: "qnfo-model-eval", mod: qnfoModelEvalFoldMod, prefix: "/model-eval", publicPaths: [],
