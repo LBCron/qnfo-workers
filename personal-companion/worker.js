@@ -3232,7 +3232,7 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.45.2";
+var VERSION = "1.45.3";
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -6518,8 +6518,25 @@ async function factCheckOne(env, modelId, draft, ground) {
     var out = aiReplyText(resp);
     var v = parseFactVerdict(out);
     if (v) { v.model = modelId; v.family = familyOf(modelId); return v; }
+    noteReviewerNoVerdict(env, modelId);
     return { failed: true, model: modelId, error: "no verdict in reply (" + String(out).length + " chars)" };
   } catch (e) { return { failed: true, model: modelId, error: String(e && e.message || e).slice(0, 140) }; }
+}
+// COST-COMPANION-1 (2026-11-05, pillar cost): a reviewer that answers without a verdict was invisible to REVIEWER-HEALTH-1, which reads
+// only the errors that aiRunAttr counts from thrown calls. glm-5.3 spent the whole REVIEW_MAX_TOKENS (8000 completion tokens, 5 of 5
+// gateway logs of 2026-11-04) reasoning over a 9k-token draft and returned nothing parseable: about 3.8k neurons a call, 12 to 13k an hour,
+// about 300k neurons a day (USD 3.3) for no verdict, and it was asked first on the rotation whenever its seed came up. A reply with no
+// verdict is now one error in the same counter row, so after REVIEWER_SICK_MIN_CALLS calls with half of them empty the reviewer is asked
+// last (the day's first three calls still probe it; the counter resets with the UTC day, so a model that starts answering is trusted again).
+// Fire and forget, like aiRunAttr: it never adds latency and a failed write is logged.
+function noteReviewerNoVerdict(env, modelId) {
+  try {
+    var db = env && (env.AUDIT || env.AUDIT_DB);
+    if (!db) return;
+    var day = new Date().toISOString().slice(0, 10);
+    var pr = db.prepare("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors, in_chars, ms) VALUES (?1,'personal-companion','factcheck',?2,0,1,0,0) ON CONFLICT(day, worker, purpose, model) DO UPDATE SET errors = errors + 1").bind(day, String(modelId)).run();
+    if (pr && typeof pr.catch === "function") pr.catch(function (e) { console.error("COST-COMPANION-1 note failed: " + String(e && e.message || e).slice(0, 160)); });
+  } catch (e2) { console.error("COST-COMPANION-1 note threw: " + String(e2 && e2.message || e2).slice(0, 160)); }
 }
 // FACTCHECK-FIRST-TWO-1 + REVIEWER-HEALTH-1 (1.19.6, agent_issues 2222; companion_runs 5404-5408 of 2026-10-13 11:00 UTC): every
 // verification took 220 s, because each of its two rounds waited the full REVIEW_TIMEOUT_MS for glm-5.3 (10 of its 11 fact-check calls
@@ -8434,8 +8451,23 @@ async function starvedRetryDue(env) {
     if (busy && Number(busy.n) > 0) return false;
     var ok = await env.PERSONAL.prepare("SELECT run_at FROM companion_runs WHERE status = 'ok' AND form <> 'steward' ORDER BY id DESC LIMIT 1").first();
     if (ok && Date.now() - new Date(ok.run_at).getTime() < 6 * 36e5) return false;
+    // COST-COMPANION-1 (2026-11-05, pillar cost): while the 24 hour accept rate is collapsed (the steward's own test: at least 8 attempts,
+    // under 10 percent accepted; 3 to 5 percent over 17 to 30 attempts on 2026-11-04, the strict fact-check refusing nearly every draft) a
+    // retry on every hourly tick spent a writer call and a reviewer panel (about 18k neurons, USD 0.2) per tick for about one accepted piece
+    // in twenty-five tries. A collapsed day retries about every third tick (the last finished attempt must be COLLAPSE_RETRY_MIN_MS old),
+    // so the pipeline still runs, at a third of the spend; the first accepted piece ends the collapse test and the hourly retry returns.
+    if (await collapsedRetryHold(env)) return false;
     return true;
   } catch (e) { return false; }
+}
+var COLLAPSE_RETRY_MIN_MS = 125 * 60000;
+async function collapsedRetryHold(env) {
+  var r = await env.PERSONAL.prepare("SELECT status FROM companion_runs WHERE run_at > datetime('now','-24 hours') AND status IN ('ok','failed','rejected') ORDER BY id DESC LIMIT 200").all();
+  var rows = (r && r.results) || [], a = rows.length, o = 0;
+  for (var i = 0; i < rows.length; i++) if (rows[i].status === "ok") o++;
+  if (!(a >= 8 && o / a < 0.1)) return false;
+  var last = await env.PERSONAL.prepare("SELECT run_at FROM companion_runs WHERE status IN ('ok','failed','rejected','blocked','error') AND form <> 'steward' ORDER BY id DESC LIMIT 1").first();
+  return !!(last && Date.now() - new Date(last.run_at).getTime() < COLLAPSE_RETRY_MIN_MS);
 }
 async function steward(env) {
   try {
@@ -8548,6 +8580,7 @@ var __verify = { stallRecurred: stallRecurred, shortenFeedback: shortenFeedback,
 Object.assign(__verify, { gatherContestedSources: gatherContestedSources, fetchHansardSource: fetchHansardSource, fetchGlobalVoicesSource: fetchGlobalVoicesSource, fetchGovUkSource: fetchGovUkSource, csrcRelevant: csrcRelevant, csrcDiscusses: csrcDiscusses, csrcQueries: csrcQueries, wikiAnchors: wikiAnchors, getSrcDiag: function () { return srcDiag; } });
 Object.assign(__verify, { writeSourceMetrics: writeSourceMetrics, writeBalanceMetrics: writeBalanceMetrics, balanceCheck: balanceCheck, balanceCheckOne: balanceCheckOne, parseBalanceScore: parseBalanceScore, verifyPiece: verifyPiece, recordAudit: recordAudit, factRevisionPrompt: factRevisionPrompt, BALANCE_MIN_SCORE: BALANCE_MIN_SCORE, REVIEW_POOL: REVIEW_POOL, familyOf: familyOf });
 Object.assign(__verify, { isContestedTopic: isContestedTopic, sourceHost: sourceHost, sourceViewpoint: sourceViewpoint, sourceCountry: sourceCountry, contestedSourcesOk: contestedSourcesOk });
+Object.assign(__verify, { noteReviewerNoVerdict: noteReviewerNoVerdict, collapsedRetryHold: collapsedRetryHold, COLLAPSE_RETRY_MIN_MS: COLLAPSE_RETRY_MIN_MS, factCheckOne: factCheckOne });
 export {
   __verify,
   GenerationFlow,
