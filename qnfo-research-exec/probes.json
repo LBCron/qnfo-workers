@@ -10,6 +10,13 @@
       ]
     },
     {
+      "url": "https://qnfo-research-exec.q08.workers.dev/render-check",
+      "contains": [
+        "\"ok\":true",
+        "\"first_heading\":"
+      ]
+    },
+    {
       "url": "https://qnfo-research-exec.q08.workers.dev/precheck",
       "contains": [
         "data-page=\"precheck\"",

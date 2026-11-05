@@ -16,7 +16,10 @@ let pass = 0, fail = 0;
 const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (x !== undefined ? " :: " + JSON.stringify(x).slice(0, 300) : "")); } };
 
 {
-  const missing = guest.split("\n").filter((l) => l.trim() && !src.includes(l.trim()));
+  // RENDER-SOURCE-1 (0.53.0): the member's return line also hands out renderSourceHtml (the bundle's Browser Run binding, used by the pipeline's source renderer);
+  // that one extended line stands in for the guest's plain return line and nothing else in the bundle differs.
+  const extReturn = "return { default: publish_worker_src_default, renderSourceHtml };";
+  const missing = guest.split("\n").filter((l) => l.trim() && !src.includes(l.trim())).filter((l) => !(l.trim() === "return { default: publish_worker_src_default };" && src.includes(extReturn)));
   ok(missing.length === 4 && missing.filter((l) => l.startsWith("import { Buffer as Buffer")).length === 2 && missing.some((l) => l.startsWith("var VERSION = ")) && missing.some((l) => l === "export default {"),
     "every errata-hub line is in the host except its two node:buffer imports, its VERSION line and its export", missing.map((l) => l.slice(0, 60)));
   ok(versionAtLeast(mod.__hv, "0.9.65") && versionAtLeast(mod.__mv, "1.5.0") && (src.match(/var VERSION = "/g) || []).length === 1, "host 0.9.65 or later, member 1.4.2-folded, one quoted VERSION constant", [mod.__hv, mod.__mv]);
