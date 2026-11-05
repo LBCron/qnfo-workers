@@ -176,6 +176,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/BEST-PRACTICES-2026.md"
     },
     {
+      "path": "docs/BLUE-SKY-ROADMAP-2026-11.md",
+      "title": "Blue-sky roadmap and wish list (BLUESKY-2026-11)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/BLUE-SKY-ROADMAP-2026-11.md"
+    },
+    {
       "path": "docs/BP26-EDGE-SECURITY-1.md",
       "title": "BP26-EDGE-SECURITY-1: secure headers, Turnstile on public forms, per-address limit on the fleet's OTP endpoints",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/BP26-EDGE-SECURITY-1.md"

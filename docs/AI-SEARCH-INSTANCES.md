@@ -8,6 +8,11 @@ Source of the change: Cloudflare changelog 2026-10-01, AI Search generally avail
 begins 2026-11-01. Embedding and rerank calls move into AI Search pricing and no longer appear on Workers AI bills or in AI Gateway logs. Hybrid search is
 the default for new instances. File caps are 10 MiB (OCR and text) and 4 MiB.
 
+**Correction 2026-11-05 (BLUESKY-2026-11, full text of the changelog post read):** Cloudflare postponed usage billing by one month: it now begins
+**2026-12-01**, not 2026-11-01, and the default sync interval for new instances is 24 hours (was 6); pricing and included usage are unchanged
+(https://developers.cloudflare.com/changelog/post/2026-11-02-billing-postponed-default-sync-interval/). Every "2026-11-01" in this file reads 2026-12-01. The
+instance's own `sync_interval` is set explicitly, so the new default does not change `qnfo-corpus`; check that before creating any second instance.
+
 ## Which workers bind AI Search
 
 | Worker | Binding | What it is | Source |

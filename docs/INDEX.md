@@ -31,6 +31,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [QNFO Quniverse — Autonomous Use Cases & Best Practices](AUTONOMOUS-USE-CASES.md) - `docs/AUTONOMOUS-USE-CASES.md`
 - [AUTONOMY-DECISION-POLICY-1: a human is an override, never a dependency](AUTONOMY-DECISION-POLICY.md) - `docs/AUTONOMY-DECISION-POLICY.md`
 - [Fleet best-practice catalogue 2026 (BP26)](BEST-PRACTICES-2026.md) - `docs/BEST-PRACTICES-2026.md`
+- [Blue-sky roadmap and wish list (BLUESKY-2026-11)](BLUE-SKY-ROADMAP-2026-11.md) - `docs/BLUE-SKY-ROADMAP-2026-11.md`
 - [BP26-EDGE-SECURITY-1: secure headers, Turnstile on public forms, per-address limit on the fleet's OTP endpoints](BP26-EDGE-SECURITY-1.md) - `docs/BP26-EDGE-SECURITY-1.md`
 - [BP26-PAPER-PIDS-1 and BP26-FORECAST-HYGIENE-1: research, design, state (2026-10-28)](BP26-PAPER-PIDS-AND-FORECAST-HYGIENE.md) - `docs/BP26-PAPER-PIDS-AND-FORECAST-HYGIENE.md`
 - [BP26-PROMPT-INJECTION-1 and BP26-NO-TRACKING-1: research and state (2026-10-28)](BP26-PROMPT-INJECTION.md) - `docs/BP26-PROMPT-INJECTION.md`
