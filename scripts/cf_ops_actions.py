@@ -1802,8 +1802,18 @@ def d1_restore_drill(acct: str, token: str, caller=None, sleep=time.sleep, now=t
 
 GUARD_URL = "https://qnfo-deploy-guard.q08.workers.dev"
 # The loops that read fleet_kill_switch today. A reader is added here in the change that teaches its worker to read the flag (docs/KILL-SWITCH-DRILL.md).
-KS_READERS = ("qnfo-deploy-guard",)
-KS_PENDING = ("qnfo-fleet-control", "qnfo-code-orchestrator", "qnfo-ops", "qnfo-social", "qnfo-email-orchestrator", "qnfo-research-exec", "qnfo-cloud-ops", "qnfo-github-steward")
+KS_READERS = ("qnfo-deploy-guard", "qnfo-code-orchestrator", "qnfo-github-steward")
+KS_PENDING = ("qnfo-fleet-control", "qnfo-ops", "qnfo-social", "qnfo-research-exec", "qnfo-cloud-ops")
+# BP26-KILLSWITCH-READERS-1: a reader whose work is a cron tick, not a request, cannot be sent a probing call. The drill reads its events instead. Per reader: wait_s is how long the drill
+# polls (a 5-minute grid worker needs up to 7 minutes), quiet_like (optional) is an event kind pattern that must be absent from the quiet window (the loop's own work events), and alive
+# is the query whose count (after T1 plus the 30 s cache) shows the worker ran again after the switch went off. Resumed also requires no new kill-switch.observed event after T1.
+KS_EVENT_READERS = {
+    "qnfo-code-orchestrator": {"wait_s": 150, "quiet_like": "code-task.%",
+                               "alive": "SELECT COUNT(*) AS n FROM fleet_heartbeat WHERE worker = 'qnfo-code-orchestrator' AND ts > ?1", "alive_arg": "iso"},
+    "qnfo-github-steward": {"wait_s": 420, "quiet_like": None,
+                            "alive": "SELECT COUNT(*) AS n FROM cron_fire_log WHERE source = 'worker:qnfo-github-steward' AND outcome = 'ok' AND fired_epoch_ms > ?1", "alive_arg": "ms"},
+}
+KS_QUIET_START_S = 100  # in-flight steps of a tick that began before the flag finish inside the 75 s loop lock; judge quiet after that
 
 
 def _guard(path: str, body: dict | None = None, timeout: int = 30) -> tuple[int, dict]:
@@ -1824,6 +1834,7 @@ def _guard(path: str, body: dict | None = None, timeout: int = 30) -> tuple[int,
 
 def kill_switch_drill(acct: str, token: str, guard=None, db=None, sleep=time.sleep, now=time.time, max_on_sec: int = 600) -> int:
     """BP26-LEASES-KILLSWITCH-1. The drill is the fleet's, run from the repository runner: it writes the one ops_config row, observes, restores, records."""
+    iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
     guard = guard or _guard
     db = db or (lambda sql, params=None: d1x(acct, token, AUDIT_DB, sql, params))
     ev, steps = {}, []
@@ -1841,6 +1852,7 @@ def kill_switch_drill(acct: str, token: str, guard=None, db=None, sleep=time.sle
     t0 = now()
     stopped = resumed = 0
     stopped_names, resumed_names = [], []
+    t_off = None
     try:
         okw, _ = db("INSERT INTO ops_config (key, value, note) VALUES ('fleet_kill_switch', 'on', 'BP26-LEASES-KILLSWITCH-1 drill') ON CONFLICT(key) DO UPDATE SET value = 'on', updated_at = datetime('now')")
         step("flag-on", okw)
@@ -1857,11 +1869,39 @@ def kill_switch_drill(acct: str, token: str, guard=None, db=None, sleep=time.sle
             stopped += 1
             stopped_names.append("qnfo-deploy-guard")
         ev["refusals"] = [st1, st2, st3]
+        # BP26-KILLSWITCH-READERS-1: the event-observed readers. One shared wait, polled every 10 s, so the time on stays inside max_on_sec.
+        readers = [r for r in KS_READERS if r in KS_EVENT_READERS]
+        seen_ev = {}
+        polls = max([KS_EVENT_READERS[r]["wait_s"] for r in readers] or [0]) // 10
+        for i in range(polls + 1):
+            for r in readers:
+                if r in seen_ev:
+                    continue
+                oke2, evr2 = db("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'kill-switch.observed' AND job = ?1 AND ts >= ?2", [r, iso(t0)])
+                if oke2 and int((evr2 or [{}])[0].get("n") or 0) >= 1:
+                    seen_ev[r] = i * 10
+            if len(seen_ev) == len(readers) or i == polls:
+                break
+            sleep(10)
+        for r in readers:
+            sw = r in seen_ev
+            step(r + "-observed-event", sw, ("seen after %s s" % seen_ev[r]) if sw else "no kill-switch.observed event within %s s" % KS_EVENT_READERS[r]["wait_s"])
+            quiet = True
+            like = KS_EVENT_READERS[r].get("quiet_like")
+            if like and sw:
+                okq, qr = db("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE job = ?1 AND kind LIKE ?2 AND ts > ?3", [r, like, iso(t0 + KS_QUIET_START_S)])
+                quiet = bool(okq) and int((qr or [{}])[0].get("n") or 0) == 0
+                step(r + "-quiet-while-on", quiet, "%s events of kind %s after T0+%ss: %s" % (r, like, KS_QUIET_START_S, (qr or [{}])[0].get("n")))
+            if sw and quiet:
+                stopped += 1
+                stopped_names.append(r)
+        ev["event_readers"] = {r: seen_ev.get(r) for r in readers}
     finally:
         # Off in every case, inside the time limit; a failed write is itself a failure (docs/KILL-SWITCH-DRILL.md rollback).
         restore = "off" if before in (None, "", "on") else before
         offw, _ = db("INSERT INTO ops_config (key, value, note) VALUES ('fleet_kill_switch', ?1, 'BP26-LEASES-KILLSWITCH-1 drill') ON CONFLICT(key) DO UPDATE SET value = ?1, updated_at = datetime('now')", [restore])
         step("flag-restored", offw, "restored to " + restore)
+        t_off = now()
     sleep(35)
     st4, j4 = guard("/work-lock/acquire", {"key": "file:drill/kill-switch", "owner": "kill-switch-drill", "ttl_sec": 60})
     ok_resume = st4 == 200 and j4.get("acquired") is True
@@ -1870,8 +1910,27 @@ def kill_switch_drill(acct: str, token: str, guard=None, db=None, sleep=time.sle
         resumed += 1
         resumed_names.append("qnfo-deploy-guard")
         guard("/work-lock/release", {"key": "file:drill/kill-switch", "token": j4.get("token"), "outcome": "done"})
-    elapsed = now() - t0
-    step("within-time-limit", elapsed <= max_on_sec + 120, "%.0f s" % elapsed)
+    # The event-observed readers resume when they ran again after the flag went off and the cache lapsed, and wrote no new observed event since.
+    t1 = now() - 35
+    for r in [x for x in KS_READERS if x in KS_EVENT_READERS and x in stopped_names]:
+        spec = KS_EVENT_READERS[r]
+        alive = False
+        arg = int(t1 * 1000) if spec["alive_arg"] == "ms" else iso(t1)
+        for i in range(spec["wait_s"] // 10 + 1):
+            oka, ar = db(spec["alive"], [arg])
+            if oka and int((ar or [{}])[0].get("n") or 0) >= 1:
+                alive = True
+                break
+            sleep(10)
+        okn, nr = db("SELECT COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'kill-switch.observed' AND job = ?1 AND ts > ?2", [r, iso(t1)])
+        again = (not okn) or int((nr or [{}])[0].get("n") or 0) > 0
+        good = alive and not again
+        step(r + "-resumes", good, "ran again after the flag went off: %s; new observed events since: %s" % (alive, (nr or [{}])[0].get("n")))
+        if good:
+            resumed += 1
+            resumed_names.append(r)
+    on_s = (t_off if t_off is not None else now()) - t0
+    step("within-time-limit", on_s <= max_on_sec + 120, "switch on %.0f s" % on_s)
     expected = len(KS_READERS)
     outcome = "pass" if stopped == expected and resumed == expected and all(x["ok"] for x in steps) else "fail"
     evidence = json.dumps({"readers": list(KS_READERS), "stopped": stopped_names, "resumed": resumed_names, "readers_pending": list(KS_PENDING), "steps": steps}, separators=(",", ":"))[:3500]

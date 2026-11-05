@@ -55,3 +55,28 @@ build tasks above until a live drill passes and the first row exists.
 ## Update 2026-10-28 (BP26-LEASES-KILLSWITCH-1)
 
 The switch now exists: `ops_config.fleet_kill_switch` (`off` by default), read by qnfo-deploy-guard 1.4.0 (work claims, renewals, deploy and secret leases answer 503 `kill-switch`; event `kill-switch.observed`). The drill is the cf-ops-actions action `kill-switch-drill` (scripts/cf_ops_actions.py): it holds the switch on for under 10 minutes, checks the refusals and the event, restores it in every case, checks resumption and appends a `kill_switch_tests` row. Its evidence lists `readers` (covered) and `readers_pending`; the loops named above other than qnfo-deploy-guard are pending (roadmap row `ROADMAP-1: QNFO.OPS BP26-KILLSWITCH-READERS-1`). Design and limits: docs/LEASES-FENCING.md.
+
+## Update 2026-11-05 (BP26-KILLSWITCH-READERS-1, one worker per change; BP26-KILLSWITCH-CAPS-1)
+
+Readers, in the order they were taught the flag. Each is added to `KS_READERS` in `scripts/cf_ops_actions.py` in the change that teaches its worker to read the flag. The drill is a monthly, fleet-run action (workflow_dispatch of cf-ops-actions), never part of a deploy, so the deploy has landed before it runs; qnfo-github-steward was added after `/health` showed 0.17.0 live.
+
+| Reader | Version | What stops while the switch is `on` | What keeps running | Evidence the drill reads |
+|:--|:--|:--|:--|:--|
+| qnfo-deploy-guard | 1.4.0 | new work claims, deploy and secret leases answer 503 `kill-switch` | releases, reads | the 503s and the `kill-switch.observed` event |
+| qnfo-code-orchestrator | 0.48.0 | the code loop tick: intake, planning, every step and every model call | the heartbeat of the scheduled handler | `kill-switch.observed` (job `qnfo-code-orchestrator`, one per 5 minutes), no `code-task.*` event inside the window |
+| qnfo-github-steward | 0.17.0 | scheduled runs: GitHub issue, comment, label and project writes, repository settings, the billing read | `POST /tick` and the keyed routes (a person's explicit request) | `kill-switch.observed` (job `qnfo-github-steward`), a `cron_fire_log` row per grid fire |
+
+Both new readers read the flag once per tick or run (cached 30 s) and **fail open**: an unreadable row is `off`, logged as `failed_open`, never a stop. Not yet gated, each with its reason:
+the fleet-exec member inside qnfo-code-orchestrator (its fleet_tasks mix internal D1 steps that must keep running, such as metric refresh and red-drain, with external ones, so it needs a
+per-step gate, not a whole-member stop); qnfo-fleet-control, qnfo-ops, qnfo-social, qnfo-research-exec, qnfo-cloud-ops (large or contended files, one worker per change).
+An event-observed reader is a worker whose tick is a cron, not a request, so the drill reads its events instead of sending it a probing call: stopped when a `kill-switch.observed` event for
+its job is newer than T0, resumed when its heartbeat or `cron_fire_log` row is newer than T1 plus the 30 s cache with no new observed event.
+
+### Per-iteration caps and the circuit breaker (BP26-KILLSWITCH-CAPS-1, qnfo-code-orchestrator 0.48.0)
+
+The code loop already capped steps per tick (`maxSteps`), wall-clock per tick (`budget_ms`, the lane budget), lanes, the daily call count and the daily neuron budget (`spendGate`; a breached cap
+steers to cheaper models and never stops work, BUDGET-SOFT-ROUTE-1), repeated failure signatures (LOOP-BREAKER-1, FAIL-SIGNATURE-STOP-1) and file claims. What was missing is a loop-wide pause
+after a run of failures. `CODE-LOOP-BREAKER-1`: N consecutive failed steps across ticks (a success resets the run; a step deferred behind another session's claim counts as neither) pause the
+loop for a bounded time, record `code-task.breaker-tripped` and file one `agent_issues` row (deduped against the open one). Switches in `ops_config`: `code_loop_breaker` (`on` default, `off`
+disables), `code_loop_breaker_n` (default 30, bounds 5 to 200), `code_loop_breaker_pause_min` (default 30, bounds 5 to 240), `code_loop_breaker_state` (written only on change; delete the row
+to reset). A paused loop runs no step and no plan, keeps its sweeps and heartbeat, and resumes by itself when the pause ends.
