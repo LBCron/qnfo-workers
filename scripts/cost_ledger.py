@@ -320,6 +320,23 @@ def ai_search_inventory(call=cf):
     return instances
 
 
+def ai_search_meter_month(d1, day):
+    """AI-SEARCH-COST-2: the month's AI Search usage and charge (after the monthly allowances) as qnfo-infra priced them from the GraphQL meters
+    (cost_vendor_month, vendor cloudflare, product ai_search). None when the table or the rows cannot be read, or when the newest row is older than two days."""
+    month = day.isoformat()[:7]
+    try:
+        rows = d1("SELECT metric, unit, included, usage_mtd, net_mtd_usd, observed_at FROM cost_vendor_month WHERE month = ?1 AND vendor = 'cloudflare' AND product = 'ai_search'", [month])
+    except Exception:  # noqa: BLE001
+        return None
+    floor = (day - dt.timedelta(days=2)).isoformat()
+    rows = [r for r in rows if str(r.get("observed_at") or "")[:10] >= floor]
+    if not rows:
+        return None
+    details = [{"service": "AI Search", "description": r["metric"], "period_start": month + "-01", "consumed_quantity": r["usage_mtd"], "consumed_unit": r["unit"],
+                "included": r["included"], "contracted_cost_usd": round(float(r["net_mtd_usd"] or 0), 6), "basis": "meter"} for r in rows]
+    return {"details": details, "total_usd": round(sum(float(r["net_mtd_usd"] or 0) for r in rows), 4), "query_start": month + "-01", "query_end": day.isoformat()}
+
+
 def write_ai_search_snapshot(d1, day, call=cf):
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     result = {"state": "unavailable", "errors": []}
@@ -342,8 +359,17 @@ def write_ai_search_snapshot(d1, day, call=cf):
         else:
             result["state"] = "unmeasured"
     except Exception as error:  # noqa: BLE001
-        result["errors"].append("usage: %s" % str(error)[:120])
         result["state"] = "pre-billing" if day < AI_SEARCH_BILLING_START else "unavailable"
+        # AI-SEARCH-COST-2 (RM-AISEARCH-GA-MIGRATE-1): the billing report answers 403 to every token in reach (docs/COST-LEDGER-ALLVENDOR.md), so after
+        # 2026-12-01 this state would read unavailable for ever. The meters Cloudflare bills on are read hourly by qnfo-infra (costVendorTick, five
+        # aiSearch* GraphQL datasets) into cost_vendor_month product ai_search; that reading is the usage, and the month's charge after the allowances.
+        meter = ai_search_meter_month(d1, day)
+        if meter is not None:
+            result["details"], result["query_start"], result["query_end"], result["basis"] = meter["details"], meter["query_start"], meter["query_end"], "meter"
+            if day >= AI_SEARCH_BILLING_START:
+                result["state"], result["total_usd"] = "measured", meter["total_usd"]
+        else:
+            result["errors"].append("usage: %s (and no cost_vendor_month ai_search reading from the last 2 days)" % str(error)[:120])
     count = len(inventory) if inventory is not None else None
     instance_fee = 0 if count is not None and count <= 100 else None
     d1("INSERT INTO ai_search_cost_snapshots (snapshot_day, observed_at, instance_count, known_instance_fee_usd, usage_state, usage_usd, query_start, query_end, inventory_json, usage_json) "
@@ -1021,6 +1047,34 @@ def selftest():
     assert unread["instances"] is None and unread["errors"] and unread["errors"][0].startswith("inventory:"), unread
     assert snap[0]["usage_state"] == "measured", "the usage report is independent of the inventory"
     assert ai_search_summary(d1, dt.date(2026, 10, 9), call)["instances"] == 1 and len(d1("SELECT * FROM ai_search_cost_snapshots")) == 1, "a read run replaces the unknown row"
+    # AI-SEARCH-COST-2: the billing report answers 403 to every token in reach; the snapshot then reads the GraphQL meters qnfo-infra priced into cost_vendor_month
+    def no_billing(method, path, body=None, timeout=30):
+        if "/billable-usage" in path:
+            return 403, {"success": False, "errors": [{"message": "Authentication error"}]}
+        return call(method, path, body, timeout)
+    c.executescript("""CREATE TABLE cost_vendor_month (month TEXT NOT NULL, vendor TEXT NOT NULL, product TEXT NOT NULL, metric TEXT NOT NULL, evidence TEXT, unit TEXT,
+      included REAL, usage_mtd REAL, usage_projected REAL, gross_mtd_usd REAL, net_mtd_usd REAL, net_forecast_usd REAL, rate_daily_3d_usd REAL, days_observed INTEGER, note TEXT,
+      observed_at TEXT, PRIMARY KEY (month, vendor, product, metric));""")
+    d1("DELETE FROM ai_search_cost_snapshots")
+    gap = ai_search_summary(d1, dt.date(2026, 12, 2), no_billing)
+    snap = d1("SELECT * FROM ai_search_cost_snapshots")[0]
+    assert snap["usage_state"] == "unavailable" and snap["usage_usd"] is None and any(e.startswith("usage:") for e in gap["errors"]), (snap, gap)  # no meter reading: never a zero
+    d1("INSERT INTO cost_vendor_month (month, vendor, product, metric, evidence, unit, included, usage_mtd, net_mtd_usd, observed_at) VALUES "
+       "('2026-12', 'cloudflare', 'ai_search', 'semantic_queries', 'meter', 'queries', 1000, 1400, 0.3, '2026-12-02T01:30:54Z'), "
+       "('2026-12', 'cloudflare', 'ai_search', 'storage_gb', 'meter', 'GB', 10, 0.08, 0, '2026-12-02T01:30:54Z'), "
+       "('2026-11', 'cloudflare', 'ai_search', 'semantic_queries', 'meter', 'queries', 1000, 1100, 0.075, '2026-11-30T23:30:54Z')")
+    metered = ai_search_summary(d1, dt.date(2026, 12, 2), no_billing)
+    snap = d1("SELECT * FROM ai_search_cost_snapshots")[0]
+    assert snap["usage_state"] == "measured" and abs(snap["usage_usd"] - 0.3) < 1e-9 and snap["query_start"] == "2026-12-01" and not metered["errors"], (snap, metered)
+    assert [d["description"] for d in json.loads(snap["usage_json"])] == ["semantic_queries", "storage_gb"] and json.loads(snap["usage_json"])[0]["basis"] == "meter", snap  # this month only
+    assert not [r for r in d1("SELECT * FROM cost_daily WHERE source = 'ai_search:usage' AND date >= '2026-12-01'")], "the meter is its own ledger line, nothing is copied into cost_daily"
+    d1("UPDATE cost_vendor_month SET observed_at = '2026-11-28T00:00:00Z' WHERE month = '2026-12'")
+    ai_search_summary(d1, dt.date(2026, 12, 2), no_billing)
+    assert d1("SELECT usage_state FROM ai_search_cost_snapshots")[0]["usage_state"] == "unavailable", "a meter reading older than two days is not a reading"
+    ai_search_summary(d1, dt.date(2026, 11, 20), no_billing)  # before billing starts: the state stays pre-billing, the meter lines are kept for reading
+    pre = d1("SELECT usage_state, usage_usd, usage_json FROM ai_search_cost_snapshots WHERE snapshot_day = '2026-11-20'")[0]
+    assert pre["usage_state"] == "pre-billing" and pre["usage_usd"] is None, pre
+    d1("DELETE FROM cost_vendor_month")
     # AI-METER-MODEL-1: the per-model meter sums to the day's total, merges a model that GraphQL returns in two groups, and is idempotent
     mm = {(r["date"], r["model"]): r for r in d1("SELECT * FROM ai_meter_model_daily")}
     assert len(mm) == 22 and abs(mm[("2026-10-09", "@cf/openai/gpt-oss-120b")]["neurons"] - 60000) < 1e-6 and mm[("2026-10-09", "@cf/openai/gpt-oss-120b")]["requests"] == 40, mm

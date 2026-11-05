@@ -23,6 +23,13 @@ instance's own `sync_interval` is set explicitly, so the new default does not ch
 - **Expected bill, as a bound and not a reading:** the dominant line is the query line. At the upper bound of the volume table below (about 400 searches a day, 12,000 a month, hybrid, so priced as
   semantic) it is (12,000 - 1,000) / 1,000 x 0.75 = **USD 8.25 a month**; ingestion stays inside the included 5 million tokens at the current rate of about 100 new papers a month; storage is far below 10 GB.
   Against `ai_est_cost_30d` of 749.08 (2026-11-04) that is about 1 percent. The first invoice line replaces this bound after 2026-12-01.
+- **Measured, not bounded (AI-SEARCH-COST-2, read 2026-11-05 from the GraphQL meters Cloudflare bills on):** the billing REST report answers 403 to every token in reach, but the five datasets
+  `aiSearchSemanticQueriesAdaptiveGroups`, `aiSearchFulltextQueriesAdaptiveGroups`, `aiSearchStorageAdaptiveGroups`, `aiSearchIngestionTokensAdaptiveGroups` and `aiSearchImageProcessingTokensAdaptiveGroups`
+  are readable. Seven days for `qnfo-corpus`: about 36 hybrid queries a day (October 27 to November 3: 35 to 47), so about 1,100 a month against the 1,000 included (the 400 a day above is an upper bound that
+  the meter does not reach), 76 MB stored against 10 GB, 25 k to 270 k ingestion tokens a day (about 4 M a month against 5 M included), no full-text and no image tokens. Priced after the allowances that is under
+  USD 1 a month, not USD 8.25. qnfo-infra 1.13.0 (`costVendorTick`) reads the five datasets hourly into `cost_usage_daily` and prices them from `cost_price_book` into `cost_vendor_month` product `ai_search`
+  (evidence `meter`; the line `v_cost_lines_month` shows), and `scripts/cost_ledger.py` copies the month's reading into `ai_search_cost_snapshots.usage_json` (basis `meter`) when the billing report is refused, so
+  from 2026-12-01 the snapshot reads `measured` from the meters instead of `unavailable`. Detector: `fm-ai-search-meter-silent`.
 - **Cost telemetry (the failure mode of this item):** `write_ai_search_snapshot` (PR 6563) had no caller and its table `ai_search_cost_snapshots` no DDL, and `v_cost_lines_month` did not read the
   `ai_search:usage` source, so the first AI Search charge would have reached no cost line (the Money card would have read a saving). `scripts/cost_ledger.py` now runs the snapshot on every hourly ledger run,
   `migrations/2026-11-05-e-ai-search-cost.sql` creates the table and makes `v_cost_lines_month` read `ai_search:usage` as vendor `cloudflare`, product `ai_search`, evidence `invoice`, and an inventory that
