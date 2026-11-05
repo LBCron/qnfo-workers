@@ -27,21 +27,21 @@ const selected = (files) => {
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 ok(same(selected(["docs/X.md", "ci-status/a.json"]), []), "a docs-only change selects no guard", selected(["docs/X.md"]));
-ok(same(selected(["qnfo-ai/worker.js", "qnfo-ai/deployed-current.worker.js"]), ["narrative-prompt-guard", "worker-load-gate", "code-anchor-once", "workers-standards-guard", "kaizen-gates"] ), "a worker change selects the prose, load, anchor, Workers-standards and kaizen-gates guards and its suites", selected(["qnfo-ai/worker.js"]));
-ok(same(selected(["migrations/2026-11-04-x.sql"]), ["metric-cause", "code-anchor-once"] ), "a migration selects the metric-cause and anchor guards and the suites", selected(["migrations/2026-11-04-x.sql"]));
+ok(same(selected(["qnfo-ai/worker.js", "qnfo-ai/deployed-current.worker.js"]), ["narrative-prompt-guard", "worker-load-gate", "code-anchor-once", "workers-standards-guard", "kaizen-gates", "d1-like-limit"] ), "a worker change selects the prose, load, anchor, Workers-standards and kaizen-gates guards and its suites", selected(["qnfo-ai/worker.js"]));
+ok(same(selected(["migrations/2026-11-04-x.sql"]), ["metric-cause", "code-anchor-once", "d1-like-limit"] ), "a migration selects the metric-cause and anchor guards and the suites", selected(["migrations/2026-11-04-x.sql"]));
 ok(same(selected([".github/workflows/pr-checks.yml"]), ["dependency-allowlist"]), "a workflow change selects the dependency gate and the suites", selected([".github/workflows/pr-checks.yml"]));
 // DEPENDENCY-ALLOWLIST-1 (BP26-AGENT-CHANGE-GATES-1, roadmap row 1414): a manifest, a lock file, a workflow or the allow-list itself selects the dependency gate
 ok(same(selected(["qnfo-agents/package.json"]), ["dependency-allowlist"]), "a package.json change selects the dependency gate", selected(["qnfo-agents/package.json"]));
 ok(same(selected(["qnfo-pdf/package-lock.json"]), ["dependency-allowlist"]), "a lock file change selects the dependency gate", selected(["qnfo-pdf/package-lock.json"]));
 ok(same(selected(["scripts/dependency-allowlist.txt"]), ["dependency-allowlist"]), "an allow-list edit selects the dependency gate", selected(["scripts/dependency-allowlist.txt"]));
 ok(!selected(["docs/A.md", "migrations/2026-11-04-x.sql"]).includes("dependency-allowlist"), "docs and migrations do not select the dependency gate");
-ok(same(selected(["scripts/narrative-prompt-guard.py"]), ["narrative-prompt-guard", "workers-standards-guard"] ), "the guard's own file selects it (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/narrative-prompt-guard.py"]));
+ok(same(selected(["scripts/narrative-prompt-guard.py"]), ["narrative-prompt-guard", "workers-standards-guard", "d1-like-limit"] ), "the guard's own file selects it (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/narrative-prompt-guard.py"]));
 ok(same(selected(["docs/ops-governance/scripts/customPrompts-canonical.json"]), ["kaizen-gates"]), "a prompt-store change selects the kaizen gates only", selected(["docs/ops-governance/scripts/customPrompts-canonical.json"]));
-ok(same(selected(["scripts/kaizen_gates.py"]), ["kaizen-gates", "workers-standards-guard"]), "the kaizen gate module selects itself (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/kaizen_gates.py"]));
-ok(same(selected(["_shared/x.js"]), ["worker-load-gate"] ), "a shared helper selects the load gate", selected(["_shared/x.js"]));
+ok(same(selected(["scripts/kaizen_gates.py"]), ["kaizen-gates", "workers-standards-guard", "d1-like-limit"]), "the kaizen gate module selects itself (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/kaizen_gates.py"]));
+ok(same(selected(["_shared/x.js"]), ["worker-load-gate", "d1-like-limit"] ), "a shared helper selects the load gate", selected(["_shared/x.js"]));
 // DEFAULT-APPROVE-1 (agent_issues 1000657): the diff-only WORKERS-STANDARDS-GUARD-1 is the one deploy-gate step that blocks a pull request
 ok(same(selected(["qnfo-ai/wrangler.toml"]), ["workers-standards-guard", "kaizen-gates"]), "a wrangler.toml change selects the Workers-standards and kaizen-gates guards", selected(["qnfo-ai/wrangler.toml"]));
-ok(same(selected(["scripts/bp26_web.py"]), ["workers-standards-guard"]), "a scripts/*.py change selects the Workers-standards guard (WRITE-SUCCESS-CODES-1)", selected(["scripts/bp26_web.py"]));
+ok(same(selected(["scripts/bp26_web.py"]), ["workers-standards-guard", "d1-like-limit"]), "a scripts/*.py change selects the Workers-standards guard (WRITE-SUCCESS-CODES-1)", selected(["scripts/bp26_web.py"]));
 ok(!selected(["docs/A.md", "migrations/2026-11-04-x.sql"]).includes("workers-standards-guard"), "docs and migrations do not select the Workers-standards guard");
 {
   const src = readFileSync(join(here, "pr_fast_guards.py"), "utf8");
