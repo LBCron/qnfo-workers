@@ -1,0 +1,25 @@
+-- RM-TP-9-DEPLOY-NO-LOCKOUT (2026-11-05, charter pillar core; roadmap row id 134, docs/TRANSFORMATION-PROGRAM.md T9; sub-agent c5-resilience of the owner request "CODE, DEPLOY, AND CLOSE ALL OPEN ROADMAP AND BACKLOG TASKS").
+-- All four T9 levers are in the code and were exercised on live traffic; the stored status (partial, written 2026-10-06) and the lever table (9.3 deployer-fallback still pending) were stale. Read in this session:
+--   lever 1 delete-after-unbind: scripts/cf_ops_actions.py delete_worker reads every live script binding and refuses while a service binding targets the worker, naming the binders (DELETE-AFTER-UNBIND-1, lines 160-185); unbind-service
+--     refuses unless the repository directory carries RETIRED/FOLDED (UNBIND-BEFORE-DELETE-1); scripts/cf_ops_delete_worker_test.py 11 passed and scripts/cf_ops_unbind_service_test.py 20 passed on this checkout.
+--   lever 2 prune accepts 10143: qnfo-ops/dangling-10143.test.mjs 5 passed; no deployment_history row names 10143 or 10144 after 2026-10-06T06:20:54Z (10 rows ever, SELECT over the 3192-row table 2026-11-04 ~22:50Z).
+--   lever 3 deployer fallback: DEPLOY-SECOND-PATH-1 (agent_issues 2178). canonical-deploy.yml runs scripts/direct_content_deploy.py for every worker /ops/deploy did not accept (exit 3 and the fallback file) and writes the path that landed to deployment_history
+--     (action deploy-direct, DEPLOY-SECOND-PATH-LEDGER-1; the table mirrors into fleet_deploys by trigger) and, per its docstring, a cloud_ops_events deploy-fallback row. It shipped qnfo-ops ITSELF when qnfo-ops could not: on 2026-11-03 /ops/deploy answered CF 10021 "No such module oauth-broker.mjs"
+--     for qnfo-ops 2.62.9 and 2.62.10, and deployment_history ids 2959 (04:32:52Z, 2.62.9-revert-fd8131a) and 2961 (04:44:32Z, 2.62.10-rm1646-qwen-chat) are action deploy-direct, status success; the primary path was deploying qnfo-ops again by 08:02Z (id 2983, 2.62.11-rm1646-qwen-chat). The drill (fallback_drill input) exists and
+--     spof_alternate_probes qnfo-ops /ops/deploy last passed ok at 2026-11-04T20:05:45Z.
+--   lever 4 dangling-binding census: qnfo-fleet-control DANGLING-BINDINGS-1 writes cloud_ops_events dangling-bindings-<day> daily (2026-10-28 through 2026-11-04 read); the latest, 2026-11-04T03:10:53Z, says "dangling bindings: 0 of 233 checked across 39 scripts"; metric dangling_bindings = 0, its trigger is registered
+--     (migrations/2026-10-06-dangling-bindings.sql, qnfo-fleet-control/dangling-bindings.test.mjs passes).
+-- EXIT: "0 failures naming 10143/10144 for 30 days" runs to 2026-11-05T06:30Z (30 days after 06:30Z on 2026-10-06). goal TP-9-DEPLOY-PATH-NO-LOCKOUT-1 (goals id 66) holds that exact query as its definition of done and reads 1 once the window has run clean, so this file does not claim the window: the row is built, not verified.
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: UPDATE transformation_levers SET status = 'pending', landed_at = NULL, note = '' WHERE tp = 9 AND n = 3 AND note LIKE 'C5-RESILIENCE:%'; UPDATE roadmap_implementation SET status = 'partial', evidence = substr(evidence, 1, instr(evidence, ' || C5-RESILIENCE-134 ') - 1) WHERE id = 134 AND instr(evidence, ' || C5-RESILIENCE-134 ') > 0;
+
+UPDATE transformation_levers
+SET status = 'landed', landed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+    note = 'C5-RESILIENCE: DEPLOY-SECOND-PATH-1 (agent_issues 2178) is lever 3: scripts/direct_content_deploy.py runs from canonical-deploy.yml for any worker /ops/deploy did not accept and records the landed path in deployment_history (action deploy-direct). Exercised on qnfo-ops itself: deployment_history ids 2959 (2026-11-03T04:32:52Z, 2.62.9-revert-fd8131a) and 2961 (04:44:32Z, 2.62.10-rm1646-qwen-chat) are deploy-direct successes after /ops/deploy answered CF 10021 for both.'
+WHERE tp = 9 AND n = 3 AND status = 'pending';
+
+UPDATE roadmap_implementation
+SET status = 'built',
+    evidence = evidence || ' || C5-RESILIENCE-134 2026-11-05: built, exit window still running. All four levers are in code and were exercised (read 2026-11-04 ~22:50Z to 2026-11-05 ~00:15Z): (1) cf_ops_actions delete-worker refuses while a binder exists (scripts/cf_ops_delete_worker_test.py 11 passed, cf_ops_unbind_service_test.py 20 passed); (2) prune accepts 10143 (qnfo-ops/dangling-10143.test.mjs 5 passed); (3) the deployer fallback shipped qnfo-ops itself on 2026-11-03 (deployment_history ids 2959 and 2961, action deploy-direct, status success, after /ops/deploy answered CF 10021) and spof_alternate_probes qnfo-ops /ops/deploy last passed ok 2026-11-04T20:05:45Z; (4) the daily census wrote dangling-bindings-2026-11-04 at 03:10:53Z: 0 of 233 bindings dangling across 39 scripts, metric dangling_bindings = 0. deployment_history holds 10 failed rows naming 10143 or 10144, the last 2026-10-06T06:20:54Z, none since. The 30-day exit window ends 2026-11-05T06:30Z; goal TP-9-DEPLOY-PATH-NO-LOCKOUT-1 (goals id 66) reads it and flips to 1 when it has run clean; set this row verified from that reading.'
+WHERE id = 134 AND item = 'RM-TP-9-DEPLOY-NO-LOCKOUT' AND instr(evidence, 'C5-RESILIENCE-134') = 0;
