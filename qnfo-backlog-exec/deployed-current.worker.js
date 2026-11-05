@@ -2,7 +2,7 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "2.0.13-codeagent"; // 2.0.13 SLA-GAP-1 (agent_issues 1000619): host parity with qnfo-lifecycle slaGap. // 2.0.12 FOLDED-TARGET-REVERT-1 (2026-10-26): reverts 2.0.11 (PR 4620), which edited this FOLDED member without its host and turned qnfo-lifecycle/backlog-fold.test.mjs red; the live code is qnfo-lifecycle's backlogMod. // 2.0.9 SLA-120M-7 (2026-10-14): the advisor-noise sweep closes a snapshot after 120 minutes, not 3 h, and logs its caught error; host parity with qnfo-lifecycle 1.11.4. // 2.0.8 WORKERS-BP-LOGGING-qnfo-lifecycle-1 (2026-10-14, agent_issues 2536): the swallowed catches log as a structured console.error; host parity with qnfo-lifecycle 1.11.3. 2.0.7: BACKLOG-LATEST-PASS-1.
+var VERSION = "2.0.14-codeagent"; // 2.0.14 CLOSE-REFUSAL-1 (2026-11-05): host parity with qnfo-lifecycle closeIssueGuarded: a close the contract guard refuses is a recheck, not the end of the run. // 2.0.13 SLA-GAP-1 (agent_issues 1000619): host parity with qnfo-lifecycle slaGap. // 2.0.12 FOLDED-TARGET-REVERT-1 (2026-10-26): reverts 2.0.11 (PR 4620), which edited this FOLDED member without its host and turned qnfo-lifecycle/backlog-fold.test.mjs red; the live code is qnfo-lifecycle's backlogMod. // 2.0.9 SLA-120M-7 (2026-10-14): the advisor-noise sweep closes a snapshot after 120 minutes, not 3 h, and logs its caught error; host parity with qnfo-lifecycle 1.11.4. // 2.0.8 WORKERS-BP-LOGGING-qnfo-lifecycle-1 (2026-10-14, agent_issues 2536): the swallowed catches log as a structured console.error; host parity with qnfo-lifecycle 1.11.3. 2.0.7: BACKLOG-LATEST-PASS-1.
 // PRIORITY-QUEUE-1 (2026-10-03, owner directive): the sweep ranks critical first. The old CASE ranked high, medium, else,
 // so critical issues sorted with low. Within a priority the least recently touched row still goes first (rotation).
 var WORKER = "qnfo-backlog-exec";
@@ -65,6 +65,17 @@ async function closeIssue(env, id, now, target, evidence) {
   const ev = "backlog-exec v1.6.1 evidence-first auto-close " + stamp + (target ? " | target=" + target : "") + (evidence ? " | " + evidence : "");
   await env.AUDIT.prepare("INSERT INTO issue_triage (issue_id, rc, triage_state, owner, sla_due_at, remediation, close_evidence, triaged_at) VALUES (?1,'RC-03','closed','qnfo-backlog-exec',datetime('now'),'auto-close by qnfo-backlog-exec v1.6.0 drain',?2,datetime('now')) ON CONFLICT(issue_id) DO UPDATE SET triage_state='closed', close_evidence=?2, triaged_at=datetime('now')").bind(id, ev).run();
   return env.AUDIT.prepare("UPDATE agent_issues SET status='closed', close_channel='auto:backlog-exec', updated_at=?1 WHERE id=?2 AND status='open'").bind(now, id).run();
+}
+// CLOSE-REFUSAL-1 (2026-11-05, pillar autonomy; CHAOS-DRILL-FAILED-1 control:model-health-sweep, agent_issues 1001590): the BEFORE UPDATE trigger issue_close_evidence_required raises ABORT
+// 'close-while-contract-fails' for an issue whose own contract still reads a failing verdict, and the call sites below let that error end the whole daily run: qnfo-lifecycle logged it 23 times
+// from 2026-11-03T05:00Z and the 02:00 UTC run of 2026-11-04 never reached its summary job-run event, which is the evidence the drill probe of model-health-sweep reads. A refused close is a
+// decision of the guard, not a failure of the run: the issue stays open for its contract to close and the run goes on to the next row. Any other error is still thrown.
+async function closeIssueGuarded(env, id, now, target, evidence) {
+  try { await closeIssue(env, id, now, target, evidence); return ""; } catch (e) {
+    const m = String((e && e.message) || e);
+    if (m.indexOf("close-while-contract-fails") >= 0 || m.indexOf("close-without-evidence") >= 0) return m.slice(0, 160);
+    throw e;
+  }
 }
 // BACKLOG-EXEC-EVIDENCE-1 (2.0.4, agent_issues 1808): exception-class issues (WORKER-EXCEPTION-DETECTED <worker>,
 // ALERT-STORM-DETECTED <worker>, filed by qnfo-error-selfheal until it was retired on 2026-10-01) closed when alerts held no
@@ -399,7 +410,8 @@ async function run(env) {
       const pLog = await probeHealthyViaLog(env, optIn.target, PROBE_WIN_MIN);
       const p = pLog ? { ok: true, host: pLog.via + " " + pLog.ts, transport: pLog.transport } : await probeHealth(optIn.target);
       if (p.ok && transportTrusted(p.transport)) {
-        await closeIssue(env, row.id, now, optIn.target);
+        const refused = await closeIssueGuarded(env, row.id, now, optIn.target);
+        if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
         closed++;
         detail.push({ id: row.id, target: optIn.target, action: "closed", note: "health re-probe PASS " + p.host + " transport=" + p.transport + " (fresh<=" + PROBE_WIN_MIN + "m, age>" + Math.round(MIN_AGE_MS / 6e4) + "m)" });
         await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (" + optIn.target + "): " + p.host + " transport=" + p.transport, { id: row.id, target: optIn.target, action: "closed", reason: "health predicate v1.5.0: opt-in + fresh + trusted transport", transport: p.transport }, WORKER, "ok");
@@ -427,7 +439,8 @@ async function run(env) {
         }
         if (rec.ok && pr && pr.ok) {
           const evidence = "BACKLOG-EXEC-EVIDENCE-1 (" + VERSION + ") exception-class closed on evidence: " + rec.ev + "; " + pr.ev;
-          await closeIssue(env, row.id, now, exc.target, evidence);
+          const refused = await closeIssueGuarded(env, row.id, now, exc.target, evidence);
+          if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
           closed++;
           detail.push({ id: row.id, target: exc.target, action: "closed", note: evidence.slice(0, 400) });
           await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (" + exc.target + "): exception-class closed on evidence", { id: row.id, target: exc.target, action: "closed", reason: "BACKLOG-EXEC-EVIDENCE-1: errors stopped and probe passed" }, WORKER, "ok");
@@ -444,7 +457,8 @@ async function run(env) {
         const named = title.replace(/^MODEL-DEGRADED\s*/i, "").split(",").map((s) => s.trim()).filter(Boolean);
         const still = named.filter((m) => degraded.has(m));
         if (degraded.size === 0 || still.length === 0) {
-          await closeIssue(env, row.id, now);
+          const refused = await closeIssueGuarded(env, row.id, now);
+          if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
           closed++;
           detail.push({ id: row.id, action: "closed", note: "model-health stale: none of [" + named.slice(0, 4).join(",") + "] degraded now (degraded rows=" + degraded.size + ")" });
           await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (model-health): no named model degraded now", { id: row.id, action: "closed", reason: "model-health predicate cleared v1.2.7" }, WORKER, "ok");
@@ -462,7 +476,8 @@ async function run(env) {
         const model = probeFail[1];
         const h = await env.AUDIT.prepare("SELECT status FROM ai_model_health WHERE model_id=?1").bind(model).first();
         if (!h || String(h.status) !== "degraded") {
-          await closeIssue(env, row.id, now);
+          const refused = await closeIssueGuarded(env, row.id, now);
+          if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
           closed++;
           detail.push({ id: row.id, target: model, action: "closed", note: "ai-cal probe-failing stale: ai_model_health status=" + (h ? h.status : "absent") });
           await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (ai-cal " + model + "): health no longer degraded", { id: row.id, target: model, action: "closed", reason: "ai-cal probe predicate cleared v1.2.7" }, WORKER, "ok");
@@ -481,7 +496,8 @@ async function run(env) {
         const rec = await env.AUDIT.prepare("SELECT COALESCE(SUM(count),0) AS n FROM ai_gateway_failures WHERE model=?1 AND ts >= ((strftime('%s','now') - 86400) * 1000)").bind(model).first();
         const n = rec ? Number(rec.n || 0) : 0;
         if (n === 0) {
-          await closeIssue(env, row.id, now);
+          const refused = await closeIssueGuarded(env, row.id, now);
+          if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
           closed++;
           detail.push({ id: row.id, target: model, action: "closed", note: "gw-fail stale: 0 failures for " + model + " in 24h" });
           await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (gw-fail " + model + "): no recurrence in 24h", { id: row.id, target: model, action: "closed", reason: "gateway-failure predicate cleared v1.2.7" }, WORKER, "ok");
@@ -498,7 +514,8 @@ async function run(env) {
       try {
         const q = await env.AUDIT.prepare("SELECT status, version_to, updated_at FROM version_queue WHERE id=?1").bind(Number(vq[1])).first();
         if (!q || String(q.status).toLowerCase() !== "error") {
-          await closeIssue(env, row.id, now);
+          const refused = await closeIssueGuarded(env, row.id, now);
+          if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
           closed++;
           detail.push({ id: row.id, target: "version_queue#" + vq[1], action: "closed", note: q ? "version_queue status=" + q.status + " (not error) - condition cleared" : "version_queue row absent - ticket orphaned" });
           await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (VQ " + vq[1] + "): " + (q ? "status=" + q.status : "row absent"), { id: row.id, action: "closed", reason: "publish predicate cleared v1.2.9" }, WORKER, "ok");
@@ -515,7 +532,8 @@ async function run(env) {
         const t = await env.AUDIT.prepare("SELECT COUNT(*) AS c FROM research_queue WHERE status='failed' AND recover_count>=2").first();
         const still = t ? Number(t.c || 0) : 0;
         if (still === 0) {
-          await closeIssue(env, row.id, now);
+          const refused = await closeIssueGuarded(env, row.id, now);
+          if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
           closed++;
           detail.push({ id: row.id, action: "closed", note: "research terminal condition cleared: 0 rows with status='failed' AND recover_count>=2" });
           await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (research): no terminal-failed queue rows remain", { id: row.id, action: "closed", reason: "research-pipeline predicate cleared v1.2.9" }, WORKER, "ok");
@@ -548,7 +566,8 @@ async function run(env) {
       const vrMs = vr ? Date.parse(String(vr.verified_at || "").replace(" ", "T") + (/[zZ]$/.test(String(vr.verified_at || "")) ? "" : "Z")) : NaN;
       if (vr && Number(vr.pass) === 1 && Number.isFinite(vrMs) && now - vrMs <= LATEST_PASS_MAX_H * 36e5) {
         const evidence = "BACKLOG-LATEST-PASS-1 latest verification #" + vr.id + " pass at " + vr.verified_at + " via " + (vr.transport || "?") + ": " + String(vr.observed || "").slice(0, 160);
-        await closeIssue(env, row.id, now, null, evidence);
+        const refused = await closeIssueGuarded(env, row.id, now, null, evidence);
+        if (refused) { rechecked++; detail.push({ id: row.id, action: "recheck", note: "close refused by the contract guard (CLOSE-REFUSAL-1): " + refused }); continue; }
         closed++;
         detail.push({ id: row.id, action: "closed", note: evidence.slice(0, 300) });
         await recordEvent(env, "job-run", "backlog-exec closed issue " + row.id + " (latest verification passed)", { id: row.id, action: "closed", reason: "BACKLOG-LATEST-PASS-1", verification: vr.id, probe: vr.probe_url, transport: vr.transport }, WORKER, "ok");

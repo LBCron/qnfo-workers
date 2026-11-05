@@ -16,7 +16,7 @@ for (const [name, s] of [["host", src], ["reference", guest]]) {
   ok(/FROM remediation_verifications WHERE issue_id=\?1 ORDER BY id DESC LIMIT 1"/.test(blk), name + ": it reads the latest verification row, whatever its verdict");
   ok(!/pass=1 AND verified_at >= datetime\('now','-7 days'\)/.test(s), name + ": the any-pass-in-7-days query is gone");
   ok(/Number\(vr\.pass\) === 1 && Number\.isFinite\(vrMs\) && now - vrMs <= LATEST_PASS_MAX_H \* 36e5/.test(blk), name + ": it closes only when that row passed and is fresh");
-  ok(/await closeIssue\(env, row\.id, now, null, evidence\);/.test(blk) && /"BACKLOG-LATEST-PASS-1 latest verification #" \+ vr\.id \+ " pass at " \+ vr\.verified_at/.test(blk), name + ": the close evidence names the verification row");
+  ok(/await (?:closeIssue|closeIssueGuarded)\(env, row\.id, now, null, evidence\);/.test(blk) && /"BACKLOG-LATEST-PASS-1 latest verification #" \+ vr\.id \+ " pass at " \+ vr\.verified_at/.test(blk), name + ": the close evidence names the verification row");
   ok(/var LATEST_PASS_MAX_H = 3;/.test(s), name + ": the freshness window is 3 hours");
   ok(!/catch \(e\) \{\}\s*\n\s*const vrMs/.test(blk), name + ": a failed read is logged, not swallowed");
 }
