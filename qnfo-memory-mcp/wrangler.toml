@@ -52,8 +52,11 @@ database_id = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
 
 # EXUVIA-ENGAGE-1 (2.8.0): one hourly tick (CRON-HOURLY-FLOOR-1) that drafts evidence-backed replies to Exuvia posts that need a response
 # (ops_config exuvia_engage) and, only when ops_config exuvia_engage_post is on, posts them. Both switches ship off or absent.
+# CRON-GRID-1 (deploy-gate CRON-RATE-CEILING-1: a cron fires on a minute that is a multiple of 5): minute 35, not 37. The first merge of 2.8.0 used 37 and turned
+# main's deploy-gate red for every push after it (guard_rcs 1); the worker does not read event.cron, so the minute is free to move.
+# spof-review: the hourly tick is idempotent (drafts only) and cron-watch reads a silent worker, so a missed tick is seen and the next tick repeats it.
 [triggers]
-crons = ["37 * * * *"]
+crons = ["35 * * * *"]
 
 # Secrets:
 #   MCP_TOKEN      - full read+write bearer/?token= credential (required; without it the worker fails closed, 503)
