@@ -13,6 +13,7 @@ WHAT   Runs the guards that apply to the files the pull request changes, in para
 APPLIES  narrative-prompt-guard   a worker.js, a mirror, or the guard itself      worker-load-gate   a worker.js, a mirror, _shared or the gate
          metric-cause             migrations/                                      code-anchor-once   migrations/ or a worker.js (it reads the anchored files)
          kaizen-gates             a worker.js, a wrangler.toml, the prompt-store scripts, or an enforcer file (scripts/kaizen_gates.py; RM-KAIZEN-GATE-CANDIDATES-1)
+         dependency-allowlist     a package.json, a lock file, a workflow or scripts/dependency-allowlist.txt (BP26-AGENT-CHANGE-GATES-1)
          suite-regressions        the suites the change selects (scripts/run-suites.mjs); any change outside docs, ci-status and audits.
                                   The post-merge full-set run of deploy-gate was red in the 6 of 6 failed push runs sampled on 2026-11-04 (9 failing suites each).
 USAGE  python3 scripts/pr_fast_guards.py [--base REF] [--all] [--with-suites] [--jobs N] [--list]
@@ -68,6 +69,10 @@ GUARDS = [
                                          r"^scripts/(kaizen_gates|pr_fast_guards|cost_ledger|fleet-autoaudit|deploy-drift-guard|mirror-guard)\.py$",
                                          r"^scripts/ux-journeys/apps/fleet\.journeys\.mjs$"),
      ["python3", "scripts/kaizen_gates.py"], None),
+    # DEPENDENCY-ALLOWLIST-1 (BP26-AGENT-CHANGE-GATES-1, roadmap row 1414, OWASP ASI04): a dependency, an install script or an unpinned install in a workflow is declared in
+    # scripts/dependency-allowlist.txt, with a reason, in the same change. Regression-only: a violation the base tree already has never holds an unrelated pull request.
+    ("dependency-allowlist", lambda f: any_match(f, r"(^|/)package(-lock)?\.json$", r"^\.github/workflows/[^/]+\.ya?ml$", r"^scripts/dependency[-_]allowlist\.(py|txt)$"),
+     ["python3", "scripts/dependency_allowlist.py"], r"^VIOLATION "),
     ("suite-regressions", lambda f: any(not f_.startswith(("docs/", "ci-status/", "audits/")) for f_ in f),
      suites_cmd, r"^FAIL\s+<t>\s+\S+$|expired|malformed"),
 ]

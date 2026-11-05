@@ -1,0 +1,22 @@
+# scripts/dependency-allowlist.txt: the third-party dependencies and install commands this repository has declared (BP26-AGENT-CHANGE-GATES-1, roadmap row 1414, OWASP ASI04).
+# scripts/dependency_allowlist.py fails a pull request that adds a package.json dependency, an install script or an unpinned workflow install that is not listed here.
+# Line format:  <directory of the package.json, or the workflow path> | <package | script:<name> | pip:<pkg> | npm:<pkg>> | <reason, at least 20 characters>
+# A line is added in the same pull request that adds the dependency, with the reason a reader needs (what it is for, why a built-in will not do). Hard rules that a line
+# cannot waive: repository and URL specs, a missing lock file, a lock entry from another registry. Removing a dependency leaves a stale line (reported as a NOTICE): delete it.
+.github/workflows/pr-checks.yml | pip:pyyaml | the workflow lint parses YAML; unpinned on main before the gate existed (RM-1414 baseline 2026-11-05), pin it when the lint is next touched
+.github/workflows/version-bump-guard.yml | pip:pyyaml | the workflow lint parses YAML; unpinned on main before the gate existed (RM-1414 baseline 2026-11-05), pin it when the guard is next touched
+.github/workflows/workflow-lint.yml | pip:pyyaml | the workflow lint parses YAML; unpinned on main before the gate existed (RM-1414 baseline 2026-11-05), pin it when the lint is next touched
+docs/ops-governance/cloud/qnfo-container-executor | @cloudflare/containers | the container executor's Durable Object class (RM-1414 baseline 2026-11-05)
+qnfo-agents | @cloudflare/codemode | code-mode tool surface of the agents worker (RM-1414 baseline 2026-11-05)
+qnfo-agents | @cloudflare/computer | computer tool of the agents worker (RM-1414 baseline 2026-11-05)
+qnfo-agents | @modelcontextprotocol/server | MCP server transport of the agents worker (RM-1414 baseline 2026-11-05)
+qnfo-agents | agents | Cloudflare Agents SDK, the base class of the agents worker (RM-1414 baseline 2026-11-05)
+qnfo-agents | ai | Vercel AI SDK used by the agents worker for model calls (RM-1414 baseline 2026-11-05)
+qnfo-agents | esbuild | bundles src/ into worker.js (deploy-qnfo-agents.yml checks the bundle) (RM-1414 baseline 2026-11-05)
+qnfo-agents | zod | schema validation for tool arguments in the agents worker (RM-1414 baseline 2026-11-05)
+qnfo-artifact-agent | agents | Cloudflare Agents SDK, the base class of the artifact agent (RM-1414 baseline 2026-11-05)
+qnfo-fleet-advisor | @cloudflare/think | Think agent runtime of the fleet advisor (RM-1414 baseline 2026-11-05)
+qnfo-fleet-advisor | agents | Cloudflare Agents SDK, the base class of the fleet advisor (RM-1414 baseline 2026-11-05)
+qnfo-fleet-advisor | ai | Vercel AI SDK used by the fleet advisor for model calls (RM-1414 baseline 2026-11-05)
+qnfo-pdf | esbuild | bundles the PDF worker (RM-1414 baseline 2026-11-05)
+qnfo-pdf | katex | renders mathematics in the PDF worker (RM-1414 baseline 2026-11-05)

@@ -29,7 +29,12 @@ const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].s
 ok(same(selected(["docs/X.md", "ci-status/a.json"]), []), "a docs-only change selects no guard", selected(["docs/X.md"]));
 ok(same(selected(["qnfo-ai/worker.js", "qnfo-ai/deployed-current.worker.js"]), ["narrative-prompt-guard", "worker-load-gate", "code-anchor-once", "workers-standards-guard", "kaizen-gates"] ), "a worker change selects the prose, load, anchor, Workers-standards and kaizen-gates guards and its suites", selected(["qnfo-ai/worker.js"]));
 ok(same(selected(["migrations/2026-11-04-x.sql"]), ["metric-cause", "code-anchor-once"] ), "a migration selects the metric-cause and anchor guards and the suites", selected(["migrations/2026-11-04-x.sql"]));
-ok(same(selected([".github/workflows/pr-checks.yml"]), []), "a workflow change selects the suites only", selected([".github/workflows/pr-checks.yml"]));
+ok(same(selected([".github/workflows/pr-checks.yml"]), ["dependency-allowlist"]), "a workflow change selects the dependency gate and the suites", selected([".github/workflows/pr-checks.yml"]));
+// DEPENDENCY-ALLOWLIST-1 (BP26-AGENT-CHANGE-GATES-1, roadmap row 1414): a manifest, a lock file, a workflow or the allow-list itself selects the dependency gate
+ok(same(selected(["qnfo-agents/package.json"]), ["dependency-allowlist"]), "a package.json change selects the dependency gate", selected(["qnfo-agents/package.json"]));
+ok(same(selected(["qnfo-pdf/package-lock.json"]), ["dependency-allowlist"]), "a lock file change selects the dependency gate", selected(["qnfo-pdf/package-lock.json"]));
+ok(same(selected(["scripts/dependency-allowlist.txt"]), ["dependency-allowlist"]), "an allow-list edit selects the dependency gate", selected(["scripts/dependency-allowlist.txt"]));
+ok(!selected(["docs/A.md", "migrations/2026-11-04-x.sql"]).includes("dependency-allowlist"), "docs and migrations do not select the dependency gate");
 ok(same(selected(["scripts/narrative-prompt-guard.py"]), ["narrative-prompt-guard", "workers-standards-guard"] ), "the guard's own file selects it (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/narrative-prompt-guard.py"]));
 ok(same(selected(["docs/ops-governance/scripts/customPrompts-canonical.json"]), ["kaizen-gates"]), "a prompt-store change selects the kaizen gates only", selected(["docs/ops-governance/scripts/customPrompts-canonical.json"]));
 ok(same(selected(["scripts/kaizen_gates.py"]), ["kaizen-gates", "workers-standards-guard"]), "the kaizen gate module selects itself (and, as a scripts/*.py file, the Workers-standards guard)", selected(["scripts/kaizen_gates.py"]));
