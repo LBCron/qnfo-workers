@@ -29,8 +29,12 @@ time, so `postmortem_coverage` can read below 1.0 until they leave the 30-day wi
 
 ## Limits and what is next
 
-- Only availability has recorded history. Latency and freshness SLIs (the q08 desk published by 09:00 CET) are not defined yet because nothing records them; they are
-  added to `slo_definitions` when a producer exists. The `q08-research-desk-freshness` SLI is filed as roadmap row `ROADMAP-1: QNFO.OPS BP26-SLO-FRESHNESS-1`.
+- Availability is the SLI with history that opens incidents and postmortems and feeds the merge lane's flag. BP26-SLO-FRESHNESS-1 (2026-11-05) adds two more, recorded by
+  `scripts/bp26_web.py` as evidence rows of `slo_attainment_28d_min` under their own subjects (the availability figure ignores them): latency, `lat:<host>` (the home page
+  answered in under 2 s, 13 hosts, objective 0.95), and the research desk's freshness, `fresh:q08.org` (one sample a day: a q08 piece was published in the 24 hours before
+  09:00 Central European time, read from the `q08-signal` database; objective 0.9). `slo_definitions` holds them as `<host>#latency` and `q08.org#freshness`, each naming its
+  subject in `source`; `scripts/bp26_slo.py` writes their `slo_budget_state` (immature until 24 latency samples or ten daily freshness samples) but a latency or freshness
+  definition never opens an incident and never enters `slo_budget_spent`: a slow week or a quiet desk is information for the owning program, not a reason to freeze other merges.
 - "The merge lane takes reliability changes only when a budget is spent" is the lane's decision in `qnfo-fleet-control` (claimed by the code loop at the time of writing):
   roadmap row `ROADMAP-1: QNFO.OPS BP26-SLO-MERGE-LANE-1` carries the `code-task:` line; the flag it reads is live.
 - Samples are hourly: an outage shorter than the gap is invisible, and the root-cause class is what the sample detail shows (timeout, TLS, 5xx, 4xx), not a human diagnosis.

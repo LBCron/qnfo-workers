@@ -13,8 +13,12 @@ WHAT  Turns the availability history scripts/bp26_web.py already records (bp26_p
                             records "no action: within budget" and says so.
       Metric postmortem_coverage: incidents opened in the last 30 days that are old enough to be judged (closed, or opened 72 hours ago) with a completed postmortem written
       within 72 hours of opening, over those incidents. 1.0 when there are none (stated in the note).
-LIMITS  The only SLI with history is availability of the HTML hosts (home page answer under 5 s). Latency and freshness SLIs (the q08 desk published by 09:00 CET) have no recorded
-      history yet; slo_definitions holds only what is measured. A root-cause class is what the evidence supports (timeout, TLS, 5xx, 4xx, deploy regression), the human root cause is
+SLIs    availability of the HTML hosts (home page answer under 5 s, subject avail:<host>) is the SLI that opens incidents, postmortems and the slo_budget_spent flag.
+      BP26-SLO-FRESHNESS-1 adds two more, recorded by scripts/bp26_web.py: latency of each host (<host>#latency, subject lat:<host>, home page under 2 s) and the q08 research
+      desk's freshness (q08.org#freshness, subject fresh:q08.org, a piece published in the 24 hours before 09:00 Central European time). A definition names its evidence subject in
+      `source` ("bp26_probe_results <subject>"); its budget state is written like any other, but only an availability definition can open an incident or spend the merge lane's
+      flag: a slow week or a quiet desk is information for the owning program, not a reason to freeze every other merge.
+LIMITS  slo_definitions holds only what is measured. A root-cause class is what the evidence supports (timeout, TLS, 5xx, 4xx, deploy regression), the human root cause is
       the action issue's job. Samples are hourly, so an outage shorter than the gap between samples is invisible.
 Offline suite: python3 scripts/bp26_slo.py --selftest
 """
@@ -64,6 +68,14 @@ def cause_class(details):
     if "down" in t or "error" in t:
         return "unreachable", "the probe could not complete a request"
     return "slow-or-unknown", "the sample failed the SLI (slower than the 5 s limit or an answer outside 2xx, 3xx, 401, 403)"
+
+
+def sample_subject(surface, source):
+    """The bp26_probe_results subject a definition is measured by: the one its `source` names ("bp26_probe_results <subject>"), else avail:<surface>."""
+    parts = str(source or "").split(None, 1)
+    if len(parts) == 2 and parts[0] == "bp26_probe_results" and parts[1].strip():
+        return parts[1].strip()
+    return "avail:" + str(surface)
 
 
 def episodes(samples):
@@ -182,7 +194,7 @@ def collect_slo(ctx):
     now = ctx.now
     since = iso(now - WINDOW_DAYS * 86400)
     try:
-        defs = {r["surface"]: r for r in ctx.d1("SELECT surface, objective, window_days FROM slo_definitions")}
+        defs = {r["surface"]: r for r in ctx.d1("SELECT surface, objective, window_days, source FROM slo_definitions")}
     except Exception as e:  # noqa: BLE001
         return [Result("postmortem_coverage", None, "slo_definitions unreadable (migration 2026-10-28-bp26-slo-budgets.sql not applied?): " + str(e)[:100], [])]
     if not defs:
@@ -191,10 +203,13 @@ def collect_slo(ctx):
     spent_surfaces = []
     all_samples = {}
     for surface, d in sorted(defs.items()):
+        subject = sample_subject(surface, d.get("source"))
         smp = ctx.d1("SELECT run_at, ok, detail FROM bp26_probe_results WHERE metric = 'slo_attainment_28d_min' AND subject = ?1 AND ok IS NOT NULL AND run_at > ?2 ORDER BY run_at",
-                     ["avail:" + surface, since])
+                     [subject, since])
         samples = [(r["run_at"], int(r["ok"]), r["detail"]) for r in smp]
-        all_samples[surface] = samples
+        availability = subject.startswith("avail:")
+        if availability:
+            all_samples[surface] = samples
         good = sum(1 for s in samples if s[1] == 1)
         att, spent, state = budget(good, len(samples), float(d["objective"]))
         if not ctx.dry:
@@ -202,7 +217,7 @@ def collect_slo(ctx):
                    "ON CONFLICT(surface) DO UPDATE SET evaluated_at=excluded.evaluated_at, window_days=excluded.window_days, samples=excluded.samples, bad=excluded.bad, "
                    "objective=excluded.objective, attainment=excluded.attainment, budget_spent_pct=excluded.budget_spent_pct, state=excluded.state",
                    [surface, iso(now), int(d["window_days"]), len(samples), len(samples) - good, float(d["objective"]), att, spent, state])
-        if state == "spent":
+        if state == "spent" and availability:
             spent_surfaces.append(surface)
         rows.append(("slo:" + surface, 0 if state == "spent" else 1, "%d samples, %d bad, attainment %s, budget spent %s percent (%s)" % (len(samples), len(samples) - good, None if att is None else round(att, 4), spent, state)))
     if not ctx.dry:
@@ -438,6 +453,23 @@ CREATE TABLE bp26_probe_results (id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TE
     pr = d1("SELECT closed_at FROM incidents WHERE incident_key = ?1", [ph])[0]["closed_at"]
     ok(pr == iso(now - 5 * 3600) and d1("SELECT state FROM postmortems WHERE incident_key = ?1", [ph])[0]["state"] == "withdrawn", "the phantom incident is closed and its postmortem withdrawn: %r" % (pr,))
     ok(d1("SELECT closed_at FROM incidents WHERE incident_key = ?1", [real_open])[0]["closed_at"] is None and d1("SELECT state FROM postmortems WHERE incident_key = ?1", [real_open])[0]["state"] == "draft", "a real open episode keeps its open incident and draft postmortem")
+    # BP26-SLO-FRESHNESS-1: a latency and a freshness definition name their own evidence subject; their budget state is written, but they open no incident and never spend the merge lane's flag
+    ok(sample_subject("a.example", "bp26_probe_results avail:a.example") == "avail:a.example" and sample_subject("a.example", "s") == "avail:a.example" and sample_subject("a.example", None) == "avail:a.example", "availability definitions keep their subject")
+    ok(sample_subject("x#latency", "bp26_probe_results lat:x") == "lat:x" and sample_subject("q08.org#freshness", "bp26_probe_results   fresh:q08.org ") == "fresh:q08.org", "a definition names its evidence subject in source")
+    c.execute("INSERT INTO slo_definitions VALUES ('x.example#latency', 'latency', 0.95, 28, 'bp26_probe_results lat:x.example', 'o', 't'), ('q08.example#freshness', 'freshness', 0.9, 28, 'bp26_probe_results fresh:q08.example', 'o', 't')")
+    for i in range(40):
+        c.execute("INSERT INTO bp26_probe_results (run_at, metric, subject, ok, detail) VALUES (?, 'slo_attainment_28d_min', 'lat:x.example', ?, 'status 200 in 2600 ms')", [iso(now - 3600 * (40 - i)), 0 if i % 4 == 0 else 1])
+    for i in range(3):
+        c.execute("INSERT INTO bp26_probe_results (run_at, metric, subject, ok, detail) VALUES (?, 'slo_attainment_28d_min', 'fresh:q08.example', ?, 'deadline: none')", [iso(now - 86400 * (3 - i)), 0 if i == 1 else 1])
+    before = (d1("SELECT COUNT(*) n FROM incidents")[0]["n"], d1("SELECT COUNT(*) n FROM postmortems")[0]["n"], d1("SELECT COUNT(*) n FROM agent_issues")[0]["n"])
+    collect_slo(ctx)
+    st2 = {r["surface"]: r for r in d1("SELECT * FROM slo_budget_state")}
+    ok(st2["x.example#latency"]["samples"] == 40 and st2["x.example#latency"]["bad"] == 10 and st2["x.example#latency"]["state"] == "spent", "latency: 10 of 40 slow answers spend a 5 percent budget: %r" % (dict(st2["x.example#latency"]),))
+    ok(st2["q08.example#freshness"]["samples"] == 3 and st2["q08.example#freshness"]["bad"] == 1 and st2["q08.example#freshness"]["state"] == "immature", "freshness: three daily samples are too few to judge a 10 percent budget: %r" % (dict(st2["q08.example#freshness"]),))
+    after = (d1("SELECT COUNT(*) n FROM incidents")[0]["n"], d1("SELECT COUNT(*) n FROM postmortems")[0]["n"], d1("SELECT COUNT(*) n FROM agent_issues")[0]["n"])
+    ok(before == after, "no incident, postmortem or action issue for a latency or freshness definition: %r vs %r" % (before, after))
+    ok(d1("SELECT value FROM ops_config WHERE key = 'slo_budget_spent'")[0]["value"] == "a.example", "a spent latency budget does not enter the merge lane's flag")
+    ok(st2["a.example"]["samples"] == 250 or st2["a.example"]["samples"] > 0, "availability definitions are evaluated as before")
     c.execute("DROP TABLE slo_definitions")
     ok(collect_slo(ctx)[0].value is None, "unreadable definitions: unknown, not zero")
     print("bp26_slo selftest %s" % ("ok" if not fails else "FAILED %d" % len(fails)))

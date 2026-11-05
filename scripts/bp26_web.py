@@ -15,6 +15,10 @@ One collector (collect_web) so a page is fetched once per run and every metric r
   slo_attainment_28d_min       the lowest, over the public HTML hosts, of (answers in the window with a 2xx, 3xx, 401 or 403 under 5 s) / (answers in the window), the
                                window being the last 28 days of this collector's own evidence rows (bp26_probe_results, subject avail:<host>) plus this run. None while any host has
                                fewer than 24 samples; the note states the window actually covered, so a 3-day-old history is never reported as a 28-day SLO without saying so.
+                               BP26-SLO-FRESHNESS-1 (roadmap 1710) adds two more kinds of evidence row to the same result, outside the availability figure: lat:<host> (the
+                               home page answered in under 2 s, redirects included; no observation, no sample) and fresh:q08.org (one sample a day: a q08 piece was published in the
+                               24 hours before 09:00 Central European time, read from the q08-signal database; the SLI of the research desk). scripts/bp26_slo.py evaluates them
+                               against slo_definitions rows whose source names the subject.
   third_party_trackers         distinct (host, tracker) pairs: a script, pixel, iframe or stylesheet from a curated tracker-domain list (analytics, advertising, session replay),
                                or an inline gtag/fbq/_paq call, on the fetched pages. Cloudflare Web Analytics (static.cloudflareinsights.com) is the cookieless beacon the issue
                                allows and is not counted. Tags that Cloudflare Zaraz injects at the edge are invisible to a GET and are not counted (the note says so).
@@ -40,7 +44,9 @@ Usage:
   python3 scripts/bp26_web.py --selftest     offline suite (fake pages, no network, no secrets)
   CF_ACCOUNT_ID=<id> python3 scripts/bp26_producers.py --dry --only collect_web     live read-only run through the framework
 """
+import calendar
 import concurrent.futures
+import datetime
 import html as htmllib
 import json
 import os
@@ -59,6 +65,11 @@ HSTS_MIN = 15552000
 SLO_MIN_SAMPLES = 24
 SLO_WINDOW_DAYS = 28
 SLO_MAX_MS = 5000
+LAT_GOOD_MS = 2000
+DESK_DB = "q08-signal"
+DESK_DEADLINE_HOUR = 9
+DESK_WINDOW_H = 24
+DESK_SUBJECT = "fresh:q08.org"
 HOST_UNKNOWN_MAX_SHARE = 1.0 / 3.0
 SOCIAL_DAYS = 14
 BAD_REFERRER = frozenset(("unsafe-url", "no-referrer-when-downgrade", ""))
@@ -454,6 +465,61 @@ def slo_history(ctx):
     return {r["subject"][6:]: (int(r["good"] or 0), int(r["n"] or 0), r["first"]) for r in rows}
 
 
+
+def iso_utc(ts, ms=False):
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + (".000Z" if ms else "Z")
+
+
+def desk_deadline(now):
+    """Epoch seconds of the most recent 09:00 Central European time (Europe/Berlin: CET in winter, CEST in summer) at or before `now`; a runner without a time-zone
+    database uses fixed CET (UTC+1)."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Europe/Berlin")
+    except Exception:  # noqa: BLE001
+        tz = datetime.timezone(datetime.timedelta(hours=1))
+    d = datetime.datetime.fromtimestamp(now, tz).replace(hour=DESK_DEADLINE_HOUR, minute=0, second=0, microsecond=0)
+    if d.timestamp() > now:
+        d = d - datetime.timedelta(days=1)
+    return d.timestamp()
+
+
+def latency_rows(homes, hosts):
+    """[(lat:<host>, ok, detail)]: 1 when the home page answered in under LAT_GOOD_MS, 0 when it answered slower. A host that did not answer (availability already counts it)
+    or was not fetched (the probe's own budget ran out) has no latency observation: ok stays NULL."""
+    out = []
+    for h in hosts:
+        r = homes[h]
+        if r.error == "budget-exhausted":
+            out.append(("lat:" + h, None, "not sampled: budget-exhausted"))
+        elif r.error or not r.status:
+            out.append(("lat:" + h, None, "not sampled: no answer (%s)" % (r.error or "no status")))
+        else:
+            out.append(("lat:" + h, 1 if r.ms < LAT_GOOD_MS else 0, "status %s in %d ms (good under %d ms)" % (r.status, r.ms, LAT_GOOD_MS)))
+    return out
+
+
+def freshness_row(ctx):
+    """The research desk's freshness sample for the latest 09:00 Central European time deadline, or None when that deadline already has its sample: ok is 1 when q08 published
+    at least one piece (a forecast counts, a retracted piece does not) in the DESK_WINDOW_H hours before the deadline, else 0. One sample per deadline, read from the q08-signal
+    database after the deadline has passed; a database that cannot be read writes an unsampled row (ok NULL), never a failed one."""
+    dl = desk_deadline(ctx.now)
+    tag = "deadline " + iso_utc(dl)
+    try:
+        if ctx.d1("SELECT COUNT(*) AS n FROM bp26_probe_results WHERE metric = 'slo_attainment_28d_min' AND subject = ?1 AND detail LIKE ?2", [DESK_SUBJECT, tag + "%"])[0]["n"]:
+            return None
+    except Exception:  # noqa: BLE001
+        pass  # the dedupe read failed: take the sample, a duplicate row for one deadline is harmless
+    try:
+        rows = ctx.d1_db(DESK_DB, "SELECT COUNT(*) AS n, MAX(published_at) AS latest FROM published_pieces WHERE published_at > ?1 AND published_at <= ?2 "
+                                  "AND slug NOT IN (SELECT slug FROM q08_retractions)", [iso_utc(dl - DESK_WINDOW_H * 3600, True), iso_utc(dl, True)])
+    except Exception as e:  # noqa: BLE001
+        return (DESK_SUBJECT, None, "not sampled: q08-signal unreadable (%s)" % str(e)[:80])
+    n = int((rows[0].get("n") if rows else 0) or 0)
+    latest = str((rows[0].get("latest") if rows else "") or "")[:19]
+    return (DESK_SUBJECT, 1 if n else 0, "%s: %d piece(s) in the %d h before 09:00 Central European time%s" % (tag, n, DESK_WINDOW_H, (", newest " + latest + "Z") if n else ", none"))
+
+
 # ---------------------------------------------------------------- the collector
 def collect_web(ctx):
     homes = fetch_many(ctx, ["https://%s/" % h for h in HTML_HOSTS])
@@ -515,6 +581,11 @@ def collect_web(ctx):
         avail_rows.append(("avail:" + h, up, detail))
         g, n, first = (hist or {}).get(h, (0, 0, None))
         per_host[h] = (g + up, n + 1, first)
+    # BP26-SLO-FRESHNESS-1: latency of every public surface and the research desk's freshness, recorded beside availability (other subjects; the availability figure ignores them)
+    avail_rows = avail_rows + latency_rows(homes, HTML_HOSTS)
+    fr = freshness_row(ctx)
+    if fr:
+        avail_rows.append(fr)
     if hist is None:
         results.append(Result("slo_attainment_28d_min", None, "the availability history could not be read: no verdict", avail_rows))
     else:
@@ -814,11 +885,64 @@ INSERT INTO social_threads VALUES (2, '["carried draft"]', 'posted', datetime('n
     ok(res3["security_headers_pass"].value is None and res3["third_party_trackers"].value is None and res3["structured_data_valid"].value is None, "nothing fetched: unknown, not zero")
     # SLO-PROBE-BUDGET-1: hosts fetched after the probe's own time budget ran out were not observed: no sample (ok NULL), never a failed one
     res4 = {r.metric: r for r in collect_web(P.Ctx(d1=d1, http=lambda u, **k: Resp(0, {}, [], "", u, 0, [], "budget-exhausted"), root=td_root))}
-    rows4 = res4["slo_attainment_28d_min"].rows
+    rows4 = [x for x in res4["slo_attainment_28d_min"].rows if x[0].startswith("avail:")]
     ok(bool(rows4) and all(v is None and d.startswith("not sampled: budget-exhausted") for _s, v, d in rows4), "a budget-exhausted fetch is recorded as not sampled (ok NULL), not as down: %r" % (rows4[:2],))
     ok(res4["slo_attainment_28d_min"].value == round(27 / 30.0, 4), "a run that observed nothing leaves the figure at the history alone (me.q08.org 27 of 30): %r" % res4["slo_attainment_28d_min"].value)
     res5 = {r.metric: r for r in collect_web(P.Ctx(d1=d1, http=lambda u, **k: Resp(0, {}, [], "", u, 0, [], "timeout"), root=td_root))}
-    ok(all(v == 0 and d.startswith("down: timeout") for _s, v, d in res5["slo_attainment_28d_min"].rows), "a real timeout is still a failed sample (the host did not answer)")
+    ok(all(v == 0 and d.startswith("down: timeout") for _s, v, d in res5["slo_attainment_28d_min"].rows if _s.startswith("avail:")), "a real timeout is still a failed sample (the host did not answer)")
+    # BP26-SLO-FRESHNESS-1: latency per surface and the research desk's freshness, beside availability and outside its figure
+    lat = {sub: (v, d) for sub, v, d in res4["slo_attainment_28d_min"].rows if sub.startswith("lat:")}
+    ok(len(lat) == len(HTML_HOSTS) and all(v is None and d.startswith("not sampled: budget-exhausted") for v, d in lat.values()), "a host the probe never fetched has no latency sample (ok NULL)")
+    lat5 = [(sub, v, d) for sub, v, d in res5["slo_attainment_28d_min"].rows if sub.startswith("lat:")]
+    ok(len(lat5) == len(HTML_HOSTS) and all(v is None and d.startswith("not sampled: no answer") for _sub, v, d in lat5), "a host that did not answer is an availability failure, not a latency sample")
+    slow = {}
+    for h in HTML_HOSTS:
+        slow["https://%s/" % h] = Resp(200, {"content-type": "text/html"}, [], "<html></html>", "https://%s/" % h, 2600 if h == "q08.org" else 300, [], "")
+    res6 = {r.metric: r for r in collect_web(P.Ctx(d1=d1, http=lambda u, **k: slow.get(u) or Resp(0, {}, [], "", u, 0, [], "error:Fake"), root=td_root))}
+    lat6 = {sub: v for sub, v, d in res6["slo_attainment_28d_min"].rows if sub.startswith("lat:")}
+    ok(lat6.get("lat:q08.org") == 0 and lat6.get("lat:qnfo.org") == 1 and len(lat6) == len(HTML_HOSTS), "2.6 s is a slow answer, 0.3 s is a good one: %r" % lat6)
+    ok(not any(sub.startswith("lat:") and sub in ("avail:" + h for h in HTML_HOSTS) for sub, _v, _d in res6["slo_attainment_28d_min"].rows), "latency rows use their own subjects, so the availability history never reads them")
+    # the desk deadline: 09:00 Central European time, winter and summer, and the instant before it
+    win = calendar.timegm(time.strptime("2026-11-04 12:00:00", "%Y-%m-%d %H:%M:%S"))
+    ok(iso_utc(desk_deadline(win)) == "2026-11-04T08:00:00Z", "winter: 09:00 CET is 08:00Z: %s" % iso_utc(desk_deadline(win)))
+    ok(iso_utc(desk_deadline(win - 5 * 3600)) == "2026-11-03T08:00:00Z", "07:00Z is before the deadline: the previous day's deadline")
+    summer = calendar.timegm(time.strptime("2026-07-15 12:00:00", "%Y-%m-%d %H:%M:%S"))
+    ok(iso_utc(desk_deadline(summer)) in ("2026-07-15T07:00:00Z", "2026-07-15T08:00:00Z"), "summer: 09:00 local is 07:00Z with a time-zone database (08:00Z on a runner without one): %s" % iso_utc(desk_deadline(summer)))
+    # the freshness sample: one per deadline, read from the q08-signal database, a retracted piece does not count
+    q = sqlite3.connect(":memory:")
+    q.executescript("""
+CREATE TABLE published_pieces (id TEXT, slug TEXT, published_at TEXT);
+CREATE TABLE q08_retractions (slug TEXT);
+INSERT INTO published_pieces VALUES ('a', 'fresh-piece', '2026-11-04T03:36:17.851Z');
+INSERT INTO published_pieces VALUES ('b', 'retracted-piece', '2026-11-03T20:00:00.000Z');
+INSERT INTO published_pieces VALUES ('c', 'too-old', '2026-11-03T07:59:59.000Z');
+INSERT INTO published_pieces VALUES ('d', 'after-deadline', '2026-11-04T08:30:00.000Z');
+INSERT INTO q08_retractions VALUES ('retracted-piece');
+""")
+
+    def d1_db(name, sql, params=None):
+        assert name == "q08-signal"
+        cur = q.execute(sql, params or [])
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+    c.execute("DELETE FROM bp26_probe_results")
+    fctx = P.Ctx(d1=d1, d1_db=d1_db, http=fake_http, root=td_root, now=win)
+    fr = freshness_row(fctx)
+    ok(fr and fr[0] == "fresh:q08.org" and fr[1] == 1 and fr[2].startswith("deadline 2026-11-04T08:00:00Z: 1 piece(s)") and "newest 2026-11-04T03:36:17" in fr[2], "one piece in the 24 h before the deadline: fresh: %r" % (fr,))
+    c.execute("INSERT INTO bp26_probe_results (run_at, metric, subject, ok, detail) VALUES (?, 'slo_attainment_28d_min', 'fresh:q08.org', 1, ?)", ("2026-11-04T09:10:00Z", fr[2]))
+    ok(freshness_row(fctx) is None, "the same deadline is sampled once")
+    q.execute("DELETE FROM published_pieces WHERE slug = 'fresh-piece'")
+    c.execute("DELETE FROM bp26_probe_results")
+    fr2 = freshness_row(fctx)
+    ok(fr2 and fr2[1] == 0 and "none" in fr2[2], "no piece in the window (the retracted one and the older one do not count): stale: %r" % (fr2,))
+
+    def broken_db(*a, **k):
+        raise RuntimeError("D1 overloaded")
+    fr3 = freshness_row(P.Ctx(d1=d1, d1_db=broken_db, http=fake_http, root=td_root, now=win))
+    ok(fr3 and fr3[1] is None and fr3[2].startswith("not sampled: q08-signal unreadable"), "an unreadable database is an unsampled row, never a failed one: %r" % (fr3,))
+    res7 = {r.metric: r for r in collect_web(P.Ctx(d1=d1, d1_db=d1_db, http=fake_http, root=td_root, now=win))}
+    ok(any(sub == "fresh:q08.org" for sub, _v, _d in res7["slo_attainment_28d_min"].rows), "collect_web carries the freshness row on the SLO result")
+    ok(len(res7["slo_attainment_28d_min"].rows) < 60, "the evidence rows stay under the framework's 60-row cap: %d" % len(res7["slo_attainment_28d_min"].rows))
     # BP26-LABEL-LEDGER-1: a thread closed by THREAD-CLOSE-1 (carried on the channels, never posted as a thread) is not a post of its own
     sp, sp_err = social_posts(P.Ctx(d1=d1, http=fake_http, root=td_root))
     ok(sp_err is None and ("bluesky-thread", "thread post one") in sp and not any(t == "carried draft" for _s, t in sp), "a carried thread draft is not counted as a post, a thread posted on Bluesky is: %r %r" % (sp, sp_err))
