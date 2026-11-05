@@ -16,5 +16,15 @@
         "\"governor\""
       ]
     }
+  ],
+  "d1": [
+    {
+      "binding": "QNFO_AUDIT",
+      "explain": [
+        "SELECT value FROM ops_config WHERE key = 'cascade_shadow' LIMIT 1",
+        "SELECT status, COUNT(*) AS n FROM cloud_ops_events WHERE kind = 'cascade-shadow-run' AND ts > '2026-01-01T00:00:00Z' GROUP BY status",
+        "INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES ('probe', 'probe', 'cascade-shadow', 'probe', '{}', 'qnfo-ai', 'ok')"
+      ]
+    }
   ]
 }

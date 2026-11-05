@@ -32,6 +32,11 @@ head_sampling_rate = 1
 enabled = true
 head_sampling_rate = 0.1
 
+# CASCADE-SHADOW-1 (2026-11-05, RM-BS-QUNIVERSE-SMALL-1, pillar cost): the hourly trigger of the cascade shadow (worker.js scheduled). The shadow itself runs once per 22 hours
+# (gate on cloud_ops_events kind cascade-shadow-run) and ops_config cascade_shadow = off stops it; the other 23 ticks read one indexed row and return.
+[triggers]
+crons = ["40 * * * *"]
+
 
 # v4.4.0 — internal RAG (/v1/search) + query history (/v1/history)
 # PAPER_VZ -> qwav-research-v2 (768-dim, bge-base-en-v1.5) — same index qnfo-archive uses
