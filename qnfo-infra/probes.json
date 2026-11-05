@@ -6,7 +6,8 @@
     {
       "url": "https://qnfo-infra.q08.workers.dev/health",
       "contains": [
-        "\"worker\":\"qnfo-infra\""
+        "\"worker\":\"qnfo-infra\"",
+        "open-data-atlas"
       ]
     }
   ],
@@ -15,7 +16,16 @@
       "binding": "AUDIT",
       "explain": [
         "INSERT INTO reach_signals (date, source, channel, entity_type, entity_id, metric, value, quality, collected_at) VALUES ('2000-01-01', 'reach-ae', 'web', 'host', 'probe', 'pageloads', 0, 'unknown', datetime('now')) ON CONFLICT(date, source, channel, entity_type, entity_id, metric) DO UPDATE SET value = excluded.value, quality = excluded.quality, collected_at = excluded.collected_at",
-        "INSERT INTO infra_state (id, ts, kind, data) VALUES ('reach_ae', 'probe', 'reach_ae', '{}') ON CONFLICT(id) DO UPDATE SET ts = excluded.ts, data = excluded.data"
+        "INSERT INTO infra_state (id, ts, kind, data) VALUES ('reach_ae', 'probe', 'reach_ae', '{}') ON CONFLICT(id) DO UPDATE SET ts = excluded.ts, data = excluded.data",
+        "UPDATE metric_registry SET last_value = '0', last_refreshed = 'probe', state = 'MEASURED' WHERE metric = 'ai_crawler_block_zones'",
+        "SELECT id, target_ref, detected_at, detected_by, severity, claim_text, falsification, evidence, remediation, status, updated_at FROM internal_errata WHERE target_kind = 'paper' ORDER BY detected_at, id"
+      ]
+    },
+    {
+      "binding": "LIVING",
+      "explain": [
+        "SELECT day, bot, kind, status, SUM(n) AS n FROM seo_crawl_log WHERE day >= date('now', '-2 days') GROUP BY day, bot, kind, status",
+        "SELECT p.slug AS slug, p.title AS title, p.version AS version, p.status AS status, p.last_revised_at AS last_revised_at, pp.provenance AS provenance, pp.reviewed_by AS reviewed_by FROM papers p LEFT JOIN paper_provenance pp ON pp.slug = p.slug WHERE p.status IN ('published', 'distributed', 'external_preprint') AND p.slug IS NOT NULL AND p.slug <> '' ORDER BY p.slug"
       ]
     }
   ]

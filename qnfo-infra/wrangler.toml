@@ -98,3 +98,9 @@ index_name = "qnfo-handoffs"
 binding = "IPATENT_VZ"
 index_name = "ipatent-corpus"
 
+
+# REACH-COMMONS-1 (blue-sky roadmap rows 3261, 3263, 3267; pillar research): the daily open-data atlas is written under atlas/ai-science-failures/ in the public bucket qnfo (its r2.dev
+# address is enabled; the gateway binds the same bucket for its markdown cache and uses other keys). Revert: remove this block; the objects stay until deleted.
+[[r2_buckets]]
+binding = "ATLAS_R2"
+bucket_name = "qnfo"

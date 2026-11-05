@@ -80,7 +80,7 @@ function infraManifestRoute(url, env) {
 }
 __name(infraManifestRoute, "infraManifestRoute");
 __name2(infraManifestRoute, "infraManifestRoute");
-var VERSION = "1.14.0-lake-spine";
+var VERSION = "1.15.0-lake-spine";
 /* 1.11.1 COST-LEDGER-ALLVENDOR-1c: each cost ledger tick records its outcome (points, errors, note) as cost_usage_daily rows of vendor cost_ledger. */ /* 1.11.0 COST-LEDGER-ALLVENDOR-1 (pillar cost): hourly all-product Cloudflare cost ledger, usage meters priced into cost_usage_daily and cost_vendor_month. */ /* 1.10.3 QNFO.OPS #1 (issue 1000696): route deterministic infra embeddings through the existing AI Gateway with a one-day per-request cache; non-critical calls use their existing cheaper ladder rung, while critical retrieval preserves its model. */ /* 1.10.2 NO-DEAD-DOI-1 (#1456, pillar reach): selected-work collection omits identifiers on the retired prefix; generic paper collection remains unchanged. */ /* 1.9.2 HANDOFFS-VZ-CATCHUP-1 (2026-10-26, pillar autonomy, agent_issues 1000176; patch): the producer indexed 100 handoffs an hour, and 707 handoffs older than 90 minutes were still unindexed on 2026-10-26 (the issue asks for the backlog within 24 hours and a new handoff within 60 minutes), so a fire takes 300 rows while more than one normal batch waits, and the normal 100 when the previous run left a FAILED note, so a batch that cannot finish inside the 120 second timeout cannot repeat itself for ever. prior 1.9.1-codeagent */ /* 1.9.0-handoffs-index HANDOFFS-VZ-PRODUCER-1 (2026-10-26, pillar autonomy, agent_issues 1000176): the handoffs vector index had no working producer. PR 4230 added one inside the 06:30 indexer member that selected handoffs.content, a column the table does not have (summary, pending_work, next_action are the text), so it threw into a catch and logged every night while semantic handoff search stayed frozen at 2026-07. The block is removed; indexHandoffs() runs on every hourly fire, reads the real columns, embeds in chunks of 1000 characters with the model the readers query with, upserts ids handoff:<id>:<chunk> with metadata {doc, id, session_id, ts, summary}, and moves the ops_config watermark handoffs_vz_last_id only after the upsert succeeded (100 handoffs per run, so the 1,706-row backfill is done in about 18 hours and a new handoff is indexed within the hour). A handoff of the personal plane (project, WBS or session label: personal, q08, twin, msgraph, owner-, email-strategic-) is skipped and the watermark moves past it, because scope=research retrieval reads this index (51 of 1,706 rows on 2026-10-26); a failure or a call stalled for 120 s is written to the watermark row's note and the state refresh still runs. */ /* 1.8.5-codeagent */ /* 1.8.3-analytics-untruncated MCP-ANALYTICS-TRUNCATION-1 (2026-10-25, pillar honest-measure): /analytics read aiInferenceAdaptiveGroups with limit 100 over {date, modelId}; the real group set is 437, so Workers AI usage under-reported 7.7x (3,438,429 neurons / $37.8 vs 26,345,487 / $286.5). Total now from a dimension-free aggregate, breakdown from {modelId}, with shown/groups/truncated and the 10k/day free-tier deduction so it matches cost_daily. */ /* 1.8.2-mcp-state-full-lists MCP-STATE-TRUNCATION-1 (2026-10-25, pillar honest-measure): /state returned count=35 with only 30 worker names and count=11 with only 10 D1 rows, so a caller could not tell that five workers and qnfo-audit were omitted -- a silent false census. The list caps are now 60 workers / 25 D1 and both carry shown + truncated, so an omission is visible instead of inferred. */ /* 1.8.1-null-doi-cursor CITATION-PAGINATION-NULL-CURSOR-1 (2026-10-25, pillar reach): stable DOI pagination now traverses legacy rows with NULL created_at using slug-only cursors; the offline test covers 217 records, including the null-timestamp boundary across five pages. */ /* 1.8.0-all-doi-impact CITATION-TRACKING-ALL-DOIS-1 (2026-10-25, pillar reach): the daily impact run queried only the newest 50 (at most 100) DOIs; stable keyset pagination now collects the entire third-party DOI set without changing the cron grid. qnfo-infra/impact.test.mjs covers 217 records across five pages. */ /* 1.7.0-no-registrar NO-REGISTRAR-1 (2026-10-21): the registrar is not named; dead DOIs are recognised by the 10.5281 prefix only */ // 1.6.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly :30 trigger. The 06:30 run (indexer member + state refresh) and the 18:00 refresh keep their slots on it and are retried hourly, at most 3 times, while their last good run is over 24.5 h old; every other hour runs the state refresh (it ran twice a day). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.5.1 WORKERS-BP-LOGGING-qnfo-infra-1 (2026-10-14, agent_issues 2534, child of 2342, pillar autonomy): the 3 swallowed catches in handleWebhook log as a structured console.error (worker, where, error); control flow unchanged. // 1.5.0 CRON-ONLY-HEARTBEAT-1 (agent_issues 2397, pillar autonomy): scheduled() upserts its fleet_heartbeat row after the run, ok=0 when the work threw. // 1.4.0 SOURCE-VOICE-1 (agent_issues 2468, owner directive 2026-10-13 "Papers shall cite full texts, not merely reference work summaries"; pillar research): a PAPER_VZ hit in /context carries the passage of the paper's body that matched (the indexer's own chunk, from metadata.chunk), after the abstract when one is stored; it was title + status + abstract.slice(0, 220), so a paper with no abstract (269 of 575 published on 2026-10-13) reached qnfo-ai's retrieved context as its title alone. renderContext gives a paper hit up to 1300 characters (300 before). isDeadPrefixDoi was defined only inside the folded indexer member, so the /context enrichment and metaLine threw a ReferenceError on every paper hit and returned "slug <x> (enrich error)"; it is now defined at module scope too. // 1.3.4 WORKERS-STANDARDS-1 (2026-10-12, pillar security): the indexer member compares X-Index-Token in constant time (same accepted value). // 1.3.1 INDEXER-FOLD-1 (#1756): qnfo-paper-indexer runs here as a member (its two jobs on this worker's existing 06:30 trigger, no cron added; /indexer/* read routes).
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -1541,6 +1541,291 @@ async function collectReachAe(env) {
   return { rows: rows.length, loads: Math.round(loads) };
 }
 // ---- REACH-AE-1:END
+// ---- REACH-COMMONS-1:BEGIN (pillar reach and research; docs/BLUE-SKY-ROADMAP-2026-11.md B5, B7 and B11; roadmap_implementation rows 3261, 3263 and 3267): three collectors that run on
+// the hourly fire after the reach read-back, each fail-open (an error is written to its own <id>_error infra_state row and never fails the fire; the <id> row holds the last success,
+// which is also what the once-a-day gate reads, so a failed run is retried on the next fire).
+//  1. collectAgentReads: the gateway's seo_crawl_log (living-paper, what AI crawlers and assistants fetched) becomes day rows in qnfo-audit reach_signals (source seo-crawl, channel
+//     agent, entity types bot and bot-kind, metric fetches, quality bot), the "agent reads" half of the answer-engine series; the referral half is already in reach_signals
+//     (cf-rum-human and reach-ae referrer rows) and migrations/2026-11-05-reach-commons.sql reads both in v_ai_reach_7d.
+//  2. collectAiCrawlProbe: once a day, reads each fleet zone's bot management settings (GET /zones/{id}/bot_management) and records which of them would block or charge an AI
+//     crawler. The fleet's policy is open access (robots.txt allows the AI crawlers, Content-Signal says ai-train yes), so a block is a regression: metric ai_crawler_block_zones.
+//  3. publishAtlas: once a day, writes the open dataset of how AI-written papers fail (internal_errata of target_kind paper, with the finder and confirmer model parsed from the
+//     evidence line), a per-paper audit status file (errata counts, provenance, whether a human review is recorded) and a data card to the public R2 bucket under atlas/ai-science-failures/.
+//     Reader-submitted reports are left out, secrets are redacted, and the manifest carries the sha256 of every file.
+var RC_FETCH_SOURCE = "seo-crawl";
+var RC_ZONES = ["qnfo.org", "qwav.org", "q08.org"];
+var RC_GATE_MS = 20 * 3600 * 1000;
+var RC_ATLAS_PREFIX = "atlas/ai-science-failures/";
+var RC_ATLAS_BASE = "https://pub-426be63219f54be3932467bcbaf805f5.r2.dev/";
+var RC_TEXT_MAX = 3000;
+var RC_UPSERT = "INSERT INTO reach_signals (date, source, channel, entity_type, entity_id, metric, value, quality, collected_at) VALUES (?1, '" + RC_FETCH_SOURCE + "', 'agent', ?2, ?3, 'fetches', ?4, 'bot', datetime('now')) ON CONFLICT(date, source, channel, entity_type, entity_id, metric) DO UPDATE SET value = excluded.value, quality = excluded.quality, collected_at = excluded.collected_at";
+var RC_CRAWL_SQL = "SELECT day, bot, kind, status, SUM(n) AS n FROM seo_crawl_log WHERE day >= date('now', ?1) GROUP BY day, bot, kind, status";
+var RC_ERRATA_SQL = "SELECT id, target_ref, detected_at, detected_by, severity, claim_text, falsification, evidence, remediation, status, updated_at FROM internal_errata WHERE target_kind = 'paper' ORDER BY detected_at, id";
+var RC_PAPERS_SQL = "SELECT p.slug AS slug, p.title AS title, p.version AS version, p.status AS status, p.last_revised_at AS last_revised_at, pp.provenance AS provenance, pp.reviewed_by AS reviewed_by FROM papers p LEFT JOIN paper_provenance pp ON pp.slug = p.slug WHERE p.status IN ('published', 'distributed', 'external_preprint') AND p.slug IS NOT NULL AND p.slug <> '' ORDER BY p.slug";
+async function rcState(env, id, ts, data) {
+  try {
+    await env.AUDIT.prepare("INSERT INTO infra_state (id, ts, kind, data) VALUES (?1, ?2, ?1, ?3) ON CONFLICT(id) DO UPDATE SET ts = excluded.ts, data = excluded.data").bind(id, ts, JSON.stringify(Object.assign({ ts: ts, version: VERSION }, data))).run();
+  } catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "rcState", id: id, error: String(e && e.message || e).slice(0, 160) })); }
+}
+// true when the state row id is older than the gate (or missing, or unreadable as a time): the daily collectors run on the hourly fire only then
+async function rcDue(env, id, nowMs) {
+  try {
+    const r = await env.AUDIT.prepare("SELECT ts FROM infra_state WHERE id = ?1").bind(id).first();
+    const t = r && r.ts ? Date.parse(r.ts) : NaN;
+    return !Number.isFinite(t) || nowMs - t >= RC_GATE_MS;
+  } catch (e) { return true; }
+}
+// day-level rows [date, entity_type, entity_id, value] from seo_crawl_log groups; only fetches the site answered (status 200 to 399) count, and a group without a day, a bot or a positive number is dropped
+function rcCrawlRows(groups) {
+  const m = new Map();
+  const add = function (day, type, id, v) {
+    const d = String(day == null ? "" : day).slice(0, 10), e = String(id == null ? "" : id).slice(0, 80), n = Number(v);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !e || !Number.isFinite(n) || n <= 0) return;
+    const k = d + "|" + type + "|" + e;
+    m.set(k, (m.get(k) || 0) + n);
+  };
+  (groups || []).forEach(function (g) {
+    const st = Number(g.status), bot = String(g.bot == null ? "" : g.bot).toLowerCase(), kind = String(g.kind == null ? "" : g.kind).toLowerCase();
+    if (!(st >= 200 && st < 400) || !bot) return;
+    add(g.day, "bot", bot, g.n);
+    if (kind) add(g.day, "bot-kind", bot + "|" + kind, g.n);
+  });
+  return Array.from(m.entries()).map(function (kv) { const p = kv[0].split("|"); return [p[0], p[1], p.slice(2).join("|"), Math.round(kv[1])]; });
+}
+async function collectAgentReads(env) {
+  if (!env || !env.AUDIT || !env.LIVING) return { skipped: "no AUDIT or LIVING" };
+  const ts = new Date().toISOString();
+  let first = true;
+  try { const s = await env.AUDIT.prepare("SELECT ts FROM infra_state WHERE id = 'agent_reads'").first(); first = !(s && s.ts); } catch (e) { first = true; }
+  let groups;
+  try { groups = (await env.LIVING.prepare(RC_CRAWL_SQL).bind(first ? "-8 days" : "-2 days").all()).results || []; }
+  catch (e) { const error = String(e && e.message || e).slice(0, 200); await rcState(env, "agent_reads_error", ts, { error: error }); return { error: error }; }
+  const rows = rcCrawlRows(groups);
+  for (let i = 0; i < rows.length; i += 50) {
+    await env.AUDIT.batch(rows.slice(i, i + 50).map(function (r) { return env.AUDIT.prepare(RC_UPSERT).bind(r[0], r[1], r[2], r[3]); }));
+  }
+  await rcState(env, "agent_reads", ts, { groups: groups.length, rows: rows.length, backfill: first });
+  return { rows: rows.length, backfill: first };
+}
+// the bot management settings that would stop or charge an AI crawler; an absent, disabled, off or allow value is open
+function rcBlockSignals(bm) {
+  const out = [];
+  if (!bm || typeof bm !== "object") return out;
+  const open = function (v) { return v == null || v === false || v === "disabled" || v === "off" || v === "allow" || v === "allowed"; };
+  ["ai_bots_protection", "content_bots_protection", "crawler_protection", "ai_training", "ai_search", "ai_user"].forEach(function (k) { if (!open(bm[k])) out.push(k + "=" + String(bm[k]).slice(0, 30)); });
+  if (bm.fight_mode === true) out.push("fight_mode=true");
+  const ag = bm.ai_agents && typeof bm.ai_agents === "object" ? bm.ai_agents : {};
+  Object.keys(ag).sort().forEach(function (k) { if (!open(ag[k])) out.push("ai_agents." + k + "=" + String(ag[k]).slice(0, 30)); });
+  return out;
+}
+async function rcCfGet(env, path) {
+  const token = await infraSecret(env, "CF_TOKEN_STORE", "CF_TOKEN");
+  if (!token) throw new Error("CF_TOKEN is not set");
+  const r = await fetch("https://api.cloudflare.com/client/v4" + path, { headers: { Authorization: "Bearer " + token, "User-Agent": "Mozilla/5.0 (qnfo-infra)" } });
+  const text = await r.text();
+  if (!r.ok) throw new Error("GET " + path.split("?")[0] + " HTTP " + r.status + ": " + text.slice(0, 120));
+  const j = JSON.parse(text);
+  return j && j.result;
+}
+async function collectAiCrawlProbe(env, nowMs) {
+  if (!env || !env.AUDIT) return { skipped: "no AUDIT" };
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!(await rcDue(env, "ai_crawl_probe", now))) return { skipped: "ran within 20 hours" };
+  const ts = new Date(now).toISOString();
+  const zones = [];
+  let errors = 0;
+  for (const name of RC_ZONES) {
+    try {
+      const z = await rcCfGet(env, "/zones?name=" + encodeURIComponent(name));
+      const id = Array.isArray(z) && z[0] && z[0].id;
+      if (!id) throw new Error("zone " + name + " not found");
+      const bm = await rcCfGet(env, "/zones/" + id + "/bot_management");
+      if (!bm || typeof bm !== "object") throw new Error("no bot_management settings returned for " + name);
+      const signals = rcBlockSignals(bm);
+      zones.push({ zone: name, blocked: signals.length > 0, signals: signals, robots_txt_managed: !!(bm && bm.is_robots_txt_managed), robots_variant: bm && bm.cf_robots_variant != null ? String(bm.cf_robots_variant).slice(0, 30) : null });
+    } catch (e) { errors++; zones.push({ zone: name, error: String(e && e.message || e).slice(0, 160) }); }
+  }
+  const blocked = zones.filter(function (z) { return z.blocked; }).length;
+  await rcState(env, errors ? "ai_crawl_probe_error" : "ai_crawl_probe", ts, { zones: zones, blocked: blocked, errors: errors });
+  try {
+    await env.AUDIT.prepare("UPDATE metric_registry SET last_value = ?1, last_refreshed = ?2, state = ?3 WHERE metric = 'ai_crawler_block_zones'")
+      .bind(errors && blocked === 0 ? null : String(blocked), ts, errors && blocked === 0 ? "UNMEASURED" : "MEASURED").run();
+  } catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "collectAiCrawlProbe", error: String(e && e.message || e).slice(0, 160) })); }
+  return { blocked: blocked, errors: errors };
+}
+// ---- the atlas
+function rcClip(s, n) { const t = String(s == null ? "" : s); return t.length > n ? t.slice(0, n - 3) + "..." : t; }
+// a text that carries something shaped like a credential is withheld whole (null), never half-published
+function rcSecretShaped(s) {
+  return /\b(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,})\b|Bearer\s+[A-Za-z0-9._~+\/=-]{20,}|x-loop-token\s*[:=]\s*\S{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(String(s || ""));
+}
+// an e-mail address is replaced in place (the papers print their author's address; the record has no use for it); a credential shape withholds the whole field
+function rcField(s, state) {
+  const t = rcClip(s, RC_TEXT_MAX).replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g, "[email]");
+  if (rcSecretShaped(t)) { state.redacted++; return null; }
+  return t === "" ? null : t;
+}
+// one public record from an internal_errata row; null for a row that is not published (reader-submitted reports, no paper reference)
+function rcErrataRecord(r, state) {
+  const by = String(r && r.detected_by || "");
+  if (!r || !r.id || !r.target_ref) return null;
+  if (/^reader-report/i.test(by)) { state.reader_reports_excluded++; return null; }
+  const ev = String(r.evidence || "");
+  const m = /found by (\S+) and confirmed by (\S+) against version (\S+?)[.:;,]?(?:\s|$)/.exec(ev);
+  return {
+    id: String(r.id),
+    paper_slug: String(r.target_ref),
+    paper_version: m ? m[3] : null,
+    detected_at: r.detected_at || null,
+    detector: rcClip(by, 120) || null,
+    finder_model: m ? m[1] : null,
+    confirmer_model: m ? m[2] : null,
+    severity: r.severity || null,
+    status: r.status || null,
+    claim: rcField(r.claim_text, state),
+    falsification: rcField(r.falsification, state),
+    evidence: rcField(r.evidence, state),
+    remediation: rcField(r.remediation, state),
+    updated_at: r.updated_at || null,
+    ai_generated: true
+  };
+}
+function rcPaperRows(papers, records) {
+  const by = new Map();
+  records.forEach(function (x) {
+    let a = by.get(x.paper_slug);
+    if (!a) { a = { total: 0, open: 0, closed: 0, resolved: 0, rejected: 0, last: "" }; by.set(x.paper_slug, a); }
+    a.total++;
+    if (x.status === "open") a.open++; else if (x.status === "closed") a.closed++; else if (x.status === "resolved") a.resolved++; else if (x.status === "rejected") a.rejected++;
+    if (x.detected_at && x.detected_at > a.last) a.last = x.detected_at;
+  });
+  return (papers || []).map(function (p) {
+    const a = by.get(p.slug) || { total: 0, open: 0, closed: 0, resolved: 0, rejected: 0, last: "" };
+    const reviewed = p.provenance === "ai-assisted-human-reviewed" && !!(p.reviewed_by && String(p.reviewed_by).trim());
+    return {
+      slug: p.slug, title: rcClip(p.title, 300), version: p.version || null, url: "https://papers.qnfo.org/papers/" + p.slug,
+      last_revised_at: p.last_revised_at || null,
+      errata_total: a.total, errata_open: a.open, errata_closed: a.closed, errata_resolved: a.resolved, errata_rejected: a.rejected, last_errata_detected_at: a.last || null,
+      provenance: p.provenance || "fleet-generated", human_review_recorded: reviewed
+    };
+  });
+}
+function rcJsonl(objs) { return objs.length ? objs.map(function (o) { return JSON.stringify(o); }).join("\n") + "\n" : ""; }
+async function rcSha256(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+}
+function rcCount(records, key) { const o = {}; records.forEach(function (x) { const k = String(x[key] == null ? "unknown" : x[key]); o[k] = (o[k] || 0) + 1; }); return o; }
+function rcDataCard(man) {
+  const f = man.files;
+  return [
+    "# QNFO record of how AI-written papers fail (" + man.version + ")",
+    "",
+    "This is an open record of the errors that the QNFO research fleet's own checks found in the fleet's own published papers. The papers are written by AI language models in an automated pipeline; so are the checks. The record is published because the failures are the useful part: it is a dataset of how AI-written science goes wrong, kept with the status of every finding, including the findings the fleet later rejected.",
+    "",
+    "## Files (all under " + RC_ATLAS_BASE + RC_ATLAS_PREFIX + ")",
+    "",
+    "| file | records | bytes | sha256 |",
+    "|---|---|---|---|",
+    "| errata.jsonl | " + f["errata.jsonl"].records + " | " + f["errata.jsonl"].bytes + " | " + f["errata.jsonl"].sha256 + " |",
+    "| papers-status.jsonl | " + f["papers-status.jsonl"].records + " | " + f["papers-status.jsonl"].bytes + " | " + f["papers-status.jsonl"].sha256 + " |",
+    "| manifest.json | 1 | see manifest | - |",
+    "",
+    "## Counts at generation (" + man.generated_at + ")",
+    "",
+    "- Findings: " + man.counts.errata + " (by status " + JSON.stringify(man.counts.by_status) + "; by severity " + JSON.stringify(man.counts.by_severity) + ").",
+    "- Published papers covered by papers-status.jsonl: " + man.counts.papers + "; with at least one finding: " + man.counts.papers_with_findings + "; with an open finding: " + man.counts.papers_with_open_findings + "; with a human review recorded: " + man.counts.papers_human_reviewed + ".",
+    "- Left out: " + man.counts.reader_reports_excluded + " reader-submitted reports (they come from outside the fleet and may identify a person); " + man.counts.fields_withheld + " text fields withheld because they looked like a credential.",
+    "",
+    "## Fields of errata.jsonl",
+    "",
+    "`id`, `paper_slug` (the paper at https://papers.qnfo.org/papers/<slug>), `paper_version` (the version the finding was made against, when the evidence says so), `detected_at`, `detector` (the check that produced the finding), `finder_model` and `confirmer_model` (set only when the evidence line names them: a first model flagged a passage and a second model confirmed it against the paper text), `severity`, `status`, `claim` (the passage or claim at issue), `falsification` (why it is wrong), `evidence`, `remediation`, `updated_at`, `ai_generated` (always true).",
+    "",
+    "`status` is the fleet's own workflow state, not an external editor's verdict: `open` has not been answered; `resolved` and `closed` were answered (usually by a paper revision); `rejected` means the fleet's confirmation step did not uphold the finding, which is not proof that the claim in the paper is right.",
+    "",
+    "## Fields of papers-status.jsonl",
+    "",
+    "One line per published paper: `slug`, `title`, `version`, `url`, `last_revised_at`, the errata counts (`errata_total`, `errata_open`, `errata_closed`, `errata_resolved`, `errata_rejected`), `last_errata_detected_at`, `provenance` (`fleet-generated` means no person reviewed the paper; `ai-assisted-human-reviewed` is set only with a named reviewer) and `human_review_recorded`. A paper with no findings may simply have been checked less thoroughly; zero findings is not evidence that a paper is right (see the limits).",
+    "",
+    "## Limits you should know before using it",
+    "",
+    "- The findings are model judgements. The finder and the confirmer are normally different models, but language models share errors, so a flaw that every model misses is not in this record, and a finding both models share may be a false positive. No person is recorded as having reviewed an individual finding.",
+    "- Only QNFO's own papers are covered, and they are one author's research programme in a narrow field (p-adic and ultrametric mathematics, topological quantum computation and neighbours). Rates here say nothing about AI-written science in general.",
+    "- Detection effort differs by period and by check, so counts over time and across papers are not rates of error per paper.",
+    "- The records quote passages of the papers so a reader can judge each finding. The papers are under the same licence as this record.",
+    "",
+    "## Contamination",
+    "",
+    "Do not train or tune a paper-checking model on this record and then evaluate it on the same records or the same papers: split by `paper_slug`. The record is public and will be in future training data.",
+    "",
+    "## Licence",
+    "",
+    "LicenseRef-QNFO-ULA-2.1 (the QNFO Unified License Agreement v2.1, CC BY-NC-SA 4.0 plus the QNFO Supplemental Terms): https://qnfo.org/legal/license. It is the licence of the papers quoted here. The licence text governs any use for training a model; read it before you rely on this record for that.",
+    "",
+    "## How to cite",
+    "",
+    "Quni-Gudzinas, R. B. (" + man.version.slice(0, 4) + "). QNFO record of how AI-written papers fail, version " + man.version + " [dataset]. " + RC_ATLAS_BASE + RC_ATLAS_PREFIX + " (no DOI yet).",
+    "",
+    "## Updates",
+    "",
+    "Regenerated once a day by the qnfo-infra worker (REACH-COMMONS-1). `manifest.json` carries the version, the time and the sha256 of each file. A correction to a record arrives in the next version; earlier versions are not kept here.",
+    ""
+  ].join("\n");
+}
+async function publishAtlas(env, nowMs) {
+  if (!env || !env.AUDIT || !env.LIVING) return { skipped: "no AUDIT or LIVING" };
+  if (!env.ATLAS_R2) { await rcState(env, "atlas_export_error", new Date().toISOString(), { error: "no ATLAS_R2 binding" }); return { error: "no ATLAS_R2 binding" }; }
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!(await rcDue(env, "atlas_export", now))) return { skipped: "ran within 20 hours" };
+  const ts = new Date(now).toISOString();
+  let errata, papers;
+  try {
+    errata = (await env.AUDIT.prepare(RC_ERRATA_SQL).all()).results || [];
+    papers = (await env.LIVING.prepare(RC_PAPERS_SQL).all()).results || [];
+  } catch (e) { const error = String(e && e.message || e).slice(0, 200); await rcState(env, "atlas_export_error", ts, { error: error }); return { error: error }; }
+  const state = { redacted: 0, reader_reports_excluded: 0 };
+  const records = errata.map(function (r) { return rcErrataRecord(r, state); }).filter(Boolean);
+  if (errata.length > 0 && records.length === 0) { await rcState(env, "atlas_export_error", ts, { error: "every errata row was excluded; nothing written" }); return { error: "empty export" }; }
+  let prevCount = 0;
+  try { const pr = await env.AUDIT.prepare("SELECT data FROM infra_state WHERE id = 'atlas_export'").first(); prevCount = Number(pr && pr.data ? JSON.parse(pr.data).errata : 0) || 0; } catch (e) { prevCount = 0; }
+  if (prevCount > 20 && records.length < prevCount * 0.5) {
+    const error = "errata count fell from " + prevCount + " to " + records.length + "; not published";
+    await rcState(env, "atlas_export_error", ts, { error: error });
+    return { error: error };
+  }
+  const status = rcPaperRows(papers, records);
+  const errataText = rcJsonl(records), statusText = rcJsonl(status);
+  const files = {
+    "errata.jsonl": { text: errataText, type: "application/x-ndjson; charset=utf-8", records: records.length },
+    "papers-status.jsonl": { text: statusText, type: "application/x-ndjson; charset=utf-8", records: status.length }
+  };
+  const meta = {};
+  for (const name of Object.keys(files)) {
+    meta[name] = { records: files[name].records, bytes: new TextEncoder().encode(files[name].text).length, sha256: await rcSha256(files[name].text) };
+  }
+  const manifest = {
+    dataset: "qnfo-ai-written-science-failures", version: ts.slice(0, 10), generated_at: ts, generator: "qnfo-infra " + VERSION + " REACH-COMMONS-1",
+    license: "LicenseRef-QNFO-ULA-2.1", license_url: "https://qnfo.org/legal/license", ai_generated: true, base_url: RC_ATLAS_BASE + RC_ATLAS_PREFIX, files: meta,
+    counts: {
+      errata: records.length, by_status: rcCount(records, "status"), by_severity: rcCount(records, "severity"), papers: status.length,
+      papers_with_findings: status.filter(function (p) { return p.errata_total > 0; }).length,
+      papers_with_open_findings: status.filter(function (p) { return p.errata_open > 0; }).length,
+      papers_human_reviewed: status.filter(function (p) { return p.human_review_recorded; }).length,
+      reader_reports_excluded: state.reader_reports_excluded, fields_withheld: state.redacted
+    }
+  };
+  const card = rcDataCard(manifest);
+  const put = function (name, text, type) { return env.ATLAS_R2.put(RC_ATLAS_PREFIX + name, text, { httpMetadata: { contentType: type, cacheControl: "public, max-age=3600" } }); };
+  try {
+    await put("errata.jsonl", errataText, files["errata.jsonl"].type);
+    await put("papers-status.jsonl", statusText, files["papers-status.jsonl"].type);
+    await put("DATACARD.md", card, "text/markdown; charset=utf-8");
+    await put("manifest.json", JSON.stringify(manifest, null, 2) + "\n", "application/json; charset=utf-8");
+  } catch (e) { const error = "R2 write: " + String(e && e.message || e).slice(0, 160); await rcState(env, "atlas_export_error", ts, { error: error }); return { error: error }; }
+  await rcState(env, "atlas_export", ts, { errata: records.length, papers: status.length, bytes: meta["errata.jsonl"].bytes + meta["papers-status.jsonl"].bytes, url: RC_ATLAS_BASE + RC_ATLAS_PREFIX + "manifest.json" });
+  return { errata: records.length, papers: status.length };
+}
+// ---- REACH-COMMONS-1:END
 // ---- LAKE-SPINE-1:BEGIN (pillar reliability and cost; roadmap row 3258 RM-BS-DATA-SPINE-1, docs/D1-SPLIT-DESIGN-2026-11.md section 8; scripts/lake_spine.py is the second path): slice 1 of the data spine.
 // Append-only telemetry leaves D1 for an Iceberg lake: every hour the rows of fleet_probe_log that are new since the cursor (D1 table lake_spine_state) are sent to the Pipelines stream
 // telemetry_fleet_probe_log_stream, which lands them as Parquet in the R2 Data Catalog table telemetry.fleet_probe_log of bucket qnfo-audit. D1 stays authoritative and its writer is untouched in
@@ -1758,6 +2043,13 @@ async function runScheduled(event, env, ctx) {
     // REACH-AE-1: every fire (hourly :30), after the cost ledger; the read-back of the first-party reach events, a failure is logged and never fails the fire.
     try { const re = await withTimeout(collectReachAe(env), Number(env && env.REACH_AE_TIMEOUT_MS) || 60000, "collectReachAe"); if (re && re.error) console.log("[qnfo-infra] reach read-back: " + re.error); }
     catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "collectReachAe", error: String(e && e.message || e) })); }
+    // REACH-COMMONS-1: after the reach read-back, three fail-open collectors (agent reads hourly; the AI-crawler probe and the open-data atlas once a day, gated on their infra_state rows).
+    try { const ar = await withTimeout(collectAgentReads(env), Number(env && env.AGENT_READS_TIMEOUT_MS) || 60000, "collectAgentReads"); if (ar && ar.error) console.log("[qnfo-infra] agent reads: " + ar.error); }
+    catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "collectAgentReads", error: String(e && e.message || e) })); }
+    try { const ap = await withTimeout(collectAiCrawlProbe(env), Number(env && env.AI_CRAWL_PROBE_TIMEOUT_MS) || 60000, "collectAiCrawlProbe"); if (ap && ap.errors) console.log("[qnfo-infra] ai crawl probe errors: " + ap.errors); }
+    catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "collectAiCrawlProbe", error: String(e && e.message || e) })); }
+    try { const at = await withTimeout(publishAtlas(env), Number(env && env.ATLAS_TIMEOUT_MS) || 120000, "publishAtlas"); if (at && at.error) console.log("[qnfo-infra] atlas: " + at.error); }
+    catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "publishAtlas", error: String(e && e.message || e) })); }
     // LAKE-SPINE-1: every fire (hourly :30), after the reach read-back; ops_config lake_spine off means nothing runs, a failure is logged and never fails the fire.
     try { const lk = await withTimeout(lakeSpineTick(env), Number(env && env.LAKE_SPINE_TIMEOUT_MS) || 170000, "lakeSpineTick"); if (lk && lk.errors && lk.errors.length) console.log("[qnfo-infra] lake spine: " + JSON.stringify(lk.errors)); }
     catch (e) { console.error(JSON.stringify({ worker: "qnfo-infra", where: "lakeSpineTick", error: String(e && e.message || e) })); }
@@ -1934,7 +2226,7 @@ var worker_default = {
       return indexerMod.fetch(new Request(iu.toString(), request), indexerEnv(env), {});
     }
     if (path === "/health" && method === "GET") {
-      return new Response(JSON.stringify({ ok: true, worker: "qnfo-infra", version: VERSION, capabilities: ["infra-retrieve", "context", "state-refresh", "analytics", "credential-expiry", "handoffs-index", "cost-ledger", "lake-spine"], limitations: ["every route except /health needs a bearer token", "handoffs are embedded 100 per hourly fire from the ops_config watermark handoffs_vz_last_id (a backlog drains over hours)","state refreshes hourly at :30 (CRON-GRID-1); the indexer member runs on the 06:30 fire"], oracle: { retrieve: "GET /retrieve?q=&scope=&k=", context: "GET /context?q=&scope=&k=" }, bindings: { audit: !!env.AUDIT, graph: !!env.GRAPH, living: !!env.LIVING, personal: !!env.PERSONAL, portfolio: !!env.PORTFOLIO, paper_vz: !!env.PAPER_VZ, notes_vz: !!env.NOTES_VZ, tasks_vz: !!env.TASKS_VZ, log_vz: !!env.LOG_VZ, handoffs_vz: !!env.HANDOFFS_VZ, ipatent_vz: !!env.IPATENT_VZ, infra_vz: !!env.VZ, ai: !!env.AI } }), { headers: { "Content-Type": "application/json", ...cors } });
+      return new Response(JSON.stringify({ ok: true, worker: "qnfo-infra", version: VERSION, capabilities: ["infra-retrieve", "context", "state-refresh", "analytics", "credential-expiry", "handoffs-index", "ai-reach-series", "ai-crawl-probe", "open-data-atlas", "cost-ledger", "lake-spine"], limitations: ["every route except /health needs a bearer token", "handoffs are embedded 100 per hourly fire from the ops_config watermark handoffs_vz_last_id (a backlog drains over hours)","state refreshes hourly at :30 (CRON-GRID-1); the indexer member runs on the 06:30 fire"], oracle: { retrieve: "GET /retrieve?q=&scope=&k=", context: "GET /context?q=&scope=&k=" }, bindings: { audit: !!env.AUDIT, graph: !!env.GRAPH, living: !!env.LIVING, personal: !!env.PERSONAL, portfolio: !!env.PORTFOLIO, paper_vz: !!env.PAPER_VZ, notes_vz: !!env.NOTES_VZ, tasks_vz: !!env.TASKS_VZ, log_vz: !!env.LOG_VZ, handoffs_vz: !!env.HANDOFFS_VZ, ipatent_vz: !!env.IPATENT_VZ, infra_vz: !!env.VZ, ai: !!env.AI } }), { headers: { "Content-Type": "application/json", ...cors } });
     }
     const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
     // LAKE-SPINE-1: these routes read and move telemetry, so they await the token check (the shared check below does not).
