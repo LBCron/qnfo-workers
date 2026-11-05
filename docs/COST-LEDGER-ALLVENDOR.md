@@ -51,7 +51,7 @@ The Cloudflare billing API (`/billing/usage`, `/billable-usage`, `/billing/histo
 | R2 | 92 GB stored, 260 k class B reads a day | 10 GB, 10 M | about USD 1.2 |
 | Vectorize | 4.5 M queried dimensions a day, 201 M stored | 50 M, 10 M | about USD 0.9 |
 | Containers, KV, Queues, Browser Rendering, Workflows | inside the allowances | | USD 0 |
-| AI Search (usage billing from 2026-12-01; read 2026-11-05) | qnfo-corpus only: about 36 hybrid queries a day (about 1,100 a month), 76 MB stored, 25 k to 270 k ingestion tokens a day (about 4 M a month) | 1,000 queries, 10 GB, 5 M tokens | under USD 1 (queries and ingestion sit at the edge of their allowances); the embedding and rerank calls are inside this price and no longer on the Workers AI line |
+| AI Search (usage billing from 2026-12-01; read 2026-11-05) | qnfo-corpus only: about 36 hybrid queries a day (900 to 1,100 a month), 76 MB stored, 25 k to 270 k ingestion tokens a day (658 k in the first four days, 5 to 6 M a month) | 1,000 queries, 10 GB, 5 M tokens | USD 0.66 forecast for November (all of it ingestion, measured by the first qnfo-infra tick after 1.13.0; queries and storage sit inside their allowances); the embedding and rerank calls are inside this price and no longer on the Workers AI line |
 | Workers Logs and traces | 4.9 M events in 30 days | 20 M | USD 0 |
 | GitHub Actions | 186,195 Linux minutes in October (list USD 1,117) | public repository: 100% discount | USD 0 net |
 | GitHub Copilot AI units (owner account) | USD 200 list in October, USD 199.67 in the first 4 days of November | plan allowance | USD 0 net; the allowance was gone on 2026-11-04 (this is why the Copilot coding agent refuses new work) |
