@@ -52,9 +52,13 @@ component, community), `kg_gap` (open gaps), `kg_embed` (int8-quantised embeddin
 
 ## What each run does
 
-Run by `scripts/fleet_graph.mjs` (1.2.0) after the fleet graph, in `fleet-graph.yml` on every push to main that changes code, and on the
-`fleet-graph-tick` dispatch qnfo-cloud-ops sends when main has been quiet 60 minutes. A run is skipped when the last good one is under 25
-minutes old, and a 15-minute lease stops two runs overlapping. `node scripts/kg_curate.mjs [--dry-run] [--force]` runs it alone.
+Run by `.github/workflows/kg-curate.yml` (KG-CURATE-2): on every push to main, on the `fleet-graph-tick` dispatch qnfo-cloud-ops sends when main has
+been quiet 60 minutes, and by hand (`workflow_dispatch`, `force`). It is a workflow of its own because `fleet-graph.yml` cancels its run on every newer
+push, and 34 of that workflow's last 40 runs on 2026-11-05 were cancelled (median 31 s) before a curation of several minutes could finish; this one's
+concurrency group never cancels a running curation. A run is skipped, after reading three rows, when the last good one is under 25 minutes old; a
+6-minute lease renewed per phase stops two runs overlapping; a run past its 8-minute budget defers the remaining phases to the next one (each phase
+is idempotent, and a deferred run does not count as good for the throttle). `node scripts/kg_curate.mjs [--dry-run] [--force]` runs it from any machine
+with the token, and `node scripts/fleet_graph.mjs --scope kg` runs the same code.
 
 | Phase | What it adds or does | Edge kind |
 |---|---|---|
@@ -91,7 +95,7 @@ Each phase is isolated: one that throws is reported and the rest still run. A wr
 | A short living-paper read ghosting the corpus | ghosting needs at least 500 papers read; a ghost waits 30 days from the day it was marked |
 | A node deleted while another writer links it | the delete runs only while no edge of any kind touches the node, checked by the database in the same statement |
 | A returning issue, worker or goal staying closed | a node whose status differs from the source is rewritten, and a source that returns nothing still closes its nodes |
-| Two runs at once | a 15-minute lease in `kg_state`, and a 25-minute minimum between runs |
+| Two runs at once | a 6-minute lease in `kg_state` renewed per phase, and a 25-minute minimum between good runs |
 
 To restore a deleted row: `SELECT row FROM kg_tombstone WHERE kind = 'node' AND key = '<id>'` holds the whole row as JSON.
 

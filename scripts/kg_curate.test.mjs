@@ -313,4 +313,12 @@ assert.ok(G.one("SELECT COUNT(*) AS n FROM kg_tombstone WHERE kind = 'edge' AND 
   const r2 = await K.runCurate({ ...base, force: false, now: "2026-12-20T00:01:00.000Z" });
   assert.ok(!r2.skipped && r2.ok, "and it starts at once");
 }
+// ---- a throttled run is cheap: a push storm starts one per push
+{
+  let reads = 0, writes = 0;
+  const counted = { all: async (sql) => { reads++; return G.all(sql); }, run: async (sql) => { writes++; return G.run(sql); } };
+  const t = await K.runCurate({ ...base, graph: counted, force: false, now: "2026-12-20T00:02:00.000Z" });
+  assert.ok(/min ago/.test(t.skipped), "inside the interval the run is skipped");
+  assert.ok(reads <= 5 && writes === 0, "and it reads a handful of rows and writes nothing (reads " + reads + ", writes " + writes + ")");
+}
 console.log("kg_curate suite ok");

@@ -1,0 +1,61 @@
+name: kg-curate
+
+# KG-CURATE-2 (2026-11-05, pillar autonomy; also research and reach). The content knowledge graph's curator (scripts/kg_curate.mjs, KG-CURATE-1)
+# in a workflow of its own.
+#
+# WHY A WORKFLOW OF ITS OWN  KG-CURATE-1 ran as the last step of fleet-graph.yml. That job cancels its own run on every newer push to main
+#           (concurrency cancel-in-progress), and main takes a push every minute or two: of its last 40 runs on 2026-11-05, 34 were cancelled
+#           (median 31 s) and 5 finished (median 101 s). A curation that needs several minutes would almost never have completed. This workflow's
+#           concurrency group never cancels a running curation: GitHub keeps one run and one pending run, so a push storm queues at most one more.
+# TRIGGERS  push to main (every push starts a run, and the script skips one that is under 25 minutes after the last good run after reading
+#           three rows, so the cost of a storm is the runner start); repository_dispatch kg-curate-tick and fleet-graph-tick (the second path:
+#           qnfo-cloud-ops FLEET-GRAPH-CADENCE-1 sends fleet-graph-tick when main has been quiet 60 minutes); workflow_dispatch with `force`.
+#           The GitHub `schedule` event is not relied on (SCHEDULE-EVENT-NEVER-FIRES-1). No pull_request trigger: this adds no check to a PR.
+# WHAT      node scripts/kg_curate.mjs: reads living-paper, qnfo-audit and the fleet graph, writes qnfo-graph, runs up to 8 minutes (the rest of
+#           a long cold run waits for the next one; every phase is idempotent), prints one JSON report. Embeds changed papers with Workers AI.
+# LIMITS    docs/KNOWLEDGE-GRAPH.md has the guards. A lease in qnfo-graph.kg_state keeps two runs apart even when the queue is bypassed.
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [kg-curate-tick, fleet-graph-tick]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run even if the last good run is under 25 minutes old"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kg-curate
+  cancel-in-progress: false
+
+jobs:
+  curate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Curate the knowledge graph
+        run: |
+          set -uo pipefail
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.force }}" = "true" ]; then
+            node --no-warnings scripts/kg_curate.mjs --force
+          else
+            node --no-warnings scripts/kg_curate.mjs
+          fi

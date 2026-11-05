@@ -27,8 +27,10 @@
 //        pile; sweeps refuse to run when a source shrinks by more than 20% or would invalidate more than 10% in one run; nothing
 //        inferred is used as input to inference (phases read tables and the legacy graph, never `kg:` edges, except analytics);
 //        a legacy edge (source IS NULL) is never modified, only read (the one exception is a self-loop or dangling edge, tombstoned first).
-// WHERE  Run by scripts/fleet_graph.mjs after the fleet graph (same workflow, same two triggers: push to main and the
-//        qnfo-cloud-ops repository_dispatch), or alone: node scripts/kg_curate.mjs [--dry-run] [--force].
+// WHERE  Run by .github/workflows/kg-curate.yml (KG-CURATE-2): push to main, the qnfo-cloud-ops repository_dispatch fleet-graph-tick and
+//        workflow_dispatch, in a concurrency group that never cancels a running curation (fleet-graph.yml cancels its own run on every
+//        push, and 34 of its last 40 runs on 2026-11-05 were cancelled before the curator could finish). Or alone:
+//        node scripts/kg_curate.mjs [--dry-run] [--force]; scripts/fleet_graph.mjs --scope kg runs the same code.
 //        Reads CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID. No Claude call anywhere; the only paid call is Workers AI
 //        embeddings (about USD 0.03 for the first full pass, then only changed papers).
 // LIMIT  Similarity is a lead, not a fact (confidence is the cosine, source says `kg:semantic`); name-based links are INFERRED
@@ -150,14 +152,19 @@ export async function missingColumns(graph) {
   const n = await have("nodes"), e = await have("edges");
   return { nodes: NODE_COLUMNS.filter(([c]) => !n.has(c)), edges: EDGE_COLUMNS.filter(([c]) => !e.has(c)) };
 }
-export async function ensureSchema(graph, dryRun) {
+export const SCHEMA_VERSION = "1";
+export async function ensureSchema(graph, dryRun, now = new Date().toISOString()) {
   const miss = await missingColumns(graph);
   const pending = miss.nodes.length + miss.edges.length;
   if (dryRun) return { pending, applied: false };
+  // A run that has nothing to add costs two PRAGMAs and one read, not eleven statements.
+  let have = null; try { const r = await graph.all("SELECT v FROM kg_state WHERE k = 'schema'"); have = r[0] ? r[0].v : null; } catch (e) { have = null; }
+  if (!pending && have === SCHEMA_VERSION) return { pending: 0, applied: false, current: true };
   for (const s of KG_TABLES_SQL) await graph.run(s);
   for (const [c, t] of miss.nodes) await graph.run("ALTER TABLE nodes ADD COLUMN " + c + " " + t);
   for (const [c, t] of miss.edges) await graph.run("ALTER TABLE edges ADD COLUMN " + c + " " + t);
   for (const s of KG_INDEX_SQL) await graph.run(s);
+  await graph.run("INSERT INTO kg_state (k, v, updated_at) VALUES ('schema', " + lit(SCHEMA_VERSION) + ", " + lit(now) + ") ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at");
   return { pending, applied: true };
 }
 
@@ -936,13 +943,15 @@ export async function runCurate(opts) {
   const t0 = Date.now(), now = opts.now || new Date().toISOString();
   const o = Object.assign({ dryRun: false, force: false, minIntervalMin: 25, maxWrites: 60000, maxDeletes: 800, maxEmbed: 1000, budgetMs: 8 * 60000, log: () => {} }, opts, { now });
   const report = { marker: "KG-CURATE-1", version: VERSION, dry_run: o.dryRun };
-  const schema = await ensureSchema(o.graph, o.dryRun);
+  const schema = await ensureSchema(o.graph, o.dryRun, now);
   if (o.dryRun && schema.pending) { report.skipped = "schema not applied yet (" + schema.pending + " columns missing); a dry run does not alter qnfo-graph"; report.ok = true; return report; }
-  const ctx = await loadContext(o);
-  const last = getState(ctx, "lastRun", null);
+  // The throttle and the lease come first, from two rows: a push storm starts a run per push, and a skipped run must not read the whole graph.
+  const early = new Map((await o.graph.all("SELECT k, v FROM kg_state WHERE k IN ('lastRun', 'lease')")).map((r) => [r.k, r.v]));
+  const pick = (k) => { try { return early.has(k) ? JSON.parse(early.get(k)) : null; } catch (e) { return null; } };
+  const last = pick("lastRun"), held = pick("lease");
   if (!o.force && last && last.ok && Date.parse(now) - Date.parse(last.at) < o.minIntervalMin * 60000) { report.skipped = "last ok run " + Math.round((Date.parse(now) - Date.parse(last.at)) / 60000) + " min ago (< " + o.minIntervalMin + ")"; report.ok = true; return report; }
-  const held = getState(ctx, "lease", null);
   if (!o.dryRun && held && Date.parse(held.until) > Date.parse(now) && held.owner !== o.owner) { report.skipped = "another curator holds the lease until " + held.until; report.ok = true; return report; }
+  const ctx = await loadContext(o);
   // A short lease renewed before every phase: a run cancelled by the next push (fleet-graph.yml cancels in progress) blocks the next run for
   // at most six minutes, not fifteen.
   const lease = async () => { if (!o.dryRun) await setState(ctx, "lease", { owner: o.owner || "kg-curate", until: new Date(Date.parse(now) + (Date.now() - t0) + 6 * 60000).toISOString() }); };

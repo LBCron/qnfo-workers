@@ -244,7 +244,7 @@ because each one was broken at least once; the linked issue holds the evidence.
   `/fleet-graph/worker?worker=<name>` shows declared versus live bindings and crons. Check `/fleet-graph/freshness` first: when the
   graph is older than the change you reason about, read the code too. Edges marked INFERRED are leads, not facts.
 - The content knowledge graph (KG-CURATE-1, `docs/KNOWLEDGE-GRAPH.md`) relates papers, concepts, tags, cited works, workers, databases, metrics, programs, goals, failure modes,
-  open issues, decisions and capabilities, every derived edge with its source, confidence and expiry, and is curated on every fleet-graph build by `scripts/kg_curate.mjs`.
+  open issues, decisions and capabilities, every derived edge with its source, confidence and expiry, and is curated by `scripts/kg_curate.mjs` from its own workflow, `kg-curate.yml`.
   Ask it what relates to a node (`GET https://qnfo-memory-mcp.q08.workers.dev/kg/neighbors?id=<id>`, `/kg/health`, `/kg/gaps`, MCP tools `kg_*`) before searching by hand. A new
   source of edges is a phase in that script with a test in `scripts/kg_curate.test.mjs`; never write `edges` with a `kg:` source from anywhere else, and never delete a row
   without `deleteRows` (it tombstones).

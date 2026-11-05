@@ -1044,10 +1044,10 @@ export async function main(argv) {
     const age = rows[0] && rows[0].age_min;
     if (age !== null && age !== undefined && age < Number(olderThan)) { report.skipped = "last ok live build " + Math.round(age) + " min ago (< " + olderThan + ")"; console.log(JSON.stringify(report)); return 0; }
   }
-  // KG-CURATE-1: the content knowledge graph's curator runs here (same workflow, same push and dispatch triggers) so it needs no cron of its
-  // own; `--scope kg` runs it alone. A failure of either never stops the other: the curator isolates its phases and reports in `report.kg`.
+  // KG-CURATE-2: the content knowledge graph's curator has its own workflow (.github/workflows/kg-curate.yml), because this job is cancelled by
+  // every newer push to main (34 of its last 40 runs on 2026-11-05). `--scope kg` still runs it from here, alone.
   const runKg = async () => {
-    if (!cf || (scope !== "all" && scope !== "kg")) return;
+    if (!cf || scope !== "kg") return;
     try { report.kg = await curateWithCloudflare(cf, { dryRun, force: argv.includes("--kg-force") }); }
     catch (e) { report.kg = { ok: false, error: String(e && e.stack || e).slice(0, 600) }; }
   };
