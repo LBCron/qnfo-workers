@@ -131,7 +131,7 @@ def self_test():
         print("SELF-TEST: PASS (7 drifted findings detected, all healed, none remaining)")
         return 0
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(tmp, ignore_errors=True)  # link-probe-exempt: tmp is the directory this self-test just made with tempfile.mkdtemp, nothing in it is a link
 
 
 if __name__ == "__main__":

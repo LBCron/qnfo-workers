@@ -20,8 +20,26 @@ Usage: python fleet-wiring-sweep.py [repo-root]
 """
 import json, os, sys, datetime, urllib.request, urllib.error
 
+
+def secret(name, default=''):
+    """RM-GATE-E2 (fleet-lessons E2): a key is missing only when neither the process environment nor the ~/.env file store holds it (a session once judged
+    'missing credential' from the environment alone while the key sat in the file). scripts/fleet_lessons_gates.py gate E2 fails an env-only read."""
+    v = os.environ.get(name)
+    if v:
+        return v
+    try:
+        with open(os.path.expanduser('~/.env'), encoding='utf-8', errors='ignore') as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if ln.startswith(name + '='):
+                    return ln.split('=', 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return default
+
+
 ACCOUNT = 'edb167b78c9fb901ea5bca3ce58ccc4b'
-TOKEN = os.environ.get('CLOUDFLARE_API_TOKEN', '')
+TOKEN = secret('CLOUDFLARE_API_TOKEN')
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) QNFO-fleet-wiring-sweep/1.0'
 _here = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(_here)

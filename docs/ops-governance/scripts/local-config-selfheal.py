@@ -190,7 +190,12 @@ def purge_residue():
     the guard dirs. Bounded to those two dirs; never touches backups/."""
     import glob, shutil
     for base in RESIDUE_DIRS:
+        real_base = os.path.realpath(base) + os.sep
         for cache in glob.glob(os.path.join(base, "**", "__pycache__"), recursive=True):
+            # RM-GATE-H3 (fleet-lessons H3): the guard dirs can hold junctions into other checkouts (a deduplicated skills tree); a __pycache__ whose real path
+            # leaves the dir, or that is itself a link, is somebody else's file and is not ours to delete
+            if os.path.islink(cache) or not (os.path.realpath(cache) + os.sep).startswith(real_base):
+                continue
             shutil.rmtree(cache, ignore_errors=True)
             changed.append("rm-cache:" + os.path.relpath(cache, HOME))
         for bak in glob.glob(os.path.join(base, "*.bak-*")):

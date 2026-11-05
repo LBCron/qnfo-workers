@@ -7,7 +7,25 @@ Canonical: QNFO/qnfo-ops/scripts/dr_validate_schema.py  (mirrored .deepchat/scri
 """
 import os, sys, json, urllib.request, urllib.error
 
-TOKEN = os.environ.get('CLOUDFLARE_API_TOKEN', '')
+
+def secret(name, default=''):
+    """RM-GATE-E2 (fleet-lessons E2): a key is missing only when neither the process environment nor the ~/.env file store holds it (a session once judged
+    'missing credential' from the environment alone while the key sat in the file). scripts/fleet_lessons_gates.py gate E2 fails an env-only read."""
+    v = os.environ.get(name)
+    if v:
+        return v
+    try:
+        with open(os.path.expanduser('~/.env'), encoding='utf-8', errors='ignore') as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if ln.startswith(name + '='):
+                    return ln.split('=', 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return default
+
+
+TOKEN = secret('CLOUDFLARE_API_TOKEN')
 ACCT = 'edb167b78c9fb901ea5bca3ce58ccc4b'
 
 REQUIRED = {
@@ -55,7 +73,7 @@ def query(db_id, sql):
 
 def main():
     if not TOKEN:
-        print('SCHEMA ERROR: CLOUDFLARE_API_TOKEN missing')
+        print('SCHEMA ERROR: CLOUDFLARE_API_TOKEN is in neither the environment nor ~/.env')
         return 1
     errors = []
     ok_count = 0

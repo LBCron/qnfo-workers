@@ -23,15 +23,33 @@ import re
 import subprocess
 import sys
 
+
+def secret(name, default=''):
+    """RM-GATE-E2 (fleet-lessons E2): a key is missing only when neither the process environment nor the ~/.env file store holds it (a session once judged
+    'missing credential' from the environment alone while the key sat in the file). scripts/fleet_lessons_gates.py gate E2 fails an env-only read."""
+    v = os.environ.get(name)
+    if v:
+        return v
+    try:
+        with open(os.path.expanduser('~/.env'), encoding='utf-8', errors='ignore') as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if ln.startswith(name + '='):
+                    return ln.split('=', 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return default
+
+
 WORKERS_DIR = os.environ.get("QNFO_WORKERS_DIR", os.path.expanduser("~/Dev/qnfo-workers"))
 ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "edb167b78c9fb901ea5bca3ce58ccc4b")
 
 
 def live_workers():
     """PRECONDITION: CLOUDFLARE_API_TOKEN set. POSTCONDITION: set of live worker names."""
-    token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    token = secret("CLOUDFLARE_API_TOKEN")
     if not token:
-        print("SKIP: CLOUDFLARE_API_TOKEN not set (cannot fetch live workers)")
+        print("SKIP: CLOUDFLARE_API_TOKEN is in neither the environment nor ~/.env (cannot fetch live workers)")
         return None
     url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/workers/scripts?per_page=100"
     try:

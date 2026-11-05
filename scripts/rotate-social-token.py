@@ -22,6 +22,7 @@ import argparse
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,9 @@ SECRET = "GATEWAY_SOCIAL_TOKEN"
 R2_KEY = "qnfo-backups/credentials/gateway-social-token.txt"
 ENV = os.path.expanduser("~/.env")
 ROUTE = "https://qnfo-social.q08.workers.dev/drain-dissemination"
+# RM-GATE-D4 (fleet-lessons D4): wrangler is wrangler.cmd on Windows and CreateProcess does not find the bare name (WinError 2), so the argv
+# carries the resolved command, the pattern of scripts/deploy_gate.py NPX. scripts/fleet_lessons_gates.py fails a new bare node-tool argv.
+WRANGLER = shutil.which("wrangler") or ("wrangler.cmd" if os.name == "nt" else "wrangler")
 
 
 def env_token(var):
@@ -49,7 +53,7 @@ def check():
     tok = env_token(SECRET)
     print(f"[1] ~/.env {SECRET}: {'present ('+str(len(tok))+' chars)' if tok else 'ABSENT'}")
     try:
-        p = subprocess.run(["wrangler", "secret", "list", "--name", "qnfo-social"],
+        p = subprocess.run([WRANGLER, "secret", "list", "--name", "qnfo-social"],
                            cwd=WKR, capture_output=True, text=True, timeout=90)
         names = re.findall(r"\b([A-Z_]{4,})\b", (p.stdout or "") + (p.stderr or ""))
         print(f"[2] worker secret {SECRET}: {'LISTED' if SECRET in names else 'not listed (list may be unsupported)'}")
@@ -68,7 +72,7 @@ def check():
 def rotate():
     new = secrets.token_hex(24)
     print("rotating", SECRET, "(48 hex)")
-    subprocess.run(["wrangler", "secret", "put", SECRET], cwd=WKR, input=new, text=True, check=True)
+    subprocess.run([WRANGLER, "secret", "put", SECRET], cwd=WKR, input=new, text=True, check=True)
     print("[1] worker secret: set")
     # ROTATE-TOKEN-TMP-1: the new token used to be written to a fixed TEMP/gwst.txt, readable by other local users and never removed, so every rotation left the
     # live bearer on disk (CodeQL py/clear-text-storage-sensitive-data). wrangler needs a file, so it gets one in a private directory (0700) with mode 0600,
@@ -78,7 +82,7 @@ def rotate():
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(new)
-        subprocess.run(["wrangler", "r2", "object", "put", R2_KEY, "--file", tmp, "--remote"], cwd=REPO, check=True)
+        subprocess.run([WRANGLER, "r2", "object", "put", R2_KEY, "--file", tmp, "--remote"], cwd=REPO, check=True)
     print("[2] R2 mirror: set")
     lines = []
     try:

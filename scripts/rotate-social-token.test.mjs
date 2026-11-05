@@ -40,7 +40,10 @@ fixed_before = fixed.exists()
 
 class Done: returncode = 0
 seen, calls = {}, []
+def cmd(args):
+    return ["wrangler" if os.path.basename(args[0]).lower().split(".")[0] == "wrangler" else args[0]] + list(args[1:])
 def run_ok(args, **kw):
+    args = cmd(args)
     calls.append(list(args))
     if args[:4] == ["wrangler", "r2", "object", "put"]:
         f = args[args.index("--file") + 1]
@@ -77,6 +80,7 @@ if posix:
 # a failed upload still removes the token file
 failed = {}
 def run_fail(args, **kw):
+    args = cmd(args)
     if args[:4] == ["wrangler", "r2", "object", "put"]:
         failed["path"] = args[args.index("--file") + 1]
         failed["existed"] = os.path.exists(failed["path"])

@@ -10,9 +10,27 @@ Usage: python fleet-manifest-sweep.py [qnfo-ops-repo-root]   (CLOUDFLARE_API_TOK
 """
 import json, os, re, sys, datetime, urllib.request, urllib.error
 
+
+def secret(name, default=''):
+    """RM-GATE-E2 (fleet-lessons E2): a key is missing only when neither the process environment nor the ~/.env file store holds it (a session once judged
+    'missing credential' from the environment alone while the key sat in the file). scripts/fleet_lessons_gates.py gate E2 fails an env-only read."""
+    v = os.environ.get(name)
+    if v:
+        return v
+    try:
+        with open(os.path.expanduser('~/.env'), encoding='utf-8', errors='ignore') as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if ln.startswith(name + '='):
+                    return ln.split('=', 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return default
+
+
 ACCOUNT = 'edb167b78c9fb901ea5bca3ce58ccc4b'
 SUBDOMAIN = 'q08'
-TOKEN = os.environ.get('CLOUDFLARE_API_TOKEN', '')
+TOKEN = secret('CLOUDFLARE_API_TOKEN')
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 QNFO-fleet-sweep/2.0'
 _here = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = sys.argv[1] if len(sys.argv) > 1 else os.environ.get('QNFO_OPS_ROOT', '') or os.path.dirname(_here)
@@ -105,7 +123,7 @@ def is_strict_semver(ver):
 
 def main():
     if not TOKEN:
-        print('CLOUDFLARE_API_TOKEN missing'); sys.exit(2)
+        print('CLOUDFLARE_API_TOKEN is in neither the environment nor ~/.env'); sys.exit(2)
     data = cf_api('/accounts/%s/workers/scripts?per_page=100' % ACCOUNT)
     scripts = data.get('result', [])
     if not scripts:
