@@ -3232,7 +3232,7 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.44.17";
+var VERSION = "1.44.18-codeagent";
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -5025,7 +5025,12 @@ function sourceDiversityOk(srcs) {
   if (!hasNonUS) return false;
   var vpSet = {};
   srcs.forEach(function (a) { if (a.viewpoint) vpSet[a.viewpoint] = true; });
-  return Object.keys(vpSet).length >= 2;
+  if (Object.keys(vpSet).length < 2) return false;
+  // EK-2: the 3 sources must be independent - distinct refs, not the same anchor counted twice.
+  var seen = {};
+  var independent = true;
+  srcs.forEach(function (a) { var k = String(a.ref || a.title || "").trim(); if (!k || seen[k]) independent = false; seen[k] = true; });
+  return independent;
 }
 __name(sourceDiversityOk, "sourceDiversityOk");
 __name2(sourceDiversityOk, "sourceDiversityOk");
