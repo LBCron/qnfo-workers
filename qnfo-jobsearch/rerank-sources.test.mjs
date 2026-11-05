@@ -304,6 +304,8 @@ ok(T.titleCandidate("Senior beleidsadviseur mobiliteit") && T.titleCandidate("Pr
   ok(T.feedPrefix("smartrecruiters:oecd") === "sr:oecd:" && T.BOARDS.smartrecruiters.includes("oecd") && T.BOARDS.recruitee.includes("sweco"), "the feeds are registered and expire by prefix");
 }
 globalThis.fetch = realFetch;
+// JS-7: a board that answers 404 on every ATS is retired, not kept to fail 3 runs and turn fm-jobsearch-feed-down red (lever:mistral, 2026-11-05)
+ok(!T.BOARDS.lever.includes("mistral") && T.BOARDS.lever.includes("palantir") && T.BOARDS.lever.length === 8, "the dead lever:mistral board is retired and the others stay", T.BOARDS.lever);
 
 console.log(pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);
