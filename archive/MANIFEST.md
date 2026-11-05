@@ -82,9 +82,20 @@ The sixteen candidates that batch 3 had not read line by line were read this tim
 | archive/qnfo-pipeline-ops | qnfo-pipeline-ops | RETIRED | 2026-10-10 aa412fcfd | not deployed, nothing consumes it (FOOTPRINT-MARKERS-1) | no node | `scripts/close-channel-guard.test.mjs` asserts that RETIRED directories are not scanned; its scan reads top-level directories only, so the assertion still holds |
 | archive/qnfo-skill-sync | qnfo-skill-sync | RETIRED | 2026-10-06 a15af7d04 | WORKER-RETIRE-WAVE-2 (agent_issues 1756): a daily kaizen cycle, retired with qnfo-kaizen | no node | a comment in `qnfo-ops/wrangler.toml`, the same close-channel-guard assertion, a docstring in `scripts/cf_ops_delete_worker_test.py` (its fixtures build their own directories) |
 
+## Batch 5 (moved 2026-11-05, 4 directories; issue REPO-ARCHIVE-NEXT-1)
+
+The four candidates that batch 4 had read and found clean but held back for the 10-per-pull-request limit. `docs/INDEX.md` and `docs/agent-catalog.json` are regenerated if a README moved (`--check`).
+
+| archive path | worker name declared | marker | last commit (date, short sha) | why it is dead | impact (fleet graph) | dependents found |
+| --- | --- | --- | --- | --- | --- | --- |
+| archive/qnfo-agent-orchestrator | qnfo-agent-orchestrator | RETIRED | 2026-10-10 ffeaf08e3 | ORCH-RETIRE-1 (agent_issues 1756 and 2010), owner standing grant OWNER-STANDING-GRANT-1 | no worker node (`find` shows only a host label) | the retired qnfo-idea-triage `wrangler.toml` binding block, comments in qnfo-agents, qnfo-intent-orchestrator and the stale `agent-orchestrator/` copy, and historic patch scripts; the stale copy `agent-orchestrator/` stays (its readers are in the table below) |
+| archive/qnfo-artifacts | qnfo-artifacts | RETIRED | 2026-10-26 82a26217b | worker_count breach (36 against 30), trigger 344, agent_issues 99923 | no worker node (`find` shows only the retiring migration) | the `deploy-targets.txt` comment on line 14, updated to `archive/qnfo-artifacts/RETIRED` in this change; a comment in `qnfo-ops/wrangler.toml`; a docstring in `scripts/deployment_ledger_reconcile.py` |
+| archive/qnfo-error-selfheal | qnfo-error-selfheal | RETIRED | 2026-10-10 aa412fcfd | not deployed, nothing consumes it (FOOTPRINT-MARKERS-1) | no node | fixtures in `qnfo-backlog-exec/exception-close.test.mjs`; the name is still in the `PROBE_WORKERS` variable of `qnfo-fleet-control/wrangler.toml`, where `runAudit` probes it against the account script list and reads `not-in-cf-worker-list` (a stale probe target, not a path; the doer of ARCHIVE-READERS-3 or the fleet-control owner removes it) |
+| archive/qnfo-idea-triage | qnfo-idea-triage | FOLDED | 2026-10-17 54d908240 | duties live in idea-hub (FOOTPRINT-MARKERS-1) | no node | `scripts/model-floor-guard.test.mjs` uses the name as input of a pure function; no path read |
+
 ## Not moved yet, with the dependent that keeps each one (read 2026-11-05)
 
-These stay at the top level until the named dependent changes. 38 directories remain after batch 4 (78 NOT_DEPLOYED candidates read on 2026-11-05, 40 archived): 32 are named in the table below with the reader found, and 6 were read in batch 4 and held back for the reason in the last rows.
+These stay at the top level until the named dependent changes. 34 directories remain after batch 5 (78 NOT_DEPLOYED candidates read on 2026-11-05, 44 archived): 32 are named in the table below with the reader found, and 2 were read in batch 4 and held back for the reason in the last rows. The reader families have doers: agent_issues 1002097 (fold-parity suites), 1002098 (workflow steps), 1002099 (guard scripts and path-reading tests).
 
 | directories | dependent that keeps them |
 | --- | --- |
@@ -95,7 +106,6 @@ These stay at the top level until the named dependent changes. 38 directories re
 | osf-integrity-check, paper-hub, agent-orchestrator, memory-mcp, qnfo-fleet-calibrator, qnfo-twin-maintain, vault-indexer, qnfo-calendar-intake | `mirror-guard.py`, `dup-worker-name-gate.py`, `deploy-drift-guard.py`, `cron_rate_guard.py`, `canary_revert.py`, `canonical-deploy.yml` or `charter.test.mjs` name them (read the line before moving) |
 | qnfo-agent-ws | `qnfo-fleet-control/charter.fixture.json` carries the owner-decision row RM-AGENT-WS-DECISION-1 about this directory; archive it with that decision |
 | qnfo-artifact-agent | `scripts/dependency-allowlist.txt` line 17 is keyed by the directory (RM-1414 baseline); change the allowlist in the same pull request |
-| qnfo-agent-orchestrator, qnfo-artifacts, qnfo-error-selfheal, qnfo-idea-triage | read in batch 4 and clean (mentions are comments, retired directories' own `wrangler.toml` blocks or fixtures); held back only for the 10-per-pull-request limit, except qnfo-artifacts, whose `deploy-targets.txt` comment (line 14) names `qnfo-artifacts/RETIRED` and is updated in the pull request that moves it, and qnfo-error-selfheal, whose name is still in the live `PROBE_WORKERS` variable of `qnfo-fleet-control/wrangler.toml` (a stale probe target, not a path) |
 
 ## Known follow-up (filed as an issue with a doer)
 

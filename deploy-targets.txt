@@ -11,7 +11,7 @@
 #
 # fleet-exec removed 2026-10-06: folded into qnfo-code-orchestrator (FLEET-EXEC-FOLD-1, #1756).
 # fleet-exec: the standalone script was deleted 2026-10-19 (cf-ops-actions delete-worker, run 39240334895); the host runs it as a member.
-# qnfo-artifacts: RETIRED 2026-10-26 (worker_count 36 against the cap of 30, rem-a5; qnfo-artifacts/RETIRED has the dependency check). It was listed here by
+# qnfo-artifacts: RETIRED 2026-10-26 (worker_count 36 against the cap of 30, rem-a5; archive/qnfo-artifacts/RETIRED has the dependency check). It was listed here by
 # SCRIPT-SOURCE-RECONCILE-1 (2026-10-19); artifacts-canonical-sync.yml never ran through it (its scripts call the Cloudflare REST API).
 qnfo-social qnfo-social/worker.js
 # qnfo-evolve: FOLDED 2026-11-05 into qnfo-ai-calibration as the member qnfoEvolveFoldMod (WORKER-COUNT-1.2, worker_count 39 against the cap of 30; qnfo-evolve/FOLDED has the detail).
