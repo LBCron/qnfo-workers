@@ -358,3 +358,25 @@ export function compactMessages(messages, stubChars) {
     }) });
   });
 }
+
+// RM-DSH-CACHE-1 (2026-11-05, pillar cost): the day's cached share (ai_spend_ledger.cached_tok over in_tok) mixes two things: the first step of a run, which can
+// only hit a prefix another run left on the instance, and every later step, which resends the same system prompt, tools and earlier messages on the instance
+// the run's affinity key names and is expected to read them from the prefix cache. Only the later steps measure whether cache-aware routing works, so each
+// step's own usage is kept (cf_agent_step_usage, view v_agents_step_cache). stepUsages reads the AI SDK result's steps; stepUsageStatements are the D1 writes.
+export function stepUsages(result) {
+  const out = [];
+  const steps = Array.isArray(result && result.steps) ? result.steps : [];
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; };
+  for (let idx = 0; idx < steps.length; idx++) {
+    const u = steps[idx] && steps[idx].usage;
+    if (!u) continue;
+    const cached = u.inputTokenDetails && u.inputTokenDetails.cacheReadTokens != null ? u.inputTokenDetails.cacheReadTokens : u.cachedInputTokens;
+    const i = num(u.inputTokens != null ? u.inputTokens : u.promptTokens);
+    out.push({ step: idx + 1, i, o: num(u.outputTokens != null ? u.outputTokens : u.completionTokens), c: Math.min(num(cached), i) });
+  }
+  return out;
+}
+export function stepUsageStatements(runId, day, modelId, rows, nowMs) {
+  const sql = "INSERT OR REPLACE INTO cf_agent_step_usage (run_id, step, day, model, input_tokens, cached_tokens, output_tokens, ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+  return (Array.isArray(rows) ? rows : []).slice(0, 40).map((r) => ({ sql, binds: [String(runId).slice(0, 80), r.step, String(day).slice(0, 10), String(modelId).slice(0, 120), r.i, r.c, r.o, nowMs] }));
+}

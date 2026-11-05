@@ -55,8 +55,14 @@ ACTIONS
   gateway-routes         AUTOROUTER-EVAL-1: read-only. Lists the AI Gateway dynamic routes of --gateway (default "default", the gateway
                          qnfo-ai uses) and prints each route id, name and whether it is an Auto Router, plus the HTTP status and the
                          error text when the API refuses. First step of RM-AUTOROUTER-EVAL-1: the shadow replay needs the route id. Reads every page of
-                         data.routes (the live shape) and prints each route's active version and deployment flag.
-  access-probe           Read the Zero Trust organisation, Access apps and identity providers. Reports only provider
+                         data.routes (the live shape) and prints each route's active version and deployment flag. Auto Router itself is the
+                         built-in model `cloudflare/auto` (developers.cloudflare.com/ai-gateway/features/auto-router), not a route: an
+                         auto_router_count of 0 here does not mean it is unavailable; gateway-auto-probe answers that.
+  gateway-auto-probe     AUTOROUTER-EVAL-1: the one action that runs a model. One call of 16 output tokens to `cloudflare/auto` through
+                         the REST route (second path: the gateway compat route on 401/403/404). Prints http status, the model Auto Router
+                         chose (cf-aig-routed-model), cf-aig-routing-reason and token counts, never the answer text, plus the error text
+                         when it refuses. Costs a fraction of a cent; evidence for whether the shadow replay can run on this account.
+  access-probe          Read the Zero Trust organisation, Access apps and identity providers. Reports only provider
                          names/types, Cloudflare account-membership restriction, OAuth client-ID presence and each
                          app's allowed provider IDs; never prints client IDs, secrets, emails or policy contents.
                          OAuth client-secret validity is not asserted.
@@ -389,6 +395,70 @@ def gateway_routes(acct: str, token: str, gateway: str = "default", max_pages: i
     emit({"action": "gateway-routes", "ok": True, "gateway": gateway, "http": st, "count": len(routes),
           "auto_router_count": sum(1 for r in routes if r["auto_router"]), "routes": routes})
     return 0
+
+
+AUTO_PROBE_BODY = {"model": "cloudflare/auto", "max_tokens": 16,
+                   "messages": [{"role": "user", "content": "Reply with the single word ok."}]}
+# The default Auto Router pool holds anthropic, openai and xai models (developers.cloudflare.com/ai-gateway/features/auto-router) and the fleet has
+# no Anthropic or other third-party upstream (owner decision 2026-10-01, NO-CLAUDE-RUNTIME-DEPENDENCY-1), so every call restricts the pool to Workers AI.
+AUTO_PROBE_POOL = {"cf-aig-allowed-providers": "workers-ai"}
+
+
+def raw_post(url: str, headers: dict, body: dict, timeout: int = 60) -> tuple[int, dict, dict]:
+    """AUTOROUTER-EVAL-1: POST that also returns the response headers (lower-cased), which `call` drops. Never raises on an HTTP status."""
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers=dict(headers, **{"Content-Type": "application/json"}))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            hdr = {k.lower(): v for k, v in r.headers.items()}
+            try:
+                return r.status, hdr, json.loads(r.read().decode() or "{}")
+            except Exception:
+                return r.status, hdr, {}
+    except urllib.error.HTTPError as e:
+        hdr = {k.lower(): v for k, v in (e.headers.items() if e.headers else [])}
+        try:
+            return e.code, hdr, json.loads(e.read().decode() or "{}")
+        except Exception:
+            return e.code, hdr, {}
+
+
+def _auto_probe_error(j: dict) -> str:
+    errs = j.get("errors") if isinstance(j, dict) else None
+    if isinstance(errs, list) and errs:
+        return "; ".join(str(e.get("message", e)) if isinstance(e, dict) else str(e) for e in errs)[:300]
+    err = j.get("error") if isinstance(j, dict) else None
+    if isinstance(err, dict):
+        return str(err.get("message") or err)[:300]
+    return str(err or "")[:300]
+
+
+def gateway_auto_probe(acct: str, token: str, gateway: str = "default") -> int:
+    """AUTOROUTER-EVAL-1: does Auto Router (the built-in model `cloudflare/auto`, no route to create) answer on this account? One call of 16 output
+    tokens through the REST route, and on a 401/403/404 once more through the gateway's compat route (two paths, the second named in the output).
+    It prints the status, the model Auto Router chose (cf-aig-routed-model), the reason (cf-aig-routing-reason) and the token counts, never the
+    answer text. The shadow replay (qnfo-ai /internal/eval/autorouter-shadow) is worth wiring to a daily caller only when this answers 200."""
+    gw = gateway or "default"
+    tried = []
+    st, hdr, j = 0, {}, {}
+    for path, url, headers in (
+        ("rest", f"{API}/accounts/{acct}/ai/v1/chat/completions", dict(AUTO_PROBE_POOL, **{"Authorization": "Bearer " + token, "cf-aig-gateway-id": gw})),
+        ("compat", f"https://gateway.ai.cloudflare.com/v1/{acct}/{urllib.parse.quote(gw, safe='')}/compat/chat/completions", dict(AUTO_PROBE_POOL, **{"cf-aig-authorization": "Bearer " + token})),
+    ):
+        st, hdr, j = raw_post(url, headers, AUTO_PROBE_BODY)
+        tried.append({"path": path, "http": st, "error": _auto_probe_error(j) if not 200 <= (st or 0) < 300 else ""})
+        if 200 <= (st or 0) < 300 or st not in (401, 403, 404):
+            break
+    ok = 200 <= (st or 0) < 300
+    usage = j.get("usage") if isinstance(j, dict) and isinstance(j.get("usage"), dict) else {}
+    choice = (j.get("choices") or [{}])[0] if isinstance(j, dict) and isinstance(j.get("choices"), list) and j.get("choices") else {}
+    text = ((choice.get("message") or {}).get("content") or "") if isinstance(choice, dict) else ""
+    answered = ok and bool(text or usage)
+    emit({"action": "gateway-auto-probe", "ok": answered, "gateway": gw, "http": st, "tried": tried,
+          "routed_model": hdr.get("cf-aig-routed-model") or j.get("model"), "routing_reason": hdr.get("cf-aig-routing-reason"),
+          "decision_id": hdr.get("cf-aig-routing-decision-id"), "answered_chars": len(text),
+          "input_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens"),
+          "error": "" if answered else (tried[-1]["error"] or ("HTTP 200 with no answer text and no usage" if ok else "no error text"))})
+    return 0 if answered else 1
 
 
 def access_probe(acct: str, token: str) -> int:
@@ -2042,7 +2112,7 @@ def gen_activitypub_key(worker: str, acct: str, token: str, keygen=_rsa_keypair,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["blocker-redteam", "d1-backup", "unbind-d1", "delete-d1", "unbind-service", "worker-history", "kv-secret-scan", "ops-intake-probe", "report", "r2-get", "delete-worker", "delete-vectorize-index", "gateway-logs", "ai-neurons", "gateway-cost", "gateway-routes", "access-probe", "access-ensure-cloudflare", "zaraz-remove-tool", "zaraz-get", "zaraz-set-ga4", "gtg-tag", "spare-domain-canon", "gen-activitypub-key", "d1-restore-drill", "kill-switch-drill", "edge-rules", "secrets-inventory", "obs-sampling"])
+    ap.add_argument("action", choices=["blocker-redteam", "d1-backup", "unbind-d1", "delete-d1", "unbind-service", "worker-history", "kv-secret-scan", "ops-intake-probe", "report", "r2-get", "delete-worker", "delete-vectorize-index", "gateway-logs", "ai-neurons", "gateway-cost", "gateway-routes", "gateway-auto-probe", "access-probe", "access-ensure-cloudflare", "zaraz-remove-tool", "zaraz-get", "zaraz-set-ga4", "gtg-tag", "spare-domain-canon", "gen-activitypub-key", "d1-restore-drill", "kill-switch-drill", "edge-rules", "secrets-inventory", "obs-sampling"])
     ap.add_argument("--target", default="")
     ap.add_argument("--model", default="")
     ap.add_argument("--gateway", default="default")
@@ -2118,6 +2188,8 @@ def main() -> int:
         return ai_neurons_hourly(acct, token, a.model) if a.model else ai_neurons(acct, token)
     if a.action == "gateway-routes":
         return gateway_routes(acct, token, a.gateway)
+    if a.action == "gateway-auto-probe":
+        return gateway_auto_probe(acct, token, a.gateway)
     if a.action == "gateway-cost":
         return gateway_cost_daily(acct, token) if a.target == "daily" else gateway_cost(acct, token)
     return access_probe(acct, token)

@@ -96,5 +96,48 @@ rc = C.gateway_routes("acct", "tok", "default")
 ok(rc == 1 and emitted[-1]["page"] == 2 and emitted[-1]["http"] == 403, "a refusal on page 2 names the page", emitted[-1])
 resp.pop("seq", None)
 
+# gateway-auto-probe (AUTOROUTER-EVAL-1): Auto Router is the built-in model cloudflare/auto, so its availability is a call, not a route listing
+posts = []
+posted = []
+
+
+def fake_post(url, headers, body, timeout=60):
+    posts.append((url, dict(headers), body))
+    return posted.pop(0)
+
+
+C.raw_post = fake_post
+OKJ = {"model": "openai/gpt-6-luna", "choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {"prompt_tokens": 14, "completion_tokens": 2}}
+posted[:] = [(200, {"cf-aig-routed-model": "openai/gpt-6-luna", "cf-aig-routing-reason": "cost_optimal_within_pool", "cf-aig-routing-decision-id": "d1"}, OKJ)]
+rc = C.gateway_auto_probe("acct", "tok", "default")
+o = emitted[-1]
+ok(rc == 0 and o["ok"] and o["http"] == 200 and o["routed_model"] == "openai/gpt-6-luna" and o["routing_reason"] == "cost_optimal_within_pool", "an answering Auto Router reports the chosen model and the reason", o)
+ok(o["input_tokens"] == 14 and o["output_tokens"] == 2 and o["answered_chars"] == 2, "token counts are reported", o)
+ok("content" not in str(o) and "choices" not in str(o), "the answer text is never printed", o)
+ok(posts[-1][0] == "https://api.cloudflare.com/client/v4/accounts/acct/ai/v1/chat/completions" and posts[-1][1].get("cf-aig-gateway-id") == "default" and posts[-1][2]["model"] == "cloudflare/auto" and posts[-1][2]["max_tokens"] == 16, "one bounded call to cloudflare/auto on the REST route", posts[-1])
+ok(len(posts) == 1 and len(o["tried"]) == 1, "a 200 on the first path stops there", o)
+ok(all(p[1].get("cf-aig-allowed-providers") == "workers-ai" for p in posts), "the Auto Router pool is restricted to Workers AI on every path (no anthropic/openai/xai upstream)", posts)
+
+posted[:] = [(403, {}, {"success": False, "errors": [{"code": 10000, "message": "Authentication error"}]}), (200, {"cf-aig-routed-model": "m2"}, OKJ)]
+before = len(posts)
+rc = C.gateway_auto_probe("acct", "tok", "gw one")
+o = emitted[-1]
+ok(rc == 0 and o["ok"] and [t["path"] for t in o["tried"]] == ["rest", "compat"] and o["tried"][0]["http"] == 403 and "Authentication error" in o["tried"][0]["error"], "a 403 on the REST route falls to the compat route and both are named", o)
+ok(posts[before + 1][0] == "https://gateway.ai.cloudflare.com/v1/acct/gw%20one/compat/chat/completions" and posts[before + 1][1] == {"cf-aig-allowed-providers": "workers-ai", "cf-aig-authorization": "Bearer tok"}, "the second path is the compat route with cf-aig-authorization", posts[before + 1])
+
+posted[:] = [(401, {}, {"errors": [{"message": "no auth"}]}), (400, {}, {"error": {"message": "Auto Router needs Unified Billing or a stored key", "code": 2049}})]
+rc = C.gateway_auto_probe("acct", "tok")
+o = emitted[-1]
+ok(rc == 1 and not o["ok"] and o["http"] == 400 and "Unified Billing" in o["error"], "a refusal reports the last status and its error text", o)
+
+posted[:] = [(500, {}, {})]
+rc = C.gateway_auto_probe("acct", "tok")
+o = emitted[-1]
+ok(rc == 1 and not o["ok"] and o["error"] == "no error text" and len(o["tried"]) == 1, "a 5xx is not retried on the other path and still says something", o)
+
+posted[:] = [(200, {}, {})]
+rc = C.gateway_auto_probe("acct", "tok")
+ok(rc == 1 and not emitted[-1]["ok"], "a 200 with no answer and no usage is not an answering Auto Router", emitted[-1])
+
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

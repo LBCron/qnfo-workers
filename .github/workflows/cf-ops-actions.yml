@@ -29,6 +29,7 @@ on:
           - gateway-cost
           - gateway-logs
           - gateway-routes
+          - gateway-auto-probe
           - access-probe
           - access-ensure-cloudflare
           - delete-worker
@@ -57,7 +58,7 @@ on:
         required: false
         default: ""
       gateway:
-        description: "AI Gateway id (gateway-logs, gateway-routes)"
+        description: "AI Gateway id (gateway-logs, gateway-routes, gateway-auto-probe)"
         required: false
         default: "default"
 

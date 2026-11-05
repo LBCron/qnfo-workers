@@ -36,7 +36,7 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, emailApprovalGranted, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
+import { stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, emailApprovalGranted, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
 import { sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS } from "./session.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
@@ -364,6 +364,17 @@ async function meter(env: Env, modelId: string, u: { i: number; o: number; n: nu
   } catch (e) { logErr("meter", e); }
 }
 
+// RM-DSH-CACHE-1: one cf_agent_step_usage row per model step of a turn (input, cache-read and output tokens), so the cached share of the steps after the first can be read
+// apart from the first step's. Best effort: a missing table or an overloaded D1 is logged and never fails the turn.
+async function meterSteps(env: Env, runId: string, modelId: string, result: any) {
+  try {
+    const rows = stepUsages(result);
+    if (!rows.length) return;
+    const st = stepUsageStatements(runId, new Date().toISOString().slice(0, 10), modelId, rows, Date.now());
+    await env.AUDIT_DB.batch(st.map((s: any) => env.AUDIT_DB.prepare(s.sql).bind(...s.binds)));
+  } catch (e) { logErr("meter-steps", e); }
+}
+
 async function ledger(env: Env, row: Record<string, unknown>) {
   try {
     await env.AUDIT_DB.prepare("INSERT OR REPLACE INTO cf_agent_runs (id, instance, caller, scope, status, model, steps, tools_used, prompt, result, error, created_ms, finished_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")
@@ -442,6 +453,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
       const pick = pickAnswer(out.text, out.steps);
       result = pick.text;
       await meter(this.env, modelId, usageOf(out));
+      await meterSteps(this.env, id, modelId, out);
       steps = Array.isArray(out.steps) ? out.steps.length : 0;
       for (const s of out.steps || []) for (const tc of s.toolCalls || []) if (used.indexOf(tc.toolName) < 0) used.push(tc.toolName);
       // EMPTY-TURN-ANSWER-1 and FINAL-ANSWER-PICK-1: no step wrote an answer, so one more call without tools turns what the tools returned into it.
