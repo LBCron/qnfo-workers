@@ -111,6 +111,8 @@ jobs:
             # so an explicit dispatch for qnfo-fleet-calibrator (folded into qnfo-fleet-control) recreated the retired
             # worker with its crons (run 36844766144). A marked directory is never deployed, named explicitly or not.
             for w in $IN_WORKERS; do
+              # ARCHIVE-MARKER-READ-1 (RM-REPO-DEAD-SOURCES-1): a RETIRED/FOLDED directory moved to archive/<name>/ keeps its marker there and is still never deployed.
+              if [ -f "archive/$w/FOLDED" ] || [ -f "archive/$w/RETIRED" ]; then echo "refuse $w (archived: archive/$w carries a FOLDED/RETIRED marker)"; continue; fi
               if [ -f "$w/FOLDED" ] || [ -f "$w/RETIRED" ]; then echo "refuse $w (FOLDED/RETIRED marker: $(head -1 "$w/FOLDED" "$w/RETIRED" 2>/dev/null | head -1))"; continue; fi
               echo "$w $w/worker.js create" >> /tmp/targets.txt
             done

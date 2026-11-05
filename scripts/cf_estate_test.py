@@ -76,6 +76,20 @@ with tempfile.TemporaryDirectory() as tmp:
     ok(m.scan_text_refs(tmp, ["bucket-a", "bucket-b"]) == {"bucket-a": ["scripts/uses.py"], "bucket-b": []}, "text refs find a script's bucket", m.scan_text_refs(tmp, ["bucket-a", "bucket-b"]))
     ok(m.scan_pages_refs(tmp, ["zeta", "beta"]) == {"zeta": ["scripts/uses.py"], "beta": []}, "pages refs need the .pages.dev host", m.scan_pages_refs(tmp, ["zeta", "beta"]))
     ok("zeta" in m.workflows_text(tmp) and "beta" not in m.workflows_text(tmp), "only Pages-deploying workflows count")
+    # ARCHIVE-MARKER-READ-1 (RM-REPO-DEAD-SOURCES-1): a RETIRED directory moved to archive/<name>/ still classifies a recreated script.
+    write(os.path.join(tmp, "archive", "gone", "wrangler.toml"), 'name = "gone-name"\n[[r2_buckets]]\nbucket_name = "bucket-gone"\n')
+    write(os.path.join(tmp, "archive", "gone", "worker.js"), "x")
+    write(os.path.join(tmp, "archive", "gone", "RETIRED"), "retired")
+    write(os.path.join(tmp, "archive", "unmarked", "wrangler.toml"), 'name = "unmarked"\n')
+    write(os.path.join(tmp, "archive", "old", "wrangler.toml"), 'name = "old-dup"\n')
+    write(os.path.join(tmp, "archive", "old", "RETIRED"), "retired")
+    write(os.path.join(tmp, "archive", "MANIFEST.md"), "# manifest")
+    arepo = m.scan_repo(tmp)
+    ok(sorted(arepo) == ["alpha", "archive/gone", "old"], "archived marked directories are scanned under archive/<name>; an unmarked one, a manifest and a top-level twin are not", sorted(arepo))
+    ok(arepo["archive/gone"]["marker"] == "RETIRED" and arepo["archive/gone"]["name"] == "gone-name" and arepo["archive/gone"]["archived"] is True, "archive entry carries its marker, declared name and flag", arepo["archive/gone"])
+    cl = m.classify_workers(["gone-name", "alpha"], arepo, {}, {}, {}, {})
+    ok({r["script"]: r["class"] for r in cl["rows"]}["gone-name"] == "retired-present" and cl["retired_present"] == ["gone-name"], "a script recreated under an archived name is retired-present, not unmanaged", cl["classes"])
+    ok(cl["undeployed"] == [] and "gone-name" not in cl["unmanaged"], "an archived directory is never counted as undeployed or unmanaged", cl["undeployed"])
 
 # ----------------------------------------------------------------------------------------------------------------------- domains doc
 DOC = '''# t

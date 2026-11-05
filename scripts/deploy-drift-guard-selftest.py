@@ -153,5 +153,26 @@ rep, tomb, trunc = g.unmanaged_scripts(many, set(), lambda w: (200, None))
 check("the probe set is capped and says so", (len(rep), trunc), (g.UNMANAGED_MAX, True))
 check("deployed_workers() without credentials is None (unknown), not an empty set", g.deployed_workers("", ""), None)
 
+# ARCHIVE-MARKER-READ-1 (RM-REPO-DEAD-SOURCES-1): an archived RETIRED/FOLDED directory still reports a recreated worker.
+with tempfile.TemporaryDirectory() as tmp:
+    def put(rel, text):
+        p = os.path.join(tmp, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "w", encoding="utf-8").write(text)
+    put("archive/old-a/RETIRED", "retired\n")
+    put("archive/old-a/wrangler.toml", 'name = "qnfo-old-a"\n')
+    put("archive/old-b/FOLDED", "folded into host\n")
+    put("archive/old-c/wrangler.toml", 'name = "qnfo-old-c"\n')
+    put("archive/MANIFEST.md", "# manifest\n")
+    check("an archived marked directory whose declared worker is in the account is retired_present",
+          g.archived_retired_present({"qnfo-old-a", "x"}, tmp), [("archive/old-a", "qnfo-old-a", "RETIRED")])
+    check("an archived directory without a wrangler name falls back to the directory name",
+          g.archived_retired_present({"old-b"}, tmp), [("archive/old-b", "old-b", "FOLDED")])
+    check("an archived directory with no marker is never reported",
+          g.archived_retired_present({"qnfo-old-c", "old-c"}, tmp), [])
+    check("an absent worker reports nothing", g.archived_retired_present({"zzz"}, tmp), [])
+    check("an unknown account list (None) reports nothing", g.archived_retired_present(None, tmp), [])
+    check("a repository without archive/ reports nothing", g.archived_retired_present({"qnfo-old-a"}, os.path.join(tmp, "nope")), [])
+
 print("\n%d failure(s)" % len(fails))
 sys.exit(1 if fails else 0)

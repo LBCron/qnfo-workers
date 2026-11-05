@@ -163,6 +163,26 @@ def scan_repo(root: str = ROOT) -> dict:
         info["marker"] = next((m for m in MARKERS if os.path.isfile(os.path.join(p, m))), None)
         info["name"] = info["name"] or d
         out[d] = info
+    # ARCHIVE-MARKER-READ-1 (RM-REPO-DEAD-SOURCES-1): a RETIRED/FOLDED directory moved to archive/<name>/ keeps its marker, so a script
+    # recreated under its name still classifies as retired-present and not as an unknown unmanaged script. A top-level directory of the
+    # same name wins; an archive entry always carries a marker, so it is never counted as undeployed.
+    ab = os.path.join(root, "archive")
+    if os.path.isdir(ab):
+        for d in sorted(os.listdir(ab)):
+            p = os.path.join(ab, d)
+            if d in out or not os.path.isdir(p):
+                continue
+            marker = next((m for m in MARKERS if os.path.isfile(os.path.join(p, m))), None)
+            wt = os.path.join(p, "wrangler.toml")
+            has_worker = os.path.isfile(os.path.join(p, "worker.js"))
+            if not marker or (not has_worker and not os.path.isfile(wt)):
+                continue
+            info = parse_wrangler(open(wt, encoding="utf-8", errors="replace").read()) if os.path.isfile(wt) else parse_wrangler("")
+            info["has_worker"] = has_worker
+            info["marker"] = marker
+            info["name"] = info["name"] or d
+            info["archived"] = True
+            out["archive/" + d] = info
     return out
 
 

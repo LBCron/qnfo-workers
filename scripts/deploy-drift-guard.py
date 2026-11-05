@@ -195,6 +195,37 @@ def wrangler_name(d):
     return None
 
 
+def archived_retired_present(deployed, root=None):
+    """ARCHIVE-MARKER-READ-1: [(archive/<dir>, worker, marker)] for each archive/<dir> that carries a RETIRED/FOLDED marker whose
+    worker (wrangler.toml name, else the directory name) is in the account script list `deployed`. Empty when the account list is
+    unknown (None) or there is no archive/ directory."""
+    base = os.path.join(root or ROOT, "archive")
+    if deployed is None or not os.path.isdir(base):
+        return []
+    out = []
+    for a in sorted(os.listdir(base)):
+        p = os.path.join(base, a)
+        if not os.path.isdir(p):
+            continue
+        marker = next((m for m in ("FOLDED", "RETIRED") if os.path.isfile(os.path.join(p, m))), None)
+        if not marker:
+            continue
+        worker = None
+        wt = os.path.join(p, "wrangler.toml")
+        if os.path.isfile(wt):
+            try:
+                with open(wt, encoding="utf-8", errors="replace") as fh:
+                    m = WRANGLER_NAME.search(fh.read())
+            except OSError:
+                m = None
+            if m and m.group(1).strip():
+                worker = m.group(1).strip()
+        worker = worker or a
+        if worker in deployed:
+            out.append(("archive/" + a, worker, marker))
+    return out
+
+
 def declared_crons(d):
     """Cron triggers declared in the wrangler.toml ([] when none)."""
     p = os.path.join(ROOT, d, "wrangler.toml")
@@ -701,6 +732,13 @@ def main():
             live_text = live_content(worker, acct, token)
             if live_text is not None and _sha(live_text) != _sha(rtext):
                 content_drift.append((d, worker, _sha(rtext)[:12], _sha(live_text)[:12], rpath))
+
+    # ARCHIVE-MARKER-READ-1 (RM-REPO-DEAD-SOURCES-1, 2026-11-05): a RETIRED/FOLDED directory moved to archive/<name>/ keeps its marker
+    # there, so a retired worker recreated in the account is still reported as retired_present (the marker explains it) and not only
+    # as an anonymous unmanaged script. A top-level directory of the same name was handled by the loop above.
+    for _d, _w, _m in archived_retired_present(deployed):
+        if scan_all or _d.split("/", 1)[1] in wanted or _w in wanted:
+            retired_present.append((_d, _w, _m))
 
     unmanaged, unmanaged_tombstones, unmanaged_truncated = (
         unmanaged_scripts(deployed, repo_workers, workers_dev_probe=lambda w: workers_dev_enabled(w, acct, token))
