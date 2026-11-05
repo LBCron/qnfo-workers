@@ -47,7 +47,11 @@ for (const dir of readdirSync(root, { withFileTypes: true })) {
   const toml = readFileSync(join(w, "wrangler.toml"), "utf8");
   const cl = /^crons\s*=\s*(\[[^\]]*\])/m.exec(toml);
   const crons = cl ? JSON.parse(cl[1]) : [];
-  ok(crons.indexOf(cfg.tick) >= 0, dir.name + ": the grid tick " + cfg.tick + " is a declared trigger (declared: " + crons.join(" | ") + ")", { tick: cfg.tick, crons });
+  // WORKER-COUNT-1.3: a folded member (scripts/fold_worker.py) is not fired by a trigger of its own; its host hands it the grid tick as the cron of the event,
+  // from the `due` expression of the generated wrapper, on a tick the host declares. So the tick is delivered when the host declares a trigger and a `due` returns it.
+  const tickRe = cfg.tick.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const foldTick = crons.length > 0 && new RegExp('due: function \\(ms, cron\\) \\{ return \\([^\\n]*"' + tickRe + '"[^\\n]*\\); \\}').test(src);
+  ok(crons.indexOf(cfg.tick) >= 0 || foldTick, dir.name + ": the grid tick " + cfg.tick + " is a declared trigger or is handed to a folded member by the host tick (declared: " + crons.join(" | ") + ")", { tick: cfg.tick, crons, foldTick });
   const h = helpers(src);
   ok(!!h, dir.name + ": the grid helpers are in worker.js");
   if (!h) continue;

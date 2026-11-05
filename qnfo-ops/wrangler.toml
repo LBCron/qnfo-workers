@@ -399,7 +399,8 @@ environment = "production"
 
 [[services]]
 binding = "CH_QNFO_MODEL_EVAL"
-service = "qnfo-model-eval"
+service = "qnfo-ai-calibration"
+props = { caller = "qnfo-ops", member = "qnfo-model-eval" }
 environment = "production"
 
 # qnfo-artifacts was RETIRED 2026-10-26 (worker_count 36 against the cap of 30): its CH_QNFO_ARTIFACTS probe binding is gone with it.

@@ -27,6 +27,8 @@ os.environ["GRADUAL_DEPLOY"] = "off"
 ok(C.gradual_attempt("w1", "w1/worker.js", runner("rolled-out")) == (False, False), "GRADUAL_DEPLOY=off disables it")
 os.environ.pop("GRADUAL_DEPLOY"); os.environ.pop("CLOUDFLARE_API_TOKEN")
 ok(C.gradual_attempt("w1", "w1/worker.js", runner("rolled-out")) == (False, False), "no token: default path")
-ok("qnfo-model-eval" in {l.split("#")[0].strip() for l in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "gradual-deploy-workers.txt"))}, "the shipped list names the proof worker")
+_listed = {l.split("#")[0].strip() for l in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "gradual-deploy-workers.txt")) if l.split("#")[0].strip()}
+_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+ok(all(os.path.isfile(os.path.join(_root, w, "worker.js")) and not os.path.exists(os.path.join(_root, w, "FOLDED")) and not os.path.exists(os.path.join(_root, w, "RETIRED")) for w in _listed), "every worker the shipped list names is a deployable directory (a FOLDED or RETIRED one can never be exercised; WORKER-COUNT-1.3 moved the proof worker off qnfo-model-eval)")
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

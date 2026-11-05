@@ -14,6 +14,12 @@
       "contains": [
         "\"worker\":\"qnfo-evolve\""
       ]
+    },
+    {
+      "url": "https://qnfo-ai-calibration.q08.workers.dev/model-eval/health",
+      "contains": [
+        "\"service\":\"qnfo-model-eval\""
+      ]
     }
   ]
 }

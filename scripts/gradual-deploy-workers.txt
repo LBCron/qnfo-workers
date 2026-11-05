@@ -1,4 +1,5 @@
 # BP26-GRADUAL-ADOPT-1: workers deployed by the canonical path as a staged rollout (scripts/gradual_deploy.py) when a push changes only their code.
 # One worker per line. Add a worker after a clean staged proof (gradual-deploy.yml); control-plane workers (qnfo-ops, qnfo-fleet-control, qnfo-deploy-guard) only after two clean proofs.
 # GRADUAL_DEPLOY=off in the workflow environment turns the whole path off without a deploy.
-qnfo-model-eval
+# qnfo-model-eval was the proof worker until WORKER-COUNT-1.3 folded it into qnfo-ai-calibration (2026-11-05): a FOLDED directory is never deployed, so its line could not be exercised.
+# The proof moves to the host: add qnfo-ai-calibration here in its own pull request once the 1.8.0 deploy is verified, so the next host push is the first staged rollout (BP26-GRADUAL-PROOF-1).

@@ -1,0 +1,7 @@
+qnfo-model-eval is FOLDED into qnfo-ai-calibration (2026-11-05, FOLD-KIT-1, WORKER-COUNT-1.3, owner standing grant OWNER-STANDING-GRANT-1 / charter decision rule 9).
+
+Its code runs unchanged as the member qnfoModelEvalFoldMod inside qnfo-ai-calibration/worker.js (member version 1.8.4-folded; it was 1.8.4-codeagent as its own worker).
+GET https://qnfo-ai-calibration.q08.workers.dev/model-eval/health serves its health; service-binding callers reach it through qnfo-ai-calibration with
+props.member = "qnfo-model-eval" and a qnfo-* props.caller. Its job runs on qnfo-ai-calibration's own trigger; its own crons (20 * * * *) are gone.
+
+Do not redeploy this directory: canonical-deploy skips a FOLDED directory (WORKER-FOLD-SKIP-1).

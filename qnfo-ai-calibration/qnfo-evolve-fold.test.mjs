@@ -7,6 +7,7 @@
 // tick the member's due job runs with the mapped env as a table entry and is awaited, next to the host's own scheduled work.
 // Run: node --no-warnings qnfo-ai-calibration/qnfo-evolve-fold.test.mjs   -> prints "N passed, 0 failed"
 import { readFileSync } from "node:fs";
+import { versionAtLeast } from "../scripts/version-at-least.mjs";
 const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 const guest = readFileSync(new URL("../qnfo-evolve/worker.js", import.meta.url), "utf8");
 // cloudflare:* modules do not exist under node: each imported name becomes an empty function (extendable and callable).
@@ -19,7 +20,7 @@ const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log("FAIL " + m 
   const exportAt = lines.findIndex((l) => l === "export {" || l === "export default {");
   const missing = lines.filter((l, i) => l.trim() && !src.includes(l.trim()) && !l.startsWith("import ") && !l.startsWith("//# sourceMappingURL") && !/^var VERSION = "/.test(l) && !(exportAt >= 0 && i >= exportAt && (l === "export {" || /^\s+\w+ as default$/.test(l) || l === "};" || l === "export default {")));
   ok(missing.length === 0, "every qnfo-evolve line is in the host except its imports, VERSION line and export", missing.map((l) => l.slice(0, 80)));
-  ok((src.match(/^var VERSION = "/gm) || []).length === 1 && mod.__hv === "1.7.0" && mod.__mv === "0.2.12-folded", "host 1.7.0, member 0.2.12-folded, one top-level quoted VERSION constant", [mod.__hv, mod.__mv]);
+  ok((src.match(/^var VERSION = "/gm) || []).length === 1 && versionAtLeast(mod.__hv, "1.7.0") && mod.__mv === "0.2.12-folded", "host 1.7.0 or later (a later fold bumps the host; the suite asserts a minimum), member 0.2.12-folded, one top-level quoted VERSION constant", [mod.__hv, mod.__mv]);
 }
 const W = mod.__wrapped, M = mod.__member, H = W.__foldHost;
 const calls = [];

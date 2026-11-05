@@ -16,11 +16,8 @@
 qnfo-social qnfo-social/worker.js
 # qnfo-evolve: FOLDED 2026-11-05 into qnfo-ai-calibration as the member qnfoEvolveFoldMod (WORKER-COUNT-1.2, worker_count 39 against the cap of 30; qnfo-evolve/FOLDED has the detail).
 # EVOLVE-1 (2026-10-17) listed it here so its crons were applied; the member now rides the host's */30 trigger, so there is nothing left to list.
-# CF-MODEL-EVAL-1 (2026-10-18): the loop that evaluates new Workers AI models and carries a
-# winner into production. It shipped from a raw PUT first and had no tracked source at all --
-# a deployed worker nobody could redeploy. Listed here so its 6-hourly [triggers] crons are
-# applied by the canonical sequence instead of landing INERT.
-qnfo-model-eval qnfo-model-eval/worker.js
+# qnfo-model-eval: FOLDED 2026-11-05 into qnfo-ai-calibration as the member qnfoModelEvalFoldMod (WORKER-COUNT-1.3, worker_count against the cap of 30; qnfo-model-eval/FOLDED has the detail).
+# CF-MODEL-EVAL-1 (2026-10-18) listed it here so its crons were applied; the member now rides the host */30 trigger, so there is nothing left to list.
 # MIND-Q08-1 (2026-10-21): the inside reading surface at mind.q08.org. Binding-free by design, so
 # nothing in the runtime can take it down; content is in source, so it is one file to redeploy.
 q08-mind q08-mind/worker.js
