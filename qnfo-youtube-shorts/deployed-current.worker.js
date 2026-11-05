@@ -1,4 +1,4 @@
-var VERSION = "0.6.1-oauth";
+var VERSION = "0.6.2-oauth";
 /* 0.4.1: new Shorts descriptions include the QNFO channel context. */ /* #5479, pillar reach: authenticated re-consent and code exchange with the stored OAuth client. */ /* 0.3.0 YT-6 (2026-10-28, pillar reach; minor: a data product; agent_issues 1000597): views and average view duration of each uploaded Short are read hourly from the YouTube Data and Analytics APIs into youtube_videos (views, avg_view_duration_s) and metric youtube_avg_view_duration_s; without the extra owner consent (human_actions yt-analytics-consent) the read is refused, recorded as youtube.retention_scope and nothing is written. */ /* 0.2.1 HEALTH-CONTRACT-1 (2026-10-28, pillar autonomy; patch; agent_issues 2852): /health declares capabilities[] and limitations[], so capability_contract_conformance counts this worker. */ /* 0.2.0 YT-QUALITY-1 (2026-10-28, pillar reach; minor: new capabilities): the Shorts stop looking alike and sounding flat. Voice: Workers AI Deepgram Aura 2 (more natural than melotts, which stays as the per-sentence fallback). Director: four new templates (bignum, flow, compare, list) beside the old ones, rules for speech-written narration (contractions, short sentences, pitch-bearing punctuation, no spoken URL) and for variety (at least four kinds, never one kind three times). Render image: scene fitted to a safe width so nothing leaves the frame, five themes (palette plus animated background) chosen per paper, captions measured in the real font and chunked at phrases in the Shorts safe zone, loudness-normalised audio, an AI-generated mp4 comment tag and provenance.json (BP26-AI-ACT-ART50-1). Closing line no longer speaks a URL. Sources: scripts/youtube_poc (YT-POC-3/4), docs/YOUTUBE-PIPELINE.md. */ /* prior: 0.1.5 */ /* 0.1.5 YT-MANIM-PIN-1 (2026-10-27, pillar reach; patch): the render image pins manim 0.22.0, the version the scene was tested on; 0.18.1 has no Scene.time and the first container render failed with that AttributeError (visible since 0.1.4 returns the Manim stderr). */ /* prior: 0.1.4 */ /* 0.1.4 YT-RENDER-ERR-1 (2026-10-27, pillar reach; patch): the render container returns the Manim stderr tail when Manim fails (the first live render failed with only a traceback of the wrapper). */ /* prior: 0.1.3 */ /* 0.1.3 YT-DIRECTOR-1 (2026-10-27, pillar reach; patch): the director takes the first reply that holds a beats array from qnfo-ai, then Workers AI kimi, then gpt-oss, and a failure note quotes each reply (the first live run failed with "no JSON in model reply" from one model). */ /* prior: 0.1.2 */ /* 0.1.2 YT-EXPORTS-1 (2026-10-27, pillar reach; patch): wrangler.toml declares RenderContainer in `exports` instead of `migrations`, so a deploy after a secrets write through the script API is accepted and re-attaches the container (the pilot incident 1485 class). */ /* prior: 0.1.1 */ /* 0.1.1 YT-RUN-SYNC-1 (2026-10-27, pillar reach; patch): POST /run did its pass inside ctx.waitUntil, which a fetch handler loses 30 s after the response, so a manual run died at the director; it now awaits one bounded pass (budget_s, default 80, under the edge 100 s limit) and returns the row states. */ /* prior: 0.1.0 */ /* 0.1.0 YT-SERVER-1 (2026-10-27, pillar reach; minor: a new worker): the plain-language paper to YouTube Short pipeline runs on Cloudflare only. One hourly tick takes the newest plain_article (living-paper, status ok) with no youtube_videos row (cap 2 videos a week), an LLM director writes the beats, a second model family and a number check drop any beat the article does not support, Workers AI TTS speaks each sentence, a Cloudflare Container renders 1080x1920 with Manim, word-timed captions and the visible AI-narration tag into R2, and videos.insert uploads it (public by default, owner directive 2026-10-27) with containsSyntheticMedia. */
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -253,7 +253,7 @@ function modelText(w) {
 }
 // YT-DIRECTOR-1: the first reply that holds JSON wins; the order is qnfo-ai (router), then Workers AI kimi, then gpt-oss, so one model that
 // answers with prose, an empty reply or only reasoning does not strand a paper. The failure note carries a snippet of each reply.
-async function aiJson(env, system, user, maxTokens, temp) {
+async function aiJson(env, system, user, maxTokens, temp, skip) {
   temp = typeof temp === "number" ? temp : 0.3; // YT-SCRIPT-1: the director writes a script, so it runs warmer than the checkers
   var msgs = [{ role: "system", content: system }, { role: "user", content: user }], notes = [];
   var sources = [];
@@ -264,6 +264,7 @@ async function aiJson(env, system, user, maxTokens, temp) {
   } });
   sources.push({ n: "kimi", run: async function () { return modelText(await env.AI.run(WRITE_FALLBACK_MODEL, { messages: msgs, max_tokens: maxTokens, reasoning_effort: "none", temperature: temp })); } });
   sources.push({ n: "gpt-oss", run: async function () { return modelText(await env.AI.run(CHECK_MODEL, { messages: msgs, max_tokens: maxTokens + 1500, reasoning_effort: "low", temperature: temp })); } });
+  sources = sources.slice(skip || 0); // YT-DIRECTOR-RETRY-1: a second pass skips the source whose beats failed the shape check
   for (var i = 0; i < sources.length; i++) {
     try {
       var t = await sources[i].run();
@@ -302,6 +303,13 @@ async function stageDirect(env, row) {
   var spec = dj.json;
   await addSpend(env, row.id, "llm", 2, "director " + dj.source + " + checker");
   var pre = validateBeats(spec.beats, article, []);
+  if (pre.kept.length < MIN_CONTENT_BEATS) { // YT-DIRECTOR-RETRY-1: row 6 (2026-11-05) lost all six beats to the shape check from one source; ask the next source before rejecting
+    try {
+      var dj2 = await aiJson(env, directorPrompt(), text.slice(0, 9000), 3500, 0.7, 1);
+      var pre2 = validateBeats(dj2.json.beats, article, []);
+      if (pre2.kept.length > pre.kept.length) { dj = dj2; spec = dj2.json; pre = pre2; }
+    } catch (e) { await logEvent(env, "youtube.director_retry", String(e && e.message || e).slice(0, 200), null, "warn"); }
+  }
   var unsupported = [];
   if (pre.kept.length) {
     var chk = await env.AI.run(CHECK_MODEL, {
@@ -315,7 +323,7 @@ async function stageDirect(env, row) {
     unsupported = (Array.isArray(cj.unsupported) ? cj.unsupported : []).map(Number);
   }
   var v = validateBeats(spec.beats, article, unsupported);
-  await env.MEDIA.put("youtube/" + row.id + "/beats.json", JSON.stringify({ title: spec.title, script: spec.script, kept: v.kept, dropped: v.dropped, checker_unsupported: unsupported }), { httpMetadata: { contentType: "application/json" } });
+  await env.MEDIA.put("youtube/" + row.id + "/beats.json", JSON.stringify({ title: spec.title, script: spec.script, raw: v.kept.length < MIN_CONTENT_BEATS ? JSON.stringify(spec.beats || []).slice(0, 6000) : undefined, source: dj.source, kept: v.kept, dropped: v.dropped, checker_unsupported: unsupported }), { httpMetadata: { contentType: "application/json" } });
   if (v.kept.length < MIN_CONTENT_BEATS) {
     await setState(env, row.id, "rejected", { note: "director left " + v.kept.length + " supported beats; dropped " + JSON.stringify(v.dropped).slice(0, 600) });
     return null;
@@ -616,7 +624,11 @@ async function runTick(env, opts) {
     res.uploaded_30d = await refreshMetric(env);
     return res;
   }
-  if (open) { res.resumed = await advance(env, open, deadline); }
+  // YT-DIRECTOR-RETRY-1: a re-made Short whose director was rejected is tried again (3 times) instead of leaving the paper without a new Short.
+  var redo = null;
+  if (!open) { try { redo = await env.QNFO_AUDIT.prepare("SELECT id FROM youtube_videos WHERE state = 'rejected' AND created_at >= ?1 AND attempts < 3 ORDER BY id LIMIT 1").bind(UPGRADE_EPOCH).first(); } catch (e) { redo = null; } }
+  if (redo) { await setState(env, redo.id, "queued", { bump: true, note: "retry after rejection" }); res.resumed = await advance(env, { id: redo.id }, deadline); }
+  else if (open) { res.resumed = await advance(env, open, deadline); }
   else {
     var started = await env.QNFO_AUDIT.prepare("SELECT COUNT(*) AS n FROM youtube_videos WHERE state != 'rejected' AND created_at >= ?1").bind(new Date(Date.now() - 7 * 86400000).toISOString()).first();
     if (capAllows(started ? started.n : 0) || (opts && opts.ignoreCap)) {

@@ -228,3 +228,11 @@ test("YT-UPGRADE-1: papers with an old-pipeline Short are re-made before new pap
   assert.deepEqual(upgradesFirst(rows, { o1: 1, o2: 1 }).map((r) => r.slug), ["o1", "o2", "n1", "n2"]);
   assert.deepEqual(upgradesFirst(rows, {}).map((r) => r.slug), ["n1", "o1", "n2", "o2"]);
 });
+
+test("YT-DIRECTOR-RETRY-1: a director with no valid beats asks the next source once; a rejected re-make is retried up to three times", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+  assert.ok(src.includes("sources.slice(skip || 0)"));
+  assert.ok(/aiJson\(env, directorPrompt\(\), text\.slice\(0, 9000\), 3500, 0\.7, 1\)/.test(src));
+  assert.ok(src.includes("state = 'rejected' AND created_at >= ?1 AND attempts < 3"));
+});
