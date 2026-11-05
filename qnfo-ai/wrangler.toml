@@ -126,3 +126,10 @@ binding = "OPS"
 service = "qnfo-ops"
 environment = "production"
 props = { caller = "qnfo-ai" }
+
+# AI-METER-AE-1 (2026-11-05, pillar cost, roadmap RM-ANALYTICS-ENGINE-METERS-1, agent_issues 1001927): one Workers Analytics Engine data point per routed model call
+# (provider, model, caller, outcome; calls, in/out/cached tokens, usd), written in spendRecord before the D1 guard so it survives D1 overload. The dataset is created by the
+# first write; scripts/ai_meter_ae.py reads it back into qnfo-audit.ai_meter_ae_daily. Revert: remove this block and the aiMeterWrite call (a missing binding writes nothing).
+[[analytics_engine_datasets]]
+binding = "AI_METER"
+dataset = "qnfo_ai_calls"

@@ -429,6 +429,15 @@ jobs:
         run: |
           python3 scripts/cost_task_outcomes.py --selftest && python3 scripts/cost_task_outcomes.py
 
+      # AI-METER-AE-2 (2026-11-05, RM-ANALYTICS-ENGINE-METERS-1): reads the Analytics Engine dataset qnfo_ai_calls (one data point per model call routed by
+      # qnfo-ai, written before the D1 guard so it survives D1 overload) back through the Analytics Engine SQL API into qnfo-audit.ai_meter_ae_daily;
+      # v_ai_meter_ae_vs_ledger shows the calls the ledger missed. A dataset that does not exist yet or a refused token is logged, never fatal.
+      - name: Read the AI meter dataset
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          python3 scripts/ai_meter_ae.py --selftest && python3 scripts/ai_meter_ae.py
+
       # D1-EXPORT-BEYOND-TIME-TRAVEL-1: the weekly full export of every account database to R2 (the daily snapshot is in the sweeps job). It stops at
       # EXPORT_BUDGET_SEC and resumes on the next heavy run from export/<database>/_progress.json. Never fails the job.
       - name: Export the account databases to R2
