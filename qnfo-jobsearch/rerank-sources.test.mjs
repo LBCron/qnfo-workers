@@ -61,6 +61,7 @@ answer.calls = [];
   ok(sent.model === "@cf/zai-org/glm-5.3-flash" && sent.max_tokens <= 2048 && sent.stream === false && sent.temperature === 0 && sent.messages[0].role === "system" && /ONLY reorder/.test(sent.messages[0].content), "a pinned cheap model, deterministic, and the reorder-only instruction", sent.model);
   ok(!/Federal Highway|rwnquni|rowan\.quni|QNFO|ledger/i.test(JSON.stringify(sent.messages)), "no ledger text or personal data is sent to the model");
   const items = JSON.parse(sent.messages[1].content);
+  ok(items.every((x) => x.signals.every((s) => /^(title in your lane|evidence in the posting)/.test(s)) && x.signals.length === 2), "only posting-fit signals are sent", items[0]);
   ok(items.length === 4 && items.map((x) => x.n).join() === "1,2,3,4", "postings are sent as numbered items");
   for (const j of r.kept) {
     const o = before.find((x) => x.id === j.id);
@@ -75,6 +76,15 @@ answer.calls = [];
   ok(/Urban planning and land use/.test(why3), "a second grounded reason is shown", why3);
   const a2 = T.artifactsFor(r.kept.find((j) => j.id === "t:1"));
   ok(a2.resume === a1.resume && a2.note === a1.note && !/LLM: /.test(a2.resume + a2.note), "the resume and note are byte-identical and carry no model word");
+}
+// what the owner liked, rejected or lacks never reaches the router
+{
+  const kept = fresh();
+  kept[0].match.why.push("you rejected roles at this employer before", "looks like roles you liked: research", "not in your CV yet: quantum_energy", "past application outcomes favor these posting signals", "no seniority marker in the title");
+  answer.calls.length = 0;
+  await T.llmRerankRun(answer({ order: [1, 2, 3, 4] }), kept);
+  const body = answer.calls[0].init.body;
+  ok(!/you rejected|you liked|not in your CV|past application|seniority/.test(body) && /title in your lane/.test(body) && /evidence in the posting/.test(body), "only posting-fit signals leave the worker", body.slice(0, 300));
 }
 // the rank is shown as well, so the owner can see what the AI changed
 {
