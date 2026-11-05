@@ -19,8 +19,10 @@ ok(/return true;/.test(helper) && /catch \(eFB\)/.test(helper), "a second failur
 // 2. every insert into remediation_verifications is followed by a fall-through in its catch
 const inserts = (src.match(/INSERT INTO remediation_verifications/g) || []).length;
 const calls = (src.match(/await verificationFallback\(/g) || []).length;
-ok(inserts === 3, "three inserts into remediation_verifications (got " + inserts + ")");
-ok(calls === 3, "each insert has a fall-through call in its catch (got " + calls + ")");
+// MONITORING-PASS-1 (agent_issues 1000744): the count is derived, not a literal. A new verification writer (the monitoring pass) adds an insert and must add its fall-through
+// in the same patch; the literal 3 made that a two-file patch the code loop could not verify ("patch too large"). The three original writers stay pinned in section 3.
+ok(inserts >= 3, "at least the three original inserts into remediation_verifications remain (got " + inserts + ")");
+ok(calls === inserts, "each insert has exactly one fall-through call in its catch (inserts " + inserts + ", calls " + calls + ")");
 
 // 3. the three call sites carry the same verdict the primary write intended
 ok(/verificationFallback\(db, c\.issue_id, c\.class, probeUrl, transport, "", "\(no expected value\)", 0,/.test(src), "vacuous insert falls through as pass 0");
