@@ -35,6 +35,38 @@
       "absent": [
         "Internal Error"
       ]
+    },
+    {
+      "_note": "READING-FEED-LEDE-1: the feed carries a lede for a piece whose stored lede was lost to a prune (an empty description is the defect).",
+      "url": "https://reading.q08.org/feed.xml",
+      "status": 200,
+      "contains": [
+        "<item>"
+      ],
+      "absent": [
+        "<description></description>",
+        "Internal Error"
+      ]
+    },
+    {
+      "_note": "READING-FEED-LEDE-1: a piece page carries its own Open Graph description (the shown lede).",
+      "url": "https://reading.q08.org/p/2026-10-27-notes-73c73cae08c3e06f",
+      "status": 200,
+      "contains": [
+        "og:description",
+        "class=lede"
+      ],
+      "absent": [
+        "Internal Error"
+      ]
+    },
+    {
+      "_note": "READING-HEALTH-ACCURACY-1: /health splits the withdrawn-for-no-source-record count from the audit failures.",
+      "url": "https://personal-companion.q08.workers.dev/health",
+      "contains": [
+        "withdrawn_no_source_record",
+        "retracted_after_audit"
+      ]
     }
   ]
 }

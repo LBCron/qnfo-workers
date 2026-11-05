@@ -3232,7 +3232,7 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.45.4";
+var VERSION = "1.45.5";
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -5042,8 +5042,10 @@ var CSS = L(
   "footer{margin-top:3.4rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--mut);font-size:.78rem}",
   ".src{margin-top:2rem;color:var(--mut);font-size:.8rem}"
 );
-function page(title, inner, extraHead) {
-  return "<!doctype html><html lang=en><head><meta charset=utf-8><meta name=robots content=noindex><meta name=viewport content=" + String.fromCharCode(34) + "width=device-width,initial-scale=1" + String.fromCharCode(34) + "><title>" + escHtml(title) + "</title><link rel=alternate type=application/rss+xml title=Reading href=/feed.xml><meta name=description content='A personal companion that writes one piece at a time - essays, field notes, and long-form serials.'><style>" + CSS + "</style>" + (extraHead || "") + "</head><body><div class=wrap>" + inner + "</div><script src='https://fleet.qnfo.org/ctl.js' defer></script></body></html>";
+function page(title, inner, extraHead, desc) {
+  // READING-FEED-LEDE-1: a piece page passes its own description (the shown lede); every other page keeps the one site sentence.
+  var Q = String.fromCharCode(34), d = desc ? escHtml(String(desc)) : "A personal companion that writes one piece at a time - essays, field notes, and long-form serials.";
+  return "<!doctype html><html lang=en><head><meta charset=utf-8><meta name=robots content=noindex><meta name=viewport content=" + Q + "width=device-width,initial-scale=1" + Q + "><title>" + escHtml(title) + "</title><link rel=alternate type=application/rss+xml title=Reading href=/feed.xml><meta name=description content=" + Q + d + Q + "><style>" + CSS + "</style>" + (extraHead || "") + "</head><body><div class=wrap>" + inner + "</div><script src='https://fleet.qnfo.org/ctl.js' defer></script></body></html>";
 }
 __name(page, "page");
 __name2(page, "page");
@@ -5084,6 +5086,13 @@ function readingIndexLd() {
   var ld = { "@context": "https://schema.org", "@type": "Blog", name: "Reading", url: "https://reading.q08.org/", description: "Essays, field notes and long-form serials written by AI for one reader and checked against their source material by automated review.", publisher: { "@type": "Organization", name: "q08", url: "https://q08.org/" } };
   return "<script type=\"application/ld+json\">" + JSON.stringify(ld).replace(/</g, "\\u003c") + "</script>";
 }
+// READING-FEED-LEDE-1: a short plain-text blurb for a feed item or a link preview: the text cut at a word boundary, an ellipsis when cut.
+function pieceBlurb(text, max) {
+  var s = String(text || "").replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  var cut = s.slice(0, max - 1), sp = cut.lastIndexOf(" ");
+  return (sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-]+$/, "") + String.fromCharCode(8230);
+}
 function renderPiece(p, keyQS) {
   var bodyMd = String(p.body_md || "");
   var startsHeading = /^\s*#/.test(bodyMd);
@@ -5099,7 +5108,10 @@ if (shownLede) {
 var body = "<div class=meta>" + formLabel(p.form) + " &middot; " + p.day + " &middot; " + p.word_count + " words &middot; " + AI_LABEL_HTML + "</div><h2>" + escHtml(p.title) + "</h2>" + (p.subtitle ? "<p class=meta>" + escHtml(p.subtitle) + "</p>" : "") + ledeHtml + renderBody(bodyContent) + sourcesFoot(p.anchor_json);
   var fb = "<div class=fb>Was this worth your time? <a href=/api/f?slug=" + p.slug + "&s=good>yes</a><a href=/api/f?slug=" + p.slug + "&s=flat>flat</a><a href=/api/f?slug=" + p.slug + "&s=no>no</a></div>";
   var foot = "<footer><a href=/ " + keyQS + ">back to index</a></footer>";
-  return page(p.title, shell(body + fb + foot), pieceLd(p));
+  // READING-FEED-LEDE-1: what a shared link previews is this piece's own lede, not the one sentence every page used to carry
+  var Q = String.fromCharCode(34), blurb = pieceBlurb(plainCredit(shownLede || p.subtitle || ""), 200);
+  var og = blurb ? "<meta property=og:type content=article><meta property=og:site_name content=Reading><meta property=og:title content=" + Q + escHtml(p.title) + Q + "><meta property=og:description content=" + Q + escHtml(blurb) + Q + ">" : "";
+  return page(p.title, shell(body + fb + foot), pieceLd(p) + og, blurb);
 }
 __name(renderPiece, "renderPiece");
 __name2(renderPiece, "renderPiece");
@@ -5954,14 +5966,14 @@ async function feedXml(env, u) {
   try {
     await ensureSchema(env);
   } catch (e) { logCaught("feedXml", e); }
-  var q = await env.PERSONAL.prepare("SELECT slug, title, lede, day, created_at FROM companion_pieces WHERE " + VISIBLE_SQL + " ORDER BY id DESC LIMIT 30").all();
+  var q = await env.PERSONAL.prepare("SELECT slug, title, lede, substr(body_md, 1, 1500) AS body_md, day, created_at FROM companion_pieces WHERE " + VISIBLE_SQL + " ORDER BY id DESC LIMIT 30").all();
   var rows = q.results || [];
   var base = subBase(env, u.origin);
   var items = "";
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     var link = base + "/p/" + r.slug;
-    items += "<item><title>" + escXml(r.title) + "</title><link>" + link + "</link><guid>" + link + "</guid><pubDate>" + toRfc822(r.created_at || r.day) + "</pubDate><description>" + escXml(String(r.lede || "").slice(0, 400)) + "</description></item>";
+    items += "<item><title>" + escXml(r.title) + "</title><link>" + link + "</link><guid>" + link + "</guid><pubDate>" + toRfc822(r.created_at || r.day) + "</pubDate><description>" + escXml(pieceBlurb(plainCredit(afShownLede(r)), 400)) + "</description></item>";
   }
   var Q = String.fromCharCode(34);
   var xml = "<?xml version=" + Q + "1.0" + Q + " encoding=" + Q + "UTF-8" + Q + "?><rss version=" + Q + "2.0" + Q + "><channel><title>Reading</title><link>" + base + "</link><description>Written for one reader. Shared with anyone who wants to follow along.</description>" + items + "</channel></rss>";
@@ -7528,6 +7540,15 @@ var worker_default = {
         last = (r2.results || [])[0] || null;
         var r3 = await env.PERSONAL.prepare("SELECT (SELECT COUNT(*) FROM companion_audits WHERE verdict = 'pass') passed, (SELECT COUNT(*) FROM companion_retractions) retracted, (SELECT COUNT(*) FROM companion_pieces WHERE slug NOT IN (SELECT slug FROM companion_audits) AND slug NOT IN (SELECT slug FROM companion_retractions)) unaudited").first();
         acc = r3 || null;
+        // READING-HEALTH-ACCURACY-1: "retracted" mixes one withdrawal of pieces written before the source record existed (audit stage no-source-record, 74 rows
+        // all dated 2026-10-10) with accuracy failures (audit verdict fail, 0 rows), so it read as a 73 percent failure rate that does not exist. The old keys stay for one release.
+        if (acc) {
+          var r4 = await env.PERSONAL.prepare("SELECT (SELECT COUNT(*) FROM companion_audits WHERE stage = 'no-source-record') withdrawn_no_source_record, (SELECT COUNT(*) FROM companion_audits WHERE verdict = 'fail') retracted_after_audit").first();
+          acc.withdrawn_no_source_record = Number(r4 && r4.withdrawn_no_source_record) || 0;
+          acc.retracted_after_audit = Number(r4 && r4.retracted_after_audit) || 0;
+          var audited = Number(acc.passed || 0) + acc.retracted_after_audit;
+          acc.passed_share_audited = audited ? Math.round(1000 * Number(acc.passed || 0) / audited) / 1000 : null;
+        }
       } catch (e) { logCaught("fetch", e); }
       return json({ ok: true, version: VERSION, capabilities: ["companion-writing", "morning-brief", "subscriber-feed", "feedback", "owner-prompts", "accuracy-verify", "retractions"], limitations: ["every route except /health needs the companion key (?k=)", "writes at most 5 pieces a day, only at the generation hours (UTC) listed here", "the writer is DeepSeek via the personal plane's own key (BYOK), outside the qnfo AI router", "a piece is shown and mailed only after a deterministic grounding check and a two-family fact-check against its source material; if either is unavailable nothing is published (COMPANION-VERIFY-1)", "the morning brief goes only to the owner's address", "the morning brief and owner questions bypass email_suppression by design; the owner stops them with one row: UPDATE calendar_meta SET v='0' WHERE k='owner_notice_enabled' (qnfo-audit; INSERT it if absent; 0/off/false/no stops, anything else or no row means on)", "an unsent brief claim older than 90 minutes is retried hourly between 08:00 and 12:00 Amsterdam; an owner question whose worker died mid-send is retried after 6 hours, so a very rare duplicate is possible"], pieces: n, last, rhythm: RHYTHM, writer: WRITER_MODEL, writer_essay: WRITER_MODEL_ESSAY, topics: "live (Wikipedia, arXiv)", accuracy: acc, gen_hours_utc: GEN_HOURS_UTC, max_per_day: MAX_PIECES_PER_DAY, models: MODELS });
     }
@@ -8618,6 +8639,7 @@ function groundingNeedles(problems) {
 var __verify = { stallRecurred: stallRecurred, shortenFeedback: shortenFeedback, LENGTH_CEILING: LENGTH_CEILING, pruneClassOf: pruneClassOf, pruneClassesOf: pruneClassesOf, pruneRepeat: pruneRepeat, PRUNE_REPEAT_AFTER: PRUNE_REPEAT_AFTER, attemptBudgetStop: attemptBudgetStop, STALL_MIN: STALL_MIN, pruneHeadings: pruneHeadings, mirrorPipeline: mirrorPipeline, pipeItem: pipeItem, pipeSince: pipeSince, PIPE_SELECT: PIPE_SELECT, PIPE_PROPERTY: PIPE_PROPERTY, PIPE_ID_PREFIX: PIPE_ID_PREFIX, qualityWorst: qualityWorst, gateWorst: gateWorst, criticGroundingGates: criticGroundingGates, STARVED_RETRY_QUIET_MS: STARVED_RETRY_QUIET_MS, quotesAllSourced: quotesAllSourced, sourcedPassage: sourcedPassage, sourceSentences: sourceSentences, sourcedRereadNote: sourcedRereadNote, SOURCED_COVER: SOURCED_COVER, SENT_ABBREV_RE: SENT_ABBREV_RE, GROUND_MAX: GROUND_MAX, PRIMARY_SHARE: PRIMARY_SHARE, deleteSentences: deleteSentences, rubricNoQuoteNote: rubricNoQuoteNote, quotesAllInAnalysis: quotesAllInAnalysis, rubricRereadNote: rubricRereadNote, eventTitles: eventTitles, eventDay: eventDay, fetchEventTitles: fetchEventTitles, EVENT_POOL: EVENT_POOL, WRITER_LEAD: WRITER_LEAD, CF_FALLBACK_GPT_OSS: CF_FALLBACK_GPT_OSS, loadWriterOrder: loadWriterOrder, fallbackChain: fallbackChain, cutAtSentence: cutAtSentence, causalScore: causalScore, CAUSAL_MIN: CAUSAL_MIN, CAUSAL_CHARS: CAUSAL_CHARS, fitAnchors: fitAnchors, logCaught: logCaught, foldAccents: foldAccents, todayLine: todayLine, reframePiece: reframePiece, parseDraftMd: parseDraftMd, P_REFRAME: P_REFRAME, REFRAME_BAND: REFRAME_BAND, REFRAME_START_BEFORE_MS: REFRAME_START_BEFORE_MS, CF_FALLBACK: CF_FALLBACK, pieceWords: pieceWords, splitText: splitText, autoMarkAnalysis: autoMarkAnalysis, withAutoMark: withAutoMark, analysisSplitInfo: analysisSplitInfo, CRITIC_INVENTED_MAX: CRITIC_INVENTED_MAX, writerBand: writerBand, writerIsFallback: writerIsFallback, WRITER_TEMPERATURE_FB: WRITER_TEMPERATURE_FB, CRITIC_TEMPERATURE: CRITIC_TEMPERATURE, ANALYSIS_MARK: ANALYSIS_MARK, stripAnalysisMark: stripAnalysisMark, analysisSplitOk: analysisSplitOk, reviewText: reviewText, stripPieceMark: stripPieceMark, persistPiece: persistPiece, STARVED_RETRY_MAX_24H: STARVED_RETRY_MAX_24H, fetchWikiIntros: fetchWikiIntros, introScore: introScore, screenTopics: screenTopics, wikiAnchors: wikiAnchors, TOPIC_POOL: TOPIC_POOL, pruneBlockFixable: pruneBlockFixable, pruneRepairFeedback: pruneRepairFeedback, expandFeedback: expandFeedback, rankLinked: rankLinked, linkMentionScore: linkMentionScore, CRITIC_PRUNE_ROUNDS: CRITIC_PRUNE_ROUNDS, criticQuotes: criticQuotes, critiqueWorst: critiqueWorst, QUOTE_MIN_WORDS: QUOTE_MIN_WORDS, systemsFit: systemsFit, generationHold: generationHold, gatherVerdicts: gatherVerdicts, orderByHealth: orderByHealth, sickReviewers: sickReviewers, FACTCHECK_HEDGE_MS: FACTCHECK_HEDGE_MS, starvedRetryDue: starvedRetryDue, arxivWindow: arxivWindow, fetchWiki: fetchWiki, splitLongLede: splitLongLede, stallAttemptStage: stallAttemptStage, companionStallDigest: companionStallDigest, arxivIdOf: arxivIdOf, paperFullTextUrls: paperFullTextUrls, paperHtmlText: paperHtmlText, ledeProblems: ledeProblems, ledeOf: ledeOf, pruneUnsupported: pruneUnsupported, deleteSentences: deleteSentences, splitFactItems: splitFactItems, sourceLabel: sourceLabel, anchorsText: anchorsText, floorFor: floorFor, critiquePiece: critiquePiece, REPAIR_FLOOR_SHARE: REPAIR_FLOOR_SHARE, FALLBACK_FLOOR_RATIO: FALLBACK_FLOOR_RATIO, NOTES_OBJECTION_PLACEHOLDER: NOTES_OBJECTION_PLACEHOLDER, groundingNeedles: groundingNeedles, stemGrounded: stemGrounded, repairGroundingDraft: repairGroundingDraft, GROUNDING_PREFIX: GROUNDING_PREFIX, problemContext: problemContext, factCheckExtra: factCheckExtra, blockedRetryDue: blockedRetryDue, steward: steward, fetchCfg: fetchCfg, fetchUA: fetchUA, groundingProblems: groundingProblems, parseFactVerdict: parseFactVerdict, factCheck: factCheck, verifyPiece: verifyPiece, auditPublished: auditPublished, retractPiece: retractPiece, pieceVerified: pieceVerified, recordAudit: recordAudit, generate: generate, unwrapJsonItem: unwrapJsonItem, itemHasNoClaim: itemHasNoClaim, reviewerSaysSupported: reviewerSaysSupported, factItemText: factItemText, splitFactItems: splitFactItems, serialInstallmentTitle: serialInstallmentTitle, serialBaseTitle: serialBaseTitle, serialChaptersDone: serialChaptersDone, serialTitleMatches: serialTitleMatches, withInstallmentTitle: withInstallmentTitle, freeInstallmentPiece: freeInstallmentPiece, pickTopic: pickTopic, sendMail: sendMail, pickReviewers: pickReviewers, familyOf: familyOf, anchorsBlock: anchorsBlock, plainCredit: plainCredit, sourcesFoot: sourcesFoot, renderPiece: renderPiece, prompts: { P_STYLE: P_STYLE, P_ESSAY: P_ESSAY, P_NOTES: P_NOTES, P_SERIAL: P_SERIAL, P_CRITIQUE: P_CRITIQUE, FACTCHECK_PROMPT: FACTCHECK_PROMPT }, VISIBLE_SQL: VISIBLE_SQL, REVIEW_POOL: REVIEW_POOL };
 Object.assign(__verify, { gatherContestedSources: gatherContestedSources, fetchHansardSource: fetchHansardSource, fetchGlobalVoicesSource: fetchGlobalVoicesSource, fetchGovUkSource: fetchGovUkSource, csrcRelevant: csrcRelevant, csrcDiscusses: csrcDiscusses, csrcQueries: csrcQueries, wikiAnchors: wikiAnchors, getSrcDiag: function () { return srcDiag; } });
 Object.assign(__verify, { writeSourceMetrics: writeSourceMetrics, writeBalanceMetrics: writeBalanceMetrics, balanceCheck: balanceCheck, balanceCheckOne: balanceCheckOne, parseBalanceScore: parseBalanceScore, verifyPiece: verifyPiece, recordAudit: recordAudit, factRevisionPrompt: factRevisionPrompt, BALANCE_MIN_SCORE: BALANCE_MIN_SCORE, REVIEW_POOL: REVIEW_POOL, familyOf: familyOf });
+Object.assign(__verify, { feedXml: feedXml, pieceBlurb: pieceBlurb, afShownLede: afShownLede, readingPage: page, worker: worker_default });
 Object.assign(__verify, { isContestedTopic: isContestedTopic, sourceHost: sourceHost, sourceViewpoint: sourceViewpoint, sourceCountry: sourceCountry, contestedSourcesOk: contestedSourcesOk });
 Object.assign(__verify, { noteReviewerNoVerdict: noteReviewerNoVerdict, collapsedRetryHold: collapsedRetryHold, COLLAPSE_RETRY_MIN_MS: COLLAPSE_RETRY_MIN_MS, factCheckOne: factCheckOne });
 export {
