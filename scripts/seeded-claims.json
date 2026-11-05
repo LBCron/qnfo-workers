@@ -1,12 +1,55 @@
 {
-  "_doc": "RM-SEEDED-CLAIM-HARNESS-1 (agent_issues 1000665): known-false statements for a paper produced by an automated pipeline that runs no experiment, survey, study or review (the FACT in qnfo-research-exec ciExtractPrompt). Each seed is inserted into a clean paper body by the harness and must be caught by the gate named in gate. A seed is never published and never reaches a reader. Add a seed with the rule it should trip; remove none to raise a catch rate.",
-  "version": 1,
+  "_doc": "RM-SEEDED-CLAIM-HARNESS-1 and -2 (agent_issues 1000665): known-false statements for a paper produced by an automated pipeline that runs no experiment, survey, study or review (the FACT in qnfo-research-exec ciExtractPrompt), and known-false references and numbers. Each seed is put in front of the gate named in gate and must be caught by it. A seed is never published and never reaches a reader. Gates: fabricated-scan (fabricatedClaimScan on a clean paper body plus the seed sentence), citation-gate (CITATION_GATE.citationGate with a stubbed index: arxiv maps an id to its title, doi lists registered DOIs, pages maps a URL to its HTTP status), verify-adjudication (adjudicateVerification on the printed CLAIM lines). controls holds one clean case per gate that must NOT be flagged; a flagged control makes the run unusable, so a gate that flags everything cannot score. Add a seed with the rule it should trip; remove none to raise a catch rate. These gates are the deterministic layers: the model reviewers are not exercised here.",
+  "version": 2,
   "seeds": [
     { "id": "S01-survey", "gate": "fabricated-scan", "kind": "experiment", "text": "We conducted a survey of 240 respondents to measure the effect described above." },
     { "id": "S02-assign", "gate": "fabricated-scan", "kind": "human-study", "text": "Participants were assigned to one of two conditions before the task began." },
     { "id": "S03-raters", "gate": "fabricated-scan", "kind": "review", "text": "Independent expert reviewers rated each derivation on a five point scale." },
     { "id": "S04-peer", "gate": "fabricated-scan", "kind": "review", "text": "This paper has been peer reviewed by external experts in the field." },
     { "id": "S05-pilot", "gate": "fabricated-scan", "kind": "measurement", "text": "Our pilot study showed that the effect is stable across all conditions." },
-    { "id": "S06-n", "gate": "fabricated-scan", "kind": "human-study", "text": "N = 48 participants completed the full task in the laboratory." }
+    { "id": "S06-n", "gate": "fabricated-scan", "kind": "human-study", "text": "N = 48 participants completed the full task in the laboratory." },
+    { "id": "S07-panel", "gate": "fabricated-scan", "kind": "review", "text": "A panel of twelve practitioners graded the outputs in a blinded evaluation." },
+    { "id": "S08-calibrated", "gate": "fabricated-scan", "kind": "experiment", "text": "The apparatus was calibrated before each of the 30 experimental runs." },
+    { "id": "S09-households", "gate": "fabricated-scan", "kind": "human-study", "text": "Data were collected from 1,200 households across three regions." },
+    { "id": "S10-interviews", "gate": "fabricated-scan", "kind": "human-study", "text": "We interviewed fifteen engineers about how they use the method in practice." },
+    {
+      "id": "S11-fabricated-arxiv", "gate": "citation-gate", "kind": "fabricated-reference",
+      "body": "A result is cited here.\n\n## References\n[1] A paper that was never written. arXiv:2999.99999",
+      "index": { "arxiv": { "1706.03762": "Attention Is All You Need" }, "doi": [], "pages": {} }
+    },
+    {
+      "id": "S12-wrong-title", "gate": "citation-gate", "kind": "mislabelled-reference",
+      "body": "A result is cited here.\n\n## References\n[1] Quantum Error Correction With Surface Codes. arXiv:1706.03762",
+      "index": { "arxiv": { "1706.03762": "Attention Is All You Need" }, "doi": [], "pages": {} }
+    },
+    {
+      "id": "S13-dead-doi", "gate": "citation-gate", "kind": "fabricated-reference",
+      "body": "A result is cited here.\n\n## References\n[1] A fabricated result. doi:10.9999/not-a-real-doi",
+      "index": { "arxiv": {}, "doi": ["10.1000/real"], "pages": {} }
+    },
+    {
+      "id": "S14-dead-link", "gate": "citation-gate", "kind": "fabricated-reference",
+      "body": "A result is cited here.\n\n## References\n[1] A missing report. https://example.org/reports/missing-report.pdf",
+      "index": { "arxiv": {}, "doi": [], "pages": { "https://example.org/reports/missing-report.pdf": 404 } }
+    },
+    {
+      "id": "S15-wrong-number", "gate": "verify-adjudication", "kind": "wrong-number",
+      "claims": [{ "id": "Q1", "statement": "The product of 2 and 3 is 7." }],
+      "output": "CLAIM Q1: computed=6 expected=7 match=no\nVERIFICATION SUMMARY: 1 claims, 0 match, 1 mismatch"
+    },
+    {
+      "id": "S16-script-says-yes", "gate": "verify-adjudication", "kind": "wrong-number",
+      "claims": [{ "id": "Q1", "statement": "The product of 2 and 3 is 7." }],
+      "output": "CLAIM Q1: computed=6 expected=7 match=yes"
+    },
+    {
+      "id": "S17-wrong-digit", "gate": "verify-adjudication", "kind": "wrong-number",
+      "claims": [{ "id": "Q1", "statement": "The thermal energy is 4.31e-21 J." }],
+      "output": "CLAIM Q1: computed=4.28e-21 expected=4.31e-21 match=no"
+    }
+  ],
+  "controls": [
+    { "gate": "citation-gate", "body": "A result is cited here.\n\n## References\n[1] Attention Is All You Need. arXiv:1706.03762", "index": { "arxiv": { "1706.03762": "Attention Is All You Need" }, "doi": [], "pages": {} } },
+    { "gate": "verify-adjudication", "claims": [{ "id": "Q1", "statement": "The product of 2 and 3 is 6." }], "output": "CLAIM Q1: computed=6 expected=6 match=yes" }
   ]
 }
