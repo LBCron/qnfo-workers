@@ -20,8 +20,10 @@ and the personal/research separation keep their precedence. Section 9 says exact
    therefore remove blockers, make the work findable by agents and answer engines, and build things people use (demos, an oracle, a dataset), not more pages.
 2. **Cost needs a different shape, not a trim.** Platform features reach roughly 40 to 50 percent of the measured Workers AI line (COST-AND-D1 analysis, R);
    a 3x cut needs fewer or cheaper stages: cascades, routers, distilled classifiers, a sealed eval that lets a cheap model replace an expensive one. Measured (R, B1 first reading):
-   the meter went from USD 6 a day on 10-22 to USD 33 to 40 on 11-01 to 11-04 while papers a day rose 1.3x, because research-exec makes 3.7x the calls (21 percent of its
-   `glm-5.3-flash` calls now error) and neurons per paper are 2.6x higher; bounding calls per paper comes before any model swap.
+   the meter went from USD 6 a day on 10-22 to USD 33 to 40 on 11-01 to 11-04 while papers a day rose 1.3x. About 72 percent of that rise was not named by any counter before 11-04
+   (corrected after the first draft, see B1): the first day `qnfo-agents` was metered, 11-04, it showed USD 12.1 and counters plus that ledger covered 102 percent of the meter; the
+   named part is research-exec (3.7x the calls, neurons per paper 2.6x, 21 percent of its `glm-5.3-flash` calls failing on provider capacity) and the code loop. Metering the unnamed
+   callers comes before any model swap or any claim about which loop to cut.
 3. **D1 should hold control state and nothing else.** Telemetry goes to a lake, locks go to Durable Objects, switches go to flags. Size is not the limit
    (10 GB per database, F); one query at a time per database is.
 4. **Nobody can say whether the fleet is getting better.** Measured (R): the reader series has a standard deviation of 5.0 on a mean of 5.1 a day, so two 7-day windows
@@ -81,8 +83,14 @@ Prediction lines are hypotheses to be logged in `decision_log` before the first 
   (per day): papers published 8 to 10.7 (1.3x); `qnfo-research-exec` calls 420 to 1,561 (3.7x) and neurons 254k to 876k (3.4x), so neurons per published paper rose from about 32k
   to about 82k (2.6x); `qnfo-code-orchestrator` neurons 180k to 480k (2.7x). In research-exec, `glm-5.3-flash` errors went from 3 of 346 calls (0.9 percent) to 636 of 3,014 (21 percent;
   by purpose 26 percent revise, 34 percent ensemble, 27 percent reconcile, 16 percent complete, 11 percent review), and two purposes, `complete` and `reconcile`, which had no calls
-  on 10-22..24, took 764 calls on 11-01..03. The per-model ledger (117 rows since 10-01) names only about USD 11 of the roughly USD 30 a day rise in the meter, so about 63 percent of it
-  has no named caller. Reading: the rise is volume per paper (more calls, new stages, failed calls that are retried or sent to a dearer model), not price and not paper count.
+  on 10-22..24, took 764 calls on 11-01..03. **Attribution (corrected the same day after reading AI-METER-COVER-2, agent_issues 1001787; the first draft said the rise was mostly research-exec volume):** meter neurons
+  against the neurons `ai_call_counters` name, per day. On 10-22 to 10-25 the counters named 100 to 140 percent of the meter (they overcount a little); coverage then fell to 71 percent on
+  10-27, 62 percent on 10-31, 44 percent on 11-01, 53 percent on 11-02 and 42 percent on 11-03. Unnamed neurons were about zero to 10-26, 0.4 to 0.6M a day on 10-27 to 10-31, then 1.8M,
+  1.7M and 2.1M a day on 11-01 to 11-03 (about 55 percent of the meter). In dollars, meter minus counters went from about minus USD 2 a day (10-22..24 average) to about USD 20 a day
+  (11-01..03), so about 72 percent of the USD 31 a day rise has no counter behind it. On 11-04, the first day `qnfo-agents` was metered (into `ai_spend_ledger`, caller `qnfo-agents`), it
+  showed USD 12.1, and counters plus that ledger came to USD 33.7 against a meter of USD 33.0 (102 percent). So the largest single piece of the rise was a caller no counter named, now
+  partly named (1001787 also covers `qnfo-email`, `qnfo-lifecycle` and streamed output tokens); the named part of the rise, about USD 9 to 10 a day (research-exec +622k neurons and the code
+  loop +300k neurons a day at USD 0.011 per 1,000), is volume per paper: more calls, new stages, failed calls retried or sent to a dearer model. Not price, and not paper count.
   Cause of the errors (R, `cloud_ops_events`, the last 60,000 events, which are capped per kind and so a lower bound): they are provider-side, not a prompt bug.
   `aiText model=@cf/zai-org/glm-5.3-flash threw: 3040: Capacity temporarily exceeded` (405 events in the sample, 128 of them on 11-02), request timeouts `3046` on glm-5.3 and kimi-k2.6
   (190 on 11-02 and 262 on 11-03, from 10 to 70 a day in mid-October), and `cost-first-empty` (the cheap model returned nothing and the call fell back to `gpt-oss-120b`) rising
