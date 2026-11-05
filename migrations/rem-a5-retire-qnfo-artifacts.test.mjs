@@ -23,7 +23,7 @@ ok(!/INSERT\s+(OR\s+\w+\s+)?INTO\s+fleet_tick/i.test(body) && !/claude\.ai|anthr
 ok(Array.from(body.matchAll(/LIKE\s+'((?:[^']|'')*)'/gi)).every((m) => Buffer.byteLength(m[1]) <= 50), "every LIKE pattern is at most 50 bytes");
 
 // the repository half of the retirement (PR 4800) is on this checkout
-ok(existsSync(new URL("qnfo-artifacts/RETIRED", root)), "qnfo-artifacts/RETIRED exists (the marker cf-ops-actions delete-worker reads)");
+ok(existsSync(new URL("qnfo-artifacts/RETIRED", root)) || existsSync(new URL("archive/qnfo-artifacts/RETIRED", root)), "qnfo-artifacts/RETIRED exists, in place or under archive/ after RM-REPO-DEAD-SOURCES-1 moved it (the marker cf-ops-actions delete-worker reads)");
 ok(!/^qnfo-artifacts\s/m.test(rd("deploy-targets.txt")), "deploy-targets.txt no longer lists qnfo-artifacts");
 ok(!/service\s*=\s*"qnfo-artifacts"/.test(rd("qnfo-ops/wrangler.toml")) && !/CH_QNFO_ARTIFACTS/.test(rd("qnfo-ops/wrangler.toml").replace(/^#.*$/gm, "")), "qnfo-ops/wrangler.toml declares no binding to qnfo-artifacts");
 
