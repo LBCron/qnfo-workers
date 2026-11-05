@@ -58,6 +58,37 @@ ok(JSON.stringify(stale) === JSON.stringify(["w-gone", "w-metered"]), "a baselin
 ok(findings(rows, { baseline: { "w-bare": live, "w-wai": live, "w-metered": live, "w-gone": live }, directAllow: { "w-direct": "y" } }).length === 0, "so the single-file change that wraps a worker never turns main red");
 rmSync(root, { recursive: true, force: true });
 
+// ---- FOLD-KIT-1 members: audited as their own rows, never read as metered because the host wraps its own env
+{
+  const r2 = mkdtempSync(join(tmpdir(), "ai-paths-fold-"));
+  const put = (dir, js) => { mkdirSync(join(r2, dir), { recursive: true }); writeFileSync(join(r2, dir, "worker.js"), js); };
+  const block = (name, body) => "// ---- FOLD-KIT-1:" + name + ":BEGIN (WORKER-COUNT-X) ----\nvar " + name.replace(/\W/g, "_") + " = (function () {\n" + body + "\n})();\n// ---- FOLD-KIT-1:" + name + ":END ----\n";
+  // the host wraps its own env and calls the model itself; its member calls the model with the raw env
+  put("h-bare", "env = __aiAttrEnv(env, 'h-bare', 'AI', 'DB'); await env.AI.run('host', {});\n" + block("m-bare", "async function f(env) { return env.AI.run('member', {}); }"));
+  // the member wraps the env it was handed
+  put("h-wrapped", "env = __aiAttrEnv(env, 'h-wrapped', 'AI', 'DB'); await env.AI.run('host', {});\n" + block("m-wrapped", "async function f(env) { env = __aiAttrEnv(env, 'm-wrapped', 'AI', 'AUDIT'); return env.AI.run('member', {}); }"));
+  // the host makes no model call of its own: only the member row exists, and it is unmetered although the host text holds a wrapper
+  put("h-only-member", "function __aiAttrEnv() {}\n" + block("m-only", "async function f(env) { return env.AI.run('member', {}); }"));
+  // a member that makes no model call is not listed
+  put("h-quiet", "env = __aiAttrEnv(env, 'h-quiet', 'AI', 'DB'); await env.AI.run('host', {});\n" + block("m-quiet", "function f() { return 1; }"));
+  // a member that writes its own counters is metered
+  put("h-own", "env = __aiAttrEnv(env, 'h-own', 'AI', 'DB'); await env.AI.run('host', {});\n" + block("m-own", "async function f(env) { await env.AI.run('member', {}); db.prepare('INSERT INTO ai_call_counters (day) VALUES (?1)'); }"));
+  const fr = auditWorkers(r2), fb = Object.fromEntries(fr.map((r) => [r.dir, r]));
+  ok(fb["h-bare:m-bare"] && !fb["h-bare:m-bare"].metered && fb["h-bare:m-bare"].member_of === "h-bare", "an unwrapped member of a wrapped host is an unmetered row of its own", fb["h-bare:m-bare"]);
+  ok(fb["h-bare"] && fb["h-bare"].metered, "the host row stays metered by its own wrapper", fb["h-bare"]);
+  ok(fb["h-wrapped:m-wrapped"] && fb["h-wrapped:m-wrapped"].metered && fb["h-wrapped:m-wrapped"].meters.includes("ai_call_counters:wrapper"), "a member that wraps the env it is handed is metered", fb["h-wrapped:m-wrapped"]);
+  ok(fb["h-only-member:m-only"] && !fb["h-only-member:m-only"].metered, "a wrapper elsewhere in the host text does not meter the member", fb["h-only-member:m-only"]);
+  ok(!fb["h-only-member"], "a host whose only model call is in its member has no row of its own", Object.keys(fb));
+  ok(!fb["h-quiet:m-quiet"] && fb["h-quiet"], "a member with no model call is not listed; the host is", Object.keys(fb));
+  ok(fb["h-own:m-own"] && fb["h-own:m-own"].metered && fb["h-own:m-own"].meters.includes("ai_call_counters:own"), "a member's own ai_call_counters write counts as metered", fb["h-own:m-own"]);
+  const fk = findings(fr, { baseline: {}, directAllow: {} }).map((x) => x.dir + ":" + x.kind).sort();
+  ok(JSON.stringify(fk) === JSON.stringify(["h-bare:m-bare:binding-unmetered", "h-only-member:m-only:binding-unmetered"]), "findings: the two unmetered members, nothing else", fk);
+  ok(findings(fr, { baseline: { "h-bare:m-bare": { expires: "2999-01-01", why: "AI-METER-COVER-3a" }, "h-only-member:m-only": { expires: "2999-01-01", why: "x" } }, directAllow: {} }).length === 0, "a baseline line named <host>:<member> clears a member's finding");
+  const st = staleBaseline(fr, { baseline: { "h-wrapped:m-wrapped": { expires: "2999-01-01", why: "x" }, "h-gone:m": { expires: "2999-01-01", why: "x" } } }).map((x) => x.dir).sort();
+  ok(JSON.stringify(st) === JSON.stringify(["h-gone:m", "h-wrapped:m-wrapped"]), "a baseline line for a member that is metered now, or gone, is a note", st);
+  rmSync(r2, { recursive: true, force: true });
+}
+
 // ---- this repository
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 const real = auditWorkers(repo);

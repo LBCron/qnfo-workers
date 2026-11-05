@@ -29,8 +29,7 @@ export const DIRECT_ALLOW = {
 // A line whose worker has become metered is only a note (stale), so the single-file change that wraps the worker never fails main for leaving this
 // file alone, and the next change here removes the line.
 export const UNMETERED_BASELINE = {
-  "qnfo-model-eval": { expires: "2026-11-12", why: "benchmark calls (6 sites): file claimed by a code-loop task on 2026-11-05, fix filed as AI-METER-COVER-3a (code-task on qnfo-model-eval/worker.js)" },
-  "qnfo-fleet-dashboard": { expires: "2026-11-12", why: "ask-panel and cmd calls (2 sites): file claimed by another session on 2026-11-05, fix filed as AI-METER-COVER-3b (code-task on qnfo-fleet-dashboard/worker.js)" },
+  "qnfo-ai-calibration:qnfo-model-eval": { expires: "2026-11-12", why: "benchmark calls (6 sites) of the member folded into qnfo-ai-calibration on 2026-11-05: its env is built from the raw host env, so the host's __aiAttrEnv never reaches it; qnfo-ai-calibration/worker.js was claimed by another session, fix filed as AI-METER-COVER-3a (code-task on qnfo-ai-calibration/worker.js, the member's own env function)" },
 };
 
 // env.AI.run( and a binding named like WAI (qnfo-ops calls env.WAI.run)
@@ -43,6 +42,17 @@ const LEDGER_WRITE = /INTO ai_spend_ledger/;
 const AE_WRITE = /AI_METER\.writeDataPoint|aiMeterPoint\(/;
 
 function retired(dir) { return existsSync(join(dir, "RETIRED")) || existsSync(join(dir, "FOLDED")); }
+
+// FOLD-KIT-1 members (scripts/fold_worker.py): a folded worker's directory is skipped as FOLDED, but its code runs inside a host's worker.js between
+// `// ---- FOLD-KIT-1:<member>:BEGIN` and `:END ----`, with an env built by the host's __foldWrap from the RAW host env, so the host's own __aiAttrEnv
+// never reaches it. qnfo-model-eval ran six Workers AI call sites unmetered inside qnfo-ai-calibration for that reason (AI-METER-COVER-3a, 2026-11-05)
+// while this audit read the host as metered. A member is therefore audited as its own row, `<host>:<member>`, and its text is removed from the host's.
+const FOLD_BLOCK = /\/\/ ---- FOLD-KIT-1:([A-Za-z0-9_-]+):BEGIN[^\n]*\n([\s\S]*?)\/\/ ---- FOLD-KIT-1:\1:END ----/g;
+export function splitFoldMembers(src) {
+  const members = [];
+  const host = String(src).replace(FOLD_BLOCK, (_all, name, body) => { members.push({ name, body }); return ""; });
+  return { host, members };
+}
 
 /** Service bindings named qnfo-ai in a wrangler.toml (a worker that reaches the router). */
 function routerBinding(toml) {
@@ -63,7 +73,14 @@ export function auditWorkers(root) {
     if (!st.isDirectory() || retired(dir)) continue;
     const wj = join(dir, "worker.js");
     if (!existsSync(wj)) continue;
-    const src = readFileSync(wj, "utf8");
+    const { host: src, members } = splitFoldMembers(readFileSync(wj, "utf8"));
+    for (const fm of members) {
+      if (!BINDING_RUN.test(fm.body)) continue;
+      const meters = [];
+      if (ATTR_WRAP.test(fm.body)) meters.push("ai_call_counters:wrapper");
+      else if (COUNTER_WRITE.test(fm.body)) meters.push("ai_call_counters:own");
+      out.push({ dir: d + ":" + fm.name, paths: ["binding"], metered: meters.length > 0, meters, direct: [], member_of: d });
+    }
     const tomlPath = join(dir, "wrangler.toml");
     const toml = existsSync(tomlPath) ? readFileSync(tomlPath, "utf8") : "";
     const paths = [];
@@ -89,7 +106,7 @@ export function findings(rows, opts = {}) {
   const today = opts.today || new Date().toISOString().slice(0, 10);
   const f = [];
   for (const r of rows) {
-    if (r.paths.includes("binding") && !r.metered && !(r.dir in baseline)) f.push({ dir: r.dir, kind: "binding-unmetered", detail: "calls env.AI.run with no __aiAttrEnv wrapper and no ai_call_counters write" });
+    if (r.paths.includes("binding") && !r.metered && !(r.dir in baseline)) f.push({ dir: r.dir, kind: "binding-unmetered", detail: "calls env.AI.run with no __aiAttrEnv wrapper and no ai_call_counters write" + (r.member_of ? "; it runs as a FOLD-KIT member of " + r.member_of + ", whose own wrapper never reaches it: wrap the member's env function, return __aiAttrEnv(env, \"<member>\", \"AI\", \"AUDIT\")" : "") });
     if (r.paths.includes("direct") && !(r.dir in directAllow)) f.push({ dir: r.dir, kind: "direct-provider", detail: "calls " + r.direct.join(", ") + " itself; use the binding, qnfo-ai or the gateway, or add the worker to DIRECT_ALLOW with a reason" });
   }
   for (const [d, e] of Object.entries(baseline)) {
