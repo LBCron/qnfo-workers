@@ -151,6 +151,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [WebMCP on the QNFO fleet (WEBMCP-FLEET-1)](WEBMCP.md) - `docs/WEBMCP.md`
 - [worker_logs sampling contract (WORKER-LOGS-CONTRACT-1)](WORKER-LOGS-CONTRACT.md) - `docs/WORKER-LOGS-CONTRACT.md`
 - [Workers standards (WORKERS-STANDARDS-DOC-1)](WORKERS-STANDARDS.md) - `docs/WORKERS-STANDARDS.md`
+- [YouTube channel packaging, ready to paste (YT-18)](YOUTUBE-CHANNEL-PACKAGE.md) - `docs/YOUTUBE-CHANNEL-PACKAGE.md`
 - [YouTube Shorts pipeline: cost model and tool choices (YT-SERVER-1, 2026-10-27)](YOUTUBE-PIPELINE-COST.md) - `docs/YOUTUBE-PIPELINE-COST.md`
 - [YouTube pipeline from plain-language papers (YT-POC-1)](YOUTUBE-PIPELINE.md) - `docs/YOUTUBE-PIPELINE.md`
 - [Shared fleet operating library](agent-library/README.md) - `docs/agent-library/README.md`

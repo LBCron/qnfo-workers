@@ -777,6 +777,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/WORKERS-STANDARDS.md"
     },
     {
+      "path": "docs/YOUTUBE-CHANNEL-PACKAGE.md",
+      "title": "YouTube channel packaging, ready to paste (YT-18)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/YOUTUBE-CHANNEL-PACKAGE.md"
+    },
+    {
       "path": "docs/YOUTUBE-PIPELINE-COST.md",
       "title": "YouTube Shorts pipeline: cost model and tool choices (YT-SERVER-1, 2026-10-27)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/YOUTUBE-PIPELINE-COST.md"
