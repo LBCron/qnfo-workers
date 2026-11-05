@@ -1,4 +1,4 @@
-var VERSION="2.12.5-codeagent";
+var VERSION="2.12.6-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1363,7 +1363,17 @@ async function freshnessGuard(env) {
       else await env.AUDIT_DB.prepare("UPDATE agent_issues SET description = ?2 || CASE WHEN instr(description, char(10)) > 0 THEN substr(description, instr(description, char(10))) ELSE '' END WHERE title = ?1 AND status = 'open'").bind(title, desc).run();
     } catch (_) { console.error(JSON.stringify({ evt: "email:freshnessGuard:caught", error: String((_ && _.message) || _) })); }
   }
-  return { checked: rows.length, stale: stale, filed: filed, retired: retired };
+  // BP26-PII-LOGS-2 (roadmap row 1400, agent_issues 1000344): this object is logged by the daily step (console.log "qnfo-email freshness"), and a mailbox store is named by its address
+  // (the retired stores are two owner mailboxes), so the pii_in_logs scan found them in Workers Logs. The line carries a stable short hash of an address, never the address.
+  return { checked: rows.length, stale: stale.map(logSafeAddr), filed: filed, retired: retired.map(logSafeAddr) };
+}
+/* Replaces every e-mail address in a string with addr# and eight hex digits (FNV-1a of the lower-cased address): the same address always gives the same token, so a log line can still be matched to a mailbox. */
+function logSafeAddr(s) {
+  return String(s == null ? "" : s).replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, function (m) {
+    var a = m.toLowerCase(), h = 2166136261;
+    for (var i = 0; i < a.length; i++) { h ^= a.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return "addr#" + h.toString(16).padStart(8, "0");
+  });
 }
 /* EMAIL-CALLER-PROPS-1 (#1923, 2026-10-05; CLAUDE.md #1703 rule): internal workers authenticate by service-binding props,
    not by a copy of API_KEY. personal-companion holds no EMAIL_API_KEY (its only secret is DEEPSEEK_API_KEY), so its
