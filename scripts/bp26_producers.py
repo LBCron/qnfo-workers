@@ -442,6 +442,17 @@ CREATE TABLE cloud_ops_events (id TEXT PRIMARY KEY, ts TEXT, kind TEXT, text TEX
         raise RuntimeError("D1 down")
     o4 = run(d1=down, d1_db=lambda *a: [], root=td, force=True)
     ok(o4["bp26_producers"] == "ok" and o4["errors"], "a D1 outage is recorded and never raises: %r" % o4)
+    # BP26-SHARED-METRIC-1: Collector.metrics is the freshness list; run() skips a collector while ANY of its metrics is fresh, so a metric listed by two collectors lets one
+    # suppress the other (2026-11-04: bp26_axe refreshed a11y_violations_serious every hour and collect_web, which also listed it, was skipped for 3 hours, leaving the SLO
+    # samples, Turnstile, trackers, cookies and AI-label metrics unmeasured). Every real collector names only metrics it alone refreshes. audit_coverage is the one pre-existing
+    # pair (mirror_publishes and audit_coverage, bp26_auditchain.py): both ran in the 2026-11-05T02:45Z sweep; it stays listed here until its owner splits it.
+    real, _errs = collectors()
+    owners = {}
+    for c in real:
+        for mt in c.metrics:
+            owners.setdefault(mt, []).append(c.name)
+    shared = sorted(mt for mt, who in owners.items() if len(who) > 1 and mt != "audit_coverage")
+    ok(not shared, "a metric listed by two collectors lets one suppress the other: %r" % {mt: owners[mt] for mt in shared})
     print("bp26_producers selftest %s" % ("ok" if not fails else "FAILED %d" % len(fails)))
     return 1 if fails else 0
 

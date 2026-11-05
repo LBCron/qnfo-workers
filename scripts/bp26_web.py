@@ -756,8 +756,12 @@ def collect_web(ctx):
 
 
 COLLECTORS = [
+    # BP26-SHARED-METRIC-1 (2026-11-05): `metrics` is the list the framework reads to decide "fresh, skip this sweep" (any one fresh metric skips the collector). It must
+    # name only metrics this collector alone refreshes. a11y_violations_serious was listed here; once scripts/bp26_axe.py (BP26-AXE-1) refreshed it every ux-journeys run,
+    # collect_web was skipped as fresh from 2026-11-04T23:57Z and slo_attainment_28d_min, turnstile, trackers, cookies, AI labels and the security headers went
+    # unmeasured for hours. collect_web still returns the a11y Result when its static pass finds something; only the freshness list changed.
     Collector("collect_web", collect_web, ["security_headers_pass", "slo_attainment_28d_min", "third_party_trackers", "non_essential_cookies_set", "turnstile_on_public_forms",
-                                           "structured_data_valid", "ai_label_coverage", "ai_interaction_disclosure", "a11y_violations_serious"], 50),
+                                           "structured_data_valid", "ai_label_coverage", "ai_interaction_disclosure"], 50),
 ]
 
 
@@ -946,6 +950,8 @@ INSERT INTO q08_retractions VALUES ('retracted-piece');
     # BP26-LABEL-LEDGER-1: a thread closed by THREAD-CLOSE-1 (carried on the channels, never posted as a thread) is not a post of its own
     sp, sp_err = social_posts(P.Ctx(d1=d1, http=fake_http, root=td_root))
     ok(sp_err is None and ("bluesky-thread", "thread post one") in sp and not any(t == "carried draft" for _s, t in sp), "a carried thread draft is not counted as a post, a thread posted on Bluesky is: %r %r" % (sp, sp_err))
+    # BP26-SHARED-METRIC-1: the freshness list must not name a metric another collector refreshes (it would suppress this collector)
+    ok("a11y_violations_serious" not in COLLECTORS[0].metrics and "slo_attainment_28d_min" in COLLECTORS[0].metrics, "collect_web does not share a11y_violations_serious with the axe collector: %r" % (COLLECTORS[0].metrics,))
     print("bp26_web selftest %s" % ("ok" if not fails else "FAILED %d" % len(fails)))
     return 1 if fails else 0
 
