@@ -45,7 +45,8 @@ ACTIONS
                          --target daily, cost per UTC day and provider over 30d.
   gateway-routes         AUTOROUTER-EVAL-1: read-only. Lists the AI Gateway dynamic routes of --gateway (default "default", the gateway
                          qnfo-ai uses) and prints each route id, name and whether it is an Auto Router, plus the HTTP status and the
-                         error text when the API refuses. First step of RM-AUTOROUTER-EVAL-1: the shadow replay needs the route id.
+                         error text when the API refuses. First step of RM-AUTOROUTER-EVAL-1: the shadow replay needs the route id. Reads every page of
+                         data.routes (the live shape) and prints each route's active version and deployment flag.
   access-probe           Read the Zero Trust organisation, Access apps and identity providers. Reports only provider
                          names/types, Cloudflare account-membership restriction, OAuth client-ID presence and each
                          app's allowed provider IDs; never prints client IDs, secrets, emails or policy contents.
@@ -335,20 +336,42 @@ def _route_is_auto(r: dict) -> bool:
     return bool(r.get("auto_router") or r.get("autoRouter"))
 
 
-def gateway_routes(acct: str, token: str, gateway: str = "default") -> int:
-    """AUTOROUTER-EVAL-1: list the AI Gateway dynamic routes of one gateway (read-only)."""
+def _routes_page(j: dict) -> tuple[list, int]:
+    """AUTOROUTER-EVAL-1: the routes of one answer and the page size. The live API (read 2026-11-05) answers {"success": true, "data": {"routes": [...], "page": 1, "per_page": 20}};
+    an older guess of the shape put the list in result, and both are read so neither produces a silent empty list."""
+    for key in ("data", "result"):
+        res = j.get(key)
+        if isinstance(res, list):
+            return res, 0
+        if isinstance(res, dict) and ("routes" in res or "items" in res):
+            items = res["routes"] if "routes" in res else res["items"]
+            return (items if isinstance(items, list) else []), int(res.get("per_page") or 0)
+    return [], 0
+
+
+def gateway_routes(acct: str, token: str, gateway: str = "default", max_pages: int = 10) -> int:
+    """AUTOROUTER-EVAL-1: list the AI Gateway dynamic routes of one gateway (read-only), every page."""
     gw = urllib.parse.quote(gateway or "default", safe="")
-    st, j = call("GET", f"/accounts/{acct}/ai-gateway/gateways/{gw}/routes", token)
-    if not 200 <= (st or 0) < 300 or j.get("success") is False:
-        errs = j.get("errors") or []
-        text = "; ".join(str(e.get("message", e)) if isinstance(e, dict) else str(e) for e in errs)[:300]
-        emit({"action": "gateway-routes", "ok": False, "gateway": gateway, "http": st, "error": text or "no error text"})
-        return 1
-    res = j.get("result")
-    if isinstance(res, dict):
-        res = res.get("routes") or res.get("items") or []
-    routes = [{"id": r.get("id") or r.get("route_id"), "name": r.get("name"), "auto_router": _route_is_auto(r)}
-              for r in (res or []) if isinstance(r, dict)]
+    found: list = []
+    st = 0
+    for page in range(1, max_pages + 1):
+        st, j = call("GET", f"/accounts/{acct}/ai-gateway/gateways/{gw}/routes" + ("" if page == 1 else f"?page={page}"), token)
+        if not 200 <= (st or 0) < 300 or j.get("success") is False:
+            errs = j.get("errors") or []
+            text = "; ".join(str(e.get("message", e)) if isinstance(e, dict) else str(e) for e in errs)[:300]
+            emit({"action": "gateway-routes", "ok": False, "gateway": gateway, "http": st, "page": page, "error": text or "no error text"})
+            return 1
+        items, per_page = _routes_page(j)
+        found.extend(r for r in items if isinstance(r, dict))
+        if not per_page or len(items) < per_page:
+            break
+    routes = []
+    for r in found:
+        ver = r.get("version") if isinstance(r.get("version"), dict) else {}
+        dep = r.get("deployment") if isinstance(r.get("deployment"), dict) else {}
+        routes.append({"id": r.get("id") or r.get("route_id"), "name": r.get("name"), "auto_router": _route_is_auto(r),
+                       "active_version": ver.get("version_id") if ver.get("active") else None,
+                       "deployed": bool(dep.get("deployment_id")), "modified_at": r.get("modified_at")})
     emit({"action": "gateway-routes", "ok": True, "gateway": gateway, "http": st, "count": len(routes),
           "auto_router_count": sum(1 for r in routes if r["auto_router"]), "routes": routes})
     return 0
