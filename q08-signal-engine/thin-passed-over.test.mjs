@@ -79,7 +79,7 @@ try {
 
 // ---- 3. wiring in the source
 const gen = src.slice(src.indexOf("async function generate(env) {"), src.indexOf("// Q08-FORECAST-1 (v0.9.0"));
-ok(/var passedOver = thinPassedOver\(evaluated, story\);\s*\n\s*if \(passedOver\.length\) await markThinSkipped\(env, passedOver\);/.test(gen), "generate() marks the passed-over candidates once a story is chosen");
+ok(/var passedOver = thinPassedOver\(evaluated, story, groundBar\);\s*\n\s*if \(passedOver\.length\) await markThinSkipped\(env, passedOver\);/.test(gen), "generate() marks the passed-over candidates once a story is chosen");
 ok(gen.indexOf("var passedOver = thinPassedOver(") > gen.indexOf("no candidate yielded sufficient friction"), "the call sits after the no-story exits, so a run with no story still marks all its measured candidates exactly as before");
 ok(/await markThinSkipped\(env, evaluated\);/.test(gen), "the existing mark-all branch for a run with no usable story is unchanged");
 

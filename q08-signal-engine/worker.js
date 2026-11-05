@@ -37,7 +37,7 @@
 // Q08-ASCII-SOURCE-1 (2026-10-01): this file is ASCII-only; every typographic character is a \uXXXX escape. The deploy path
 // double-encoded raw UTF-8, so live pages read "... \u00e2 q08" and posts "\u00e2\u0080\u0094". Keep new literals escaped.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "0.45.0";
+var VERSION = "0.46.0";
 /* 0.43.0 Q08-TICK-ALLOWANCE-1 (2026-11-04, pillar cost; minor: the engine now decides on its own whether a tick starts an attempt; BUDGET-SOFT-ROUTE-1, attempts slow down and never stop): ai_call_counters showed 119,552, 129,547 and 110,450 neurons on 2026-11-01..03 against the 50,000 target (ops_config q08_daily_neurons) because q08Budget() only steered the first writer model and nothing bounded the attempts a tick starts (40 a day, the attempt cap, at about 2,760 neurons each). Now the :00 cron and the :30 stall retry go through governedGenerate: tick k of 48 starts an attempt only while the day is under the pace line budget x (k + 1) / 48, an essay after a forecast attempt that spent model calls starts only while the day is still under it, and 150 minutes without an attempt starts one whatever the line says (8 a day at least). No row is written for a tick that waits. The writer gate, reader panels, fact-check, final read and accuracy audit are unchanged, and an attempt already started runs all its rounds. ops_config q08_tick_governor = off restores the old behaviour. tick-allowance.test.mjs replays a UTC day. */
 /* 0.42.0 RM-FORECAST-UPDATE-SCORING-1 (#5578; research): score the last valid update before the horizon with the resolved outcome. */
 /* 0.41.6 FORECAST-CALIBRATION-BUCKET-COVERAGE-1 (#5576, charter pillar research; patch): calibration buckets include probabilities across the full [0,1] range, including the tails, rather than silently omitting forecasts below 5% or above 96%. */
@@ -2679,6 +2679,8 @@ async function generate(env) {
   if ((domains.science || domains.policy) && ((attempts && attempts.n) || 0) % DOMAIN_ROTATE === DOMAIN_ROTATE - 1) ordered = preferNonTech(ordered, domains);
   // Try candidates until one yields sufficient friction (sparse GitHub/arXiv fall through)
   var story = null, friction = null, prefetched = null, bestThin = null, storyGlen = 0, evaluated = [];
+  // Q08-GROUND-BAR-1: a source the writer cannot ground in is not composed from; one attempt in GROUND_EXPLORE_EVERY keeps the old bar so a smaller source size can still be learned.
+  var groundBar = (((attempts && attempts.n) || 0) % GROUND_EXPLORE_EVERY === GROUND_EXPLORE_EVERY - 1) ? MIN_GROUND_CHARS : await learnedGroundBar(env);
   for (var ci = 0; ci < Math.min(ordered.length, 8); ci++) {
     var cand = ordered[ci];
     var f = null;
@@ -2694,7 +2696,7 @@ async function generate(env) {
       var glen = String(cand.title || "").length + String(f.core_concept || "").length + String(f.friction_point || "").length + art.length;
       evaluated.push({ cand: cand, f: f, glen: glen });
       if (!bestThin || glen > bestThin.glen) bestThin = { cand: cand, f: f, art: art, glen: glen };
-      if (glen >= MIN_GROUND_CHARS) { story = cand; friction = f; prefetched = art; storyGlen = glen; break; }
+      if (glen >= groundBar) { story = cand; friction = f; prefetched = art; storyGlen = glen; break; }
     }
   }
   // Q08-FULLTEXT-1 (0.17.1, agent_issues 2470; owner 2026-10-13: "Papers shall cite full texts, not merely reference work summaries"): the
@@ -2702,7 +2704,9 @@ async function generate(env) {
   // written from, and the run reports it instead.
   // Q08-YIELD-1: the richest thin candidate must also reach the floor learned from the sources that have published (learnedSourceFloor).
   var thinOk = bestThin && String(bestThin.art || "").length >= THIN_MIN_ARTICLE;
-  var thinV = !story && bestThin ? thinSourceVerdict(bestThin, thinOk ? await learnedSourceFloor(env) : null) : null;
+  var thinFloor = thinOk && !story ? await learnedSourceFloor(env) : null;
+  if (groundBar > MIN_GROUND_CHARS) thinFloor = Math.max(thinFloor || 0, groundBar);
+  var thinV = !story && bestThin ? thinSourceVerdict(bestThin, thinFloor) : null;
   if (!story && thinV && thinV.ok) { story = bestThin.cand; friction = bestThin.f; prefetched = bestThin.art; storyGlen = bestThin.glen; }
   if (!story && bestThin && !thinV.ok) {
     await markThinSkipped(env, evaluated);
@@ -2719,7 +2723,7 @@ async function generate(env) {
   // at 02:02 and 03:04 and then not for 16 hours, although 9 unprocessed papers with an HTML rendering were in the list behind 2610.32638,
   // whose rendering answers 404 (read 17:50Z). A passed-over thin candidate is now marked like any measured-thin one, and the 24-hour retry
   // window puts the next paper ahead on the next turn.
-  var passedOver = thinPassedOver(evaluated, story);
+  var passedOver = thinPassedOver(evaluated, story, groundBar);
   if (passedOver.length) await markThinSkipped(env, passedOver);
   // Q08-DOMAIN-FORM-1: a story that is clearly about policy or science is written and judged in the policy and science form (a deterministic check, before the first writer call).
   var domain = storyDomain(story, friction, domains);
@@ -3288,6 +3292,31 @@ async function learnedSourceFloor(env) {
     return null;
   }
 }
+// Q08-GROUND-BAR-1 (0.46.0, agent_issues METRIC-TRIGGER-537 q08_gate_pass_rate_7d and 538 q08_neurons_per_published_piece_7d; pillar research, cost second). The learned floor above can
+// never exceed MIN_GROUND_CHARS, so it stayed at 2200 while every piece that ever published had read far more: engine_runs, 30 days to 2026-11-05, essays and papers with a logged source
+// size: 162 attempts below 10,000 characters of source material, 0 published (60 under 4,000, 68 from 4,000 to 8,000, 34 from 8,000 to 10,000); 281 at 10,000 or more, 10 published; the thinnest
+// source that has published holds 10,265. Those 162 attempts (37 percent of the essay attempts) each paid for a writer, a deterministic ground check and, most of the time, a reader panel
+// and a fact-check, and ended gate_failed (accuracy: names, years and figures the source does not hold, or a panel that found nothing to say beyond the source). The acceptance bar is now the
+// thinnest source that has published (once SOURCE_FLOOR_MIN_OK ok runs carry a logged size), never below MIN_GROUND_CHARS and never above GROUND_BAR_CAP (the article is cut at GROUND_MAX
+// before the writer sees it). A candidate under the bar ends the run as skipped before any model call and is retried after 24 hours (markThinSkipped), with the richer candidates ahead of
+// it. One attempt in GROUND_EXPLORE_EVERY keeps the old bar, so a source size that has not published yet can still be learned and the bar can move down again; when fewer than five ok runs
+// are logged the bar is MIN_GROUND_CHARS as before. No gate, panel, fact-check or publish rule changes.
+var GROUND_BAR_CAP = 12000, GROUND_EXPLORE_EVERY = 10;
+function groundBarFrom(okChars) {
+  var nums = (okChars || []).map(Number).filter(function (n) { return isFinite(n) && n > 0; });
+  if (nums.length < SOURCE_FLOOR_MIN_OK) return MIN_GROUND_CHARS;
+  return Math.max(MIN_GROUND_CHARS, Math.min(Math.min.apply(null, nums), GROUND_BAR_CAP));
+}
+async function learnedGroundBar(env) {
+  try {
+    if (!(await ensureRunColumns(env))) return MIN_GROUND_CHARS;
+    var rows = await env.DB.prepare("SELECT source_chars FROM engine_runs WHERE status = 'ok' AND source_chars IS NOT NULL AND COALESCE(source_kind, '') <> 'forecast' AND ran_at >= datetime('now', ?1)").bind("-" + SOURCE_FLOOR_DAYS + " days").all();
+    return groundBarFrom(((rows && rows.results) || []).map(function (r) { return r.source_chars; }));
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "q08-signal-engine", event: "ground-bar", error: String(e && e.message || e).slice(0, 160) }));
+    return MIN_GROUND_CHARS;
+  }
+}
 // The richest thin candidate is used when its fetched article holds THIN_MIN_ARTICLE characters and its whole source material reaches the
 // learned floor (null floor: the flat test alone). why: "none" | "no-text" | "below-floor".
 function thinSourceVerdict(bestThin, floor) {
@@ -3301,8 +3330,9 @@ function thinSourceVerdict(bestThin, floor) {
 function sourceKindOf(story, artLen) { return String(story && story.source || "hn") + (story && (story.domain === "policy" || story.domain === "science") ? "-" + story.domain : "") + (artLen >= THIN_MIN_ARTICLE ? "+fulltext" : "+summary"); }
 // Q08-THIN-PASSED-OVER-1: the measured-thin candidates a later, richer one was chosen over (the chosen one and any candidate at or above
 // MIN_GROUND_CHARS are never in the list).
-function thinPassedOver(evaluated, story) {
-  return (evaluated || []).filter(function (x) { return x && x.cand && x.cand !== story && Number(x.glen) < MIN_GROUND_CHARS; });
+function thinPassedOver(evaluated, story, bar) {
+  var below = bar > MIN_GROUND_CHARS ? bar : MIN_GROUND_CHARS;
+  return (evaluated || []).filter(function (x) { return x && x.cand && x.cand !== story && Number(x.glen) < below; });
 }
 // A candidate measured and found too thin is marked like any processed signal, so the existing 24-hour retry window (Q08-SIGNAL-RETRY-1)
 // puts the next candidates ahead of it on the next tick and the same top candidates are not measured again every tick. Nothing is dropped:
@@ -5028,7 +5058,7 @@ function cleanNote(v) {
 // Q08-QUALITY-1: pure helpers exposed for the offline suite (quality.test.mjs); no route uses this export.
 export const __forecast = { forecastClarificationText: forecastClarificationText, sweepForecastCriteria: sweepForecastCriteria, forecastClarification: forecastClarification, forecastResolutionGaps: forecastResolutionGaps, recordForecastUpdate: recordForecastUpdate, renderCalibration: renderCalibration, forecastPostText: forecastPostText, gatherEvidence: gatherEvidence, forecastDue: forecastDue, resolveForecasts: resolveForecasts, ensureForecastSchema: ensureForecastSchema, generateForecast: generateForecast, forecastStats: forecastStats, parseForecastBlock: parseForecastBlock, validateForecast: validateForecast, forecastXform: forecastXform, forecastProblems: forecastProblems, buildForecastPrompt: buildForecastPrompt, calibration: calibration, lastForecastUpdateScore: lastForecastUpdateScore, parseJudgeVerdict: parseJudgeVerdict, aggregateJudges: aggregateJudges, parseForecastCap: parseForecastCap, publicHttpsUrl: publicHttpsUrl, fcStatus: fcStatus, renderForecastBox: renderForecastBox, renderForecasts: renderForecasts, FORECAST_DIRECTIVE: FORECAST_DIRECTIVE, FORECAST_EVERY: FORECAST_EVERY, FORECAST_MAX_CHECKS: FORECAST_MAX_CHECKS };
 export const __domain = { parseDomains: parseDomains, q08Domains: q08Domains, resetDomains: function () { __domains = { at: 0, d: parseDomains(null) }; }, classifyDomain: classifyDomain, storyDomain: storyDomain, preferNonTech: preferNonTech, scrapeArxivDomain: scrapeArxivDomain, domainForm: domainForm, buildPrompt: buildPrompt, READER_PROMPT: READER_PROMPT, READER_PROMPT_DOMAIN: READER_PROMPT_DOMAIN, FINAL_READER_PROMPT: FINAL_READER_PROMPT, FINAL_READER_PROMPT_DOMAIN: FINAL_READER_PROMPT_DOMAIN, readerPromptFor: readerPromptFor, finalReaderPromptFor: finalReaderPromptFor, sourceKindOf: sourceKindOf, DOMAIN_ROTATE: DOMAIN_ROTATE, Q08_DIRECTIVE: Q08_DIRECTIVE };
-export const __gen = { thinPassedOver: thinPassedOver, parseArxivPool: parseArxivPool, arxivPoolSize: arxivPoolSize, resetArxivPool: function () { __arxivPool = { at: 0, n: ARXIV_POOL_DEFAULT }; }, scrapeArxiv: scrapeArxiv, ARXIV_POOL_DEFAULT: ARXIV_POOL_DEFAULT, parseComposeOrder: parseComposeOrder, q08Budget: q08Budget, Q08_DAILY_NEURONS_DEFAULT: Q08_DAILY_NEURONS_DEFAULT, resetRunColumns: function () { __runColsOk = false; __runColsTried = 0; }, sourceFloorFrom: sourceFloorFrom, learnedSourceFloor: learnedSourceFloor, thinSourceVerdict: thinSourceVerdict, sourceKindOf: sourceKindOf, markThinSkipped: markThinSkipped, ensureRunColumns: ensureRunColumns, insertRun: insertRun, meterCall: meterCall, claimClassesOf: claimClassesOf, get SOURCE_FLOOR_MIN_OK() { return SOURCE_FLOOR_MIN_OK; }, get THIN_MIN_ARTICLE() { return THIN_MIN_ARTICLE; }, get MIN_GROUND_CHARS() { return MIN_GROUND_CHARS; }, composeOrder: composeOrder, COMPOSE_MODELS: COMPOSE_MODELS, COMPOSE_MODELS_AT_CAP: COMPOSE_MODELS_AT_CAP, generate: generate, get TICK_BUDGET_MS() { return TICK_BUDGET_MS; }, get ESSAY_AFTER_FORECAST_MS() { return ESSAY_AFTER_FORECAST_MS; }, q08TickAllowance: q08TickAllowance, q08TickConfig: q08TickConfig, q08LastAttemptMs: q08LastAttemptMs, q08TickMore: q08TickMore, governedGenerate: governedGenerate };
+export const __gen = { thinPassedOver: thinPassedOver, parseArxivPool: parseArxivPool, arxivPoolSize: arxivPoolSize, resetArxivPool: function () { __arxivPool = { at: 0, n: ARXIV_POOL_DEFAULT }; }, scrapeArxiv: scrapeArxiv, ARXIV_POOL_DEFAULT: ARXIV_POOL_DEFAULT, parseComposeOrder: parseComposeOrder, q08Budget: q08Budget, Q08_DAILY_NEURONS_DEFAULT: Q08_DAILY_NEURONS_DEFAULT, resetRunColumns: function () { __runColsOk = false; __runColsTried = 0; }, sourceFloorFrom: sourceFloorFrom, groundBarFrom: groundBarFrom, learnedGroundBar: learnedGroundBar, get GROUND_BAR_CAP() { return GROUND_BAR_CAP; }, get GROUND_EXPLORE_EVERY() { return GROUND_EXPLORE_EVERY; }, learnedSourceFloor: learnedSourceFloor, thinSourceVerdict: thinSourceVerdict, sourceKindOf: sourceKindOf, markThinSkipped: markThinSkipped, ensureRunColumns: ensureRunColumns, insertRun: insertRun, meterCall: meterCall, claimClassesOf: claimClassesOf, get SOURCE_FLOOR_MIN_OK() { return SOURCE_FLOOR_MIN_OK; }, get THIN_MIN_ARTICLE() { return THIN_MIN_ARTICLE; }, get MIN_GROUND_CHARS() { return MIN_GROUND_CHARS; }, composeOrder: composeOrder, COMPOSE_MODELS: COMPOSE_MODELS, COMPOSE_MODELS_AT_CAP: COMPOSE_MODELS_AT_CAP, generate: generate, get TICK_BUDGET_MS() { return TICK_BUDGET_MS; }, get ESSAY_AFTER_FORECAST_MS() { return ESSAY_AFTER_FORECAST_MS; }, q08TickAllowance: q08TickAllowance, q08TickConfig: q08TickConfig, q08LastAttemptMs: q08LastAttemptMs, q08TickMore: q08TickMore, governedGenerate: governedGenerate };
 export const __stall = { stallRetryDue: stallRetryDue, stallDetector: stallDetector, stallDigest: stallDigest, stallStage: stallStage, get STALL_RETRY_H() { return STALL_RETRY_H; } };
 export const __factledger = { groundPreCheck: groundPreCheck, sourceLedger: sourceLedger, ledgerBlock: ledgerBlock, stripLedgerTags: stripLedgerTags, groundPreCheckMode: groundPreCheckMode, resetGroundPreCheck: function () { __groundPre = { at: 0, mode: "on" }; __groundPreCalls = 0; }, get groundPreCalls() { return __groundPreCalls; }, stallStage: stallStage, buildPrompt: buildPrompt, labelledGround: labelledGround, groundingProblems: groundingProblems, normalizeDraft: normalizeDraft, runLevels: runLevels, generate: generate, generateForecast: generateForecast, Q08_DIRECTIVE: Q08_DIRECTIVE, get LEDGER_MAX_LINES() { return LEDGER_MAX_LINES; }, get LEDGER_MAX_CHARS() { return LEDGER_MAX_CHARS; } };
 export const __fledger = { researchLedger: researchLedger, ledgerNames: ledgerNames, ledgerSentences: ledgerSentences, forecastLedgerOn: forecastLedgerOn, forecastLedgerFor: forecastLedgerFor, ensureForecastGroundColumn: ensureForecastGroundColumn, storedForecastLedger: storedForecastLedger, groundForPublished: groundForPublished, buildForecastPrompt: buildForecastPrompt, stripLedgerTags: stripLedgerTags, groundPreCheck: groundPreCheck, resetGroundColumn: function () { __groundColumnDone = false; }, LEDGER_MAX_LINES: RLEDGER_MAX_LINES, LEDGER_MAX_DOCS: LEDGER_MAX_DOCS, LEDGER_DOC_CHARS: LEDGER_DOC_CHARS };
