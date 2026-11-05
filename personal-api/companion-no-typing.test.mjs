@@ -24,7 +24,7 @@ console.log("ok   AI use reads counts only, for this worker, the last seven days
 const page = C.PAGE_HTML;
 for (const box of ["cap-text", "chat-in", "j-text"]) assert.ok(page.includes("dictate(this,'" + box + "')"), "Dictate beside " + box);
 assert.ok(page.includes("/companion/api/dictate"));
-for (const t of ["Got something done", "Went outside", "Hard day", "What can I do right now?", "Give me one thing", "AI cost"]) assert.ok(page.includes(t), t);
+for (const t of ["Got something done", "Went outside", "Hard day", "What can I do right now?", "Give me one thing", "Read something", "Watch something", "kind=video", "AI cost"]) assert.ok(page.includes(t), t);
 console.log("ok   every words box has Dictate, journal has one-tap lines, Today asks what to do now");
 
 const src = fs.readFileSync(new URL("./companion.js", import.meta.url), "utf8");
