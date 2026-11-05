@@ -29,7 +29,7 @@ import B from "./data/entries-b.json";
 import BOOKS from "./data/books.json";
 import VIDEOS from "./data/videos.json";
 
-var VERSION = "2.3.0";
+var VERSION = "2.3.1";
 const BUILT = "2026-10-26";
 const ENTRIES = [...A, ...B];
 const BY_SLUG = new Map(ENTRIES.map((e) => [e.s, e]));
@@ -101,6 +101,8 @@ function badge(g) {
   return `<span class="badge g-${esc(g)}" title="${esc(m[1])}">${esc(g)} · ${esc(m[0])}</span>`;
 }
 
+// UX-SCREENS-1 (2.3.1, agent_issues 1001734): the phone journey public / mind-q08-org found 30 links under 24px tall (book titles 20px, note and footer
+// links 16-17px). Titles, note links and footer links are inline-block with padding, and footer links are at least 24px wide ("api", "rss").
 function page(title, body, extraHead = "") {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -115,6 +117,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.62 ui-serif,Georg
 main{max-width:34rem;margin:0 auto}
 a{color:var(--acc);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--acc) 35%,transparent)}
 a:hover{border-bottom-color:var(--acc)}
+a.q,.note a,footer a{display:inline-block;padding:.2rem 0}
+footer a{min-width:24px;text-align:center}
 h1{font-size:1.5rem;line-height:1.25;margin:0 0 .4rem;font-weight:600}
 h2{font-size:1.02rem;margin:2.2rem 0 .5rem;font-weight:600;letter-spacing:.01em}
 p{margin:0 0 .85rem}
