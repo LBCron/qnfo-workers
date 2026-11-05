@@ -44,6 +44,12 @@ ok(/accountTag: "ACC"/.test(q) && /d1AnalyticsAdaptiveGroups\(limit: 10000, filt
 const q2 = L.costQuery("ACC", spec("workers"), L.costWindow(30, Date.UTC(2026, 10, 5, 12)));
 ok(/datetime_geq: "2026-10-06T00:00:00Z", datetime_lt: "2026-11-06T00:00:00Z"/.test(q2), "the 30 day backfill window is 31 days, inside the API's 32 day limit", q2);
 
+// DYNAMIC-WORKERS-COST-1: the account's unique Dynamic Workers per day, as the billing report counts them (summed per day, one metric of product workers).
+pts = L.costPoints(spec("dynamic_workers"), [{ dimensions: { date: "2026-11-03" }, uniq: { distinctDynamicWorkerCount: 2043 } }, { dimensions: { date: "2026-11-04" }, uniq: { distinctDynamicWorkerCount: 2098 } }, { dimensions: { date: "2026-11-05" }, uniq: {} }]);
+ok(pts.length === 2 && pts[0].metric === "dynamic_workers" && pts[0].product === "workers" && pts[0].quantity === 2043 && pts[1].quantity === 2098, "Dynamic Workers: one count per day under product workers; a day without a count writes nothing", pts);
+const qd = L.costQuery("ACC", spec("dynamic_workers"), L.costWindow(3, Date.UTC(2026, 10, 5, 12)));
+ok(/workersInvocationsByOwnerAndScriptGroups\(limit: 10000, filter: \{date_geq: "2026-11-02", date_lt: "2026-11-06"\}\) \{ uniq \{ distinctDynamicWorkerCount \} dimensions \{ date \} \}/.test(qd), "the Dynamic Workers query uses date filters and the distinct count", qd);
+
 // AI-SEARCH-COST-1: the five AI Search meters. Queries are counted, storage is the day's largest level summed over instances (decimal GB), ingestion tokens are summed.
 pts = L.costPoints(spec("ai_search_semantic"), [{ dimensions: { date: "2026-11-03" }, count: 36 }, { dimensions: { date: "2026-11-03" }, count: 11 }, { dimensions: { date: "2026-11-04" }, count: 6 }]);
 ok(pts.length === 2 && pts[0].metric === "semantic_queries" && pts[0].quantity === 47 && pts[0].product === "ai_search" && pts[0].unit === "queries", "AI Search semantic queries are summed per day", pts);
@@ -84,6 +90,7 @@ ok(L.costRollup([{ date: "2026-11-03", product: "nope", metric: "nothing", quant
 // ---- 3. the hourly tick against a real sqlite built from the migration
 const mig = readFileSync(new URL("../migrations/2026-11-04-vendor-cost-ledger.sql", import.meta.url), "utf8");
 const migAiSearch = readFileSync(new URL("../migrations/2026-11-05-ai-search-cost-meters.sql", import.meta.url), "utf8");
+const migDynamic = readFileSync(new URL("../migrations/2026-11-05-dynamic-workers-cost.sql", import.meta.url), "utf8");
 function freshDb() {
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE cost_daily (date TEXT NOT NULL, source TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'fleet', usd REAL NOT NULL DEFAULT 0, requests INTEGER DEFAULT 0, tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0, note TEXT, updated_at TEXT, PRIMARY KEY (date, source));" +
@@ -91,9 +98,15 @@ function freshDb() {
     "CREATE TABLE cost_source_registry (source TEXT PRIMARY KEY, label TEXT NOT NULL, scope TEXT NOT NULL, payer TEXT NOT NULL, observable_via TEXT, unit TEXT NOT NULL DEFAULT 'USD', notes TEXT, updated_at TEXT);" +
     "CREATE TABLE failure_modes (fm_key TEXT PRIMARY KEY, failure_mode TEXT, root_cause TEXT, remediation TEXT, detector TEXT, probe_class TEXT, first_seen TEXT, issue_id INTEGER, trigger_condition TEXT, symptom TEXT, blast_radius TEXT);" +
     "CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, precondition TEXT, action TEXT, verify_probe TEXT, verify_transport TEXT, max_attempts INTEGER, escalate_to TEXT, expected_cadence_h INTEGER, status TEXT, module TEXT, budget_ms INTEGER, max_items INTEGER, requires_container INTEGER);" +
-    "CREATE TABLE capability_ledger (capability TEXT PRIMARY KEY, provenance TEXT, prerequisites TEXT, reliability TEXT, acquired_at TEXT, last_exercised_at TEXT, evidence TEXT);");
+    "CREATE TABLE capability_ledger (capability TEXT PRIMARY KEY, provenance TEXT, prerequisites TEXT, reliability TEXT, acquired_at TEXT, last_exercised_at TEXT, evidence TEXT);" +
+    "CREATE TABLE roadmap_implementation (id INTEGER PRIMARY KEY, item TEXT, evidence TEXT);" +
+    "INSERT INTO roadmap_implementation VALUES (1694, 'RM-AISEARCH-GA-MIGRATE-1', 'built');" +
+    "CREATE TABLE agent_issues (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, description TEXT, source TEXT, category TEXT, priority TEXT, status TEXT, created_at INTEGER, updated_at INTEGER);" +
+    "CREATE TRIGGER birth_contract AFTER INSERT ON agent_issues BEGIN INSERT INTO remediation_contracts (class, issue_id, precondition, action, verify_probe, verify_transport, max_attempts, escalate_to, status) VALUES ('issue-' || NEW.id, NEW.id, '', '', 'SELECT 1', 'd1-query', 3, 'x', 'active'); END;" +
+    "ALTER TABLE remediation_contracts ADD COLUMN attempts INTEGER; ALTER TABLE remediation_contracts ADD COLUMN last_verdict TEXT; ALTER TABLE remediation_contracts ADD COLUMN next_due_at TEXT;");
   db.exec(mig);
   db.exec(migAiSearch);
+  db.exec(migDynamic);
   return db;
 }
 const wrap = (db) => ({
@@ -110,7 +123,7 @@ sandbox.gqlImpl = async (e, query) => {
   if (sandbox.failField === field) return { errors: [{ message: sandbox.failMessage || "boom" }] };
   const d = day(sandbox.now), prev = day(sandbox.now - 864e5);
   const per = { workersInvocationsAdaptive: { sum: { requests: 1000, cpuTimeUs: 2e6 } }, d1AnalyticsAdaptiveGroups: { sum: { rowsRead: 2e9, rowsWritten: 1e6 } }, d1StorageAdaptiveGroups: { max: { databaseSizeBytes: 1.5e9 } }, r2StorageAdaptiveGroups: { max: { payloadSize: 9.2e10, metadataSize: 5e6 } },
-    aiSearchSemanticQueriesAdaptiveGroups: { count: 40 }, aiSearchStorageAdaptiveGroups: { max: { bytes: 7.6e7 } }, aiSearchIngestionTokensAdaptiveGroups: { sum: { tokens: 200000 } } };
+    workersInvocationsByOwnerAndScriptGroups: { uniq: { distinctDynamicWorkerCount: 2000 } }, aiSearchSemanticQueriesAdaptiveGroups: { count: 40 }, aiSearchStorageAdaptiveGroups: { max: { bytes: 7.6e7 } }, aiSearchIngestionTokensAdaptiveGroups: { sum: { tokens: 200000 } } };
   const row = per[field] || { sum: { requests: 1, duration: 10, rowsRead: 1, rowsWritten: 1, billableOperations: 1, queriedVectorDimensions: 1, totalSessionDurationMs: 1, allocatedMemory: 1, allocatedDisk: 1, cpuTimeSec: 1 }, max: { storedVectorDimensions: 5, storedBytes: 1e6, byteCount: 10 } };
   const groups = [prev, d].map((date) => ({ dimensions: { date, actionType: "GetObject" }, ...row }));
   return { data: { viewer: { accounts: [{ [field]: groups }] } } };
@@ -129,6 +142,9 @@ const ast = db.prepare("SELECT * FROM cost_vendor_month WHERE month = '2026-11' 
 ok(ast && near(ast.usage_projected, 0.076) && ast.net_forecast_usd === 0, "AI Search storage (0.076 GB) is a stock inside the 10 GB included", ast);
 const ain = db.prepare("SELECT usage_mtd, net_forecast_usd, usage_projected FROM cost_vendor_month WHERE month = '2026-11' AND product = 'ai_search' AND metric = 'ingestion_tokens'").get();
 ok(ain && ain.usage_mtd === 400000 && ain.usage_projected > ain.usage_mtd && ain.usage_projected < 5e6 && ain.net_forecast_usd === 0, "AI Search ingestion tokens are summed, projected over the month and still inside the 5 M included", ain);
+const dw = db.prepare("SELECT * FROM cost_vendor_month WHERE month = '2026-11' AND product = 'workers' AND metric = 'dynamic_workers'").get();
+ok(dw && dw.evidence === "meter" && dw.usage_mtd === 4000 && dw.included === 1000 && near(dw.gross_mtd_usd, 8) && near(dw.net_mtd_usd, 6), "Dynamic Workers: 4,000 unique workers to date priced at USD 0.002 after the first 1,000 included (net USD 6)", dw);
+ok(db.prepare("SELECT COUNT(*) AS n FROM agent_issues WHERE title LIKE 'DYNAMIC-WORKERS-COST-1:%'").get().n === 1 && /dynamic_workers/.test(db.prepare("SELECT verify_probe FROM remediation_contracts WHERE class = 'issue-1'").get().verify_probe), "the Dynamic Workers issue is filed once with a probe on the daily count");
 const det = db.prepare("SELECT verify_probe FROM remediation_contracts WHERE class = 'fm-ai-search-meter-silent'").get();
 ok(det && /product = 'ai_search' AND metric = 'storage_gb'/.test(det.verify_probe) && db.prepare("SELECT COUNT(*) AS n FROM failure_modes WHERE fm_key = 'ai-search-meter-silent'").get().n === 1, "the silent-meter failure mode and its detector are installed");
 const ev = db.prepare("SELECT quantity FROM cost_usage_daily WHERE product = 'workers_logs' AND date = '2026-11-05'").get();
