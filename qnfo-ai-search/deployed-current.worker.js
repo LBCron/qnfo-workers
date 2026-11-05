@@ -29,7 +29,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.15.0";
+var VERSION = "2.15.1-codeagent";
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
@@ -3631,12 +3631,16 @@ function wmAttach(target, workerName) {
     var orig = target.fetch;
     var name = workerName || "";
     target.fetch = async function (request, env, ctx) {
-      var routed = wmRoute(request, name);
-      if (routed) return routed;
-      var mcp = await wmMcp(request, env, ctx, orig, name);
-      if (mcp) return mcp;
-      var res = await orig.call(this, request, env, ctx);
-      return wmWithHtml(res, request, name);
+      // ASK-HEAD-1
+      const isHead = request.method === "HEAD";
+      const req = isHead ? new Request(request.url, { method: "GET", headers: request.headers, redirect: request.redirect, cf: request.cf }) : request;
+      var routed = wmRoute(req, name);
+      if (routed) return isHead ? new Response(null, routed) : routed;
+      var mcp = await wmMcp(req, env, ctx, orig, name);
+      if (mcp) return isHead ? new Response(null, mcp) : mcp;
+      var res = await orig.call(this, req, env, ctx);
+      const finalRes = wmWithHtml(res, req, name);
+      return isHead ? new Response(null, finalRes) : finalRes;
     };
     target.__wm = WM_VERSION;
     return target;
