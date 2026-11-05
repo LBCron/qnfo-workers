@@ -118,6 +118,12 @@ const run = async (env) => { calls.length = 0; const pending = []; await w.sched
   assert.equal(line.draft.unmatched, 1, "the post is counted as unmatched");
   assert.equal(line.draft.best_score, 0.71, "the best score is logged");
   assert.equal(line.draft.errors, 0);
+  // EXUVIA-NEAR-MISS-1: the pair that came closest is named (post, paper, score), so the bar can be judged from what it turned away
+  assert.equal(line.draft.near.length, 1, "one near miss, one post");
+  assert.equal(line.draft.near[0].paper_slug, paper.slug);
+  assert.equal(line.draft.near[0].score, 0.71);
+  assert.ok(line.draft.near[0].post_id && typeof line.draft.near[0].post_title === "string", "the post is named");
+  assert.ok(!JSON.stringify(line.draft.near).includes("abstract"), "no paper text goes to the log");
 }
 
 // 2. both switches off: the cron reads nothing and posts nothing
