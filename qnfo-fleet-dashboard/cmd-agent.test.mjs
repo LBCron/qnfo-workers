@@ -23,7 +23,8 @@ const sessionAt = route.search(/cmdCodeSessionFetch\(env, sessionPath/), opsAt =
 ok(sessionAt >= 0 && opsAt > sessionAt && /kind: "stream"/.test(route), "RM-CODE-SESSION-1: the CodeSession start comes first and the ops-agent run is its independent fallback");
 ok(/row\.kind === "agent" && row\.status === "running"/.test(src) && /cmdAgentPoll\(env, id\)/.test(src), "the job poll reads the agent run");
 ok(/op: "result", id: id/.test(src) && /status=\?1, answer=\?2, error=\?3/.test(src), "a finished run is written back to cmd_log");
-ok(/kind != 'agent' AND ts < datetime\('now', '-3 minutes'\)/.test(src) && /kind = 'agent' AND ts < datetime\('now', '-30 minutes'\)/.test(src), "the sweep spares agent runs for 30 minutes");
+// RM-CMD-FAILURES-1 (1.92.0): CodeSession stream turns (kind agent-stream) are spared the 3-minute mark too and settled from their session; cmd-stream.test.mjs proves the behaviour.
+ok(/kind NOT IN \('agent', 'agent-stream'\) AND ts < datetime\('now', '-3 minutes'\)/.test(src) && /kind = 'agent' AND ts < datetime\('now', '-30 minutes'\)/.test(src), "the sweep spares agent runs for 30 minutes");
 ok(/j\.agent\?1500000:45000/.test(src) && /j\.progress\|\|'thinking'/.test(src), "the page polls an agent run for 25 minutes and shows its step");
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

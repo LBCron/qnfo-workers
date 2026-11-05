@@ -77,14 +77,20 @@ async function signIn(rl) {
 
 async function send(text, rl) {
   let j = await post("/api/cmd", { text, from: "" });
-  if (j.kind === "pending" && j.id) {
+  // RM-CMD-FAILURES-1: kind "stream" is a CodeSession turn (qnfo-agents); the terminal does not read the event stream, it polls the turn's job id like an agent run
+  // (the dashboard settles the job from the session), and waits as long as an agent run (a code-session turn takes minutes).
+  if ((j.kind === "pending" || j.kind === "stream") && j.id) {
     // CMD-CLI-POLL-1: keep the job id; the poll answer carries none, so reading j.id again polled /job/undefined ("bad id").
     const jobId = j.id;
     const t0 = Date.now();
+    const streamed = j.kind === "stream";
+    let limit = streamed ? 1500000 : 90000;
     do {
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, streamed ? 2500 : 1200));
       j = await call("/api/cmd/job/" + jobId, { headers: headers() });
-    } while (j.status === "running" && Date.now() - t0 < 90000);
+      if (j.agent) limit = Math.max(limit, 1500000); // an agent run keeps the longer window
+    } while (j.status === "running" && Date.now() - t0 < limit);
+    if (j.status === "running") j = { error: "Still running after " + Math.round((Date.now() - t0) / 1000) + "s; the run continues on the server (job " + jobId + ")." };
   }
   // A one-shot run without a terminal cannot answer the code prompt; say how to sign in instead of crashing (readline closed).
   if (j.need && rl && !process.stdin.isTTY) { console.log("Sign in first: node scripts/qcli.mjs login"); return show(j); }

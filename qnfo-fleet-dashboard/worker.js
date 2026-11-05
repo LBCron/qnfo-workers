@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.93.3";
+var VERSION = "1.94.0";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -12649,6 +12649,8 @@ function cmdFallback(c, err, local) {
 function cmdPlainFailure(err) {
   const tail = " Nothing was changed. Ask again; instant commands (status, queue, issues; type help) never need the model.";
   if (/^abandoned/i.test(String(err || ""))) return "Not answered: this request was cut off before the fleet saved an answer." + tail;
+  // RM-CMD-FAILURES-1: a CodeSession turn that failed names its own reason, not the AI model answer leg.
+  if (/^stream:/i.test(String(err || ""))) return "Not answered: the code session did not finish (" + String(err).replace(/^stream:\s*/i, "").slice(0, 160) + ")." + tail;
   return "Not answered: the AI model did not answer (" + cmdModelReason(err) + ")." + tail;
 }
 // IPATENT-USAGE-1 (2026-10-02, owner: "What are recent ipatent web queries?" -> connect it). iPatent keeps no search or
@@ -13305,8 +13307,11 @@ async function askRetry(env) {
 async function cmdSweep(env) {
   try {
     await cmdEnsure(env);
-    await env.AUDIT.prepare("UPDATE cmd_log SET status='failed', error='abandoned: the worker stopped before answering' WHERE status='running' AND kind != 'agent' AND ts < datetime('now', '-3 minutes')").run();
+    // RM-CMD-FAILURES-1: a CodeSession stream turn is settled from the session (answered or failed with its own error) before any sweep can call it abandoned.
+    await cmdSettleStreams(env).catch(function() { return null; });
+    await env.AUDIT.prepare("UPDATE cmd_log SET status='failed', error='abandoned: the worker stopped before answering' WHERE status='running' AND kind NOT IN ('agent', 'agent-stream') AND ts < datetime('now', '-3 minutes')").run();
     await env.AUDIT.prepare("UPDATE cmd_log SET status='failed', error='abandoned: the agent run did not finish in 30 minutes' WHERE status='running' AND kind = 'agent' AND ts < datetime('now', '-30 minutes')").run();
+    await env.AUDIT.prepare("UPDATE cmd_log SET status='failed', error='stream: the code session did not finish in 30 minutes' WHERE status='running' AND kind = 'agent-stream' AND ts < datetime('now', '-30 minutes')").run();
   } catch (e) {
   }
   try {
@@ -13480,6 +13485,92 @@ async function cmdCodeSessionFetch(env, path, body) {
     return j ? Object.assign({ http: r.status }, j) : { ok: false, http: r.status, error: "qnfo-agents HTTP " + r.status + ": " + conClip(text, 300) };
   } catch (e) { return { ok: false, error: "qnfo-agents: " + String(e && e.message || e).slice(0, 300) }; }
 }
+// RM-CMD-FAILURES-1: the stage of the command line a failed or fallen-back cmd_log row died in. Pure (kind, status, error in; a stage name out), so the
+// GET /api/cmd/failures answer, the docs inventory and the closing probe all use one reading. hand-off: a start call (CodeSession or ops-exec) was refused and the line
+// fell to the next path; ops-exec: the qnfo-ops agent run was lost or never finished; stream: a CodeSession turn failed or was never settled; model: the AI answer leg
+// timed out or was refused; worker-stopped: the invocation ended before it saved an answer; other: anything else (a defect in the worker itself).
+var CMD_STAGES = ["hand-off", "ops-exec", "stream", "model", "worker-stopped", "other"];
+function cmdFailureStage(kind, status, error) {
+  const k = String(kind || ""), e = String(error || "");
+  if (/^hand-off:/i.test(e)) return "hand-off";
+  if (k === "agent-stream" || /^stream:/i.test(e)) return "stream";
+  if (k === "agent" || /agent run (lost|failed)|did not finish in 30 minutes/i.test(e)) return "ops-exec";
+  if (/^abandoned: the worker stopped/i.test(e)) return "worker-stopped";
+  if (status === "fallback" || /timeout|router_timeout|\bhttp \d{3}\b|model/i.test(e)) return "model";
+  return "other";
+}
+// Folds grouped cmd_log failure rows ({kind, status, err, n, o, last_ts}) into one entry per stage, most failures first.
+function cmdFailureSummary(groups, turns) {
+  const by = {};
+  let failed = 0;
+  (groups || []).forEach(function(g) {
+    const stage = cmdFailureStage(g.kind, g.status, g.err);
+    const n = Number(g.n) || 0;
+    failed += n;
+    const s = by[stage] || (by[stage] = { stage: stage, n: 0, owner_n: 0, last_ts: null, kinds: {}, sample: null });
+    s.n += n;
+    s.owner_n += Number(g.o) || 0;
+    s.kinds[String(g.kind || "?")] = (s.kinds[String(g.kind || "?")] || 0) + n;
+    if (!s.last_ts || String(g.last_ts || "") > s.last_ts) { s.last_ts = String(g.last_ts || ""); s.sample = String(g.err || "").slice(0, 120) || null; }
+  });
+  const list = Object.keys(by).map(function(k) { return by[k]; }).sort(function(a, b) { return b.n - a.n; });
+  const t = Number(turns) || 0;
+  return { turns: t, failed: failed, rate: t ? Math.round(failed / t * 1e4) / 1e4 : null, by_stage: list };
+}
+// RM-CMD-FAILURES-1: a hand-off that was refused is a failing stage even when the next path answers, so it gets its own row (no prompt text is stored).
+async function cmdLogHandoff(env, where, error) {
+  try {
+    await env.AUDIT.prepare("INSERT INTO cmd_log (id, text, kind, status, error, owner, done_ms) VALUES (?1, '', 'handoff', 'fallback', ?2, 1, ?3)").bind("cmd-" + cmdRandHex(10), ("hand-off: " + where + ": " + String(error || "no reason given")).slice(0, 300), Date.now()).run();
+  } catch (e) {
+  }
+}
+// A CodeSession stream turn is a cmd_log row of kind agent-stream whose answer, while it runs, is the link "session:<id> turn:<n>". Nothing used to settle it, so the
+// 3-minute sweep marked every stream turn "abandoned" (2 of 2 owner stream turns on 2026-11-02 and 11-04) although qnfo-agents had finished them (cf_agent_session_usage
+// rows). The row is now settled from the session itself: answered with the turn's answer, failed with its error, or left running while the turn is.
+var CMD_STREAM_LINK_RE = /^session:(run_[a-z0-9_]{8,60}) turn:(\d{1,4})$/;
+async function cmdCodeSessionGet(env, path) {
+  const svc = env && env.SVC_QNFO_AGENTS;
+  if (!svc || typeof svc.fetch !== "function") return { ok: false, error: "no service binding to qnfo-agents (SVC_QNFO_AGENTS)" };
+  try {
+    const r = await svc.fetch("https://agents.qnfo.org" + path, { method: "GET", signal: AbortSignal.timeout(8e3) });
+    const text = await r.text();
+    let j = null;
+    try { j = JSON.parse(text); } catch (e) {} // standards-ok: a non-JSON answer is reported by its HTTP status below
+    return j ? Object.assign({ http: r.status }, j) : { ok: false, http: r.status, error: "qnfo-agents HTTP " + r.status };
+  } catch (e) { return { ok: false, error: "qnfo-agents: " + String(e && e.message || e).slice(0, 200) }; }
+}
+async function cmdSettleStreams(env, onlyId) {
+  const out = { settled: 0, running: 0 };
+  let rows = [];
+  try {
+    // the primary, not a read replica: a row inserted a moment ago must be seen
+    const q = onlyId ? env.AUDIT.prepare("SELECT id, answer, ts FROM cmd_log WHERE id = ?1 AND kind = 'agent-stream' AND status = 'running'").bind(onlyId) : env.AUDIT.prepare("SELECT id, answer, ts FROM cmd_log WHERE kind = 'agent-stream' AND status = 'running' ORDER BY ts LIMIT 5");
+    rows = (await q.all()).results || [];
+  } catch (e) {
+    return out;
+  }
+  for (const row of rows) {
+    const m = CMD_STREAM_LINK_RE.exec(String(row.answer || ""));
+    if (!m) continue;
+    const r = await cmdCodeSessionGet(env, "/code-sessions/" + m[1]);
+    const turn = r.ok && r.session && Array.isArray(r.session.turns) ? r.session.turns.filter(function(t) { return Number(t.turn) === Number(m[2]); })[0] : null;
+    try {
+      if (turn && turn.status === "done") {
+        await env.AUDIT.prepare("UPDATE cmd_log SET status='answered', answer=?1, model=?2, done_ms=?3 WHERE id=?4 AND status='running'").bind(String(turn.answer || "(the code session returned no text)").slice(0, 16e3), String(turn.model || "code-session").slice(0, 80), Number(turn.finished_ms) || Date.now(), row.id).run();
+        out.settled++;
+      } else if (turn && turn.status === "failed") {
+        await env.AUDIT.prepare("UPDATE cmd_log SET status='failed', answer=NULL, error=?1, done_ms=?2 WHERE id=?3 AND status='running'").bind(("stream: " + String(turn.error || "the code session turn failed")).slice(0, 300), Number(turn.finished_ms) || Date.now(), row.id).run();
+        out.settled++;
+      } else if (!turn && r.ok === false && /no such code session/i.test(String(r.error || ""))) {
+        await env.AUDIT.prepare("UPDATE cmd_log SET status='failed', answer=NULL, error='stream: the code session is gone (no such code session)', done_ms=?1 WHERE id=?2 AND status='running'").bind(Date.now(), row.id).run();
+        out.settled++;
+      } else out.running++;
+    } catch (e) {
+      out.running++;
+    }
+  }
+  return out;
+}
 // CMD-VOICE-1: speech to text for the command line. The body is the raw recording (webm, ogg, mp4, wav or mp3, at most 8 MB);
 // the answer is {ok, text, model, ms}. Owner session or loop token only (it spends Workers AI neurons). The first model that
 // answers wins, so a retired model id costs one fallback, not the feature. No vendor SDK: the Workers AI binding only.
@@ -13531,8 +13622,33 @@ async function cmdRoutes(request, env, ctx, path, owner) {
     const after = Math.max(0, Number(new URL(request.url).searchParams.get("after")) || Number(request.headers.get("last-event-id")) || 0);
     try {
       const r = await svc.fetch("https://agents.qnfo.org/code-sessions/" + streamMatch[1] + "/events?after=" + after, { method: "GET" });
+      // RM-CMD-FAILURES-1: when the stream ends, the cmd_log row of the turn is settled from the session (the page only reads the stream; nothing else wrote the answer back).
+      if (r.body && typeof r.body.tee === "function" && ctx && typeof ctx.waitUntil === "function") {
+        const halves = r.body.tee();
+        ctx.waitUntil((async function() {
+          try {
+            const rd = halves[1].getReader();
+            for (;;) { const x = await rd.read(); if (x.done) break; }
+          } catch (e) { console.error(JSON.stringify({ worker: NAME, where: "cmd-stream-drain", error: String(e && e.message || e).slice(0, 160) })); }
+          await cmdSettleStreams(env).catch(function() { return null; });
+        })());
+        return new Response(halves[0], { status: r.status, headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" } });
+      }
       return new Response(r.body, { status: r.status, headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" } });
     } catch (e) { return ownerJson({ ok: false, error: "qnfo-agents: " + String(e && e.message || e).slice(0, 300) }, 502); }
+  }
+  // RM-CMD-FAILURES-1: where the command line fails, by stage. Aggregates only (no prompt, answer or visitor text), open like the other fleet reads.
+  if (request.method === "GET" && path === "/api/cmd/failures") {
+    const days = Math.max(1, Math.min(365, parseInt(new URL(request.url).searchParams.get("days"), 10) || 30));
+    const since = "-" + days + " days";
+    try {
+      const groups = await d1all(env.AUDIT, "SELECT kind, status, substr(error, 1, 120) AS err, COUNT(*) AS n, SUM(CASE WHEN owner = 1 THEN 1 ELSE 0 END) AS o, MAX(ts) AS last_ts FROM cmd_log WHERE status IN ('failed', 'fallback') AND ts >= datetime('now', ?1) GROUP BY kind, status, substr(error, 1, 120) ORDER BY n DESC LIMIT 80", [since]);
+      const tot = await d1all(env.AUDIT, "SELECT COUNT(*) AS n FROM cmd_log WHERE ts >= datetime('now', ?1)", [since]);
+      const sum = cmdFailureSummary(groups, tot.length ? tot[0].n : 0);
+      return ownerJson({ ok: true, days: days, stages: CMD_STAGES, turns: sum.turns, failed: sum.failed, failure_rate: sum.rate, by_stage: sum.by_stage, note: "Counts of failed and fallback rows in cmd_log; model is the AI answer leg falling back to stored data, the other stages are defects of the command line itself." });
+    } catch (e) {
+      return ownerJson({ ok: false, error: "cmd_log could not be read: " + String(e && e.message || e).slice(0, 160) }, 503);
+    }
   }
   if (request.method === "GET" && path.indexOf("/api/cmd/job/") === 0) {
     const id = path.slice("/api/cmd/job/".length);
@@ -13544,6 +13660,12 @@ async function cmdRoutes(request, env, ctx, path, owner) {
       const ag = await cmdAgentPoll(env, id);
       if (ag.status === "running") return ownerJson({ ok: true, status: "running", agent: true, progress: ag.progress, holder });
       row.status = ag.status; row.answer = ag.answer || null; row.error = ag.error || null; row.model = "ops-agent";
+    } else if (row.kind === "agent-stream" && row.status === "running") {
+      // RM-CMD-FAILURES-1: a CodeSession turn started from a client that does not read the stream (the terminal client) is settled by this poll.
+      await cmdSettleStreams(env, id);
+      const again = await env.AUDIT.prepare("SELECT status, answer, actions_json, model, error, ts, kind FROM cmd_log WHERE id = ?1").bind(id).first();
+      if (again && again.status === "running") return ownerJson({ ok: true, status: "running", agent: true, progress: "the code session is working", holder });
+      if (again) Object.assign(row, again);
     } else if (row.status === "running" && Date.parse(String(row.ts).replace(" ", "T") + "Z") < Date.now() - CMD_RUNNING_STALE_MS) {
       await cmdSweep(env);
       return ownerJson({ ok: false, status: "failed", error: cmdPlainFailure("abandoned") });
@@ -13745,12 +13867,15 @@ async function cmdRoutes(request, env, ctx, path, owner) {
     const sessionPath = existingSession ? "/code-sessions/" + existingSession + "/turns" : "/code-sessions";
     const session = await cmdCodeSessionFetch(env, sessionPath, { text: text });
     if (session.ok && session.session_id) {
+      // RM-CMD-FAILURES-1: the row carries the link to its session ("session:<id> turn:<n>" until it is settled) and its id goes to the client, which may poll /api/cmd/job/<id>.
+      const logId = "cmd-" + cmdRandHex(10);
       try {
-        await env.AUDIT.prepare("INSERT INTO cmd_log (id, text, from_url, kind, status, owner, model) VALUES (?1, ?2, ?3, 'agent-stream', 'running', 1, 'deepseek-v4-flash-wa')").bind("cmd-" + cmdRandHex(10), text, from || null).run();
+        await env.AUDIT.prepare("INSERT INTO cmd_log (id, text, from_url, kind, status, answer, owner, model) VALUES (?1, ?2, ?3, 'agent-stream', 'running', ?4, 1, 'deepseek-v4-flash-wa')").bind(logId, text, from || null, "session:" + session.session_id + " turn:" + (Number(session.turn) || 1)).run();
       } catch (e) {}
-      return ownerJson({ ok: true, kind: "stream", session_id: session.session_id, turn: session.turn, holder }, 202);
+      return ownerJson({ ok: true, kind: "stream", id: logId, session_id: session.session_id, turn: session.turn, holder }, 202);
     }
     console.error(JSON.stringify({ worker: NAME, where: "cmd-code-session-start", http: session.http || 0, error: String(session.error || "").slice(0, 200) }));
+    await cmdLogHandoff(env, "code-session start", "http " + (session.http || 0) + " " + String(session.error || "").slice(0, 160));
     // Keep the existing qnfo-ops run as an independent fallback if CodeSession is unavailable.
     const aid = "cmd-" + cmdRandHex(10);
     const st = await cmdOpsFetch(env, "/agents/ops-exec", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "start", text: text, sid: "console-" + new Date().toISOString().slice(0, 10), run_id: aid, max_iters: 16 }) });
@@ -13759,6 +13884,7 @@ async function cmdRoutes(request, env, ctx, path, owner) {
       return ownerJson({ ok: true, kind: "pending", id: aid, agent: true, holder }, 202);
     }
     console.error(JSON.stringify({ worker: NAME, where: "cmd-agent-start", http: st.http, error: String(st.error || (st.json && st.json.error) || "").slice(0, 200) }));
+    await cmdLogHandoff(env, "ops-exec start", "http " + (st.http || 0) + " " + String(st.error || (st.json && st.json.error) || "").slice(0, 160));
   }
   // Natural language: capped AI in the background; the browser polls /api/cmd/job/<id>.
   const cap =Math.max(1, Math.min(200, parseInt(env.OWNER_PROMPTS_DAILY_CAP || OWNER_PROMPT_CAP_DEFAULT, 10) || OWNER_PROMPT_CAP_DEFAULT));
@@ -15738,7 +15864,7 @@ function cmdPanelHtml(holder, from, q) {
   return '<section class="cmd" id="cmd" data-from="' + esc(from || "") + '" data-q="' + esc(q || "") + '"><form id="cform" autocomplete="off"><span class="pr0">&rsaquo;</span><textarea id="ctext" rows="1" maxlength="8000" placeholder="Ask or tell the fleet" aria-label="Fleet command line"></textarea><button type="button" id="cmic" title="Speak a command (needs your email code)" aria-label="Speak a command">Speak</button><button class="p" id="cgo" type="submit">Run</button></form><div class="chips" id="cchips"><button type="button" data-c="status">status</button><button type="button" data-c="queue">queue</button><button type="button" data-c="suggest">suggest</button><button type="button" data-c="issues">issues</button><button type="button" data-c="tools">tools</button><button type="button" data-c="spend">spend</button><button type="button" data-c="help">help</button></div><div id="cout" aria-live="polite"></div><div class="cmeta"><span id="cwho">' + (holder ? "Signed in: actions enabled" : "Reading and asking are open to everyone. Actions need your email code.") + '</span><span>' + (holder ? '<a href="#" id="clogout">sign out</a>' : '<a href="#" id="clogin">email me a code</a>') + (from ? ' &middot; from <a href="' + esc(from) + '">' + esc(String(from).replace(/^https?:\/\//, "").slice(0, 48)) + "</a>" : "") + "</span></div></section>";
 }
 // Client: submit, history (Up/Down), "/" to focus, background polling, action buttons, inline code sign-in.
-var CMD_JS = "(function(){var f=document.getElementById('cform');if(!f)return;var box=document.getElementById('cmd'),ta=document.getElementById('ctext'),out=document.getElementById('cout'),go=document.getElementById('cgo'),who=document.getElementById('cwho'),from=box.getAttribute('data-from')||'',H={'Content-Type':'application/json','x-fleet-ui':'1'},hist=[],hi=-1,holder=" + "HOLDER" + ";try{hist=JSON.parse(sessionStorage.getItem('fleetcmd')||'[]')}catch(e){}function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}function fit(){ta.style.height='36px';if(ta.value)ta.style.height=Math.min(160,ta.scrollHeight+2)+'px'}function post(u,b){return fetch(u,{method:'POST',headers:H,body:JSON.stringify(b),credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return{ok:false,error:'HTTP '+r.status}})})}function setHolder(h){holder=h;who.textContent=h?'Signed in: actions enabled':'Reading and asking are open to everyone. Actions need your email code.'}function card(q){var c=el('div','co');if(q)c.appendChild(el('div','q','\\u203a '+q));out.insertBefore(c,out.firstChild);while(out.children.length>8)out.removeChild(out.lastChild);return c}function acts(p,list,c){var a=el('div','acts');list.forEach(function(x){var b=el('button',x.destructive?'d':null,x.label);b.type='button';b.onclick=function(){if(x.fill){ta.value=x.fill;fit();ta.focus()}else if(x.cmd)send(x.cmd);else run(x,b,c)};a.appendChild(b);if(x.why){a.appendChild(el('div','why',x.why))}});p.appendChild(a)}function quick(c,q){var d=el('div','qk');if(q.text)d.appendChild(el('pre',null,q.text));if(q.actions&&q.actions.length)acts(d,q.actions,c);var w=c.querySelector('.wait');c.insertBefore(d,w)}function body(c,j){var w=c.querySelector('.wait');if(w)c.removeChild(w);if(j.error)c.appendChild(el('pre','err',j.error));var t=j.text||j.answer;if(t)c.appendChild(el('pre',null,t));if(j.need)codeUi(c,j.need);if(j.links)j.links.forEach(function(l){var a=el('a',null,l.label);a.href=l.href;c.appendChild(a);c.appendChild(document.createTextNode(' '))});if(j.go&&/^\\//.test(j.go)&&j.go!=='/'){location.href=j.go;return}if(j.actions&&j.actions.length){var qk=c.querySelector('.qk');if(qk)c.removeChild(qk);acts(c,j.actions,c)}if(j.signed_in)setHolder(true);if(j.signed_out)setHolder(false);if(j.executed&&window.fleetTick)window.fleetTick(true)}function codeUi(c,need){var a=el('div','acts'),i=el('input');i.inputMode='numeric';i.maxLength=6;i.placeholder='6-digit code';i.style.cssText='width:9em;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)';var s=el('button','p','Email me a code');s.type='button';var v=el('button',null,'Verify');v.type='button';s.onclick=function(){s.disabled=true;post('/api/cmd/code',{cf_turnstile:((document.querySelector('[name=cf-turnstile-response]')||{}).value||'')}).then(function(j){try{if(window.turnstile)turnstile.reset()}catch(x){}a.appendChild(el('div','why',j.note||j.error||''));i.focus()}).then(function(){s.disabled=false})};v.onclick=function(){post('/api/cmd/verify',{code:i.value}).then(function(j){if(j.ok){setHolder(true);a.appendChild(el('div','why',j.text));if(c._retry)c._retry()}else a.appendChild(el('div','why',j.error||'failed'))})};i.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();v.click()}};a.appendChild(s);a.appendChild(i);a.appendChild(v);c.appendChild(a)}function run(x,b,c){b.disabled=true;var w=el('div','why');w.innerHTML='<span class=\"spin\"></span>working...';c.appendChild(w);post('/api/cmd/run',{op:x.op,args:x.args}).then(function(j){c.removeChild(w);if(j.ok){b.textContent='\\u2713 '+x.label;c.appendChild(el('div','why',j.text||'done'));if(window.fleetTick)window.fleetTick(true)}else{b.disabled=false;c.appendChild(el('div','why',j.error||'failed'));if(j.need){c._retry=function(){run(x,b,c)};codeUi(c,j.need)}}}).catch(function(){b.disabled=false;c.removeChild(w);c.appendChild(el('div','why','network error'))})}function poll(c,id,t0){fetch('/api/cmd/job/'+id,{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j.status==='running'&&Date.now()-t0<(j.agent?1500000:45000)){var w=c.querySelector('.wait span.t');if(w)w.textContent=(j.progress||'thinking')+' '+Math.round((Date.now()-t0)/1000)+'s';setTimeout(function(){poll(c,id,t0)},1200);return}if(j.status==='running')j={error:'No answer after 45s; the fleet may be busy. Try again, or use a command (type help).'};body(c,j);done()}).catch(function(){setTimeout(function(){poll(c,id,t0)},2000)})}function done(){go.disabled=false;ta.disabled=false;ta.focus()}function send(q){q=(q||'').trim();if(!q)return;hist=hist.filter(function(h){return h!==q});hist.unshift(q);hist=hist.slice(0,30);hi=-1;try{sessionStorage.setItem('fleetcmd',JSON.stringify(hist))}catch(e){}ta.value='';fit();var c=card(q);var w=el('div','why wait');w.innerHTML='<span class=\"spin\"></span><span class=\"t\">working</span>';c.appendChild(w);go.disabled=true;post('/api/cmd',{text:q,from:from}).then(function(j){if(j.holder!=null&&j.holder!==holder)setHolder(j.holder);if(j.kind==='pending'&&j.id){if(j.quick)quick(c,j.quick);poll(c,j.id,Date.now());return}body(c,j);done()}).catch(function(){body(c,{error:'Network error - nothing was sent.'});done()})}f.addEventListener('submit',function(e){e.preventDefault();send(ta.value)});ta.addEventListener('input',fit);ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(ta.value)}else if(e.key==='ArrowUp'&&(!ta.value||hi>=0)&&hist.length){e.preventDefault();hi=Math.min(hist.length-1,hi+1);ta.value=hist[hi];fit()}else if(e.key==='ArrowDown'&&hi>=0){e.preventDefault();hi--;ta.value=hi>=0?hist[hi]:'';fit()}else if(e.key==='Escape'){ta.value='';hi=-1;fit()}});document.getElementById('cchips').addEventListener('click',function(e){var c=e.target&&e.target.getAttribute&&e.target.getAttribute('data-c');if(c)send(c)});var li=document.getElementById('clogin');if(li)li.addEventListener('click',function(e){e.preventDefault();var c=card('login');codeUi(c,'code')});var lo=document.getElementById('clogout');if(lo)lo.addEventListener('click',function(e){e.preventDefault();send('logout')});document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement&&!/^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)){e.preventDefault();ta.focus()}});document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-fleet-cmd]');if(!t)return;e.preventDefault();send(t.getAttribute('data-fleet-cmd'));if(box.scrollIntoView)box.scrollIntoView({behavior:'smooth',block:'start'})});document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-fleet-fill]');if(!t)return;e.preventDefault();ta.value=t.getAttribute('data-fleet-fill');fit();ta.focus();if(box.scrollIntoView)box.scrollIntoView({behavior:'smooth',block:'start'})});var mic=document.getElementById('cmic');if(mic){var rec=null,chunks=[];mic.onclick=function(){if(rec){rec.stop();return}if(!navigator.mediaDevices||!window.MediaRecorder){body(card('speak'),{error:'This browser cannot record audio.'});return}navigator.mediaDevices.getUserMedia({audio:true}).then(function(s){chunks=[];rec=new MediaRecorder(s);rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data)};rec.onstop=function(){s.getTracks().forEach(function(t){t.stop()});var blob=new Blob(chunks,{type:rec.mimeType||'audio/webm'});rec=null;mic.textContent='Speak';mic.classList.remove('rec');if(!blob.size)return;who.textContent='Transcribing...';fetch('/api/cmd/transcribe',{method:'POST',headers:{'x-fleet-ui':'1','Content-Type':blob.type},body:blob,credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return{ok:false,error:'HTTP '+r.status}})}).then(function(j){setHolder(holder);if(j.ok){ta.value=(ta.value?ta.value+' ':'')+j.text;fit();ta.focus()}else{var c=card('speak');body(c,{error:j.error||'failed',need:j.need})}}).catch(function(){setHolder(holder);body(card('speak'),{error:'Network error - nothing was sent.'})})};rec.start();mic.textContent='Stop';mic.classList.add('rec')}).catch(function(){body(card('speak'),{error:'Microphone permission was refused.'})})}}var q0=box.getAttribute('data-q');if(q0)send(q0)})();"; // standards-ok: a browser script in a string; its catch blocks guard sessionStorage in the visitor's browser, where Workers Logs cannot see them
+var CMD_JS = "(function(){var f=document.getElementById('cform');if(!f)return;var box=document.getElementById('cmd'),ta=document.getElementById('ctext'),out=document.getElementById('cout'),go=document.getElementById('cgo'),who=document.getElementById('cwho'),from=box.getAttribute('data-from')||'',H={'Content-Type':'application/json','x-fleet-ui':'1'},hist=[],hi=-1,sid='',seqs={},holder=" + "HOLDER" + ";try{hist=JSON.parse(sessionStorage.getItem('fleetcmd')||'[]');sid=sessionStorage.getItem('fleetcmdsid')||''}catch(e){}function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}function fit(){ta.style.height='36px';if(ta.value)ta.style.height=Math.min(160,ta.scrollHeight+2)+'px'}function post(u,b){return fetch(u,{method:'POST',headers:H,body:JSON.stringify(b),credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return{ok:false,error:'HTTP '+r.status}})})}function setHolder(h){holder=h;who.textContent=h?'Signed in: actions enabled':'Reading and asking are open to everyone. Actions need your email code.'}function card(q){var c=el('div','co');if(q)c.appendChild(el('div','q','\\u203a '+q));out.insertBefore(c,out.firstChild);while(out.children.length>8)out.removeChild(out.lastChild);return c}function acts(p,list,c){var a=el('div','acts');list.forEach(function(x){var b=el('button',x.destructive?'d':null,x.label);b.type='button';b.onclick=function(){if(x.fill){ta.value=x.fill;fit();ta.focus()}else if(x.cmd)send(x.cmd);else run(x,b,c)};a.appendChild(b);if(x.why){a.appendChild(el('div','why',x.why))}});p.appendChild(a)}function quick(c,q){var d=el('div','qk');if(q.text)d.appendChild(el('pre',null,q.text));if(q.actions&&q.actions.length)acts(d,q.actions,c);var w=c.querySelector('.wait');c.insertBefore(d,w)}function body(c,j){var w=c.querySelector('.wait');if(w)c.removeChild(w);if(j.error)c.appendChild(el('pre','err',j.error));var t=j.text||j.answer;if(t)c.appendChild(el('pre',null,t));if(j.need)codeUi(c,j.need);if(j.links)j.links.forEach(function(l){var a=el('a',null,l.label);a.href=l.href;c.appendChild(a);c.appendChild(document.createTextNode(' '))});if(j.go&&/^\\//.test(j.go)&&j.go!=='/'){location.href=j.go;return}if(j.actions&&j.actions.length){var qk=c.querySelector('.qk');if(qk)c.removeChild(qk);acts(c,j.actions,c)}if(j.signed_in)setHolder(true);if(j.signed_out)setHolder(false);if(j.executed&&window.fleetTick)window.fleetTick(true)}function codeUi(c,need){var a=el('div','acts'),i=el('input');i.inputMode='numeric';i.maxLength=6;i.placeholder='6-digit code';i.style.cssText='width:9em;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)';var s=el('button','p','Email me a code');s.type='button';var v=el('button',null,'Verify');v.type='button';s.onclick=function(){s.disabled=true;post('/api/cmd/code',{cf_turnstile:((document.querySelector('[name=cf-turnstile-response]')||{}).value||'')}).then(function(j){try{if(window.turnstile)turnstile.reset()}catch(x){}a.appendChild(el('div','why',j.note||j.error||''));i.focus()}).then(function(){s.disabled=false})};v.onclick=function(){post('/api/cmd/verify',{code:i.value}).then(function(j){if(j.ok){setHolder(true);a.appendChild(el('div','why',j.text));if(c._retry)c._retry()}else a.appendChild(el('div','why',j.error||'failed'))})};i.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();v.click()}};a.appendChild(s);a.appendChild(i);a.appendChild(v);c.appendChild(a)}function run(x,b,c){b.disabled=true;var w=el('div','why');w.innerHTML='<span class=\"spin\"></span>working...';c.appendChild(w);post('/api/cmd/run',{op:x.op,args:x.args}).then(function(j){c.removeChild(w);if(j.ok){b.textContent='\\u2713 '+x.label;c.appendChild(el('div','why',j.text||'done'));if(window.fleetTick)window.fleetTick(true)}else{b.disabled=false;c.appendChild(el('div','why',j.error||'failed'));if(j.need){c._retry=function(){run(x,b,c)};codeUi(c,j.need)}}}).catch(function(){b.disabled=false;c.removeChild(w);c.appendChild(el('div','why','network error'))})}function poll(c,id,t0){fetch('/api/cmd/job/'+id,{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j.status==='running'&&Date.now()-t0<(j.agent?1500000:45000)){var w=c.querySelector('.wait span.t');if(w)w.textContent=(j.progress||'thinking')+' '+Math.round((Date.now()-t0)/1000)+'s';setTimeout(function(){poll(c,id,t0)},1200);return}if(j.status==='running')j={error:'No answer after 45s; the fleet may be busy. Try again, or use a command (type help).'};body(c,j);done()}).catch(function(){setTimeout(function(){poll(c,id,t0)},2000)})}function stream(c,j){var sj=j.session_id,tn=Number(j.turn)||1,w=c.querySelector('.wait'),txt=el('pre',null,''),stp=el('div','why'),tries=0,fin=false;if(w){c.insertBefore(stp,w);c.insertBefore(txt,w)}else{c.appendChild(stp);c.appendChild(txt)}function status(t){var s=c.querySelector('.wait span.t');if(s)s.textContent=t}function finish(){if(fin)return;fin=true;var x=c.querySelector('.wait');if(x)c.removeChild(x);done()}function frame(f){var ev='message',data='',id=0;f.split('\\n').forEach(function(l){if(l.indexOf('event: ')===0)ev=l.slice(7);else if(l.indexOf('data: ')===0)data+=l.slice(6);else if(l.indexOf('id: ')===0)id=Number(l.slice(4))||0});if(id)seqs[sj]=Math.max(seqs[sj]||0,id);var d={};try{d=JSON.parse(data||'{}')}catch(e){return}var mine=d.turn==null||Number(d.turn)===tn;if(ev==='text'&&mine){txt.textContent+=d.delta||'';status('answering')}else if(ev==='tool'&&mine){if(d.phase==='call'){stp.appendChild(el('div',null,'> '+d.name));status('step: '+d.name)}else if(d.phase==='error')stp.appendChild(el('div',null,'! '+d.name+': '+(d.error||'')))}else if(ev==='complete'&&mine){txt.textContent=d.answer||txt.textContent||'(the code session returned no text)';c.appendChild(el('div','why',[d.model,(d.input_tokens||0)+' in / '+(d.output_tokens||0)+' out tokens',d.cost_usd!=null?'$'+Number(d.cost_usd).toFixed(4):''].filter(Boolean).join(' - ')));finish()}else if(ev==='error'&&mine){c.appendChild(el('pre','err','Not answered: '+(d.error||'the code session failed')+'. Nothing was changed.'));finish()}}function open(){fetch('/api/cmd/session/'+sj+'/events?after='+(seqs[sj]||0),{credentials:'same-origin',cache:'no-store'}).then(function(r){if(!r.ok||!r.body)throw new Error('http '+r.status);var rd=r.body.getReader(),dec=new TextDecoder(),buf='';function pump(){return rd.read().then(function(x){if(fin){try{rd.cancel()}catch(e){}return}if(x.done){if(!fin)retry();return}buf+=dec.decode(x.value,{stream:true});var ps=buf.split('\\n\\n');buf=ps.pop();ps.forEach(frame);return pump()})}return pump()}).catch(retry)}function retry(){if(fin)return;if(++tries>3){if(txt.parentNode)c.removeChild(txt);if(j.id)poll(c,j.id,Date.now());else{c.appendChild(el('pre','err','Lost the stream and no job id to poll. The run may still be going on the server.'));finish()}return}status('reconnecting');setTimeout(open,1500*tries)}open()}function done(){go.disabled=false;ta.disabled=false;ta.focus()}function send(q){q=(q||'').trim();if(!q)return;hist=hist.filter(function(h){return h!==q});hist.unshift(q);hist=hist.slice(0,30);hi=-1;try{sessionStorage.setItem('fleetcmd',JSON.stringify(hist))}catch(e){}ta.value='';fit();var c=card(q);var w=el('div','why wait');w.innerHTML='<span class=\"spin\"></span><span class=\"t\">working</span>';c.appendChild(w);go.disabled=true;post('/api/cmd',{text:q,from:from,session_id:sid||undefined}).then(function(j){if(j.holder!=null&&j.holder!==holder)setHolder(j.holder);if(j.kind==='stream'&&j.session_id){sid=j.session_id;try{sessionStorage.setItem('fleetcmdsid',sid)}catch(e){}stream(c,j);return}if(j.kind==='pending'&&j.id){if(j.quick)quick(c,j.quick);poll(c,j.id,Date.now());return}body(c,j);done()}).catch(function(){body(c,{error:'Network error - nothing was sent.'});done()})}f.addEventListener('submit',function(e){e.preventDefault();send(ta.value)});ta.addEventListener('input',fit);ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(ta.value)}else if(e.key==='ArrowUp'&&(!ta.value||hi>=0)&&hist.length){e.preventDefault();hi=Math.min(hist.length-1,hi+1);ta.value=hist[hi];fit()}else if(e.key==='ArrowDown'&&hi>=0){e.preventDefault();hi--;ta.value=hi>=0?hist[hi]:'';fit()}else if(e.key==='Escape'){ta.value='';hi=-1;fit()}});document.getElementById('cchips').addEventListener('click',function(e){var c=e.target&&e.target.getAttribute&&e.target.getAttribute('data-c');if(c)send(c)});var li=document.getElementById('clogin');if(li)li.addEventListener('click',function(e){e.preventDefault();var c=card('login');codeUi(c,'code')});var lo=document.getElementById('clogout');if(lo)lo.addEventListener('click',function(e){e.preventDefault();send('logout')});document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement&&!/^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)){e.preventDefault();ta.focus()}});document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-fleet-cmd]');if(!t)return;e.preventDefault();send(t.getAttribute('data-fleet-cmd'));if(box.scrollIntoView)box.scrollIntoView({behavior:'smooth',block:'start'})});document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-fleet-fill]');if(!t)return;e.preventDefault();ta.value=t.getAttribute('data-fleet-fill');fit();ta.focus();if(box.scrollIntoView)box.scrollIntoView({behavior:'smooth',block:'start'})});var mic=document.getElementById('cmic');if(mic){var rec=null,chunks=[];mic.onclick=function(){if(rec){rec.stop();return}if(!navigator.mediaDevices||!window.MediaRecorder){body(card('speak'),{error:'This browser cannot record audio.'});return}navigator.mediaDevices.getUserMedia({audio:true}).then(function(s){chunks=[];rec=new MediaRecorder(s);rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data)};rec.onstop=function(){s.getTracks().forEach(function(t){t.stop()});var blob=new Blob(chunks,{type:rec.mimeType||'audio/webm'});rec=null;mic.textContent='Speak';mic.classList.remove('rec');if(!blob.size)return;who.textContent='Transcribing...';fetch('/api/cmd/transcribe',{method:'POST',headers:{'x-fleet-ui':'1','Content-Type':blob.type},body:blob,credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return{ok:false,error:'HTTP '+r.status}})}).then(function(j){setHolder(holder);if(j.ok){ta.value=(ta.value?ta.value+' ':'')+j.text;fit();ta.focus()}else{var c=card('speak');body(c,{error:j.error||'failed',need:j.need})}}).catch(function(){setHolder(holder);body(card('speak'),{error:'Network error - nothing was sent.'})})};rec.start();mic.textContent='Stop';mic.classList.add('rec')}).catch(function(e){var pol=document.permissionsPolicy||document.featurePolicy,refusedBySite=false;try{refusedBySite=!!pol&&typeof pol.allowsFeature==='function'&&!pol.allowsFeature('microphone')}catch(x){}body(card('speak'),{error:refusedBySite?'The microphone is refused by this site policy, not by your browser: the page was served with Permissions-Policy microphone=(), which no browser can override. Type the command instead; a request to lift that rule for /cmd is open with the owner.':'Microphone permission was refused'+(e&&e.name?' ('+e.name+')':'')+'. This browser or app denied it before asking. Open this page in Chrome or Edge, allow the microphone for fleet.qnfo.org (address bar lock icon), and check Windows Settings > Privacy > Microphone is on.'})})}}var q0=box.getAttribute('data-q');if(q0)send(q0)})();"; // standards-ok: a browser script in a string; its catch blocks guard sessionStorage in the visitor's browser, where Workers Logs cannot see them
 // TURNSTILE-EDGE-1 (1.73.0, BP26-EDGE-SECURITY-1): every page that carries the console script also carries one interaction-only Turnstile widget; /api/cmd/code (the e-mail-me-a-code request) verifies its token.
 // BEGIN TURNSTILE-EDGE-1
 var TURNSTILE_SITEKEY_DEFAULT = "0x4AAAAAAFpf2WdSG4-h5mu_";

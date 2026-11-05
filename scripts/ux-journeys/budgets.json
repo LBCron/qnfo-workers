@@ -120,6 +120,14 @@
   "code-run-status": {
    "taps": 2,
    "typing": 0
+  },
+  "cmd-ask-streams": {
+   "taps": 1,
+   "typing": 1
+  },
+  "cmd-mic-allowed": {
+   "taps": 0,
+   "typing": 0
   }
  },
  "papers": {
