@@ -22,6 +22,7 @@ db.exec("CREATE TABLE portfolios (portfolio_code TEXT PRIMARY KEY, name TEXT NOT
 db.exec("CREATE TABLE programs (program_code TEXT PRIMARY KEY, portfolio_code TEXT NOT NULL, name TEXT NOT NULL, description TEXT, program_manager TEXT)");
 db.exec("CREATE TABLE projects (project_code TEXT PRIMARY KEY, program_code TEXT NOT NULL, name TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'active', github_repo TEXT, pages_project TEXT, r2_prefix TEXT, created_at TEXT, updated_at TEXT, completed_at TEXT)");
 db.exec("CREATE TABLE roadmap_implementation (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, artifact_type TEXT NOT NULL, artifact_ref TEXT, status TEXT NOT NULL, evidence TEXT, verified_at TEXT, created_at TEXT)");
+db.exec("CREATE TABLE remediation_contracts (class TEXT PRIMARY KEY, issue_id INTEGER, action TEXT, verify_probe TEXT, verify_transport TEXT, status TEXT DEFAULT 'active', module TEXT, last_verdict TEXT, last_attempt_at TEXT)");
 db.exec("CREATE TABLE trig (metric_key TEXT PRIMARY KEY, title TEXT, owner TEXT, operator TEXT, threshold REAL, val REAL, hit INTEGER)");
 db.exec("CREATE VIEW v_metric_trigger_state AS SELECT * FROM trig");
 db.exec("INSERT INTO portfolios VALUES ('QNFO','QNFO','',NULL)");
@@ -195,6 +196,40 @@ const rgPatched = calls.filter((c) => /^PATCH \/repos\/QNFO\/qnfo-workers\/issue
 assert.deepEqual(rgPatched, ["PATCH /repos/QNFO/qnfo-workers/issues/9500", "PATCH /repos/QNFO/qnfo-workers/issues/9501", "PATCH /repos/QNFO/qnfo-workers/issues/9502"], "only the three real D1 changes are closed");
 db.prepare("DELETE FROM roadmap_gh_links WHERE gh_number >= 9500 AND gh_number < 9600").run(); db.prepare("DELETE FROM roadmap_implementation WHERE item LIKE 'RM-G%'").run();
 gIssues = gIssues.filter((x) => !(x.number >= 9500 && x.number < 9600));
+
+// ROADMAP-BUILT-VERIFY-1: a built, deployed or implemented item is verified (and its mirror closed with the built evidence) only when its rm-<id> contract passed inside the freshness window.
+// A failing, deferred, stale or missing contract, and an item that is not in the built family, change nothing. Replaying the tick changes nothing again.
+const bvIns = db.prepare("INSERT INTO roadmap_implementation (item, source, title, artifact_type, artifact_ref, status, evidence) VALUES (?, 'yt-shorts-2026', ?, 'worker', 'qnfo-youtube-shorts', ?, ?)");
+const bvCon = db.prepare("INSERT INTO remediation_contracts (class, action, verify_probe, verify_transport, status, module, last_verdict, last_attempt_at) VALUES (?, ?, '{}', ?, ?, 'roadmap-dod-v1', 'fail', ?)");
+const utc = (minAgo) => new Date(Date.now() - minAgo * 60000).toISOString().replace("T", " ").slice(0, 19);
+const bv = {};
+for (const [k, st] of [["built", "built"], ["deployed", "deployed"], ["impl", "implemented"], ["failing", "built"], ["stale", "built"], ["noprobe", "built"], ["planned", "planned"], ["pending", "built"]]) bv[k] = Number(bvIns.run("RM-BV-" + k, "bv " + k, st, "built evidence for " + k).lastInsertRowid);
+for (const [k, tr, st] of [["built", "runner-https", "active"], ["deployed", "runner-https", "holding"], ["impl", "d1-query", "active"], ["failing", "d1-query", "active"], ["stale", "d1-query", "active"], ["planned", "d1-query", "active"], ["pending", "d1-query", "active"]]) bvCon.run("rm-" + bv[k], "proves " + k + " is live", tr, st, utc(500));
+calls = [];
+const bt1 = await tick();
+assert.equal(bt1.roadmap_built_verified, 0, "no contract has passed yet");
+for (const k of Object.keys(bv)) assert.ok(gIssues.some((x) => x.number >= 7000 && x.title.startsWith("[RM-" + bv[k] + "]") && x.state === "open"), "the " + k + " item is mirrored open before it is verified");
+const bvPass = (k, v, at) => db.prepare("UPDATE remediation_contracts SET last_verdict = ?, last_attempt_at = ? WHERE class = ?").run(v, at, "rm-" + bv[k]);
+bvPass("built", "pass", utc(10)); bvPass("deployed", "pass", utc(30)); bvPass("impl", "pass", utc(200)); bvPass("failing", "fail", utc(5)); bvPass("stale", "pass", utc(600)); bvPass("planned", "pass", utc(5)); bvPass("pending", "deferred", utc(5));
+calls = [];
+const bt2 = await tick();
+assert.equal(bt2.roadmap_built_verified, 3, "built, deployed and implemented items with a fresh pass are verified");
+assert.ok(!bt2.errors.some((e) => e.scope === "portfolio-built-verify"), JSON.stringify(bt2.errors));
+const bvRow = (k) => db.prepare("SELECT status, evidence, verified_at FROM roadmap_implementation WHERE id = ?").get(bv[k]);
+for (const k of ["built", "deployed", "impl"]) {
+  const r = bvRow(k);
+  assert.equal(r.status, "verified"); assert.ok(r.verified_at, "verified_at is set");
+  assert.match(r.evidence, new RegExp("verified by contract rm-" + bv[k] + " ")); assert.match(r.evidence, new RegExp("proves " + k + " is live")); assert.match(r.evidence, new RegExp("built evidence for " + k));
+  assert.equal(db.prepare("SELECT status FROM remediation_contracts WHERE class = ?").get("rm-" + bv[k]).status, "superseded", "a verified item's contract is retired");
+  assert.equal(gIssues.find((x) => x.title.startsWith("[RM-" + bv[k] + "]")).state, "closed", "the mirror of " + k + " is closed in the same tick");
+}
+assert.equal(bt2.roadmap_built_waiting, 3, "failing, stale and deferred contracts are waiting, not verified");
+for (const [k, st] of [["failing", "built"], ["stale", "built"], ["noprobe", "built"], ["planned", "planned"], ["pending", "built"]]) {
+  assert.equal(bvRow(k).status, st, k + " keeps its status");
+  assert.equal(gIssues.find((x) => x.title.startsWith("[RM-" + bv[k] + "]")).state, "open", k + " stays open on GitHub");
+}
+const bt3 = await tick();
+assert.equal(bt3.roadmap_built_verified, 0, "a replay verifies nothing twice");
 
 // Public tree: personal projects counted, not itemised.
 const tree = await (await w.fetch(new Request("https://s.test/roadmap"), env)).json();
