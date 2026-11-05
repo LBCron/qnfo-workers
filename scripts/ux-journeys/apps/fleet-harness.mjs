@@ -45,6 +45,9 @@ export async function startFleet({ port = 0 } = {}) {
     CREATE TABLE code_tasks (id TEXT, status TEXT, updated_at TEXT, created_at TEXT);
     CREATE TABLE issue_lifecycle (id INTEGER PRIMARY KEY, issue_id INTEGER, event TEXT, ts TEXT);
     CREATE TABLE metric_registry (metric TEXT PRIMARY KEY, last_value TEXT, last_refreshed TEXT, kind TEXT);
+    CREATE TABLE product_registry (product TEXT PRIMARY KEY, host TEXT, worker TEXT, program_code TEXT, what_for TEXT, plus_cadence_h INTEGER, last_plus_at TEXT, rest_until TEXT, misses_in_row INTEGER DEFAULT 0, pluses_since_simplify INTEGER DEFAULT 0, state TEXT DEFAULT 'active', usage_metric TEXT, usage_value INTEGER, usage_window TEXT, usage_errors INTEGER, usage_read_at TEXT, usage_source TEXT);
+    CREATE TABLE plus_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, product TEXT, kind TEXT, title TEXT, status TEXT, decided_at TEXT, issue_id INTEGER, pr_url TEXT, outcome TEXT);
+    CREATE TABLE plus_digest (day TEXT PRIMARY KEY, products INTEGER, in_flight INTEGER, decided_7d INTEGER, deployed_7d INTEGER, reverted_7d INTEGER, body_md TEXT, created_at TEXT);
   `);
   const now = new Date();
   const iso = (ms) => new Date(now.getTime() - ms).toISOString();
@@ -56,6 +59,9 @@ export async function startFleet({ port = 0 } = {}) {
   raw.prepare("INSERT INTO code_tasks VALUES ('t1','merged',?,?)").run(iso(3600e3), iso(7200e3));
   raw.prepare("INSERT INTO issue_lifecycle (issue_id,event,ts) VALUES (1,'opened',?),(2,'dispositioned',?)").run(iso(1800e3), iso(1800e3));
   raw.prepare("INSERT INTO metric_registry VALUES ('open_agent_issues','120',?,'x'),('referral_30d','610',?,'x'),('publications_30d','262',?,'x')").run(iso(60e3), iso(60e3), iso(60e3));
+  raw.prepare("INSERT INTO product_registry (product,host,worker,program_code,what_for,plus_cadence_h,last_plus_at,usage_metric,usage_value,usage_window,usage_errors) VALUES ('jobs','jobs.q08.org','qnfo-jobsearch','QNFO.PERSONAL','live job matcher',24,?,'worker_requests_7d',6126,'7d',0),('shorts-channel','youtube','qnfo-youtube-shorts','QNFO.REACH','plain-language Shorts',24,NULL,'youtube_views_total',NULL,'lifetime',NULL)").run(iso(86400e3));
+  raw.prepare("INSERT INTO plus_ledger (product,kind,title,status,decided_at) VALUES ('jobs','plus','Show the reason on every match','deployed',?)").run(iso(86400e3).slice(0, 19).replace('T', ' '));
+  raw.prepare("INSERT INTO plus_digest VALUES (?,2,0,1,1,0,'What got better in the last 7 days: - jobs: Show the reason on every match [deployed]',?)").run(iso(0).slice(0, 10), iso(0));
 
   // The harness reaches nothing outside itself: a call to the loopback goes through, any other host answers 503 (the dashboard degrades each
   // section on its own, as it does when a source is down). Restored by close().

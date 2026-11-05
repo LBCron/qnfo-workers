@@ -93,6 +93,10 @@
   }
  },
  "fleet": {
+  "plus-page-loads": {
+   "taps": 0,
+   "typing": 0
+  },
   "see-what-needs-me": {
    "taps": 0,
    "typing": 0

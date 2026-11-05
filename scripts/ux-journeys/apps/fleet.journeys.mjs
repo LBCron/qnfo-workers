@@ -34,6 +34,11 @@ export const journeys = [
       await signedIn(u);
       await u.tap("Readers", { within: "nav" }); await u.notSee("Loading...", { wait: 1500 }); await u.screen("readers");
     } },
+  { id: "plus-page-loads", title: "Open the plus page and see what got better and which products are used",
+    async run(u) {
+      await u.open("/plus"); await u.see("Plus: what got better"); await u.see("Show the reason on every match");
+      await u.see("unmeasured"); await u.see("6,126"); await u.screen("plus");
+    } },
   { id: "code-sign-in-screen", title: "Open the command line on a phone that is not signed in",
     async run(u) {
       await u.open("/"); await u.see("Is it running?");
