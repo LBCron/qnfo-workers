@@ -1,0 +1,27 @@
+-- BP26-RETENTION-CARD-1 (2026-11-05, session breach-bp26; charter pillars security and core; OWNER-NO-LOOSE-ENDS-1, IB-HELD-1): records_past_retention (trigger 14502, issue 1000481) has no live owner card.
+-- WHAT WAS MEASURED (read-only, qnfo-audit 2026-11-05 03:30Z):
+--   records_past_retention 1004 = emails bodies past 30 days 740 + email_raw_archive 53 + email_loop_quarantine 105 + subscribers pending 2 + ipatent-db sessions 11, analytics 41, submission IP 52. The producer is valid
+--   (each retention_policy.past_sql counts exactly the rows past its period that still hold the data; the sum matches the registry). All 19 policies are enforcement 'report' and policy_status 'proposed'; no sweep exists on any surface
+--   (the trigger bp26_retention_heavy_tick only counts; ops_config has no retention_* key). The metric is above 0 because nothing is purged, which is the card's stated default.
+--   human_actions 189 (bp26-retention-enforce) carries an IDENTITY-BOUND line (blanking mail bodies, raw messages, drafts and subscriber rows is irreversible and holds correspondents' personal data) and was nevertheless closed at birth
+--   on its default (DEFAULT-ADOPTED-1, 2026-10-26 18:44, before IB-HELD-1 began at card 193). So the red metric has no card the owner can see: the same defect BP26-IB-CARDS-1 (cards 173 and 174, PR 7316) repaired for two sibling metrics.
+--   The lever review of 2026-11-03 (issue 1000481) proposed a sweep inside bp26_retention_heavy_tick that defaults to ON. That is NOT built: the periods are proposals the owner has not adopted, a blanked body cannot be restored, and
+--   a backup table would keep the same personal data, so it cannot satisfy the retention it is meant to enforce.
+-- WHAT THIS FILE DOES: (1) reopens card 189 with its default still in effect and the closing probe in the text; (2) records the disposition on issue 1000481 as a DELTA-NOTE. It changes no metric, trigger, policy, target or row of personal data.
+-- PREDICTION: owner_queue_live_open rises by 1 until the owner answers; records_past_retention stays at about 1000 (stated, not hidden) and moves only by the daily accrual of aging mail bodies; after 'enforce' the sweep is built and the metric is expected to read 0 within two heavy ticks.
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: UPDATE human_actions SET status = (SELECT b.status FROM bak_20261105_bp26_retention_card b WHERE b.id = human_actions.id), resolved_at = (SELECT b.resolved_at FROM bak_20261105_bp26_retention_card b WHERE b.id = human_actions.id), resolution = (SELECT b.resolution FROM bak_20261105_bp26_retention_card b WHERE b.id = human_actions.id), why = (SELECT b.why FROM bak_20261105_bp26_retention_card b WHERE b.id = human_actions.id), updated_at = (SELECT b.updated_at FROM bak_20261105_bp26_retention_card b WHERE b.id = human_actions.id) WHERE id IN (SELECT id FROM bak_20261105_bp26_retention_card); UPDATE agent_issues SET description = substr(description, 1, instr(description, char(10) || 'DELTA-NOTE (breach-bp26, 2026-11-05) retention') - 1) WHERE instr(description, char(10) || 'DELTA-NOTE (breach-bp26, 2026-11-05) retention') > 0
+-- BACKUP: bak_20261105_bp26_retention_card
+
+CREATE TABLE IF NOT EXISTS bak_20261105_bp26_retention_card AS SELECT * FROM human_actions WHERE slug = 'bp26-retention-enforce';
+
+UPDATE human_actions
+SET status = 'open', resolved_at = NULL, resolution = NULL, updated_at = datetime('now'),
+    why = why || ' REOPENED 2026-11-05 (BP26-RETENTION-CARD-1): the card was closed at birth on its default while metric records_past_retention (trigger 14502, issue 1000481) reads 1004: 740 message bodies past 30 days, 53 raw messages, 105 loop-quarantine bodies, 2 unconfirmed subscribers and 104 ipatent-db rows past 90 days. All 19 periods are still proposals and nothing is purged. The default stays in effect (report only; the metric stays above 0 as an honest breach). Closing probe: SELECT value FROM ops_config WHERE key = ''retention_enforce'' reads on after your answer ''enforce'' (the sweep is then built and the metric is expected to read 0 within two heavy ticks), or your answer ''keep'', after which the fleet records the periods as not adopted in decision_log and rescopes the metric to adopted policies.'
+WHERE slug = 'bp26-retention-enforce' AND status = 'resolved' AND resolution LIKE 'DEFAULT-ADOPTED-1%';
+
+UPDATE agent_issues
+SET description = description || char(10) || 'IDENTITY-BOUND: deleting or blanking mail bodies, raw messages, drafts and subscriber rows is irreversible and they hold the personal data of the owner''s correspondents (card bp26-retention-enforce, reopened by migrations/2026-11-05-bp26-retention-card-reopen.sql).' || char(10) || 'DELTA-NOTE (breach-bp26, 2026-11-05) retention: producer checked, valid. 1004 = 740 + 53 + 105 + 2 (qnfo-audit) + 104 (ipatent-db, runner-measured). The lever-review proposal to add a default-on sweep to bp26_retention_heavy_tick is not built: the 19 periods are proposals (policy_status proposed), a blanked body cannot be restored, and a backup copy would keep the same personal data. Blocker: owner answer on card 189 (enforce, adjust <policy_key> <days>, or keep). Closing probe: this issue''s contract (metric 14502) once ops_config retention_enforce is on and the sweep has run.',
+    updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+WHERE id = 1000481 AND status = 'open' AND description NOT LIKE '%DELTA-NOTE (breach-bp26, 2026-11-05) retention%';
