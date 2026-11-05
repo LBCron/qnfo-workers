@@ -443,6 +443,16 @@ jobs:
         run: |
           python3 scripts/d1_restore_drill.py --selftest && python3 scripts/d1_restore_drill.py
 
+      # TT-DRILL-RECUR-1 (2026-11-05, roadmap row 1704): the Time Travel restore drill (scripts/cf_ops_actions.py d1_restore_drill, table d1_restore_drills) ran once by hand on 2026-10-28
+      # and nothing ran it again. This step runs it when the newest passing row is 30 days old and not twice within 6 hours; when it is not due it costs one D1 read. Never fails the job.
+      - name: Time Travel restore drill when due
+        id: timetravel-drill
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          python3 scripts/d1_timetravel_drill_due.py --selftest && python3 scripts/d1_timetravel_drill_due.py
+
       - name: Stamp the heavy run
         if: always()
         run: |
