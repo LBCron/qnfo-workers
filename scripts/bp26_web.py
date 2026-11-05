@@ -45,6 +45,7 @@ Usage:
   CF_ACCOUNT_ID=<id> python3 scripts/bp26_producers.py --dry --only collect_web     live read-only run through the framework
 """
 import calendar
+import collections
 import concurrent.futures
 import datetime
 import html as htmllib
@@ -432,6 +433,56 @@ def read_text(ctx, rel):
         return None
 
 
+BSKY_ACTOR = "qnfo.org"
+BSKY_MAX_PAGES = 15
+BSKY_FEED = "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=%s&limit=100&filter=posts_with_replies"
+
+
+def bluesky_wire_posts(ctx):
+    """[("bluesky-wire", text)] of the account's own posts (replies and thread posts included, reposts and other authors left out) of the last SOCIAL_DAYS days, read from the public AppView:
+    the text as published. Complete or nothing: a feed that cannot be read, or whose pages run out (BSKY_MAX_PAGES) before reaching a post older than the window, adds no post at all,
+    because the newest part of a window judged as the whole would read clean while its oldest posts, the unmarked ones, were never looked at. The reason goes to ctx.social_notes."""
+    cutoff = ctx.now - SOCIAL_DAYS * 86400
+    out, cursor, reached = [], None, False
+    notes = getattr(ctx, "social_notes", None)
+    if notes is None:
+        notes = ctx.social_notes = []
+    try:
+        for _page in range(BSKY_MAX_PAGES):
+            url = BSKY_FEED % urllib.parse.quote(BSKY_ACTOR) + (("&cursor=" + urllib.parse.quote(cursor)) if cursor else "")
+            r = ctx.http(url, external=True, max_bytes=2000000)
+            if r.error or r.status != 200:
+                notes.append(("social:bluesky-wire", None, "the public AppView feed could not be read (%s): Bluesky is not judged this run" % (r.error or r.status)))
+                return []
+            j = json.loads(r.text)
+            for it in j.get("feed") or []:
+                if it.get("reason"):
+                    continue
+                post = it.get("post") or {}
+                rec = post.get("record") or {}
+                if (post.get("author") or {}).get("handle") != BSKY_ACTOR:
+                    continue
+                try:
+                    ts = calendar.timegm(time.strptime(str(rec.get("createdAt"))[:19], "%Y-%m-%dT%H:%M:%S"))
+                except ValueError:
+                    continue
+                if ts < cutoff:
+                    reached = True
+                    continue
+                out.append(("bluesky-wire", str(rec.get("text") or "")))
+            cursor = j.get("cursor")
+            if reached or not cursor:
+                reached = True
+                break
+    except Exception as e:  # noqa: BLE001
+        notes.append(("social:bluesky-wire", None, "the public AppView feed could not be parsed (%s): Bluesky is not judged this run" % type(e).__name__))
+        return []
+    if not reached:
+        notes.append(("social:bluesky-wire", None, "%d pages of the AppView feed did not reach the start of the %d-day window: Bluesky is not judged this run" % (BSKY_MAX_PAGES, SOCIAL_DAYS)))
+        return []
+    return out
+
+
 def social_posts(ctx):
     """([(source, text)] of automated-account posts of the last SOCIAL_DAYS days, error). qnfo-audit only; text is public post text."""
     try:
@@ -449,6 +500,19 @@ def social_posts(ctx):
                 lst = []
             for p in lst if isinstance(lst, list) else []:
                 posts.append(("bluesky-thread", p if isinstance(p, str) else json.dumps(p)))
+        # BP26-LABEL-WIRE-1 (2026-11-05): two channels the ledger above never judged. (1) Substack Notes (buffer-substack, about half of all automated posts): until qnfo-social 0.22.2 the roll-up
+        # Note was recorded as the draft, not as sent, so the ledger cannot vouch for older rows. The cut-off is the first row whose preview ends with the marker (self-calibrating, no date
+        # constant): from then on every Substack row must carry it, and none counts before the ledger records what went out. (2) Bluesky, the main automated channel, has no row in social_media_posts
+        # at all: it is read from the public AppView, which is the wire itself.
+        try:
+            cut = ctx.d1("SELECT MIN(created_at) AS t FROM social_media_posts WHERE platform = 'buffer-substack' AND created_at > datetime('now', ?1) AND content_preview LIKE '%[AI-generated]'", ["-%d days" % SOCIAL_DAYS])
+            t0 = cut[0]["t"] if cut and cut[0].get("t") else None
+            if t0:
+                for r in ctx.d1("SELECT content_preview FROM social_media_posts WHERE platform = 'buffer-substack' AND created_at >= ?1 AND content_preview IS NOT NULL", [t0]):
+                    posts.append(("buffer-substack", r["content_preview"] or ""))
+        except Exception:  # noqa: BLE001
+            pass
+        posts += bluesky_wire_posts(ctx)
         return posts, None
     except Exception as e:  # noqa: BLE001
         return [], str(e)[:120]
@@ -723,7 +787,16 @@ def collect_web(ctx):
         l_total += 1
         good = marked == len(posts)
         l_ok += 1 if good else 0
-        l_rows.append(("social post text", 1 if good else 0, "%d of %d posts of the last %d days carry an AI or automation marker in their text (previews are cut at 200 characters)" % (marked, len(posts), SOCIAL_DAYS)))
+        by_src = collections.OrderedDict()
+        for src_name, t in posts:
+            by_src.setdefault(src_name, [0, 0])
+            by_src[src_name][1] += 1
+            by_src[src_name][0] += 1 if SOCIAL_MARKER_RX.search(t) else 0
+        l_rows.append(("social post text", 1 if good else 0, "%d of %d posts of the last %d days carry an AI or automation marker in their text (previews are cut at 200 characters; by source: %s)" % (marked, len(posts), SOCIAL_DAYS, ", ".join("%s %d/%d" % (k, v[0], v[1]) for k, v in by_src.items()))))
+        l_rows.extend(getattr(ctx, "social_notes", []) or [])
+        for src_name, (m_ok, m_n) in by_src.items():
+            if m_ok != m_n:
+                l_rows.append(("social:" + src_name, 0, "%d of %d posts lack the marker; the newest unmarked one is what holds the 14-day window open" % (m_n - m_ok, m_n)))
     if l_total >= 3:
         results.append(Result("ai_label_coverage", round(l_ok / float(l_total), 4), "%d of %d AI-touched templates carry the visible label and the JSON-LD flag (the social template: the marker in every post's text)" % (l_ok, l_total), l_rows))
     else:
@@ -950,6 +1023,34 @@ INSERT INTO q08_retractions VALUES ('retracted-piece');
     # BP26-LABEL-LEDGER-1: a thread closed by THREAD-CLOSE-1 (carried on the channels, never posted as a thread) is not a post of its own
     sp, sp_err = social_posts(P.Ctx(d1=d1, http=fake_http, root=td_root))
     ok(sp_err is None and ("bluesky-thread", "thread post one") in sp and not any(t == "carried draft" for _s, t in sp), "a carried thread draft is not counted as a post, a thread posted on Bluesky is: %r %r" % (sp, sp_err))
+    # BP26-LABEL-WIRE-1: Substack rows count from the first marked row on, and the Bluesky wire is read from the public AppView
+    now_t = time.time()
+    iso = lambda days: time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(now_t - days * 86400))  # noqa: E731
+    sq = lambda days: time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now_t - days * 86400))  # noqa: E731
+    c.execute("INSERT INTO social_media_posts VALUES ('s1', 'buffer-substack', 'New open-access paper from QNFO: old draft row', ?)", [sq(6)])
+    c.execute("INSERT INTO social_media_posts VALUES ('s2', 'buffer-substack', 'New open-access paper from QNFO: sent text [AI-generated]', ?)", [sq(3)])
+    c.execute("INSERT INTO social_media_posts VALUES ('s3', 'buffer-substack', 'New open-access paper from QNFO: a later row without the marker', ?)", [sq(1)])
+    feed = {"cursor": None, "feed": [
+        {"post": {"author": {"handle": "qnfo.org"}, "record": {"text": "Paper one [AI-generated]", "createdAt": iso(1)}}},
+        {"post": {"author": {"handle": "qnfo.org"}, "record": {"text": "Reply two without it", "createdAt": iso(2)}}},
+        {"reason": {"$type": "app.bsky.feed.defs#reasonRepost"}, "post": {"author": {"handle": "qnfo.org"}, "record": {"text": "a repost is not ours", "createdAt": iso(2)}}},
+        {"post": {"author": {"handle": "someone.else"}, "record": {"text": "another author", "createdAt": iso(2)}}},
+        {"post": {"author": {"handle": "qnfo.org"}, "record": {"text": "older than the window", "createdAt": iso(30)}}}]}
+    pages[BSKY_FEED % "qnfo.org"] = Resp(200, {}, [], json.dumps(feed), "u", 5, [], None)
+    sp2, sp2_err = social_posts(P.Ctx(d1=d1, http=fake_http, root=td_root))
+    texts = [t for _s, t in sp2]
+    ok(sp2_err is None and "New open-access paper from QNFO: old draft row" not in texts and any(t.endswith("sent text [AI-generated]") for t in texts) and any("later row without" in t for t in texts), "Substack rows count from the first marked row on: the older draft row is out, the later unmarked row is in: %r" % texts)
+    ok([t for src_n, t in sp2 if src_n == "bluesky-wire"] == ["Paper one [AI-generated]", "Reply two without it"], "Bluesky wire: own posts and replies in the window, no repost, no other author, nothing older: %r" % [t for src_n, t in sp2 if src_n == "bluesky-wire"])
+    pages[BSKY_FEED % "qnfo.org"] = Resp(503, {}, [], "", "u", 5, [], None)
+    sp3, _e3 = social_posts(P.Ctx(d1=d1, http=fake_http, root=td_root))
+    ok(not any(src_n == "bluesky-wire" for src_n, _t in sp3), "an unreadable AppView adds no wire posts and does not fail the measure")
+    ctx_inf = P.Ctx(d1=d1, http=fake_http, root=td_root)
+    pages[BSKY_FEED % "qnfo.org"] = Resp(200, {}, [], json.dumps({"cursor": "c1", "feed": [{"post": {"author": {"handle": "qnfo.org"}, "record": {"text": "recent [AI-generated]", "createdAt": iso(0.1)}}}]}), "u", 5, [], None)
+    pages[BSKY_FEED % "qnfo.org" + "&cursor=c1"] = Resp(200, {}, [], json.dumps({"cursor": "c1", "feed": [{"post": {"author": {"handle": "qnfo.org"}, "record": {"text": "recent [AI-generated]", "createdAt": iso(0.1)}}}]}), "u", 5, [], None)
+    ok(bluesky_wire_posts(ctx_inf) == [] and any("did not reach the start" in n[2] for n in ctx_inf.social_notes), "a feed whose pages run out before the window starts adds nothing (an incomplete window would read clean): %r" % (ctx_inf.social_notes,))
+    c.execute("DELETE FROM social_media_posts WHERE platform = 'buffer-substack'")
+    sp4, _e4 = social_posts(P.Ctx(d1=d1, http=fake_http, root=td_root))
+    ok(not any(src_n == "buffer-substack" for src_n, _t in sp4), "with no marked Substack row yet, none is counted (the ledger cannot vouch for what was sent)")
     # BP26-SHARED-METRIC-1: the freshness list must not name a metric another collector refreshes (it would suppress this collector)
     ok("a11y_violations_serious" not in COLLECTORS[0].metrics and "slo_attainment_28d_min" in COLLECTORS[0].metrics, "collect_web does not share a11y_violations_serious with the axe collector: %r" % (COLLECTORS[0].metrics,))
     print("bp26_web selftest %s" % ("ok" if not fails else "FAILED %d" % len(fails)))
