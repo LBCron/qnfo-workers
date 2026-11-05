@@ -86,10 +86,10 @@ uses the existing product registry host `youtube` because the graph has no publi
 | Item | What |
 |---|---|
 | PLUS-1 | `product_registry`, `plus_ledger`, `v_product_plus_due` and the seeded products (this change) |
-| PLUS-2 | Usage signal per product: a beacon-free count from Worker logs for each product host, written daily to the registry |
+| PLUS-2 | **Built** (`migrations/2026-11-05-plus-2-5-usage-digest.sql`): step `pl-usage` of the hourly `management-personas-plus` task copies the newest per-script request snapshot (`worker_usage_daily`, from Cloudflare analytics) into `product_registry.usage_value / usage_window / usage_errors / usage_read_at / usage_source`; a stale or missing snapshot is NULL (unmeasured, never 0). The number is Worker requests, cron and service-binding calls included, not people. `shorts-channel` takes `youtube_videos.views` once a view read lands. Detector `fm-product-usage-unmeasured` |
 | PLUS-3 | Plus step in the manager tick: pick, gather, write the `ROADMAP-1` issue with prediction, record in the ledger |
 | PLUS-4 | **Built** (`migrations/2026-11-01-plussing-4.sql`): capture baseline at verified deployment; after seven days, keep on a material outcome gain with no guard regression or request a bounded revert; register `plus_shipped_7d` and `plus_kept_share_30d` triggers |
-| PLUS-5 | Weekly "what got better" digest from `plus_ledger` to the owner, and a fleet page `/plus` |
+| PLUS-5 | **Built**: table `plus_digest` (a row each Monday from step `pl-digest`, one at apply; an empty week says so) and the fleet page `fleet.qnfo.org/plus` with `GET /api/plus` (fleet-plus/v1): the newest digest, per product last plus, in flight, kept, reverted and usage, and the last 7 days of the ledger. Detector `fm-plus-digest-stale`. No e-mail is sent from SQL: the owner reads the page |
 | PLUS-6 | Plus-the-plus and rest rules (three misses rest 7 days, simplify every fifth) |
 
 First product to run it end to end: `me.q08.org`, because the owner's last request there is the clearest example of a gap that should have

@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.91.1";
+var VERSION = "1.93.0";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -2518,7 +2518,7 @@ var AREA_REGISTRY = [
   { id: "autonomy", name: "Autonomy loop", short: "Autonomy", what: "how the fleet works on itself: issues, the code loop, remedies, dispatches, the owner queue", sources: ["v_metric_trigger_state", "metric_history", "agent_issues", "code_tasks", "human_actions"],
     rx: /issue|code_|remedy|fix_|mttr|driver|watchmaker|contracts|session_|owner_dispatch|human_wait|backlog/, star: { key: "open_agent_issues", label: "Open issues", unit: "", good: "down" },
     root: { key: "remedy_efficacy_30d", explains: ["fix_hold_rate_30d"] },
-    flows: ["issues", "code"], widgets: ["controls"], controls: ["owner_queue_delegated"], pages: [{ key: "managers", label: "Managers", href: "/managers", feed: "/api/managers" }],
+    flows: ["issues", "code"], widgets: ["controls"], controls: ["owner_queue_delegated"], pages: [{ key: "managers", label: "Managers", href: "/managers", feed: "/api/managers" }, { key: "plus", label: "Plus", href: "/plus", feed: "/api/plus" }],
     queue: { sources: ["code-loop", "issue-loop", "objectives", "register", "gtd"], rx: null } },
   { id: "reliability", name: "Reliability and security", short: "Reliability", what: "whether it stays up and honest: guards, probes, drift, cron cadence, failure modes", sources: ["v_metric_trigger_state", "metric_history", "fleet probes"],
     rx: /guard|github_app|spof|runtime_verified|probe|drift|cadence_overdue|failure_mode|roster|blocker|dangling|cron_|deploy_|false_stops|security|sla_breach/, star: { key: "guard_rcs", label: "Guards failing", unit: "", good: "down" },
@@ -2675,6 +2675,7 @@ var API_INDEX = [
   { path: "/api/kpi", area: "platform", source: "live", lag_s: 60, method: "GET", auth: "open", schema_version: "fleet-kpi/v1", cache: "public 15s, ETag (60 s in isolate memory)", freshness: "qnfo-audit read at request time", what: "The Metrics tab: issues, reach, posts, Buffer, subscribers." },
   { path: "/api/architecture", area: "platform", source: "live", lag_s: 300, method: "GET", auth: "open", schema_version: "fleet-architecture/v1", cache: "public 15s, ETag (5 min in isolate memory)", freshness: "the fleet code and live topology graph (qnfo-graph), the service registry, the heartbeats and the cron table, read at request time", what: "The fleet's model of itself: workers, layers, bindings, schedules, who reads and writes what, how a change ships, who may do what, and what the model cannot see. /api/architecture/worker/<name>, /table/<name> and /impact/<worker> answer one thing; ?q=<text> searches." },
   { path: "/api/managers", area: "autonomy", source: "live", lag_s: 3600, method: "GET", auth: "open", schema_version: "fleet-managers/v1", cache: "public 15s, ETag", freshness: "the hourly management-personas tick (:35); read live from D1", what: "What the portfolio manager and each program manager decided this hour: focus slots per program, the constraint, each program's focus issues, doer gaps and the focus moves of the last 24 hours." },
+  { path: "/api/plus", area: "autonomy", source: "live", lag_s: 3600, method: "GET", auth: "open", schema_version: "fleet-plus/v1", cache: "public 15s, ETag", freshness: "the hourly management-personas-plus task (:50) writes the usage columns; the digest is written each Monday; read live from D1", what: "What got better: the weekly plus digest, and per product when it was last plussed, what is in flight, how many plusses were kept or reverted and a usage number (Worker requests over 7 days, not people; null means unmeasured)." },
   { path: "/api/content", area: "research", source: "live", lag_s: 60, method: "GET", auth: "open", schema_version: "content-pipeline/v1", cache: "public 15s, ETag (60 s in isolate memory)", freshness: "v_content_pipeline, living-paper, q08-signal", what: "The content production line end to end." },
   { path: "/api/changelog", area: "platform", source: "live", lag_s: 60, method: "GET", auth: "open (personal releases for a holder)", schema_version: "changelog/v2", cache: "public 15s, ETag", freshness: "deployment_history, enriched every 15 min", what: "What the fleet shipped for itself, newest first. One page of 20 by default (?limit=1..200, ?offset=, ?limit=all for the 267-release history it used to send whole). Send If-None-Match or ?since=<revision>." },
   { path: "/api/ga4", area: "reach", source: "live", lag_s: 60, method: "GET", auth: "open", schema_version: "ga4/v1", cache: "public 15s, ETag", freshness: "one ga4-ingest ledger row a day", what: "GA4 ingest runs and whether the service-account key is present." },
@@ -4167,6 +4168,12 @@ if (path === "/health") {
     const mv = await managersView(env);
     if (path === "/api/managers") return rtRead(request, url, mv, { schema: "fleet-managers/v1" });
     return new Response(managersHtml(mv, !!(owner.authed || owner.loop)), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=60" } });
+  }
+  // PLUS-5 (2026-11-05): what got better, per product; open and read-only (OPEN-ACCESS-1).
+  if ((path === "/plus" || path === "/plus/" || path === "/api/plus") && request.method === "GET") {
+    const pv = await plusView(env);
+    if (path === "/api/plus") return rtRead(request, url, pv, { schema: "fleet-plus/v1" });
+    return new Response(plusHtml(pv, !!(owner.authed || owner.loop)), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=60" } });
   }
   if (path === "/api/portfolio/latest") {
     const notesL = await d1all(env.AUDIT, "SELECT day, program_code, manager_persona, verdict, risk_score, top_actions, narrative, roadmap_now, roadmap_next, roadmap_later, goals_adopted, goals_completed FROM program_review_notes ORDER BY day DESC, program_code LIMIT 12").catch(function() { return []; });
@@ -17292,6 +17299,78 @@ function managersHtml(v, holder) {
   return head + body + '</main></body></html>';
 }
 __name(managersHtml, "managersHtml");
+
+// ==== PLUS-5 (2026-11-05, roadmap plussing-2026 row 1800, docs/PLUSSING.md; pillar autonomy): the plus page ====
+// The owner's quiet channel for plussing: what got better this week, per product, without a card per change. It reads product_registry (PLUS-1, with the usage columns
+// of PLUS-2), plus_ledger and plus_digest (migrations/2026-11-05-plus-2-5-usage-digest.sql, the weekly row is written by the pl-digest step). Open and read-only
+// (OPEN-ACCESS-1). A table or column that cannot be read is named in `unavailable`, never shown as an empty week; a product with no usage number says unmeasured.
+// The usage number is Cloudflare Worker requests (cron ticks and service-binding calls included), not people, and the page says so.
+async function plusView(env) {
+  const out = { schema_version: "fleet-plus/v1", ok: true, generated_at: new Date().toISOString(), digest: null, digests: [], products: [], week: [], unavailable: [] };
+  const read = async function(name, sql, params) {
+    try {
+      return await d1all(env.AUDIT, sql, params || []);
+    } catch (e) {
+      out.unavailable.push(name);
+      return [];
+    }
+  };
+  let prods;
+  try {
+    prods = await d1all(env.AUDIT, "SELECT product, host, worker, program_code, what_for, state, plus_cadence_h, last_plus_at, rest_until, misses_in_row, pluses_since_simplify, usage_metric, usage_value, usage_window, usage_errors, usage_read_at, usage_source FROM product_registry ORDER BY product");
+  } catch (e) {
+    prods = await read("product_registry", "SELECT product, host, worker, program_code, what_for, state, plus_cadence_h, last_plus_at, rest_until, misses_in_row, pluses_since_simplify FROM product_registry ORDER BY product");
+    out.unavailable.push("product_registry.usage");
+  }
+  const led = await read("plus_ledger", "SELECT product, SUM(status IN ('proposed', 'building', 'reverting')) AS in_flight, SUM(status IN ('deployed', 'shipped', 'kept')) AS shipped, SUM(status = 'reverted') AS reverted, SUM(status = 'rejected') AS rejected FROM plus_ledger GROUP BY product");
+  out.week = await read("plus_ledger", "SELECT product, kind, title, status, decided_at, issue_id, pr_url, outcome FROM plus_ledger WHERE date(decided_at) >= date('now', '-7 days') ORDER BY decided_at DESC LIMIT 40");
+  out.digests = await read("plus_digest", "SELECT day, products, in_flight, decided_7d, deployed_7d, reverted_7d, body_md, created_at FROM plus_digest ORDER BY day DESC LIMIT 4");
+  out.digest = out.digests[0] || null;
+  out.products = prods.map(function(p) {
+    const l = led.find(function(x) { return x.product === p.product; }) || {};
+    return {
+      product: p.product, host: p.host, worker: p.worker, program_code: p.program_code, what_for: p.what_for, state: p.state,
+      last_plus_at: p.last_plus_at || null, rest_until: p.rest_until || null, misses_in_row: p.misses_in_row || 0, cadence_h: p.plus_cadence_h,
+      in_flight: Number(l.in_flight || 0), shipped: Number(l.shipped || 0), reverted: Number(l.reverted || 0), rejected: Number(l.rejected || 0),
+      usage: p.usage_value == null ? null : { value: Number(p.usage_value), window: p.usage_window || null, metric: p.usage_metric || null, errors: p.usage_errors == null ? null : Number(p.usage_errors), read_at: p.usage_read_at || null, source: p.usage_source || null }
+    };
+  });
+  out.unavailable = out.unavailable.filter(function(x, i, arr) { return arr.indexOf(x) === i; });
+  return out;
+}
+__name(plusView, "plusView");
+
+function plusHtml(v, holder) {
+  const css = "<style>.pl-dg{white-space:pre-wrap;font:14.5px/1.6 var(--sans);margin:0;max-width:95ch}.pl-w{overflow-x:auto}.pl-t{width:100%;border-collapse:collapse;font-size:14px}.pl-t th,.pl-t td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);vertical-align:top}.pl-t th{color:var(--muted);font-weight:600;white-space:nowrap}.pl-t td.n{text-align:right;white-space:nowrap}.pl-un{color:var(--muted)}</style>";
+  const head = fleetHead("Plus: what got better") + css + fleetTop("plus", false, holder);
+  const fmt = function(n) { return Number(n).toLocaleString("en-GB"); };
+  const day = function(s) { return s ? esc(String(s).slice(0, 10)) : "never"; };
+  let body = '<main class="wrap fl" style="max-width:1100px"><h1 class="fl-h" style="font-size:30px;margin:10px 0 6px">Plus: what got better</h1>';
+  body += '<p class="meta" style="margin:0 0 14px;max-width:95ch">Every product gets one small, reversible addition at a time, chosen by the fleet from evidence, never asked for. This page is the quiet report: the weekly digest, then each product with when it was last plussed, what is in flight and how much it is used. A plus is kept only when its outcome measure improved and no guard worsened.</p>';
+  if (v.unavailable && v.unavailable.length) body += '<p class="bad">Could not read: ' + esc(v.unavailable.join(", ")) + '.</p>';
+  if (v.digest) {
+    body += '<section class="card" style="margin:0 0 16px"><h2 style="font-size:18px;margin:0 0 6px">Digest of ' + esc(v.digest.day) + '</h2><p class="meta" style="margin:0 0 8px">' + esc(String(v.digest.products)) + ' products, ' + esc(String(v.digest.in_flight)) + ' in flight, ' + esc(String(v.digest.deployed_7d)) + ' deployed and ' + esc(String(v.digest.reverted_7d)) + ' reverted in 7 days. A new digest is written each Monday.</p><p class="pl-dg">' + esc(v.digest.body_md) + '</p></section>';
+  } else if (!(v.unavailable || []).includes("plus_digest")) {
+    body += '<section class="card" style="margin:0 0 16px"><h2 style="font-size:18px;margin:0 0 6px">Digest</h2><p class="meta">No digest has been written yet; the first one is written by the hourly plus task on a Monday.</p></section>';
+  }
+  body += '<section class="card" style="margin:0 0 16px"><h2 style="font-size:18px;margin:0 0 8px">Products</h2><div class="pl-w" role="region" aria-label="Products" tabindex="0"><table class="pl-t"><tr><th>Product</th><th>Host</th><th>Last plus</th><th>In flight</th><th>Kept</th><th>Reverted</th><th>Used (7 days)</th></tr>';
+  for (const p of v.products) {
+    const rest = p.rest_until && String(p.rest_until) > new Date().toISOString() ? ' <span class="tag">resting to ' + day(p.rest_until) + '</span>' : "";
+    const use = p.usage ? '<b>' + esc(fmt(p.usage.value)) + '</b> <span class="meta">' + esc(p.usage.metric === "youtube_views_total" ? "views" : "requests") + (p.usage.errors ? ', ' + esc(fmt(p.usage.errors)) + ' errors' : '') + '</span>' : '<span class="pl-un">unmeasured</span>';
+    body += '<tr><td><b>' + esc(p.product) + '</b>' + rest + '<br><span class="meta">' + esc(p.what_for || "") + '</span></td><td>' + esc(p.host || "") + '</td><td>' + day(p.last_plus_at) + '</td><td class="n">' + esc(String(p.in_flight)) + '</td><td class="n">' + esc(String(p.shipped)) + '</td><td class="n">' + esc(String(p.reverted)) + '</td><td>' + use + '</td></tr>';
+  }
+  body += '</table></div><p class="meta" style="margin:8px 0 0;max-width:95ch">Used is Cloudflare Worker requests for the product\'s worker over 7 days, cron ticks and calls between workers included: it shows which products are alive, not how many people use them. Unmeasured means no number was read, never zero.</p></section>';
+  if (v.week && v.week.length) {
+    body += '<section class="card"><h2 style="font-size:18px;margin:0 0 8px">The last 7 days</h2><div class="pl-w" role="region" aria-label="The last 7 days" tabindex="0"><table class="pl-t"><tr><th>When</th><th>Product</th><th>Plus</th><th>State</th></tr>';
+    for (const w of v.week) body += '<tr><td>' + day(w.decided_at) + '</td><td>' + esc(w.product || "") + '</td><td>' + esc(w.title || "") + (w.pr_url ? ' <a href="' + esc(w.pr_url) + '">PR</a>' : '') + '</td><td>' + esc(w.status || "") + '</td></tr>';
+    body += '</table></div></section>';
+  } else if (!(v.unavailable || []).includes("plus_ledger")) {
+    body += '<section class="card"><h2 style="font-size:18px;margin:0 0 6px">The last 7 days</h2><p class="meta">No plus was proposed, shipped or reverted in the last 7 days.</p></section>';
+  }
+  body += '<p class="meta" style="margin:14px 0 0">Machine-readable: <a href="/api/plus"><code>/api/plus</code></a> (fleet-plus/v1). Design: docs/PLUSSING.md.</p>';
+  return head + body + '</main></body></html>';
+}
+__name(plusHtml, "plusHtml");
 
 async function portfolioStrategicRun(env, opts) {
   opts = opts || {};
