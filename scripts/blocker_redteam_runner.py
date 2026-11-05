@@ -80,13 +80,14 @@ def token_attempt(req=None):
 
 # BLOCKER-REDTEAM-AUTO-3 (2026-11-05, metric unverified_blocker_claims 35, pillar autonomy). v_blocker_claims matches the eight trigger phrases below as bare
 # substrings of title + description, so a sentence that denies the blocker ("nothing is blocked", "Neither is owner-only", "unblocked") counts as one. Measured
-# 2026-11-04 on the 35 open claims: 4 deny the phrase in the text itself (2582, 1000275, 1001748, 1001749), 2 carry an IDENTITY-BOUND: line without owner wording
-# (1001748, 1001749), and 31 have no doer at all (v_issue_age_ladder.doer is null for every one; 16 carry a `session-task:` line), which the doer-assignment loop owns.
+# 2026-11-04 on the 36 open claims: 1 denies the phrase in the text itself (1000275), 2 carry an IDENTITY-BOUND: line without owner wording (1001748, 1001749),
+# and 33 have no doer at all (v_issue_age_ladder.doer is null for every one; 16 carry a `session-task:` line), which the doer-assignment loop owns.
 # The runner now (1) confirms an issue that states its own IDENTITY-BOUND: line, (2) records false-belief-removed, signed, when every occurrence of every
 # trigger phrase in the text is negated, (3) counts a live code task or a progressing breach-doctor case as a doer, as v_issue_age_ladder does. A claim it
 # still cannot test stays unrecorded, as before.
 PHRASES = ("owner only", "owner-only", "needs a token", "no token", "needs the owner", "cannot be done", "blocked")
-NEGATOR_RE = re.compile(r"\b(?:no|not|never|neither|nor|nothing|none|without|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't)\b|n't\b", re.I)
+NEGATOR_RE = re.compile(r"no|not|never|neither|nor|nothing|none|without|\w+n't|cannot", re.I)
+NEGATION_WORDS = 4
 SENTENCE_BREAK_RE = re.compile(r"[.!?\n;]")
 ACTIVE_STATUS = "'merged', 'closed', 'superseded', 'publish_failed', 'needs_human', 'failed', 'reverted'"
 
@@ -111,8 +112,11 @@ def negated_context(text, p, i):
     start = i
     while start > 0 and not SENTENCE_BREAK_RE.match(low[start - 1]):
         start -= 1
-    prefix = low[max(start, i - 60):i]  # the words before the phrase only: "no token" is a claim, its own "no" is not a negator
-    if NEGATOR_RE.search(prefix):
+    # The words before the phrase only ("no token" is a claim, its own "no" is not a negator), bound to it: the last NEGATION_WORDS words after the
+    # last colon of the sentence. BLOCKER-REDTEAM-AUTO-3a: a 60-character window removed 3003 ("...the metric is not moving:** two producers are
+    # blocked by publication-quality gates"), where the "not" negates "moving", not "blocked".
+    prefix = low[max(start, i - 60):i].split(":")[-1]
+    if any(NEGATOR_RE.fullmatch(w.strip("*_`()[]{}\"',")) for w in prefix.split()[-NEGATION_WORDS:]):
         return text[max(start, i - 60):i + len(p) + 20].replace("\n", " ").strip()
     return None
 
@@ -330,6 +334,14 @@ INSERT INTO claims VALUES ('issue:1', 'blocked on x'), ('issue:2', 'blocked'), (
     assert "issue:29" not in got, "an owner-only claim without IDENTITY-BOUND stays counted"
     assert negated_context("The push was blocked (non-fast-forward).", "blocked", 13) is None
     assert negated_context("It is not blocked.", "blocked", 10) is not None
+    s3003 = "**Why the metric is not moving:** two producers are blocked by publication-quality gates"
+    assert negated_context(s3003, "blocked", s3003.index("blocked")) is None, "a negator that belongs to another word does not deny the phrase (issue 3003)"
+    s1000275 = "They hold no concurrency group, so nothing is blocked; they only distort run counts"
+    assert negated_context(s1000275, "blocked", s1000275.index("blocked")) is not None
+    s2582 = "Neither is owner-only, so nothing is blocked."
+    assert all(negated_context(s2582, p, i) is not None for p, i in phrase_hits(s2582)), phrase_hits(s2582)
+    sfar = "a far earlier not, then many unrelated words before the blocked step"
+    assert negated_context(sfar, "blocked", sfar.index("blocked")) is None
     assert all("surfaces:" in v[1] for v in got.values())
     sig = {r[0]: r[1] for r in c.execute("SELECT target, text_sig FROM blocker_redteam")}
     assert sig["issue:6"] == sig_of("owner only", "needs the owner\nIDENTITY-BOUND: a signing act"), sig
