@@ -24,7 +24,10 @@ regression and it acts after every request already runs the new code. Metric `de
 `scripts/gradual_deploy.py` (offline `--selftest`) and `.github/workflows/gradual-deploy.yml` (workflow_dispatch):
 
 1. upload the Version from `<worker>/worker.js` (refuses a non-module script, a missing script and a rollout already in progress);
-2. smoke test: `/health` with the version override must answer 200 and report the new `VERSION`, before any traffic; a failed smoke test deploys nothing;
+2. deploy the new Version at 0 percent (previous Version at 100), then smoke test: `/health` with the version override must answer 200 and report the new `VERSION`, before any traffic
+   (10 probes 3 s apart). Cloudflare applies the override only to a Version that is in the current deployment, so without the 0 percent step the probe sees the previous Version for ever
+   (GRADUAL-PREVIEW-ZERO-1, 2026-11-05: three qnfo-ai-calibration 1.8.1 pushes rolled back this way; the 2026-10-28 proofs re-deployed identical code and never tested the override).
+   A failed smoke test puts the previous Version back at 100 percent and reports whether that call was accepted; a deployment left at 0 percent by a run that died is not a rollout in progress;
 3. 10 percent, soak, compare error rate (new above max(2 percent, 2x old + 1 point)) and wall-time p99 (above 1.5x old) from GraphQL, and `/health`;
    fewer than 20 requests on the new version is "no verdict" (cron-only workers) and is gated on `/health` alone; then 50 percent, soak, compare; then 100;
 4. any regression: deploy the previous Version at 100 percent, exit 1, `RESULT_JSON` names the stage and reason.

@@ -81,8 +81,13 @@ def file_version(text):
     return m.group(1) if m else None
 
 
-PREVIEW_SMOKE_ATTEMPTS = 6
-PREVIEW_SMOKE_RETRY_SEC = 2
+# GRADUAL-PREVIEW-ZERO-1 (BP26-GRADUAL-PROOF-2, 2026-11-05): Cloudflare applies a Cloudflare-Workers-Version-Overrides header only to a Version that is in the CURRENT DEPLOYMENT
+# (docs: workers/versions-and-deployments/version-overrides, "Version must be in current deployment"; the documented smoke test deploys the new Version at 0 percent first). This script
+# uploaded the Version and probed it without ever deploying it, so the probe always saw the previous Version: qnfo-ai-calibration 1.8.1 rolled back three times (runs 41961867647,
+# 41962129843, 41962342074), and the 2026-10-28 proofs only passed because they re-deployed identical code. The Version is now deployed at 0 percent before the probe; the docs say a
+# deployment can take a couple of seconds to be available globally, so the window is 10 probes 3 s apart (about 27 s).
+PREVIEW_SMOKE_ATTEMPTS = 10
+PREVIEW_SMOKE_RETRY_SEC = 3
 
 
 def regression(new, old):
@@ -160,9 +165,11 @@ def run(worker, acct, token, path=None, stages=(10, 50, 100), soak=120, dry=Fals
     if not deps:
         return out(why="no deployment readable for %s (HTTP %s): the script must exist, this never creates one" % (worker, st))
     cur = deps[0].get("versions") or []
-    if len(cur) != 1:
-        return out(why="a rollout is already in progress (%d versions live): finish or roll it back first" % len(cur))
-    prev = cur[0]["version_id"]
+    # a deployment left behind by a run that died between the 0 percent preview and its rollback holds the live Version at 100 and the preview at 0: not a rollout in progress
+    live_now = [v for v in cur if v.get("percentage", 100) > 0] or cur
+    if len(live_now) != 1:
+        return out(why="a rollout is already in progress (%d versions live): finish or roll it back first" % len(live_now))
+    prev = live_now[0]["version_id"]
     st, j = api("GET", acctp + "/settings")
     settings = (j.get("result") or {}) if st == 200 else {}
     meta = {"main_module": "worker.js", "keep_bindings": KEEP, "annotations": {"workers/message": "gradual-deploy %s" % (want or "?"), "workers/tag": (want or "")[:50]}}
@@ -189,6 +196,10 @@ def run(worker, acct, token, path=None, stages=(10, 50, 100), soak=120, dry=Fals
         return out(outcome="rolled-back", why=why, rolled_back=200 <= (st2 or 0) < 300)
     preview_url = "https://%s.q08.workers.dev/health" % worker
     preview_headers = {"Cloudflare-Workers-Version-Overrides": '%s="%s"' % (worker, new)}
+    # GRADUAL-PREVIEW-ZERO-1: the new Version joins the deployment at 0 percent so that the override can reach it; no request is routed to it by percentage.
+    st0, j0 = deploy(api, acct, worker, [(new, 0), (prev, 100)], "gradual preview 0%% %s" % (want or ""))
+    if not 200 <= (st0 or 0) < 300:
+        return out(why="0 percent preview deployment refused (HTTP %s): %s; the live Version was not touched" % (st0, str(j0.get("errors"))[:200]))
     for attempt in range(1, PREVIEW_SMOKE_ATTEMPTS + 1):
         if attempt > 1:
             sleep(PREVIEW_SMOKE_RETRY_SEC)
@@ -198,8 +209,8 @@ def run(worker, acct, token, path=None, stages=(10, 50, 100), soak=120, dry=Fals
         if sst == 200 and (not want or seen):
             break
     if not (sst == 200 and (not want or seen)):
-        return out(outcome="rolled-back", rolled_back=False,
-                   why="preview smoke test failed (HTTP %s, version %s %s): the version never took traffic" % (sst, want, "seen" if seen else "not seen"))
+        # the preview deployment must not outlive the run: put the previous Version back at 100 percent (rolled_back says whether that call was accepted)
+        return rollback("preview smoke test failed (HTTP %s, version %s %s): the version never took traffic" % (sst, want, "seen" if seen else "not seen"))
 
     def iso(t):
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
@@ -244,19 +255,24 @@ def selftest():
     ok(not is_es_module("addEventListener('fetch', e => e.respondWith(new Response('x')));") and not is_es_module("// export default is only mentioned here\nvar a = 1;") and not is_es_module("export { a, b };") and not is_es_module(""), "a service-worker script, a comment, a named export list and an empty file are not")
     ok(not is_es_module("var s = 'export { x as default }';"), "a string that contains the text is not an export statement")
 
-    def mk(bad_stats=False, health_bad=False, upload_ok=True, live=1, preview_misses=0):
+    def mk(bad_stats=False, health_bad=False, upload_ok=True, live=1, preview_misses=0, refuse_post=None, leftover_preview=False):
         calls = []
         preview_calls = 0
 
         def api(m, p, b=None, files=None):
             calls.append((m, p, b))
             if p.endswith("/deployments") and m == "GET":
-                return 200, {"result": {"deployments": [{"versions": [{"version_id": "old", "percentage": 100}] * live}]}}
+                vs = [{"version_id": "old", "percentage": 100}] * live
+                if leftover_preview:
+                    vs = [{"version_id": "stale", "percentage": 0}, {"version_id": "old", "percentage": 100}]
+                return 200, {"result": {"deployments": [{"versions": vs}]}}
             if p.endswith("/settings"):
                 return 200, {"result": {"compatibility_date": "2026-10-01", "compatibility_flags": []}}
             if p.endswith("/versions"):
                 return (200, {"result": {"id": "newv"}}) if upload_ok else (400, {"errors": ["nope"]})
             if p.endswith("/deployments") and m == "POST":
+                if refuse_post is not None and (b or {}).get("versions", [{}])[0].get("percentage") == refuse_post:
+                    return 400, {"errors": ["refused"]}
                 return 200, {"success": True}
             if p == "/graphql":
                 n = {"requests": 200, "errors": 40 if bad_stats else 0}
@@ -271,7 +287,9 @@ def selftest():
             nonlocal preview_calls
             if headers:
                 preview_calls += 1
-                if preview_calls <= preview_misses:
+                # Cloudflare applies the override only to a Version in the current deployment (GRADUAL-PREVIEW-ZERO-1)
+                in_deployment = any(c[0] == "POST" and c[1].endswith("/deployments") and any(v["version_id"] == "newv" for v in c[2]["versions"]) for c in calls)
+                if not in_deployment or preview_calls <= preview_misses:
                     return 200, '{"version":"9.9.8"}'
                 return 200, '{"version":"9.9.9"}'
             if not pre:  # GRADUAL-ALREADY-LIVE-1: the live script still serves the previous version before the upload
@@ -283,7 +301,8 @@ def selftest():
     f = os.path.join(d, "worker.js")
     with open(f, "w") as fh:
         fh.write('var VERSION = "9.9.9";\nexport default {};\n')
-    cases = [("good", {}, 0, "rolled-out"), ("preview propagation", {"preview_misses": 2}, 0, "rolled-out"),
+    cases = [("good", {}, 0, "rolled-out"), ("preview propagation", {"preview_misses": 2}, 0, "rolled-out"), ("leftover 0 percent preview", {"leftover_preview": True}, 0, "rolled-out"),
+             ("preview deployment refused", {"refuse_post": 0}, 1, "refused"),
              ("bad stats", {"bad_stats": True}, 1, "rolled-back"), ("health", {"health_bad": True}, 1, "rolled-back"),
              ("upload refused", {"upload_ok": False}, 1, "refused"), ("rollout in progress", {"live": 2}, 1, "refused")]
     for name, kw, want_rc, want_out in cases:
@@ -293,7 +312,7 @@ def selftest():
         ok(rc == want_rc and res.get("outcome") == want_out, "%s: rc %s outcome %s" % (name, rc, res.get("outcome")))
         posts = [c for c in calls if c[0] == "POST" and c[1].endswith("/deployments")]
         if name == "good":
-            ok([[v["percentage"] for v in c[2]["versions"]] for c in posts] == [[10, 90], [50, 50], [100]], "stages 10/50/100: %r" % [c[2]["versions"] for c in posts])
+            ok([[v["percentage"] for v in c[2]["versions"]] for c in posts] == [[0, 100], [10, 90], [50, 50], [100]], "0 percent preview, then stages 10/50/100: %r" % [c[2]["versions"] for c in posts])
         if name == "bad stats":
             ok(posts[-1][2]["versions"] == [{"version_id": "old", "percentage": 100}], "rollback deploys the old version at 100")
         if name == "health":
@@ -302,6 +321,8 @@ def selftest():
             ok(res.get("smoke", {}).get("attempts") == 3, "a stale preview version retries until the uploaded version is served")
         if name in ("upload refused", "rollout in progress"):
             ok(not posts, "%s: nothing deployed" % name)
+        if name == "preview deployment refused":
+            ok(len(posts) == 1 and res.get("rolled_back") is None, "a refused 0 percent deployment leaves the live Version alone (nothing to roll back)")
     calls, api, _ = mk()
     res = {}
     preview_calls = []
@@ -310,7 +331,15 @@ def selftest():
             preview_calls.append(1)
         return 500, ""
     rc = run("w", "a", "t", path=f, api=api, sleep=lambda s: None, fetch=unavailable_preview, emit=lambda s: res.update(json.loads(s.split("=", 1)[1])))
-    ok(rc == 1 and not [c for c in calls if c[0] == "POST" and c[1].endswith("/deployments")] and res.get("rolled_back") is False, "smoke failure: no deployment at all")
+    dposts = [c for c in calls if c[0] == "POST" and c[1].endswith("/deployments")]
+    ok(rc == 1 and res.get("outcome") == "rolled-back" and res.get("rolled_back") is True, "smoke failure: rolled back and reported as such: %r" % res)
+    ok([[v["percentage"] for v in c[2]["versions"]] for c in dposts] == [[0, 100], [100]] and dposts[-1][2]["versions"][0]["version_id"] == "old", "smoke failure: the 0 percent preview is followed by the previous Version at 100 percent")
+    # the override is ignored for a Version that no deployment contains: with the 0 percent step removed the smoke test could never pass (the 2026-11-05 failure)
+    calls2, api2, fetch2 = mk()
+    res2 = {}
+    rc2 = run("w", "a", "t", path=f, api=lambda m, p, b=None, files=None: (200, {"success": True}) if (m == "POST" and p.endswith("/deployments") and (b or {}).get("versions", [{}])[0].get("percentage") == 0) else api2(m, p, b, files),
+              sleep=lambda s: None, fetch=fetch2, emit=lambda s: res2.update(json.loads(s.split("=", 1)[1])))
+    ok(rc2 == 1 and res2.get("outcome") == "rolled-back", "a preview deployment that never contains the Version cannot pass the smoke test: %r" % res2)
     ok(len(preview_calls) == PREVIEW_SMOKE_ATTEMPTS, "a persistently unavailable preview stops after the bounded retry window")
     print("gradual_deploy selftest: %s" % ("FAILED: " + "; ".join(fails) if fails else "ok"))
     return 1 if fails else 0
