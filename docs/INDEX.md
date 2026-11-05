@@ -329,12 +329,9 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Closeout — fleet-wide error audit and remediation, 2026-10-17](../audits/closeout-2026-10-17-fleet-remediation.md) - `audits/closeout-2026-10-17-fleet-remediation.md`
 - [qnfo-ops live tool probe — 2026-10-24T15:16Z](../audits/ops-probe-2026-10-24.md) - `audits/ops-probe-2026-10-24.md`
 - [calendar-api Worker (QNFO.OPS.010)](../calendar-api/README.md) - `calendar-api/README.md`
-- [events-radar worker (QNFO.OPS.009 — supersedes conference-radar QNFO.OPS.008, 2026-09-02)](../events-radar/README.md) - `events-radar/README.md`
-- [jnl-referee](../jnl-referee/README.md) - `jnl-referee/README.md`
 - [jobsearch: verified-claims job matcher (JOBSEARCH-POC-1)](../jobsearch/README.md) - `jobsearch/README.md`
 - [Machine-Readability Expansion (QNFO x Cloudflare self-knowledge)](../machine-readability/README.md) - `machine-readability/README.md`
 - [Self-Documenting Prompt Template (machine-readable, machine-optimized)](../machine-readability/self-documentation.prompt.md) - `machine-readability/self-documentation.prompt.md`
-- [obsidian-writer](../obsidian-writer/README.md) - `obsidian-writer/README.md`
 - [CLOSEOUT — fleet capacity, quotas, triage (session 2026-10-17)](../ops-workspace/closeouts/2026-10-17-fleet-capacity-quotas.md) - `ops-workspace/closeouts/2026-10-17-fleet-capacity-quotas.md`
 - [osf-integrity-check](../osf-integrity-check/README.md) - `osf-integrity-check/README.md`
 - [Companion best practices: what the research says and what changed](../personal-api/COMPANION-BEST-PRACTICES.md) - `personal-api/COMPANION-BEST-PRACTICES.md`
@@ -342,7 +339,6 @@ and [the machine-readable catalog](agent-catalog.json).
 - [personal-api - Agentic Personal Twin (v4.11.0)](../personal-api/README.md) - `personal-api/README.md`
 - [Outlook.com mail in the twin (Microsoft Graph, read-only)](../personal-api/msgraph/README.md) - `personal-api/msgraph/README.md`
 - [personal-companion](../personal-companion/README.md) - `personal-companion/README.md`
-- [personal-events-radar worker (QNFO.OPS.010 Stage B, 2026-09-02)](../personal-events-radar/README.md) - `personal-events-radar/README.md`
 - [q08-signal-engine](../q08-signal-engine/README.md) - `q08-signal-engine/README.md`
 - [qnfo-agent-ws](../qnfo-agent-ws/README.md) - `qnfo-agent-ws/README.md`
 - [qnfo-agents](../qnfo-agents/README.md) - `qnfo-agents/README.md`
@@ -356,9 +352,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [QNFO Prompts for Chatbox](../qnfo-ai/prompts-qnfo.md) - `qnfo-ai/prompts-qnfo.md`
 - [QNFO agentic system prompt (paste as the conversation system prompt on QNFO Router chats)](../qnfo-ai/system-prompt-qnfo.md) - `qnfo-ai/system-prompt-qnfo.md`
 - [qnfo-artifact-agent](../qnfo-artifact-agent/README.md) - `qnfo-artifact-agent/README.md`
-- [qnfo-arxiv-radar](../qnfo-arxiv-radar/README.md) - `qnfo-arxiv-radar/README.md`
 - [qnfo-calendar-intake](../qnfo-calendar-intake/README.md) - `qnfo-calendar-intake/README.md`
-- [qnfo-citation-watch](../qnfo-citation-watch/README.md) - `qnfo-citation-watch/README.md`
 - [qnfo-cloud-ops — scheduled cloud operations (2026-08-28)](../qnfo-cloud-ops/README.md) - `qnfo-cloud-ops/README.md`
 - [qnfo-code-orchestrator v0.3.0](../qnfo-code-orchestrator/README.md) - `qnfo-code-orchestrator/README.md`
 - [CONTAINER-RESTORE-1 — qnfo-containers-pilot \[\[containers\]\] restore (issue #1485)](../qnfo-containers-pilot/CONTAINER-RESTORE-1.md) - `qnfo-containers-pilot/CONTAINER-RESTORE-1.md`
@@ -380,7 +374,6 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-fleet-dashboard](../qnfo-fleet-dashboard/README.md) - `qnfo-fleet-dashboard/README.md`
 - [qnfo-gateway — QNFO site router (papers.qnfo.org, ideas, archive, ipatent, graph-api, legal)](../qnfo-gateway/README.md) - `qnfo-gateway/README.md`
 - [qnfo-github-steward](../qnfo-github-steward/README.md) - `qnfo-github-steward/README.md`
-- [qnfo-idea-factory — QNFO Ideas (ideas.qnfo.org)](../qnfo-idea-factory/README.md) - `qnfo-idea-factory/README.md`
 - [qnfo-intent-orchestrator](../qnfo-intent-orchestrator/README.md) - `qnfo-intent-orchestrator/README.md`
 - [qnfo-ipatent — Inventor Disclosure Assistant (ipatent.qnfo.org)](../qnfo-ipatent/README.md) - `qnfo-ipatent/README.md`
 - [qnfo-kaizen](../qnfo-kaizen/README.md) - `qnfo-kaizen/README.md`
@@ -415,7 +408,6 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-pdf — cloud-native PDF renderer](../qnfo-pdf/README.md) - `qnfo-pdf/README.md`
 - [CLOSEOUT — 2026-10-17 · publication pipeline (qnfo-research-exec)](../qnfo-research-exec/CLOSEOUT-2026-10-17.md) - `qnfo-research-exec/CLOSEOUT-2026-10-17.md`
 - [qnfo-research-exec](../qnfo-research-exec/README.md) - `qnfo-research-exec/README.md`
-- [qnfo-research-radar](../qnfo-research-radar/README.md) - `qnfo-research-radar/README.md`
 - [qnfo-social](../qnfo-social/README.md) - `qnfo-social/README.md`
 - [qnfo-subscribers](../qnfo-subscribers/README.md) - `qnfo-subscribers/README.md`
 - [qnfo-tools-mcp](../qnfo-tools-mcp/README.md) - `qnfo-tools-mcp/README.md`

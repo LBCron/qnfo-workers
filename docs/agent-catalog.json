@@ -1588,16 +1588,6 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/schemas-p0/runbooks/publish.md"
     },
     {
-      "path": "events-radar/README.md",
-      "title": "events-radar worker (QNFO.OPS.009 — supersedes conference-radar QNFO.OPS.008, 2026-09-02)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/events-radar/README.md"
-    },
-    {
-      "path": "jnl-referee/README.md",
-      "title": "jnl-referee",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/jnl-referee/README.md"
-    },
-    {
       "path": "jobsearch/README.md",
       "title": "jobsearch: verified-claims job matcher (JOBSEARCH-POC-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/jobsearch/README.md"
@@ -1617,11 +1607,6 @@
       "path": "machine-readability/self-documentation.prompt.md",
       "title": "Self-Documenting Prompt Template (machine-readable, machine-optimized)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/machine-readability/self-documentation.prompt.md"
-    },
-    {
-      "path": "obsidian-writer/README.md",
-      "title": "obsidian-writer",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/obsidian-writer/README.md"
     },
     {
       "path": "ops-workspace/closeouts/2026-10-17-fleet-capacity-quotas.md",
@@ -1657,11 +1642,6 @@
       "path": "personal-companion/README.md",
       "title": "personal-companion",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/personal-companion/README.md"
-    },
-    {
-      "path": "personal-events-radar/README.md",
-      "title": "personal-events-radar worker (QNFO.OPS.010 Stage B, 2026-09-02)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/personal-events-radar/README.md"
     },
     {
       "path": "q08-signal-engine/README.md",
@@ -1729,19 +1709,9 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-artifact-agent/README.md"
     },
     {
-      "path": "qnfo-arxiv-radar/README.md",
-      "title": "qnfo-arxiv-radar",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-arxiv-radar/README.md"
-    },
-    {
       "path": "qnfo-calendar-intake/README.md",
       "title": "qnfo-calendar-intake",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-calendar-intake/README.md"
-    },
-    {
-      "path": "qnfo-citation-watch/README.md",
-      "title": "qnfo-citation-watch",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-citation-watch/README.md"
     },
     {
       "path": "qnfo-cloud-ops/README.md",
@@ -1847,11 +1817,6 @@
       "path": "qnfo-github-steward/README.md",
       "title": "qnfo-github-steward",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-github-steward/README.md"
-    },
-    {
-      "path": "qnfo-idea-factory/README.md",
-      "title": "qnfo-idea-factory — QNFO Ideas (ideas.qnfo.org)",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-idea-factory/README.md"
     },
     {
       "path": "qnfo-intent-orchestrator/README.md",
@@ -2022,11 +1987,6 @@
       "path": "qnfo-research-exec/README.md",
       "title": "qnfo-research-exec",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-research-exec/README.md"
-    },
-    {
-      "path": "qnfo-research-radar/README.md",
-      "title": "qnfo-research-radar",
-      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-research-radar/README.md"
     },
     {
       "path": "qnfo-social/README.md",
