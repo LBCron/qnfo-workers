@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.93.0";
+var VERSION = "1.93.1";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -3897,7 +3897,7 @@ function who(){return fetch('/api/cmd/whoami',{credentials:'same-origin'}).then(
 var warmed=false;
 function codeInit(){who().then(function(h){$('si').style.display=h?'none':'block';$('ci').disabled=!h;if(h&&!warmed){warmed=true;api('/api/v3/warm').then(function(j){$('warm').textContent=j.ok?'Container ready.':'Container warm-up failed: '+(j.error||'unknown')})}})}
 function msg(cl,t){var d=document.createElement('div');d.className='msg '+cl;d.textContent=t;$('log').appendChild(d);d.scrollIntoView({block:'end'});return d}
-function sid(){var s=localStorage.getItem('v3sid');if(!s){s='web-'+Math.random().toString(36).slice(2,12);localStorage.setItem('v3sid',s)}return s}
+function sid(){var s=localStorage.getItem('v3sid');if(!s){var a=new Uint8Array(6);crypto.getRandomValues(a);s='web-'+Array.prototype.map.call(a,function(b){return('0'+b.toString(16)).slice(-2)}).join('');localStorage.setItem('v3sid',s)}return s}
 function run(text){msg('you',text);var box=msg('agent','Starting...');$('ci').value='';
 api('/api/v3/code',{text:text,sid:sid()}).then(function(j){if(j.need){box.textContent=j.error;$('si').style.display='block';return}if(!j.ok){box.textContent='Could not start: '+(j.error||'http '+j.http);return}poll(j.id,box,Date.now())}).catch(function(e){box.textContent='Could not reach the server: '+e})}
 function poll(id,box,t0,mm){mm=mm||0;fetch('/api/v3/code/'+id,{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j.miss){if(mm>=20){box.textContent='The executor is not answering ('+(j.note||'no reply')+'). The run may still be going (id '+id+').';return}setTimeout(function(){poll(id,box,t0,mm+1)},1500);return}
@@ -7857,6 +7857,15 @@ async function watchmakerMeasure(env, nowMs) {
     return r.key;
   }), ops: rows, retired: ["claude.ai Routine 'QNFO portfolio management' -> portfolio-daily", "claude.ai Routines 'Identity and brand weekly review', 'Weekly identity and opportunity check' -> identity-weekly", "claude.ai Routine 'Daily fleet issue sweep' -> fleet-defects + backlog-drain", "13 one-shot claude.ai check-ins -> time-gated-verification"] };
 }
+function wmTransientUnmeasured(json) {
+  try {
+    return (JSON.parse(json).ops || []).some(function(o) {
+      return o && o.counted && /^unmeasured: .*(overloaded|network connection lost|timed out)/i.test(String(o.state || ""));
+    });
+  } catch (e) {
+    return false;
+  }
+}
 async function watchmakerDaily(env, opts) {
   const now = opts && opts.now || Date.now();
   const d = new Date(now);
@@ -7864,8 +7873,11 @@ async function watchmakerDaily(env, opts) {
   const A = env.AUDIT;
   await A.prepare("CREATE TABLE IF NOT EXISTS watchmaker_runs (day TEXT PRIMARY KEY, index_value INTEGER, counted TEXT, json TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
   const day = d.toISOString().slice(0, 10);
-  const have = (await d1all(A, "SELECT day FROM watchmaker_runs WHERE day = ?", [day]))[0];
-  if (have && !(opts && opts.force)) return { skipped: "already measured " + day };
+  const have = (await d1all(A, "SELECT day, json, created_at FROM watchmaker_runs WHERE day = ?", [day]))[0];
+  // WATCHMAKER-REMEASURE-1 (2026-11-05, breach audit sla-graph-fm): the day was measured once, at the first tick after 07:00Z, and a database that answered "overloaded" at that moment
+  // made 41 of 68 operations "unmeasured", each counted as needing a person: watchmaker_index read 42 for the next 16 hours. A day whose stored measurement holds an operation that
+  // failed on a transient database error is measured again, at most every 20 minutes; a persistent error (a missing table) is not retried, it is a finding.
+  if (have && !(opts && opts.force) && !(wmTransientUnmeasured(have.json) && !(now - Date.parse(String(have.created_at || "").replace(" ", "T") + "Z") < 20 * 60000))) return { skipped: "already measured " + day };
   const m = await watchmakerMeasure(env, now);
   await A.prepare("INSERT OR REPLACE INTO watchmaker_runs (day, index_value, counted, json) VALUES (?1, ?2, ?3, ?4)").bind(day, m.index, m.counted.join(","), JSON.stringify(m)).run();
   await A.prepare("INSERT OR IGNORE INTO metric_registry (metric, layer, kind, formula, source_of_truth, target, owner, disposition_actor, refresh_cadence, state) VALUES ('watchmaker_index', 'system', 'leading', 'count of recurring operations that need a person or a session, or whose Cloudflare runner is stalled or unmeasured (WATCHMAKER-INDEX-1)', 'https://fleet.qnfo.org/api/watchmaker (qnfo-fleet-dashboard, watchmaker_runs)', '0', 'qnfo-fleet-dashboard', 'fleet', 'daily', 'MEASURED')").run();

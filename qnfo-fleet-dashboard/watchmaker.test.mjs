@@ -554,6 +554,31 @@ d = await api.watchmakerDaily(env, { now: NOW + 36e5 });
 ok(/already measured/.test(d.skipped || "") && db.prepare("SELECT COUNT(*) n FROM watchmaker_runs").get().n === 1, "a second run the same day is skipped");
 ok(api.wmIso(1790849435000) === "2026-10-01T10:10:35.000Z" && api.wmIso(1790849435) === "2026-10-01T10:10:35.000Z" && api.wmIso("x") === null, "epoch ms, epoch s and junk are handled");
 
+// WATCHMAKER-REMEASURE-1: a day whose stored measurement holds an operation that failed on a transient database error is measured again (at most every 20 minutes);
+// a persistent error, a recent row and a clean row are not.
+{
+  const seed = (day, state, createdAt) => db.prepare("INSERT OR REPLACE INTO watchmaker_runs (day, index_value, counted, json, created_at) VALUES (?, 1, 'seed-op', ?, ?)")
+    .run(day, JSON.stringify({ ops: [{ key: "seed-op", counted: true, state }] }), createdAt);
+  const at = (day, hh) => Date.parse(day + "T" + hh + ":00:00Z");
+  seed("2026-10-07", "unmeasured: D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window", "2026-10-07 08:00:00");
+  let r = await api.watchmakerDaily(env, { now: at("2026-10-07", "09") });
+  const re = db.prepare("SELECT json FROM watchmaker_runs WHERE day = '2026-10-07'").get();
+  ok(!r.skipped && re && !re.json.includes("seed-op"), "a day with a transiently unmeasured operation is measured again after 20 minutes and the row is replaced", r.skipped);
+  seed("2026-10-08", "unmeasured: D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window", "2026-10-08 08:50:00");
+  r = await api.watchmakerDaily(env, { now: at("2026-10-08", "09") });
+  ok(/already measured/.test(r.skipped || ""), "but not within 20 minutes of the last measurement", r.skipped);
+  seed("2026-10-09", "unmeasured: D1_ERROR: no such table: nope", "2026-10-09 07:30:00");
+  r = await api.watchmakerDaily(env, { now: at("2026-10-09", "09") });
+  ok(/already measured/.test(r.skipped || ""), "a persistent error (a missing table) is a finding, not a retry", r.skipped);
+  seed("2026-10-10", "ok, last run 0.2h ago", "2026-10-10 07:30:00");
+  r = await api.watchmakerDaily(env, { now: at("2026-10-10", "09") });
+  ok(/already measured/.test(r.skipped || ""), "a clean day is measured once", r.skipped);
+  db.prepare("INSERT OR REPLACE INTO watchmaker_runs (day, index_value, counted, json, created_at) VALUES ('2026-10-11', 1, 'x', 'not json', '2026-10-11 07:30:00')").run();
+  r = await api.watchmakerDaily(env, { now: at("2026-10-11", "09") });
+  ok(/already measured/.test(r.skipped || ""), "a stored row that is not JSON is left alone", r.skipped);
+  db.prepare("DELETE FROM watchmaker_runs WHERE day > '2026-10-06'").run();   // the GET test below reads the latest run: keep it the NOW day
+}
+
 // GET /api/watchmaker through the real fetch handler (no OWNER_TOKEN configured: full view)
 const worker = (await import(pathToFileURL(join(here, "worker.js")).href)).default;
 const r = await worker.fetch(new Request("https://fleet.qnfo.org/api/watchmaker"), { AUDIT }, { waitUntil() {}, passThroughOnException() {} });
