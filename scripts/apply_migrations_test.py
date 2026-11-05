@@ -1217,7 +1217,44 @@ db.execute("UPDATE agent_issues SET close_channel = 'kept' WHERE id = ?", (fail_
 db.commit()
 M.resolve_failure("migrations/resolve-chan.sql", "f" * 64, "a", "t", M.DATABASES["qnfo-audit"], 1)
 ok(db.execute("SELECT close_channel FROM agent_issues WHERE id = ?", (fail_id[0],)).fetchone()[0] == "kept", "a second resolve never rewrites an already closed issue's channel")
+# MIGRATION-APPLY-RESOLVE-2 (agent_issues 1001682): a file whose current content is already applied ok closes the open MIGRATION-APPLY-FAILED-1 issue of an edit that was reverted.
+RES2_FILE = "migrations/resolve-applied.sql"
+rc = M.apply_file(RES2_FILE, RES_FIXED.replace("resolved-run", "applied-once"), "a", "t", "r3", emit)
+ok(rc == 0, "fixture: the file applies ok once", out[-1])
+db.execute("INSERT INTO agent_issues (title, status) VALUES ('MIGRATION-APPLY-FAILED-1: resolve-applied.sql', 'open')")
+stale_id = db.execute("SELECT id FROM agent_issues WHERE title = 'MIGRATION-APPLY-FAILED-1: resolve-applied.sql'").fetchone()[0]
+db.execute("INSERT INTO issue_triage (issue_id) VALUES (?)", (stale_id,))
+db.execute("INSERT INTO agent_issues (title, status) VALUES ('MIGRATION-APPLY-FAILED-1: other-applied.sql', 'open')")
+db.commit()
+rc = M.apply_file(RES2_FILE, RES_FIXED.replace("resolved-run", "applied-once"), "a", "t", "r3", emit)
+row = db.execute("SELECT status, close_channel FROM agent_issues WHERE id = ?", (stale_id,)).fetchone()
+ev = db.execute("SELECT close_evidence FROM issue_triage WHERE issue_id = ?", (stale_id,)).fetchone()[0]
+ok(rc == 0 and json.loads(out[-1]).get("already_applied") is True, "the same content is still skipped as already applied", out[-1])
+ok(row == ("closed", "auto:migration-apply-resolve"), "an already-applied push closes the open MIGRATION-APPLY-FAILED-1 issue of the file, naming the channel", row)
+ok("MIGRATION-APPLY-RESOLVE-2" in (ev or "") and "carries the content now on main" in (ev or ""), "the close evidence names the ok run and the rule", ev)
+ok(db.execute("SELECT status FROM agent_issues WHERE title = 'MIGRATION-APPLY-FAILED-1: other-applied.sql'").fetchone()[0] == "open", "another file's open issue is left alone")
+before_calls = len(calls)
+rc = M.apply_file(RES2_FILE, RES_FIXED.replace("resolved-run", "applied-once"), "a", "t", "r3", emit)
+ok(rc == 0 and len([q for q in calls[before_calls:] if q.startswith("UPDATE")]) == 0, "with no open issue an already-applied push costs reads only (no UPDATE)", calls[before_calls:])
 db = shared_db
+
+# CRON-GRID-MIGRATION-1 (agent_issues 1001842-1001844): --check refuses a fleet_crons write whose minute is off the 5-minute grid (new or changed files only).
+def _cron(sql, birth=True, extra=""):
+    hdr = "-- APPLY-BY: ci\n-- DB: qnfo-audit\n-- Rollback: SELECT 1\n" + extra
+    return [p for p in M.plan("migrations/x.sql", hdr + sql, birth=birth)[1] if "CRON-GRID-MIGRATION-1" in p]
+_ins = "INSERT INTO fleet_crons (name, cron_expr, task_id, enabled, timezone, next_fire) SELECT 'management-personas-b-hourly', '42 * * * *', 'management-personas-b', 1, 'UTC', NULL;"
+ok(len(_cron(_ins)) == 1, "an INSERT of '42 * * * *' into fleet_crons is refused", _cron(_ins))
+ok(not _cron(_ins, birth=False), "a file already on main (--history) is not refused for it")
+ok(not _cron(_ins, extra="-- CRON-GRID-OK: staggered on purpose, task is idempotent\n"), "a CRON-GRID-OK line states the reason and passes")
+for expr, off in [("40 * * * *", False), ("0 * * * *", False), ("*/10 * * * *", False), ("*/7 * * * *", True), ("5,15,25 * * * *", False), ("3,15 * * * *", True),
+                  ("*/5 * * * *", False), ("0-30/5 * * * *", False), ("* * * * *", False), ("59 23 * * 1", True), ("55 3 * * MON", False)]:
+    got = _cron("UPDATE fleet_crons SET cron_expr = '" + expr + "' WHERE name = 'x';")
+    ok(bool(got) == off, "UPDATE fleet_crons cron '%s' is %s" % (expr, "refused" if off else "accepted"), got)
+ok(not _cron("UPDATE fleet_crons SET cron_expr = '40 * * * *' WHERE name = 'x' AND cron_expr = '42 * * * *';"), "the old expression a WHERE clause names is not judged, only the one written")
+ok(len(_cron("UPDATE fleet_crons SET cron_expr = '42 * * * *' WHERE name = 'x' AND cron_expr = '40 * * * *';")) == 1, "the expression written is judged even when the WHERE clause names a grid one")
+ok(not _cron("UPDATE ops_config SET value = '42 * * * *' WHERE key = 'k';"), "a cron-shaped value in another table is not judged")
+ok(not _cron("INSERT INTO fleet_tasks (id, name, type, definition) VALUES ('t', 't', 'workflow', '{\"note\": \"42 * * * *\"}');"), "a fleet_tasks definition is not judged")
+ok(M.off_grid_crons(M.body(_ins)) == ["42 * * * *"], "the offending literal is returned", M.off_grid_crons(M.body(_ins)))
 
 # PROBE-SEMICOLON-LINT-1 (issue 1000507): a d1-query verify_probe holding a semicolon is refused; code-read JSON and clean probes pass.
 def _psemi(sql, birth=True):

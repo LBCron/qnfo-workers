@@ -64,6 +64,35 @@ LIKE_LITERAL = re.compile(r"\b(?:LIKE|GLOB)\s+'((?:[^']|'')*)'", re.I)
 CADENCE_REJECT_SQL = ("SELECT ?1 IS NOT NULL AND trim(?1) <> '' AND (instr(trim(?1),' ') > 0 OR NOT ("
                       "lower(trim(?1)) IN ('hourly','daily','weekly','monthly') OR trim(?1) GLOB '*/[0-9]*' "
                       "OR trim(?1) GLOB '[0-9]*m' OR trim(?1) GLOB '[0-9]*h'))")
+# CRON-GRID-MIGRATION-1 (2026-11-05, agent_issues 1001842-1001844): three fleet_crons rows written by migrations with minutes 42, 49 and 52 fired
+# off the 5-minute grid (CRON-TICK-5M-1) and each filed a CRON-FAULT-1 "schedule" issue, because v_cron_schedule.off_grid reads the rows and nothing
+# read the migration that wrote them. --check (a new or changed file) now applies the view's own rule to every 5-field cron literal that an INSERT, REPLACE
+# or UPDATE of fleet_crons writes: a minute field whose numeric part is not a multiple of 5 is a problem. A file that wants the minute on purpose says
+# why on a "-- CRON-GRID-OK: <reason>" line (the live exemption list is ops_config cron_grid_exempt).
+CRON_WRITE = re.compile(r"^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?)\s+\"?fleet_crons\"?\b", re.I)
+CRON_LITERAL = re.compile(r"'([0-9*/,\-]+\s+[0-9*/,\-]+\s+[0-9*/,\-?]+\s+[0-9A-Za-z*/,\-]+\s+[0-9A-Za-z*/,\-?]+)'")
+CRON_GRID_OK = re.compile(r"^--[ \t]*CRON-GRID-OK:[ \t]*\S", re.M)
+
+
+def off_grid_crons(stmt):
+    """Cron literals of a fleet_crons write whose minute field is off the 5-minute grid, by the rule of v_cron_schedule (a part is off when its number,
+    or the number after */, is not a multiple of 5; '*' and a part that does not start with a number read as on the grid, as CAST does in the view)."""
+    if not CRON_WRITE.match(stmt):
+        return []
+    out = []
+    # only what the statement writes: a WHERE clause may name the old expression it replaces (UPDATE ... WHERE cron_expr = '42 * * * *')
+    for m in CRON_LITERAL.finditer(re.split(r"\bWHERE\b", stmt, 1, flags=re.I)[0]):
+        expr = " ".join(m.group(1).split())
+        for part in expr.split(" ")[0].split(","):
+            if part in ("", "*"):
+                continue
+            n = re.match(r"\d+", part[2:] if part.startswith("*/") else part)
+            if n and int(n.group(0)) % 5:
+                out.append(expr)
+                break
+    return out
+
+
 METRIC_INSERT = re.compile(r"^\s*(?:INSERT|REPLACE)\s+(?:OR\s+\w+\s+)?INTO\s+\"?metric_registry\"?\s*\(", re.I)
 METRIC_UPDATE_CADENCE = re.compile(r"^\s*UPDATE\s+\"?metric_registry\"?\s+SET\b.*?\brefresh_cadence\s*=\s*'((?:[^']|'')*)'", re.I | re.S)
 DESTRUCTIVE = re.compile(r"^\s*(DELETE\s+FROM|DROP\s+(TABLE|INDEX|VIEW|TRIGGER))\b", re.I)
@@ -777,6 +806,11 @@ def plan(path, text, birth=False):
     for s in stmts:
         for bad in enum_violations(body(s)):
             problems.append("CHECK constraint would refuse " + bad + " (CHECK-ENUM-LINT-1)")
+    if birth and not CRON_GRID_OK.search(text):  # birth only: rows already on main were written as merged
+        for s in stmts:
+            for expr in off_grid_crons(body(s)):
+                problems.append("fleet_crons cron '" + expr[:60] + "' fires off the 5-minute grid (v_cron_schedule.off_grid; CRON-FAULT-1 files a schedule issue "
+                                "for it): use a minute that is a multiple of 5, or add a '-- CRON-GRID-OK: <reason>' line (CRON-GRID-MIGRATION-1)")
     if birth:
         problems.extend(control_probe_problems(stmts, lines))
     for s in stmts:
@@ -1170,6 +1204,7 @@ def apply_file(path, text, acct, token, commit, emit=print):
     done = d1(acct, token, ledger_id, "SELECT id FROM migration_runs WHERE file = ?1 AND sha256 = ?2 AND status = 'ok' LIMIT 1", [path, sha])
     if done:
         emit(json.dumps({"file": path, "already_applied": True, "sha256": sha[:12]}))
+        resolve_applied(path, sha, acct, token, ledger_id, done[0].get("id"))
         return 0
     # MIGRATION-STALE-SHA-1 (2026-10-14, agent_issues 2556): a run on an older commit replays the content that commit holds. When that
     # content already failed and a newer content of the same file has since applied ok, the replay can only fail again and file a
@@ -1398,6 +1433,25 @@ def resolve_failure(path, sha, acct, token, db_id, done_n):
         d1(acct, token, db_id, RESOLVE_CLOSE_SQL, [title, ev])
     except Exception as e:  # noqa: BLE001
         print("resolve " + title + " failed: " + str(e)[:200], file=sys.stderr)
+
+
+def resolve_applied(path, sha, acct, token, db_id, ok_id):
+    """MIGRATION-APPLY-RESOLVE-2 (2026-11-05, agent_issues 1001682): the content on main is already applied ok (an earlier run of this very sha256), so an open
+    MIGRATION-APPLY-FAILED-1 issue of the file can only stand for an error run of another content that was edited away: migration_runs 1121 failed a code-task edit of
+    2026-11-02-management-personas-metric-intake.sql, PR 7124 reverted the edit, every later push reported 'already applied' and wrote no row, and the issue stayed open
+    for ever because MIGRATION-APPLY-RESOLVE-1 only closes on a NEW ok run. Closes it with the ok run as evidence, through the same statement and channel. Reads first, so a
+    push of files with no open issue costs one read per file. Best effort; never fails the run."""
+    title = "MIGRATION-APPLY-FAILED-1: " + os.path.basename(path)
+    try:
+        if not d1(acct, token, db_id, "SELECT id FROM agent_issues WHERE title = ?1 AND status NOT IN ('closed','resolved','wontfix') LIMIT 1", [title]):
+            return
+        ev = ("migration_runs " + str(ok_id) + " ok for " + path + " carries the content now on main (sha256 " + sha[:12] + "); the failed run was of an edit that is no longer "
+              "on main (MIGRATION-APPLY-RESOLVE-2)")
+        d1(acct, token, db_id, "UPDATE issue_triage SET close_evidence = ?2 WHERE issue_id IN (SELECT id FROM agent_issues WHERE title = ?1 "
+           "AND status NOT IN ('closed','resolved','wontfix'))", [title, ev])
+        d1(acct, token, db_id, RESOLVE_CLOSE_SQL, [title, ev])
+    except Exception as e:  # noqa: BLE001
+        print("resolve-applied " + title + " failed: " + str(e)[:200], file=sys.stderr)
 
 
 ISSUE_NOW_MS = "CAST(strftime('%s','now') AS INTEGER) * 1000"
