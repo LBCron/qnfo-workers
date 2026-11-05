@@ -42,10 +42,10 @@ const consoleErrors = [];
 const cx = vm.createContext({ Date, Number, String, parseInt, Math, JSON, Object, Array, RegExp, isFinite, console: { error(...args) { consoleErrors.push(args); }, log() {} }, __name: (f) => f });
 // the names the hardening adds are looked up one by one, so this suite still loads (and fails its own checks) against a worker that predates them
 vm.runInContext(code + `
-this.api = { rtAuthorLivePathProbe, setTick(k) { rtProbeAuthorTickKey = k; }, authorDailyLimit: RT_PROBE_AUTHOR_MAX_PER_DAY };
+this.api = { rtAuthorLivePathProbe, setTick(k) { rtProbeAuthorTickKey = k; }, resetSchema() { rtProbeAuthorSchemaMemo = { at: 0, text: "" }; }, authorDailyLimit: RT_PROBE_AUTHOR_MAX_PER_DAY };
 for (const n of ["rtProbeAuthorValidSql", "rtProbeAuthorFamily", "RT_PROBE_AUTHOR_ALLOW", "RT_PROBE_AUTHOR_REASONS", "RT_PROBE_AUTHOR_SELF_RE", "RT_PROBE_AUTHOR_MAX_SQL", "RT_PROBE_AUTHOR_MAX_OBSERVED"]) { try { this.api[n] = eval(n); } catch (e) { } }`, cx);
 const api = cx.api;
-const { rtAuthorLivePathProbe, setTick } = api;
+const { rtAuthorLivePathProbe, setTick, resetSchema } = api;
 
 const liveTables = fixture.tables, liveViews = fixture.views, liveObjects = liveTables.concat(liveViews);
 function mk(withLiveNames) {
@@ -88,6 +88,42 @@ const events = (db, kind) => db.prepare("SELECT * FROM cloud_ops_events WHERE ki
   const { db, h } = mk(); const o = orphan(db); setTick(2);
   const env = { AI: { run: async () => ({ response: "```sql\n" + goodProbe + "\n```" }) }, AUDIT: h };
   ok((await rtAuthorLivePathProbe(h, env, o)) === true, "a legacy {response} reply is read too, fences stripped");
+}
+{ // PROBE-AUTHOR-SCHEMA-1: the prompt carries the real columns of the allowlisted tables, and a dry run that fails on a missing column gets ONE repair round
+  resetSchema();
+  const { db, h } = mk(); const o = orphan(db); setTick(31);
+  const prompts = [];
+  const replies = ["SELECT 0 AS expected, COUNT(*) AS observed FROM portfolio_gaps WHERE created_at > 0", goodProbe];
+  const env = { AI: { run: async (m, input) => { prompts.push(input.messages[0].content); return chat(replies[prompts.length - 1] || goodProbe); } }, AUDIT: h };
+  const done = await rtAuthorLivePathProbe(h, env, o);
+  ok(done === true && prompts.length === 2, "a missing column is repaired by exactly one more model call", { done, calls: prompts.length });
+  ok(/portfolio_gaps\(id,status\)/.test(prompts[0]) && /a column that is not listed does not exist/.test(prompts[0]), "the first prompt lists the real columns of the allowlisted tables", prompts[0] && prompts[0].slice(prompts[0].indexOf("The columns"), prompts[0].indexOf("The columns") + 160));
+  ok(!/REPAIR/.test(prompts[0]) && /REPAIR/.test(prompts[1]) && /no such column: created_at/.test(prompts[1]) && /portfolio_gaps\(id,status\)/.test(prompts[1]), "the repair prompt carries the D1 error, the failed statement and the columns", prompts[1] && prompts[1].slice(-420));
+  ok(events(db, "remediation.probe-authored").length === 1 && events(db, "remediation.probe-author-reject").length === 0, "the repaired probe is authored and no reject is recorded");
+}
+{ // a second failing statement is rejected after the one repair round, never a third call
+  resetSchema();
+  const { db, h } = mk(); const o = orphan(db); setTick(32);
+  let n = 0;
+  const env = { AI: { run: async () => { n++; return chat("SELECT 0 AS expected, COUNT(*) AS observed FROM portfolio_gaps WHERE nope = 1"); } }, AUDIT: h };
+  ok((await rtAuthorLivePathProbe(h, env, o)) === false && n === 2, "two failing statements end in a reject after exactly two calls", n);
+  const ev = events(db, "remediation.probe-author-reject");
+  ok(ev.length === 1 && /dry-run/.test(ev[0].text) && /no such column: nope/.test(ev[0].text), "the dry-run reject names the missing column", ev);
+}
+{ // a dry-run error that is not a missing column or table gets no repair round
+  resetSchema();
+  const { db, h } = mk(); const o = orphan(db); setTick(33);
+  let n = 0;
+  const env = { AI: { run: async () => { n++; return chat("SELECT 0 AS expected, COUNT(*) AS observed FROM portfolio_gaps GROUP BY"); } }, AUDIT: h };
+  ok((await rtAuthorLivePathProbe(h, env, o)) === false && n === 1, "a syntax error is rejected after one call", n);
+}
+{ // the schema read is names only and survives a refusal: the prompt is then the old one without columns
+  resetSchema();
+  const { db, h } = mk(); const o = orphan(db); setTick(34);
+  const failing = { prepare: (sql) => (/pragma_table_info/.test(sql) ? { all: async () => { throw new Error("D1 DB is overloaded"); } } : h.prepare(sql)) };
+  const prompts = [];
+  const env = { AI: { run: async (m, input) => { prompts.push(input.messages[0].content); return chat(goodProbe); } }, AUDIT: failing };
+  ok((await rtAuthorLivePathProbe(failing, env, o)) === true && prompts.length === 1 && !/The columns of those tables/.test(prompts[0]), "a refused schema read leaves the old prompt and the probe is still authored", prompts[0] && prompts[0].length);
 }
 { // the platform refuses reasoning_effort for the model: one plain retry
   const { db, h } = mk(); const o = orphan(db); setTick(3);
@@ -677,6 +713,8 @@ const LEAK = /jane|gmail|bob|carol|dave|erin|example|grant|timeout|@/i;
   ok(/ci-status\/remediation-consumer\.json/.test(wf) && /git add ci-status\/remediation-consumer\.json/.test(wf), "the remediation-consumer workflow commits ci-status/remediation-consumer.json");
 }
 ok(mirror === src, "the deployed-current mirror is identical to worker.js");
-ok(consoleErrors.length === 0, "probe-author rejections are recorded without error-level console logs", consoleErrors);
+// the fail-soft ledger writes of aiRunAttr (ai_cache_counters, ai_call_counters on a stub database) and the deliberate refused schema read above are not probe-author rejections
+const rejectionLogs = consoleErrors.filter((a) => !/aiRunAttr:caught|probe-author:schema/.test(String(a[0])));
+ok(rejectionLogs.length === 0, "probe-author rejections are recorded without error-level console logs", rejectionLogs);
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

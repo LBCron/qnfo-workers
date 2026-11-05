@@ -39,7 +39,6 @@ qnfo-fleet-control/pool-bound-sources.test.mjs | 2026-11-09 | #6598 | pre-existi
 qnfo-fleet-control/portfolio-archive.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
 qnfo-fleet-control/portfolio.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
 qnfo-fleet-control/probe-author-sink.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
-qnfo-fleet-control/probe-author.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
 qnfo-fleet-control/remediation-budget-metric.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
 qnfo-fleet-control/state-retired.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
 qnfo-fleet-dashboard/fleet-value.test.mjs | 2026-11-09 | #6598 | pre-existing main failure outside #6589 dashboard-cache change; tracked by #6598
