@@ -10,6 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { evalExpr, nextCron, applyPatch, csvParse, satisfies, topoSort } from "./code-battery-refs.mjs";
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "worker.js"), "utf8");
 let pass = 0, fail = 0;
@@ -150,7 +151,9 @@ const REF = {
   "swe-extract-int": extractInt.toString(), "swe-cmp-version": cmpVersion.toString(), "swe-cron-field": cronMatches.toString(), "swe-split-sql": splitSql.toString(),
   "swe-utm-link": utmLink.toString(), "swe-clean-path": cleanPath.toString(), "swe-ttl-lru": TtlLru.toString() + "\n" + run.toString(),
   "term-top-counts": topCounts.toString(), "term-parse-env": parseEnv.toString(), "term-cut-fields": cutFields.toString(), "term-glob-match": globMatch.toString(),
-  "term-parse-duration": parseDuration.toString(), "term-tar-unsafe": unsafeEntries.toString()
+  "term-parse-duration": parseDuration.toString(), "term-tar-unsafe": unsafeEntries.toString(),
+  "hard-eval-expr": evalExpr.toString(), "hard-next-cron": nextCron.toString(), "hard-apply-patch": applyPatch.toString(), "hard-csv-parse": csvParse.toString(),
+  "hard-semver-satisfies": satisfies.toString(), "hard-topo-sort": topoSort.toString()
 };
 
 // ---- a stand-in for the Dynamic Worker: the same module text, loaded as a data: module ---------------------------------------------
@@ -200,6 +203,9 @@ ok(cbExtractCode("Here:\n```js\nfunction f(){return 1}\n```\nDone") === "functio
 ok(cbExtractCode("```javascript\nexport function f(){return 1}\nmodule.exports = f;\n```") === "function f(){return 1}", "export and module.exports lines are dropped");
 ok(cbExtractCode("export default class A {}") === "class A {}", "a bare reply that looks like code is used, export default dropped");
 ok(cbExtractCode("I cannot do that.") === "", "prose is no code");
+ok(cbExtractCode("Here:\n```js\nfunction f(s){return s.replace(/^(```|`)/, '');}\n```\nDone") === "function f(s){return s.replace(/^(```|`)/, '');}", "three backticks inside the answer do not end the block");
+ok(cbExtractCode("```js\nfunction a(){}\n```\nthen\n```js\nfunction b(){}\n```") === "function a(){}", "the first block wins when there are two");
+ok(cbExtractCode("Sure:\n```js\nfunction f(){return 1}\nfunction g(){") === "function f(){return 1}\nfunction g(){", "an unclosed fence (a cut reply) still yields its code");
 ok(cbExtractCode("```ts\nimport x from 'y';\nconst f = () => 1;\n```") === "const f = () => 1;", "an import line is dropped");
 ok(cbGrade({ r: [1, 1, 0] }, 3).pass === 0 && cbGrade({ r: [1, 1, 0] }, 3).actual === "2/3", "grade partial");
 ok(cbGrade({ r: [1, 1] }, 3).pass === 0, "a short result is a fail");
@@ -239,7 +245,7 @@ const solveAll = async (model, messages) => {
   aiImpl = solveAll;
   let now = Date.parse("2026-11-05T00:00:00Z");
   const r0 = await codeBatteryTick(env, now);
-  ok(r0.ran && /^cb-1-2026-11-05$/.test(r0.started), "the first tick starts a run", r0);
+  ok(r0.ran && /^cb-1-2026-11-05-0000$/.test(r0.started), "the first tick starts a run", r0);
   const st0 = JSON.parse(db.prepare("SELECT value FROM ops_config WHERE key = 'code_battery_state'").get().value);
   ok(st0.n === MODELS.length * CB_TASKS.length && st0.i === 0, "the run holds models x tasks pairs", st0);
   const held = await codeBatteryTick(env, now + 1000);
@@ -278,7 +284,7 @@ const solveAll = async (model, messages) => {
   ok(rate && Math.abs(Number(rate.value) - 0.5) < 1e-9, "the pass rate is the mean over models, errors left out", rate);
   ok(/proxy/.test(rate.source), "the source labels the battery a proxy");
   const detail = JSON.parse(db.prepare("SELECT value FROM report_card_inputs WHERE key = 'coding_battery_detail'").get().value);
-  ok(detail.models.length === 2 && detail.models[0].answered === CB_TASKS.length - 1, "the detail row lists answered and passed per model", detail);
+  ok(detail.models.length === 2 && detail.models[0].answered === CB_TASKS.length - 1 && detail.models[0].not_answered === 1 && detail.logic === "1.1", "the detail row lists answered, passed and not answered per model", detail);
   const m1 = db.prepare("SELECT last_value, state FROM metric_registry WHERE metric = 'coding_battery_pass_rate'").get();
   const m2 = db.prepare("SELECT last_value, state FROM metric_registry WHERE metric = 'coding_battery_age_days'").get();
   ok(m1.state === "MEASURED" && Number(m1.last_value) === 0.5 && m2.last_value === "0", "both metric rows are written", { m1, m2 });
@@ -314,7 +320,40 @@ const solveAll = async (model, messages) => {
   await codeBatteryTick(env, now);
   now += 7 * 60000;
   const r = await codeBatteryTick(env, now);
-  ok(r.pass === 0 && r.actual === "no-code", "a reply without code is a fail", r);
+  ok(r.pass === 0 && /^no-code: I would rather not\./.test(r.actual), "a reply without code is a fail and says what came", r);
+}
+{
+  // an empty reply is not an answer: retried twice, then recorded as not answered, never as a wrong answer
+  const { db, env } = makeEnv();
+  aiImpl = async () => "   ";
+  let now = Date.parse("2026-11-05T00:00:00Z");
+  await codeBatteryTick(env, now);
+  const seen = [];
+  for (let k = 0; k < 3; k++) { now += 7 * 60000; seen.push(await codeBatteryTick(env, now)); }
+  ok(seen[0].retry === true && seen[1].retry === true && seen[2].retry === false && seen.every((x) => x.pass === null && x.actual === "empty-reply"), "an empty reply is retried twice and then not answered", seen);
+  const row = db.prepare("SELECT pass, actual FROM benchmark_results LIMIT 1").get();
+  ok(row && row.pass === null && row.actual === "empty-reply", "the stored row has pass NULL", row);
+}
+{
+  // a run written by another logic is abandoned and started again; a finished run of the same logic is left alone
+  const { db, env } = makeEnv();
+  aiImpl = solveAll;
+  const old = { run: "cb-1-2026-11-04", started: "2026-11-04T10:00:00.000Z", i: 9, n: 52, tries: 0 };
+  db.prepare("INSERT INTO ops_config (key, value) VALUES ('code_battery_state', ?1)").run(JSON.stringify(old));
+  const now = Date.parse("2026-11-05T01:00:00Z");
+  const r = await codeBatteryTick(env, now);
+  const st = JSON.parse(db.prepare("SELECT value FROM ops_config WHERE key = 'code_battery_state'").get().value);
+  ok(r.ran && /^cb-1-2026-11-05-0100$/.test(r.started) && st.i === 0 && st.logic === "1.1" && !st.done, "an old-logic run restarts", { r, st });
+  const doneOld = { run: "cb-1-2026-11-04", started: "2026-11-04T10:00:00.000Z", done: "2026-11-04T12:00:00.000Z", i: 52, n: 52 };
+  db.prepare("UPDATE ops_config SET value = ?1 WHERE key = 'code_battery_state'").run(JSON.stringify(doneOld));
+  const r2 = await codeBatteryTick(env, now + 86400000);
+  ok(r2.ran && !!r2.started, "a finished old-logic run is rerun at once (its numbers are not comparable)", r2);
+  const doneNew = Object.assign({}, doneOld, { logic: "1.1" });
+  const m2 = new Map();
+  const { db: db2, env: env2 } = makeEnv();
+  db2.prepare("INSERT INTO ops_config (key, value) VALUES ('code_battery_state', ?1)").run(JSON.stringify(doneNew));
+  const r3 = await codeBatteryTick(env2, Date.parse("2026-11-05T01:00:00Z"));
+  ok(!r3.ran && r3.reason === "idle", "a finished run of the current logic waits for the interval", r3);
 }
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
