@@ -42,7 +42,7 @@ import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { addRepoDocs, loadManifest, repoFindings, fetchGithubRepos, selftestRepos } from "./fleet_graph_repos.mjs";
 
-export const VERSION = "1.1.0"; // release notes sit next to their code and in git history (VERSION-LINE-NOTES-1): root-level Workers are inventoried by wrangler.toml name
+export const VERSION = "1.1.1"; // release notes sit next to their code and in git history (VERSION-LINE-NOTES-1): 1.1.1 GUARDED-TABLE-READ-1; 1.1.0 root-level Workers are inventoried by wrangler.toml name
 export const GRAPH_DB_ID = "a1954b92-d681-4d02-b1f6-f9a2eb4c265d"; // qnfo-graph (also in qnfo-memory-mcp/wrangler.toml)
 export const AUDIT_DB_ID = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"; // qnfo-audit
 export const SNAPSHOT_BUCKET = "qnfo-backups";
@@ -451,6 +451,10 @@ export function addWorkerCode(g, worker, src, path, ctx) {
         if (s && s.includes(FLEET_SUBDOMAIN)) for (const m of s.matchAll(/([a-z0-9-]+)\.q08\.workers\.dev/g)) if (m[1] !== worker && hosts.get(m[0])) g.edge(uid, "references", "worker:" + m[1], { path, confidence: "INFERRED" });
       }
     });
+    // GUARDED-TABLE-READ-1 (issue 100084, METRIC-TRIGGER-9262): optionalTableProbe was exported with its tests but nothing called it, so a read that its own function
+    // guards with `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'T'` (research-exec floorRearmTick on bak_20261019_research_parked, publishStage on
+    // bibliography) was still filed as warn sql-table-missing. Edges of the tables a function probes for carry guarded = 1; computeFindings lists them as info.
+    const guardedTables = new Set(sqlSeen.map((x) => optionalTableProbe(x.sql)).filter(Boolean).map((x) => x.toLowerCase()));
     for (const q of sqlSeen) {
       const t = sqlTables(q.sql);
       if (t.dynamic) g.bump("sql_dynamic_names", t.dynamic);
@@ -469,7 +473,7 @@ export function addWorkerCode(g, worker, src, path, ctx) {
         if (!d) { g.bump("sql_unresolved_db"); return; }
         const tid = "d1t:" + d + "." + table;
         g.node(tid, "d1_table", table, { attrs: { database: d } });
-        g.edge(uid, rel, tid, { path, confidence: conf, attrs: { binding: q.binding || null } });
+        g.edge(uid, rel, tid, { path, confidence: conf, attrs: Object.assign({ binding: q.binding || null }, guardedTables.has(table.toLowerCase()) && rel !== "creates" ? { guarded: 1 } : {}) });
       };
       for (const x of t.reads) emit(x, "reads");
       for (const x of t.writes) emit(x, "writes");
@@ -770,13 +774,16 @@ export function computeFindings(ctx) {
     for (const q of snap.queues) if (!bound.has("queue:" + q.name)) add("resource-orphan", "queue:" + q.name, "info", "queue with no producer binding and no consumer");
   }
   if (codeSql && liveTables) {
+    // GUARDED-TABLE-READ-1: a table is only demoted when every unit that touches it probes for it first; one unguarded reader keeps the warn.
+    const unguardedTable = new Set(codeSql.filter((x) => !x.guarded).map((x) => x.worker + ":" + x.db + "." + x.table.toLowerCase()));
     for (const s of codeSql) {
       const known = liveTables.get(s.db);
       // FLEET-GRAPH-FINDINGS-1: only treat a string as a SQL statement (and its tables as real references)
       // when it starts with a statement keyword; prose or example strings that merely look like SQL are skipped.
       if (!known || known.has(s.table.toLowerCase()) || s.createdInCode) continue;
       if (s.sql && !/^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH|CREATE|ALTER|DROP|PRAGMA)\b/i.test(s.sql)) continue;
-      add("sql-table-missing", s.worker + ":" + s.db + "." + s.table, s.confidence === "EXTRACTED" ? "warn" : "info", s.unit + " " + s.rel + " " + s.table + " in " + s.db + ", which has no table or view of that name");
+      const guarded = !!s.guarded && !unguardedTable.has(s.worker + ":" + s.db + "." + s.table.toLowerCase());
+      add("sql-table-missing", s.worker + ":" + s.db + "." + s.table, s.confidence === "EXTRACTED" && !guarded ? "warn" : "info", s.unit + " " + s.rel + " " + s.table + " in " + s.db + ", which has no table or view of that name" + (guarded ? " (guarded: the function checks sqlite_master for the table first and skips the read while it is absent)" : ""));
     }
   }
   if (triggersByDb) for (const [db, trs] of Object.entries(triggersByDb)) {
@@ -989,7 +996,7 @@ export async function buildCode(root, deps, live) {
       if (e.rel === "uses_binding") bindingUses.add(e.dst.split(".").slice(1).join("."));
       if ((e.rel === "reads" || e.rel === "writes" || e.rel === "creates") && e.dst.startsWith("d1t:")) {
         const [db, ...t] = e.dst.slice(4).split(".");
-        codeSql.push({ worker, unit: e.src.split("#")[1], rel: e.rel, db, table: t.join("."), confidence: e.confidence });
+        codeSql.push({ worker, unit: e.src.split("#")[1], rel: e.rel, db, table: t.join("."), confidence: e.confidence, guarded: !!(e.attrs && e.attrs.guarded) });
       }
     }
     const created = new Set(codeSql.filter((s) => s.worker === worker && s.rel === "creates").map((s) => s.db + "." + s.table.toLowerCase()));
@@ -1198,6 +1205,17 @@ export async function selftest(log = console.log) {
   for (const want of ["env-undeclared:w1.NOPE", "binding-declared-not-live:w1.GONE", "binding-live-not-declared:w1.EXTRA", "cron-drift:w1", "untracked-worker:w2", "undeployed-dir:w9", "resource-orphan:d1:lonely", "sql-table-missing:w1:db1.missing_t", "trigger-depth:db1", "binding-unused:w1.EXTRA"]) ok(ids.has(want), "finding " + want);
   ok(!ids.has("untracked-worker:qnfo-workers"), "root-level Worker with tracked source is not untracked");
   ok(!ids.has("env-undeclared:w1.S") && !ids.has("env-undeclared:w1.DB") && !ids.has("sql-table-missing:w1:db1.t1"), "no false findings for a secret, a binding or an existing table");
+  // GUARDED-TABLE-READ-1: a table every reader probes for in sqlite_master is an info finding (still listed); one unguarded reader keeps the warn
+  {
+    const live = new Map([["db1", new Set(["t1"])]]);
+    const base = { codeWorkers: new Map(), snap: { workers: [], d1: [], kv: [], r2: [], queues: [], vectorize: [] }, triggersByDb: {}, liveTables: live };
+    const one = new Map(computeFindings(Object.assign({}, base, { codeSql: [{ worker: "w1", unit: "u", rel: "reads", db: "db1", table: "maybe_t", confidence: "EXTRACTED", guarded: true }] })).map((x) => [x.id, x]));
+    ok(one.get("sql-table-missing:w1:db1.maybe_t") && one.get("sql-table-missing:w1:db1.maybe_t").severity === "info" && /guarded/.test(one.get("sql-table-missing:w1:db1.maybe_t").detail), "a read guarded by a sqlite_master probe is an info finding that says so");
+    const mixed = new Map(computeFindings(Object.assign({}, base, { codeSql: [{ worker: "w1", unit: "u", rel: "reads", db: "db1", table: "maybe_t", confidence: "EXTRACTED", guarded: true }, { worker: "w1", unit: "v", rel: "reads", db: "db1", table: "maybe_t", confidence: "EXTRACTED", guarded: false }] })).map((x) => [x.id, x]));
+    ok(mixed.get("sql-table-missing:w1:db1.maybe_t") && mixed.get("sql-table-missing:w1:db1.maybe_t").severity === "warn", "one unguarded reader of the same table keeps the warn");
+    const bare = new Map(computeFindings(Object.assign({}, base, { codeSql: [{ worker: "w1", unit: "u", rel: "reads", db: "db1", table: "gone_t", confidence: "EXTRACTED" }] })).map((x) => [x.id, x]));
+    ok(bare.get("sql-table-missing:w1:db1.gone_t") && bare.get("sql-table-missing:w1:db1.gone_t").severity === "warn", "a codeSql row from an older shape (no guarded field) is a warn");
+  }
   // OPTIONAL-ENV-1: a name the extractor marked optional is an info env-optional-unset (still listed), never a warn; an unmarked one stays a warn
   {
     const cwo = new Map([["w1", { declared: new Map(), crons: [], envReads: new Map([["OPT_KNOB", 5], ["REAL_MISSING", 6]]), computedEnv: false, optionalEnv: new Set(["OPT_KNOB"]), bindingUses: new Set() }], ["w3", { declared: new Map(), crons: [], envReads: new Map([["NO_SET_FIELD", 2]]), computedEnv: false, bindingUses: new Set() }]]);
@@ -1220,6 +1238,8 @@ export async function selftest(log = console.log) {
       "async function writer(env) { const { AUDIT } = env; await AUDIT.prepare('INSERT INTO decision_log (actor) VALUES (?1)').bind('x').run(); return fetch(OPS_URL); }",
       "function statements() { return ['SELECT id FROM missing_t WHERE active = 1', 'Documentation: SELECT id FROM prose_table WHERE active = 1', `Instructions: UPDATE prose_table SET active = 1`]; }",
       "function steps() { return [helper, writer]; }",
+      "async function probed(env) { const t = await env.AUDIT.prepare(\"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'maybe_t'\").first(); if (!t) return null; return env.AUDIT.prepare('SELECT a FROM maybe_t WHERE b = 1').all(); }",
+      "async function unprobed(env) { return env.AUDIT.prepare('SELECT a FROM other_t WHERE b = 1').all(); }",
       "var worker_default = { async fetch(req, env) { await helper(env); env.MISSING_THING; return env.OPS.fetch(req); }, async scheduled(e, env, ctx) { ctx.waitUntil(writer(env)); await fetch('https://api.github.com/repos/x'); } };",
       "export { worker_default as default };",
     ].join("\n");
@@ -1236,6 +1256,9 @@ export async function selftest(log = console.log) {
     ok(has("fn:w1#default.scheduled", "http_calls", "host:api.github.com"), "external host");
     ok(has("fn:w1#default.fetch", "uses_binding", "binding:w1.OPS"), "service binding use");
     ok(has("fn:w1#steps", "refs", "fn:w1#helper"), "function reference");
+    const edgeOf = (s, rel, dd) => g.edges.get(edgeKey({ src: s, rel, dst: dd }));
+    ok(edgeOf("fn:w1#probed", "reads", "d1t:qnfo-audit.maybe_t") && edgeOf("fn:w1#probed", "reads", "d1t:qnfo-audit.maybe_t").attrs.guarded === 1, "GUARDED-TABLE-READ-1: a read in a function that probes sqlite_master for the table carries guarded = 1");
+    ok(edgeOf("fn:w1#unprobed", "reads", "d1t:qnfo-audit.other_t") && !edgeOf("fn:w1#unprobed", "reads", "d1t:qnfo-audit.other_t").attrs.guarded, "a read with no probe is not guarded");
     ok(r.envReads.has("MISSING_THING") && r.envReads.has("AUDIT"), "env reads collected");
     ok(r.optionalEnv instanceof Set && !r.optionalEnv.has("MISSING_THING") && !r.optionalEnv.has("AUDIT"), "a bare read is never optional");
     // OPTIONAL-ENV-1: which names the extractor calls optional. Every read of a name must carry its own fallback.
