@@ -25,7 +25,7 @@ const BUDGET = "daily budget exhausted: spent=410472 budget=360000 (COST-SUSTAIN
 {
   const chain = mod.__chains.find((c) => c.id === "research");
   ok(chain && typeof chain.heldBy === "string" && /research-budget/.test(chain.heldBy) && /-45 minutes/.test(chain.heldBy), "the research chain definition carries the heldBy clause");
-  ok(/^1\.5\.(\d+)/.test(mod.__v) && Number(mod.__v.split(".")[1]) >= 5, "VERSION is at least 1.5.5 (minimum, never exact)", mod.__v);
+  { const [maj, min, pat] = String(mod.__v).split("-")[0].split(".").map(Number); ok(maj > 1 || (maj === 1 && (min > 5 || (min === 5 && pat >= 5))), "VERSION is at least 1.5.5 (minimum, never exact)", mod.__v); }
 }
 // A. backlog, no progress in 3 h, budget exhausted reported 5 minutes ago -> held (draining), not stuck
 {
