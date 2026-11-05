@@ -41,6 +41,7 @@ class Fake:
         self.calls = []
         self.emitted = []
         self.put_status = 200
+        self.put_refused_phases = set()
 
     def call(self, method, path, token, body=None, timeout=60):
         self.calls.append((method, path, body))
@@ -51,7 +52,7 @@ class Fake:
                     return 404, {"errors": [{"code": 10000, "message": "no entrypoint"}]}
                 return 200, {"result": {"rules": self.before[phase]}}
             if method == "PUT":
-                if self.put_status != 200:
+                if self.put_status != 200 or phase in self.put_refused_phases:
                     return self.put_status, {"success": False, "errors": [{"code": 20217, "message": "refused"}]}
                 self.before[phase] = body["rules"]
                 return 200, {"success": True, "result": {"rules": body["rules"]}}
@@ -87,7 +88,7 @@ for zone, plan in m.EDGE_ZONES.items():
         ok(" matches " not in e and "http.request.body" not in e and "cf.bot_management" not in e and "cf.threat_score" not in e,
            zone + ": expression uses only Free-plan fields and operators", e)
 ok('not starts_with(http.request.uri.path, "/cdn-cgi/")' in m.EDGE_QNFO_RL, "the RUM beacon path is never counted")
-ok('"authorization" "x-api-key" "x-loop-token"' in m.EDGE_QNFO_RL and "ops.qnfo.org" in m.EDGE_QNFO_RL, "ops and ai count only requests without a credential header")
+ok("headers" not in m.EDGE_QNFO_RL and "ops.qnfo.org" not in m.EDGE_QNFO_RL and "ai.qnfo.org" not in m.EDGE_QNFO_RL, "no header field (not entitled on Free) and no keyed host (ops, ai) in the rate-limit expression")
 ok("/.well-known" not in m.EDGE_QNFO_FW and "/api" not in m.EDGE_QNFO_FW, "the scanner rule names no route a fleet host serves")
 
 # 2. dry mode: backup read, nothing written
@@ -132,6 +133,13 @@ f4.put_status = 403
 rc = run(f4, "q08.org", "live")
 ok(rc == 1 and len([c for c in f4.calls if c[0] == "PUT"]) == 1, "a refused PUT returns 1 after one attempt", f4.calls)
 ok(f4.emitted[-1].get("http") == 403 and f4.emitted[-1].get("errors"), "the refusal text is in the report", f4.emitted[-1])
+
+# 6b. a refused rate-limit PUT does not stop the custom-rule phase, and the run still fails
+f4b = Fake()
+f4b.put_refused_phases = {m.EDGE_RL}
+rc = run(f4b, "qnfo.org", "live")
+ok(rc == 1 and f4b.before.get(m.EDGE_FW) and m.EDGE_MARK in f4b.before[m.EDGE_FW][0]["description"] and m.EDGE_RL not in f4b.before, "the custom rule is written although the rate-limit PUT was refused, and the run returns 1", f4b.before)
+ok(not any(e.get("stage") == "restored" for e in f4b.emitted), "a refused PUT of one phase restores nothing that was written")
 
 # 7. revert removes only the marked rules
 f5 = Fake(before={m.EDGE_FW: [FOREIGN]})

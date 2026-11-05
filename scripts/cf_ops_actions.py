@@ -952,14 +952,15 @@ def edge_ratelimit_rule(ref: str, expression: str, limit: int, desc: str) -> dic
 
 # Measured 2026-11-04 (GraphQL httpRequestsAdaptiveGroups, 24 h, eyeball POSTs to these hosts): the busiest legitimate
 # write route took 144 requests a day from every address together, so 20 requests in 10 s from one address and data
-# centre is far above any person or runner and far below a flood. The authenticated ops and ai routes are left out on
-# purpose (the runners that call them hold a key and call in bursts); only their requests without a credential header count.
+# centre is far above any person or runner and far below a flood. ops.qnfo.org and ai.qnfo.org are left out on purpose: the
+# runners and clients that call them hold a key and call in bursts, and the Free plan cannot tell a keyed request from an
+# unkeyed one (run 41942246628: "the use of field http.request.headers.names is not allowed, an higher Advanced Rate
+# Limiting plan is required"); their keys are the control there.
 EDGE_QNFO_RL = (
     '(http.request.method eq "POST" and not starts_with(http.request.uri.path, "/cdn-cgi/") and ('
     'http.host in {"ideas.qnfo.org" "ipatent.qnfo.org"}'
     ' or (http.host eq "fleet.qnfo.org" and starts_with(http.request.uri.path, "/api/cmd/"))'
-    ' or (http.host eq "qnfo.org" and starts_with(http.request.uri.path, "/email/"))'
-    ' or (http.host in {"ops.qnfo.org" "ai.qnfo.org"} and not any(http.request.headers.names[*] in {"authorization" "x-api-key" "x-loop-token"}))))'
+    ' or (http.host eq "qnfo.org" and starts_with(http.request.uri.path, "/email/"))))'
 )
 EDGE_QNFO_FW = (
     '(starts_with(http.request.uri.path, "/.env") or starts_with(http.request.uri.path, "/.git/") or starts_with(http.request.uri.path, "/wp-admin")'
@@ -967,7 +968,7 @@ EDGE_QNFO_FW = (
 )
 EDGE_ZONES = {
     "qnfo.org": {
-        EDGE_RL: [edge_ratelimit_rule("rm_waf_rl_qnfo", EDGE_QNFO_RL, 20, "per-address burst limit on public write routes (idea form, ipatent forms, owner sign-in code, email command route, ops and ai calls without a key)")],
+        EDGE_RL: [edge_ratelimit_rule("rm_waf_rl_qnfo", EDGE_QNFO_RL, 20, "per-address burst limit on public write routes (idea form, ipatent forms, owner sign-in code, email command route)")],
         EDGE_FW: [{"ref": "rm_waf_fw_scanners", "action": "block", "expression": EDGE_QNFO_FW, "enabled": True,
                    "description": EDGE_MARK + ": scanner paths no fleet host serves (/.env, /.git/, /wp-admin, /wp-login, /phpmyadmin, xmlrpc.php)"}],
         "ok": ["https://qnfo.org/", "https://ideas.qnfo.org/", "https://papers.qnfo.org/", "https://ops.qnfo.org/health", "https://fleet.qnfo.org/"],
@@ -1046,7 +1047,7 @@ def edge_rules(zone_names: str, mode: str, token: str, fetch=None, sleep=time.sl
         plan = EDGE_ZONES[zone]
         phases = [p for p in (EDGE_RL, EDGE_FW) if plan.get(p)]
         backups, written = {}, []
-        zone_ok = True
+        zone_ok, put_failed = True, False
         for phase in phases:
             path = "/zones/%s/rulesets/phases/%s/entrypoint" % (zid, phase)
             st, j = call("GET", path, token)
@@ -1062,8 +1063,8 @@ def edge_rules(zone_names: str, mode: str, token: str, fetch=None, sleep=time.sl
             ok2 = 200 <= (st2 or 0) < 300 and j2.get("success") is not False
             emit({"action": "edge-rules", "ok": ok2, "zone": zone, "phase": phase, "stage": "put", "http": st2, "errors": j2.get("errors")})
             if not ok2:
-                zone_ok = False
-                break
+                put_failed = True
+                continue
             written.append(phase)
         if mode == "live" and written and zone_ok:
             sleep(8)
@@ -1079,7 +1080,7 @@ def edge_rules(zone_names: str, mode: str, token: str, fetch=None, sleep=time.sl
                 st3, j3 = call("PUT", "/zones/%s/rulesets/phases/%s/entrypoint" % (zid, phase), token, {"rules": [edge_clean(r) for r in backups[phase]]})
                 restored.append({"phase": phase, "http": st3})
             emit({"action": "edge-rules", "ok": False, "zone": zone, "stage": "restored", "restored": restored})
-        if not zone_ok:
+        if not zone_ok or put_failed:
             rc = 1
     return rc
 
