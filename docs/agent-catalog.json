@@ -116,6 +116,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/2026-09-08-exec-probe.md"
     },
     {
+      "path": "docs/AI-EMERGENCY-CONTROL.md",
+      "title": "Owner emergency AI control",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/AI-EMERGENCY-CONTROL.md"
+    },
+    {
       "path": "docs/AI-GATEWAY-UNIFIED-BILLING.md",
       "title": "AI Gateway Unified Billing — single Cloudflare endpoint for agentic/coding LLM traffic",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/AI-GATEWAY-UNIFIED-BILLING.md"

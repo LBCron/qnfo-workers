@@ -3,7 +3,7 @@
 // Data: https://ops.qnfo.org/fleet (modified_on per worker) + https://ops.qnfo.org/cost (spend)
 // NOTE: source of truth is this file; GET /workers/scripts/<name> TRUNCATES large bodies - never patch from a GET.
 var LEDGER_GRACE_MS = 180000;
-var VERSION = "1.5.0";
+var VERSION = "1.6.0";
 /* SCHEDULED-FLEET-PROBE-SHARING-1 (#6669): reuse the same scheduled fleet probe across scan and capability snapshot. */ /* OPS-PROBE-TIMEOUT-RECOVERY-1 (#6429): bounded retry and request cleanup. */ /* 1.4.1 DEPLOY-LEDGER-EVENT-ORDER-1: use deploy event time, not ledger insertion order, when choosing the last code deploy. 1.4.0 BP26-LEASES-KILLSWITCH-1 (2026-10-28, pillar autonomy, agent_issues 1000361; minor: two capabilities and a decision this worker now takes on its own). (a) Global kill switch: ops_config fleet_kill_switch = on makes workAcquire (fresh claims and renewals) and POST /lock/acquire (deploy locks and secret leases) answer 503 reason kill-switch, so no new claim, deploy or secret write starts while it is on; releases, reads, the sweep and /health keep working; the first refusal in five minutes writes one cloud_ops_events row of kind kill-switch.observed; GET /kill-switch reads the state. The flag is read with a 30 second cache, off when the row or table is absent. (b) Fencing tokens: every fresh work claim takes the next fence number for its path (work_claims.fence, migration 2026-10-28-bp26-leases-killswitch.sql; the claim still works while the column is absent), acquire and renew return it, and POST /work-lock/check {key, token, fence} answers valid only when the token holds the live claim and the fence is the live one, so a writer that lost its lease cannot pass. docs/KILL-SWITCH-DRILL.md and docs/LEASES-FENCING.md. prior 1.3.34-codeagent */ /* LEASE-EXPIRY-SWEEP-1 (2026-10-26, orphaned_leases 215): a work_claims row past expires_at and never released is closed with outcome expired on every acquire and on the 20-minute tick, so the BP26 lease metric counts sessions that died holding a claim and then settles. */ /* COMPAT-RISK-TIMER-NAME-1 (2026-10-25, unblocks red main): the four fetch-timeout blocks named their setTimeout handle `t`, and a DIFFERENT `t` (a timestamp from ms(row.ts)) in another function is compared numerically within 60 lines, so scripts/compat-risk-scan.mjs linked them by name across function scopes and reported timer-ids for a worker that never reads a timer id as a number. Renamed to timerId; scan is clean and the guard keeps its full meaning. */ /* WORKERS-BUILDS-TOMBSTONE-1 (2026-10-25, agent_issues 1000142): a Workers Builds rebuild of the retired repository-root stub is ledgered, not filed. CLAIM-TERMINAL-RELEASE-1 (2026-10-18): CODE_TASK_DONE now includes superseded, so the guard stops counting a superseded task as live work on its file. */
 var WORKER = "qnfo-deploy-guard";
 var LOCK_PREFIX = "deploylock:";
@@ -842,6 +842,154 @@ async function twinBaselineRoute(env, daysRaw) {
   }
   return [200, out];
 }
+var AI_CONTROL_BODY_LIMIT = 2048;
+var AI_CONTROL_REASON_LIMIT = 500;
+var AI_CONTROL_STATE_SQL = "SELECT paused, revision, updated_at, reason, actor FROM fleet_ai_control WHERE id=1";
+function aiControlJson(value, status) {
+  return new Response(JSON.stringify(value), { status: status || 200, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+}
+function aiControlUnavailable() { return aiControlJson({ ok: false, error: "ai_control_unavailable", paused: true }, 503); }
+function aiControlRow(row) {
+  if (!row || (row.paused !== 0 && row.paused !== 1) || !Number.isSafeInteger(row.revision) || row.revision < 0) throw new Error("AI control singleton missing or invalid");
+  return { paused: Number(row.paused) === 1, revision: Number(row.revision), updated_at: String(row.updated_at || ""), reason: String(row.reason || ""), actor: String(row.actor || "") };
+}
+function aiControlCaller(ctx) {
+  var caller = ctx && ctx.props && ctx.props.caller;
+  return typeof caller === "string" && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(caller);
+}
+function aiControlSession(env) {
+  if (!env || !env.AUDIT || typeof env.AUDIT.withSession !== "function") throw new Error("AUDIT D1 session unavailable");
+  return env.AUDIT.withSession("first-primary");
+}
+async function aiControlRead(env) {
+  var session = aiControlSession(env);
+  return aiControlRow(await session.prepare(AI_CONTROL_STATE_SQL).first());
+}
+function aiControlLogError(operation, error) {
+  console.error(JSON.stringify({ evt: "deploy-guard:ai-control:failed", operation: operation, error: String(error && error.message || error || "unknown").slice(0, 240) }));
+}
+async function aiControlStatus(env) {
+  try { return aiControlJson(Object.assign({ ok: true }, await aiControlRead(env))); }
+  catch (e) { aiControlLogError("status", e); return aiControlUnavailable(); }
+}
+async function aiControlCheck(env) {
+  try {
+    var state = await aiControlRead(env);
+    return aiControlJson(Object.assign({ ok: !state.paused, error: state.paused ? "ai_paused" : undefined }, state), state.paused ? 503 : 200);
+  } catch (e) { aiControlLogError("check", e); return aiControlUnavailable(); }
+}
+async function aiControlChange(env, paused, expectedRevision, reason, actor) {
+  try {
+    var session = aiControlSession(env);
+    var sql = "UPDATE fleet_ai_control SET paused=?1, revision=revision+1, updated_at=?2, reason=?3, actor=?4 WHERE id=1";
+    var params = [paused ? 1 : 0, nowIso(), reason, actor];
+    if (expectedRevision !== null) { sql += " AND revision=?5"; params.push(expectedRevision); }
+    sql += " RETURNING paused, revision, updated_at, reason, actor";
+    var statement = session.prepare(sql);
+    var changed = await statement.bind.apply(statement, params).first();
+    if (changed) return aiControlJson(Object.assign({ ok: true }, aiControlRow(changed)));
+    if (expectedRevision === null) throw new Error("AI control singleton missing");
+    var current = await session.prepare(AI_CONTROL_STATE_SQL).first();
+    if (!current) throw new Error("AI control singleton missing");
+    return aiControlJson({ error: "ai_control_conflict", state: aiControlRow(current) }, 409);
+  } catch (e) { aiControlLogError(paused ? "pause" : "resume", e); return aiControlUnavailable(); }
+}
+function aiAccessOrigin(configured) {
+  if (typeof configured !== "string" || !configured.trim() || configured.length > 255) return null;
+  var raw = configured.trim(), url;
+  try { url = new URL(raw.indexOf("://") < 0 ? "https://" + raw : raw); } catch (_) { return null; }
+  if (url.protocol !== "https:" || url.username || url.password || url.port || url.pathname !== "/" || url.search || url.hash) return null;
+  var hostname = url.hostname.toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.cloudflareaccess\.com$/.test(hostname)) return null;
+  return "https://" + hostname;
+}
+async function aiReadLimited(stream, limit) {
+  if (!stream) return "";
+  var reader = stream.getReader(), chunks = [], size = 0;
+  try {
+    while (true) {
+      var part = await reader.read();
+      if (part.done) break;
+      var chunk = part.value instanceof Uint8Array ? part.value : new Uint8Array(part.value);
+      size += chunk.byteLength;
+      if (size > limit) { try { await reader.cancel(); } catch (_) {} throw new Error("body exceeds limit"); }
+      chunks.push(chunk);
+    }
+    var bytes = new Uint8Array(size), offset = 0;
+    for (var i = 0; i < chunks.length; i++) { bytes.set(chunks[i], offset); offset += chunks[i].byteLength; }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } finally { try { reader.releaseLock(); } catch (_) {} }
+}
+function aiBase64UrlBytes(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("invalid JWT encoding");
+  var normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  while (normalized.length % 4) normalized += "=";
+  var binary = atob(normalized), bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+function aiJwtJson(value) {
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(aiBase64UrlBytes(value)));
+}
+async function aiFetchAccessKeys(origin) {
+  var controller = new AbortController(), timerId = setTimeout(function () { controller.abort(); }, 5000);
+  try {
+    var response = await fetch(origin + "/cdn-cgi/access/certs", { method: "GET", headers: { accept: "application/json" }, redirect: "manual", signal: controller.signal });
+    if (!response.ok) throw new Error("Access JWKS returned status " + response.status);
+    var sizeHeader = response.headers.get("content-length");
+    if (sizeHeader && (!/^\d+$/.test(sizeHeader) || Number(sizeHeader) > 65536)) throw new Error("Access JWKS exceeds limit");
+    var keys = JSON.parse(await aiReadLimited(response.body, 65536));
+    if (!keys || !Array.isArray(keys.keys) || keys.keys.length > 32) throw new Error("Access JWKS invalid");
+    return keys.keys;
+  } finally { clearTimeout(timerId); controller.abort(); }
+}
+async function aiOwnerAuth(request, env) {
+  var origin = aiAccessOrigin(env && env.ACCESS_TEAM_DOMAIN);
+  var audience = typeof (env && env.ACCESS_AUD) === "string" ? env.ACCESS_AUD.trim() : "";
+  var owners = typeof (env && env.OWNER_EMAILS) === "string" ? env.OWNER_EMAILS.split(",").map(function (email) { return email.trim().toLowerCase(); }).filter(Boolean) : [];
+  if (!origin || !audience || audience.length > 512 || !owners.length) {
+    aiControlLogError("owner-config", "Access team domain, audience or owner email allowlist is missing or invalid");
+    return { ok: false, status: 503, error: "owner_auth_unavailable" };
+  }
+  var token = request.headers.get("Cf-Access-Jwt-Assertion") || "";
+  if (!token || token.length > 16384) return { ok: false, status: 401, error: "owner_auth_required" };
+  var parts = token.split(".");
+  if (parts.length !== 3 || parts.some(function (part) { return !part; })) return { ok: false, status: 401, error: "owner_auth_required" };
+  var header, claims, signature;
+  try { header = aiJwtJson(parts[0]); claims = aiJwtJson(parts[1]); signature = aiBase64UrlBytes(parts[2]); }
+  catch (_) { return { ok: false, status: 401, error: "owner_auth_required" }; }
+  if (!header || header.alg !== "RS256" || header.crit !== undefined || header.b64 === false || typeof header.kid !== "string" || !header.kid || header.kid.length > 256) return { ok: false, status: 401, error: "owner_auth_required" };
+  var keys;
+  try { keys = await aiFetchAccessKeys(origin); }
+  catch (e) { aiControlLogError("owner-jwks", e); return { ok: false, status: 503, error: "owner_auth_unavailable" }; }
+  var jwk = keys.find(function (key) { return key && key.kid === header.kid && key.kty === "RSA" && (!key.use || key.use === "sig") && (!key.alg || key.alg === "RS256") && (!key.key_ops || key.key_ops.indexOf("verify") >= 0); });
+  if (!jwk) return { ok: false, status: 401, error: "owner_auth_required" };
+  var validSignature = false;
+  try {
+    var publicKey = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    validSignature = await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, publicKey, signature, new TextEncoder().encode(parts[0] + "." + parts[1]));
+  } catch (e) { aiControlLogError("owner-jwks-key", e); return { ok: false, status: 503, error: "owner_auth_unavailable" }; }
+  if (!validSignature) return { ok: false, status: 401, error: "owner_auth_required" };
+  var nowSeconds = Math.floor(Date.now() / 1000);
+  if (!claims || claims.iss !== origin || !(claims.aud === audience || (Array.isArray(claims.aud) && claims.aud.indexOf(audience) >= 0)) ||
+      typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp <= nowSeconds ||
+      (claims.nbf !== undefined && (typeof claims.nbf !== "number" || !Number.isFinite(claims.nbf) || claims.nbf > nowSeconds)) ||
+      claims.email_verified === false || claims.email_verified === "false" ||
+      typeof claims.email !== "string" || !claims.email.trim() ||
+      typeof claims.sub !== "string" || !claims.sub.trim() || claims.sub.length > 256) return { ok: false, status: 401, error: "owner_auth_required" };
+  if (owners.indexOf(claims.email.trim().toLowerCase()) < 0) return { ok: false, status: 403, error: "owner_forbidden" };
+  return { ok: true, actor: "owner:" + claims.sub.trim() };
+}
+async function aiControlBody(request) {
+  var length = request.headers.get("content-length");
+  if (length && (!/^\d+$/.test(length) || Number(length) > AI_CONTROL_BODY_LIMIT)) throw new Error("body exceeds limit");
+  return JSON.parse(await aiReadLimited(request.body, AI_CONTROL_BODY_LIMIT));
+}
+function aiControlReason(body) {
+  if (!body || typeof body.reason !== "string") return null;
+  var reason = body.reason.trim();
+  return reason && reason.length <= AI_CONTROL_REASON_LIMIT ? reason : null;
+}
 export default {
   async scheduled(event, env, ctx) { var fleetProbe = getJson(FLEET_URLS, 15000, "scheduled-fleet"); ctx.waitUntil(sweepExpiredClaims(env, Date.now()).catch(function (e) { console.error(JSON.stringify({ evt: "deploy-guard:claim-sweep:caught", error: String((e && e.message) || e) })); })); ctx.waitUntil(scan(env, fleetProbe).catch(function (e) { console.error(JSON.stringify({ evt: "deploy-guard:workList:caught", error: String((e && e.message) || e) })); })); ctx.waitUntil(capabilitySnapshot(env, false, fleetProbe).catch(function (e) { console.error(JSON.stringify({ evt: "deploy-guard:workList:caught", error: String((e && e.message) || e) })); })); },
   async fetch(request, env, ctx) {
@@ -861,6 +1009,30 @@ function fetchFailed(request, e) {
 }
 async function routeFetch(request, env, ctx) {
     var url = new URL(request.url); var p = url.pathname;
+    if (p === "/ai-control/check" && request.method === "GET") {
+      if (!aiControlCaller(ctx)) return aiControlJson({ ok: false, error: "trusted_service_required", paused: true }, 403);
+      return aiControlCheck(env);
+    }
+    if (p === "/ai-control" && request.method === "GET") {
+      var statusAuth = await aiOwnerAuth(request, env);
+      if (!statusAuth.ok) return aiControlJson({ ok: false, error: statusAuth.error }, statusAuth.status);
+      return aiControlStatus(env);
+    }
+    if ((p === "/ai-control/pause" || p === "/ai-control/resume") && request.method === "POST") {
+      var mutationAuth = await aiOwnerAuth(request, env);
+      if (!mutationAuth.ok) return aiControlJson({ ok: false, error: mutationAuth.error }, mutationAuth.status);
+      var controlBody;
+      try {
+        if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get("content-type") || "")) throw new Error("JSON content type required");
+        controlBody = await aiControlBody(request);
+      } catch (_) { return aiControlJson({ ok: false, error: "invalid_request" }, 400); }
+      var controlReason = aiControlReason(controlBody);
+      if (!controlReason) return aiControlJson({ ok: false, error: "invalid_reason" }, 400);
+      if (p === "/ai-control/resume" && (!Number.isSafeInteger(controlBody.expected_revision) || controlBody.expected_revision < 0)) {
+        return aiControlJson({ ok: false, error: "expected_revision_required" }, 400);
+      }
+      return aiControlChange(env, p === "/ai-control/pause", p === "/ai-control/pause" ? null : controlBody.expected_revision, controlReason, mutationAuth.actor);
+    }
     // CONCURRENT-SESSION-SHARED-SECRET-CLOBBER-1 (#1701): shared-secret mutations (rotate/PUT of a worker secret) are
     // serialized through the same D1 deploy_locks lease under the key "secrets:<worker>" (separate from deploy locks).
     // A session POSTs /secret-lock/acquire {worker, owner, ttl_sec}, mutates, then verifies on the next-cycle re-probe and
@@ -892,7 +1064,7 @@ async function routeFetch(request, env, ctx) {
     if (p === "/kill-switch" && request.method === "GET") { KS_CACHE.at = 0; return json({ kill_switch: (await killSwitchOn(env)) ? "on" : "off", flag: "ops_config fleet_kill_switch", worker: WORKER, version: VERSION, now: nowIso() }); }
     if (p === "/work-locks" && request.method === "GET") { var wl = await workList(env); return json(wl[1], wl[0]); }
     if (p === "/twin/baseline" && request.method === "GET") { var tb = await twinBaselineRoute(env, url.searchParams.get("days")); return json(tb[1], tb[0]); } // RM-BS-FLEET-TWIN-1
-    if (p === "/health") return json({ ok: true, worker: WORKER, version: VERSION, ts: nowIso(), capabilities: ["deploy-lock", "secret-lock", "work-claim", "fencing-token", "kill-switch", "ledger", "mutation-detector", "cost-watchdog", "capability-snapshot", "twin-baseline"], limitations: ["D1 lease, not a distributed consensus lock", "work claims are advisory: they stop only a session that asks first", "detects a mutation only on the next 20-minute scan", "capability snapshot at most every 6 hours (POST /capability-snapshot forces one, 10-minute floor)"] });
+    if (p === "/health") return json({ ok: true, worker: WORKER, version: VERSION, ts: nowIso(), capabilities: ["deploy-lock", "secret-lock", "work-claim", "fencing-token", "kill-switch", "owner-ai-control", "ledger", "mutation-detector", "cost-watchdog", "capability-snapshot", "twin-baseline"], limitations: ["D1 lease, not a distributed consensus lock", "work claims are advisory: they stop only a session that asks first", "detects a mutation only on the next 20-minute scan", "capability snapshot at most every 6 hours (POST /capability-snapshot forces one, 10-minute floor)"] });
     if (p === "/report" && request.method === "GET") { var rp = await env.FLEET_CONFIG.get(REPORT_KEY); return json(rp ? JSON.parse(rp) : { ts: null }); }
     if (p === "/locks" && request.method === "GET") { var lr = await auditAll(env, "SELECT worker, owner, since, expires_at, expected_version FROM deploy_locks WHERE expires_at > ?1", [Date.now()]); return json({ locks: lr, now: nowIso() }); }
     if (p.indexOf("/lock/") === 0 && request.method === "GET") { var w3 = p.slice(6); try { w3 = decodeURIComponent(w3); } catch (e) { w3 = p.slice(6); } return json({ worker: w3, lock: await readLock(env, w3), now: nowIso() }); }
