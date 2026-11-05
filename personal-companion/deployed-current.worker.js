@@ -3232,7 +3232,7 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.45.0";
+var VERSION = "1.45.1";
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -3482,15 +3482,18 @@ function afSplitLongLede(piece) {
   if (body.indexOf(lede) !== -1) return Object.assign({}, piece, { lede: head });
   return Object.assign({}, piece, { lede: head, body_md: rest + "\n\n" + body });
 }
-// EK-1 (roadmap row 1748): the lede a reader is shown. The stored lede when there is one; otherwise the first prose paragraph of the body,
-// cut at a sentence boundary when it runs past AF_LEDE_SPLIT_WORDS, so the index preview and the piece page always agree and a piece whose
-// stored lede was lost to a prune still opens on a set-apart lede. Empty when the body holds no prose paragraph.
+// EK-1 (roadmap row 1748): the lede a reader is shown. The stored lede when there is one; otherwise, when the body OPENS on a prose paragraph, that
+// paragraph, cut at a sentence boundary when it runs past AF_LEDE_SPLIT_WORDS. The index preview and the piece page both call this, so they always agree,
+// and a piece whose stored lede was lost to a prune (2 of the 14 newest reading.q08.org pieces on 2026-11-04) still opens on a set-apart lede. A body that
+// opens on a heading, list, quote or comment yields none: the paragraph under a heading is a section's lead-in and would be shown twice. Empty then.
 function afShownLede(piece) {
   var stored = String(piece && piece.lede || "").trim();
   if (stored) return stored;
-  var derived = afLedeOf({ lede: "", body_md: piece && piece.body_md });
-  if (!derived) return "";
-  return String(afSplitLongLede({ lede: derived, body_md: "" }).lede || derived).trim();
+  var body = String(piece && piece.body_md || "").replace(/^\s+/, "");
+  if (!body || /^(?:#|[-*] |> |<!--)/.test(body)) return "";
+  var first = body.split(/\n\s*\n/)[0].replace(/\s+/g, " ").trim();
+  if (!first) return "";
+  return String(afSplitLongLede({ lede: first, body_md: "" }).lede || first).trim();
 }
 
 // ---- the even-keel check (EK-3): one reviewer from a family other than the writer's scores how fairly the piece handles disagreement
@@ -4936,7 +4939,7 @@ function renderIndex(pieces, keyQS, filter) {
   var items = [];
   for (var i = 0; i < pieces.length; i++) {
     var p = pieces[i];
-    items.push("<li><a class=t href=" + String.fromCharCode(34) + "/p/" + p.slug + keyQS + String.fromCharCode(34) + ">" + escHtml(p.title) + "</a><div class=m>" + formLabel(p.form) + " &middot; " + p.day + " &middot; " + p.word_count + " words</div>" + (p.lede ? "<div class=l>" + escHtml(plainCredit(p.lede)) + "</div>" : "") + "</li>");
+    items.push("<li><a class=t href=" + String.fromCharCode(34) + "/p/" + p.slug + keyQS + String.fromCharCode(34) + ">" + escHtml(p.title) + "</a><div class=m>" + formLabel(p.form) + " &middot; " + p.day + " &middot; " + p.word_count + " words</div>" + (afShownLede(p) ? "<div class=l>" + escHtml(plainCredit(afShownLede(p))) + "</div>" : "") + "</li>");
   }
   var nav = "<nav class=forms><a href=/" + keyQS + ">all</a>";
   nav += "<a href=/?form=essay" + (keyQS ? "&" + keyQS.slice(1) : "") + ">essays</a>";
@@ -4965,10 +4968,11 @@ function readingIndexLd() {
 function renderPiece(p, keyQS) {
   var bodyMd = String(p.body_md || "");
   var startsHeading = /^\s*#/.test(bodyMd);
-  var ledeHtml = p.lede ? "<p class=lede>" + escHtml(plainCredit(p.lede)) + "</p>" : "";
+  var shownLede = afShownLede(p); // EK-1: the index preview and this page read the same lede, stored or lifted from the body's opening paragraph
+  var ledeHtml = shownLede ? "<p class=lede>" + escHtml(plainCredit(shownLede)) + "</p>" : "";
   var bodyContent = plainCredit(bodyMd);
-if (p.lede) {
-  var ledePlain = plainCredit(p.lede).trim();
+if (shownLede) {
+  var ledePlain = plainCredit(shownLede).trim();
   if (bodyContent.trim().startsWith(ledePlain)) {
     bodyContent = bodyContent.trim().slice(ledePlain.length).trim();
   }
@@ -7483,7 +7487,7 @@ var worker_default = {
     if (p === "/" || p === "") {
       await ensureSchema(env);
       var filter = u.searchParams.get("form") || "";
-      var sql2 = filter ? "SELECT slug, form, title, lede, word_count, day FROM companion_pieces WHERE form = ? AND " + VISIBLE_SQL + " ORDER BY id DESC LIMIT 200" : "SELECT slug, form, title, lede, word_count, day FROM companion_pieces WHERE " + VISIBLE_SQL + " ORDER BY id DESC LIMIT 200";
+      var sql2 = filter ? "SELECT slug, form, title, lede, CASE WHEN lede IS NULL OR lede = '' THEN substr(body_md, 1, 1500) ELSE '' END AS body_md, word_count, day FROM companion_pieces WHERE form = ? AND " + VISIBLE_SQL + " ORDER BY id DESC LIMIT 200" : "SELECT slug, form, title, lede, CASE WHEN lede IS NULL OR lede = '' THEN substr(body_md, 1, 1500) ELSE '' END AS body_md, word_count, day FROM companion_pieces WHERE " + VISIBLE_SQL + " ORDER BY id DESC LIMIT 200";
       var st2 = filter ? env.PERSONAL.prepare(sql2).bind(filter) : env.PERSONAL.prepare(sql2);
       var rows = await st2.all();
       var res = html(renderIndex(rows.results || [], keyQS, filter));

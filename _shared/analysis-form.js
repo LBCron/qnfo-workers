@@ -174,15 +174,18 @@ function afSplitLongLede(piece) {
   if (body.indexOf(lede) !== -1) return Object.assign({}, piece, { lede: head });
   return Object.assign({}, piece, { lede: head, body_md: rest + "\n\n" + body });
 }
-// EK-1 (roadmap row 1748): the lede a reader is shown. The stored lede when there is one; otherwise the first prose paragraph of the body,
-// cut at a sentence boundary when it runs past AF_LEDE_SPLIT_WORDS, so the index preview and the piece page always agree and a piece whose
-// stored lede was lost to a prune still opens on a set-apart lede. Empty when the body holds no prose paragraph.
+// EK-1 (roadmap row 1748): the lede a reader is shown. The stored lede when there is one; otherwise, when the body OPENS on a prose paragraph, that
+// paragraph, cut at a sentence boundary when it runs past AF_LEDE_SPLIT_WORDS. The index preview and the piece page both call this, so they always agree,
+// and a piece whose stored lede was lost to a prune (2 of the 14 newest reading.q08.org pieces on 2026-11-04) still opens on a set-apart lede. A body that
+// opens on a heading, list, quote or comment yields none: the paragraph under a heading is a section's lead-in and would be shown twice. Empty then.
 function afShownLede(piece) {
   var stored = String(piece && piece.lede || "").trim();
   if (stored) return stored;
-  var derived = afLedeOf({ lede: "", body_md: piece && piece.body_md });
-  if (!derived) return "";
-  return String(afSplitLongLede({ lede: derived, body_md: "" }).lede || derived).trim();
+  var body = String(piece && piece.body_md || "").replace(/^\s+/, "");
+  if (!body || /^(?:#|[-*] |> |<!--)/.test(body)) return "";
+  var first = body.split(/\n\s*\n/)[0].replace(/\s+/g, " ").trim();
+  if (!first) return "";
+  return String(afSplitLongLede({ lede: first, body_md: "" }).lede || first).trim();
 }
 
 // ---- the even-keel check (EK-3): one reviewer from a family other than the writer's scores how fairly the piece handles disagreement

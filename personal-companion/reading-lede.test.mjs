@@ -53,5 +53,29 @@ for (const lede of ["", null, undefined]) {
   ok(html.includes("<h2>Opening</h2>") && html.includes("<p>The opening paragraph.</p>"), "without a lede the body remains intact");
 }
 
+// EK-1 hardening (1.45.1): a piece whose stored lede is empty (a prune removed it: 2 of the 14 newest pieces on 2026-11-04) but whose body opens on a prose paragraph
+// shows that paragraph as the lede on the index and the piece page alike, once.
+for (const lede of ["", null, undefined]) {
+  const p = { ...piece, lede, body_md: "The opening paragraph of the body.\n\nThe next paragraph." };
+  const html = renderPiece(p, "");
+  ok(pageLede(html) === "The opening paragraph of the body." && indexLede(p) === "The opening paragraph of the body.", "a lost lede is lifted from the body's opening paragraph, on the page and the index");
+  ok(html.split("The opening paragraph of the body.").length - 1 === 1 && html.includes("<p>The next paragraph.</p>"), "the lifted paragraph is shown once and the rest of the body remains");
+}
+{
+  const long = Array.from({ length: 16 }, (_, i) => "Clause " + i + " says " + "word ".repeat(12).trim() + ".").join(" ");
+  const p = { ...piece, lede: "", body_md: long + "\n\nThe next paragraph." };
+  const html = renderPiece(p, "");
+  const shown = pageLede(html);
+  ok(shown && shown.split(/\s+/).length <= 110 && shown === indexLede(p), "a long opening paragraph is cut at a sentence boundary, identically on page and index");
+  ok(html.includes("Clause 15 says") && html.includes("<p>The next paragraph.</p>"), "the part of the paragraph beyond the lede stays in the body");
+}
+{
+  const p = { ...piece, lede: "", body_md: "- a list first\n\nThe paragraph after the list." };
+  ok(pageLede(renderPiece(p, "")) === undefined && indexLede(p) === undefined, "a body that opens on a list yields no lede, so nothing is shown twice");
+  const q = { ...piece, lede: "", body_md: "<img src=x onerror=alert(1)> and & more.\n\nNext." };
+  ok(pageLede(renderPiece(q, "")) === "&lt;img src=x onerror=alert(1)&gt; and &amp; more." && !renderPiece(q, "").includes("<img"), "a lifted lede is escaped");
+}
+ok(src.split("CASE WHEN lede IS NULL OR lede = '' THEN substr(body_md, 1, 1500) ELSE '' END AS body_md").length - 1 === 2, "both index queries read the body head only for a piece with no stored lede");
+
 console.log(passed + " passed, " + failed + " failed");
 if (failed) process.exit(1);
