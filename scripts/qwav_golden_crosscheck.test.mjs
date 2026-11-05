@@ -45,4 +45,24 @@ if (repos.length < 8 || missing.length) {
   process.exit(1);
 }
 
+// RM-BS-QUANTUM-COMMONS-1: docs/qwav-certificates.json is the script's own output. A changed page, golden file or formula that leaves it stale fails here, the file lists every
+// published repository, only a repository with checks is "verified", and the standing "does not certify" line (no quantum claim) is present.
+const cert = spawnSync(python, [join(here, "qwav_golden_crosscheck.py"), "--certificates"], { encoding: "utf8", timeout: 120000, cwd: join(here, "..") });
+let fresh = null, onDisk = null;
+try { fresh = JSON.parse(cert.stdout); onDisk = JSON.parse(readFileSync(join(here, "..", "docs", "qwav-certificates.json"), "utf8")); } catch (e) { /* reported below */ }
+if (cert.status !== 0 || !fresh || !onDisk) {
+  console.error("qwav-golden-crosscheck: --certificates did not print JSON or docs/qwav-certificates.json is unreadable\n" + cert.stdout.slice(0, 300) + cert.stderr.slice(0, 300));
+  process.exit(1);
+}
+if (JSON.stringify(fresh) !== JSON.stringify(onDisk)) {
+  console.error("qwav-golden-crosscheck: docs/qwav-certificates.json is stale; run: python3 scripts/qwav_golden_crosscheck.py --write-certificates");
+  process.exit(1);
+}
+const listed = onDisk.certificates.map((c) => c.demo);
+const bad = onDisk.certificates.filter((c) => (c.status === "verified") !== (c.checks > 0 && c.checks === c.checks_agreeing && c.covered === true));
+if (listed.length < 8 || repos.some((repo) => !listed.includes(repo)) || bad.length || !/quantum/i.test(onDisk.does_not_certify || "")) {
+  console.error("qwav-golden-crosscheck: certificates must list every published repository, verify only a repository whose checks all agree, and carry does_not_certify; bad: " + bad.map((c) => c.demo).join(","));
+  process.exit(1);
+}
+
 console.log("qwav-golden-crosscheck: PASS");
