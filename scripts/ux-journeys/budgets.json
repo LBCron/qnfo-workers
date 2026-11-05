@@ -92,6 +92,20 @@
    "typing": 0
   }
  },
+ "reading": {
+  "read-newest-piece": {
+   "taps": 1,
+   "typing": 0
+  },
+  "filter-essays": {
+   "taps": 1,
+   "typing": 0
+  },
+  "find-subscribe": {
+   "taps": 1,
+   "typing": 0
+  }
+ },
  "fleet": {
   "plus-page-loads": {
    "taps": 0,
