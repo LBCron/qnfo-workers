@@ -153,10 +153,16 @@ ok(s.kind === "ops_ai_tool" && s.text === "github_repo_read", "the event keeps i
 const sf = grab("    return {\n      ok: false,\n      rejected: true,\n      error: \"self-fetch blocked: \"", "hint:");
 ok(sf.length > 0 && /self_fetch: true/.test(sf), "the self-fetch refusal of web_fetch carries rejected:true next to self_fetch:true");
 ok(!/ok: false,\n      error: "self-fetch blocked/.test(src), "no self-fetch refusal is left without it");
-// the flag is produced by the two lookup tools only (an existence lookup) and read only by logToolEvent
+// the flag is produced by the two lookup tools only (an existence lookup) and read by exactly two functions that both file a miss as ok:
+// logToolEvent, and opsRunEventAppend (OPS-RM-SLICES-1, 2.63.0), which writes the same classification into ops_run_events
 const nf = [...src.matchAll(/\{ ok: false, not_found: true/g)].length;
 ok(nf === 2, "exactly two results carry the not_found flag: the repo path miss and the issue miss", nf);
-ok([...src.matchAll(/\.not_found\b/g)].length === 1, "and only logToolEvent reads it");
+const nfReads = [...src.matchAll(/\.not_found\b/g)].map((m) => m.index);
+const fnEnd = (name) => { const s = src.indexOf("async function " + name + "("); return s < 0 ? -1 : src.indexOf("\n}\n", s); };
+const fnStart = (name) => src.indexOf("async function " + name + "(");
+const readsIn = (name) => nfReads.filter((i) => i > fnStart(name) && i < fnEnd(name)).length;
+ok(nfReads.length === 2 && readsIn("logToolEvent") === 1 && readsIn("opsRunEventAppend") === 1, "and only logToolEvent and opsRunEventAppend read it, once each", { total: nfReads.length, log: readsIn("logToolEvent"), run: readsIn("opsRunEventAppend") });
+ok(/const ok = !!\(execRes && execRes\.ok\) \|\| !!\(parsed && parsed\.not_found\);/.test(src), "opsRunEventAppend counts a lookup miss as ok, the same classification as logToolEvent");
 
 console.log(pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);
