@@ -58,6 +58,13 @@ const mcp = async (name, args, token) => { const r = await w.fetch(new Request("
 
 const h = await get("/health");
 assert.ok(h.body.capabilities.includes("fleet-graph") && versionAtLeast(h.body.version, "2.1.0"), "health names the capability and the minor bump");
+// MEMORY-MCP-ENV-LEAK-1: a route name that is a property of Object.prototype must not reach a function, let alone return the worker env.
+for (const evil of ["constructor", "__proto__", "toString", "valueOf", "hasOwnProperty", "isPrototypeOf", "__defineGetter__"]) {
+  const r = await get("/fleet-graph/" + evil);
+  assert.equal(r.status, 404, "/fleet-graph/" + evil + " is an unknown query");
+  assert.ok(!JSON.stringify(r.body).includes("t0k3n"), "/fleet-graph/" + evil + " does not echo the env");
+}
+{ const m = await mcp("constructor", {}); assert.ok(m.body.error && !JSON.stringify(m.body).includes("t0k3n"), "an unknown MCP tool name is refused, not served the env"); }
 const idx = await get("/fleet-graph");
 assert.ok(idx.body.queries.includes("/fleet-graph/impact"), "index lists the queries");
 
