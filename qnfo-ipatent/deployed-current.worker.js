@@ -1,5 +1,5 @@
 var __defProp = Object.defineProperty;
-var VERSION = "3.20.2";
+var VERSION = "3.21.0";
 // 3.19.1 BP26-NO-TRACKING-1 (2026-10-26, agent_issues 1000345, pillar security; GDPR and ePrivacy: only strictly necessary cookies): the A/B split no longer sets the cookie ipatent_ab, which is not strictly necessary. Each human page load draws its own arm at random (same share, same redirect), so the two variants are compared per page view and per draft, never per visitor; a browser that still holds the retired cookie is told once to drop it. 3.19.0 BP26-AI-LABEL-1 (2026-10-26, pillar reach; EU AI Act Art. 50(1), applicable since 2026-08-02): the landing page states before first use that iPatent is an AI system and that an AI language model writes the draft; the limits list says so too. // 3.18.0 WEBMCP-FLEET-1: expose the generated tool bridge on the rendered page. // 3.17.2 WORKERS-BP-LOGGING-qnfo-ipatent-1 (2026-10-14, agent_issues 2535, child of 2342, pillar autonomy): the 6 server-side swallowed catches log (the 2 browser-script hits are allowlisted) as a structured console.error (worker, where, error); control flow unchanged. // 3.17.1: the version line only (version-bump-guard compares each push; no behaviour change). 3.17.0 IPATENT-UI-OVERHAUL-1 step 3 and IPATENT-COST-PER-DRAFT-1 (2026-10-12, agent_issues 2049, 2055, 1903, 1779; pillars reach and cost; owner: the page must read as a serious one-stop tool for individual inventors, built on what the invention is, what it does and how it works): the drafting page is redesigned for both variants (one HTML, every id, route and function kept): a drawing-sheet system (Archivo for the interface, Source Serif 4 for the document, one action colour, green/amber/red only for support states), a figure of what happens to a description, the description prompt split into what it is / what it does / how it works, the step rail beside the form and result on wide screens and a sticky strip on phones, samples moved behind a disclosure, a limits section (not legal advice, files nothing, no prior-art search, does not supply the invention), a guide index, a skip link, labelled status regions and sentence-case text; /guide, /guide/* and /example take the same tokens. New: GET /api/cost serves the measured model cost per completed draft from qnfo-audit ai_call_counters (neurons, tokens, USD at the published neuron rate; no price is set), every mechanism-card model call is metered as purpose mechanism and every completed draft as purpose draft-done. A draft requested by an automated client is stored as status automated and left out of the drafts and drafters that /api/metrics reports (DRAFT-ROW-AUTOMATED-1). Standards: the admin token is compared in constant time and the benchmark source probe reads a bounded body. Tests: landing.test.mjs, cost.test.mjs. // 3.16.0 IPATENT-GROUND-1 (2026-10-10, pillar core, owner directive: drafts state only what the inventor supplied, no example nouns in prompts, fail closed): the disclosure prompt takes its Background only from the inventor\'s text and labels any statement about existing approaches as unverified; the retrieved example disclosures are reduced to section headings (no titles, fields or text); the inventor declaration is a fixed text with no statement of novelty; the claim list no longer forces categories the description does not support; after drafting, a Background sentence the description does not support is removed, a sentence or claim reciting a figure, DOI, link or citation the inventor did not give is removed (a claim takes its dependents with it) and every removal is listed under SUPPORT GAPS. Tests: ground.test.mjs. // 3.15.0 AB-SPLIT-V2-1 (IPATENT-UI-OVERHAUL-1 step 2, agent_issues 2049, 2026-10-09, pillar reach): a human GET / without a v parameter is assigned once to arm 1 (default page) or arm 2 (302 to ?v=2) by the cookie ipatent_ab (arm number only, 30 days; share = qnfo-audit ops_config ipatent_v2_share, cached 5 min, "0" turns it off without a deploy; env IPATENT_V2_SHARE overrides), so both variants get human traffic and step 2 can compare drafts per visit; crawlers, HEAD and an explicit ?v= are unchanged. 3.14.0 GUIDED-FLOW-1 (IPATENT-UI-OVERHAUL-1 step 1, agent_issues 2049, 2026-10-08, pillar reach): the ?v=2 variant is a guided flow: a step rail (describe, mechanism, draft, support map, fix gaps, file), the support map as the centrepiece with a supported/partly/missing bar, a fix-gaps step whose answers are added to the description for a redraft, and a filing step with the 12-month nonprovisional/PCT date (weekend roll, grace-period check) and an .ics reminder. The default page is unchanged; v=2 views count as /?v=2 and v=2 drafts as draft-v2 so step 2 can compare the variants. // 3.13.0 IPATENT-DRAFT-METERING-1 (2026-10-07, agent_issues 2055 and 1903, pillar cost): every draft model call (success or error) is metered into qnfo-audit ai_call_counters (worker qnfo-ipatent, purpose draft, model, calls, errors, in_chars, ms, tokens and neurons when the binding reports usage) through the AUDIT binding, fail-soft; built by code task ct_i0b4q32jxbvia7 and reviewed by session_013sMN4 before landing. 3.12.1 BUDGET-SOFT-ROUTE-1 (2026-10-06, pillar cost): the benchmark note no longer says model steps wait on a breached cap; a cap selects the cheapest capable model. /* 3.12.0 MECHANISM-FIRST-1 UI: ?v=2 shows the mechanism card step between describe and draft (read, correct, holes in red) and drafts with the card; the default page is unchanged; 3.11.1 a distinction with no nearest known approach is a hole (live check 2026-10-06: a PCM cooling tile named the PCM itself as the distinction); 3.11.0 MECHANISM-FIRST-1 (#2053): POST /api/mechanism reads a mechanism card (what it is, what it does, how it works, the distinction, nearest known, operating window) and /api/draft derives claims from a supplied card; every draft gets the means-not-law, structure-for-function and enabled-range rules; 3.10.1: benchmark text decodes HTML entities in one pass, so "&amp;lt;" stays the literal "&lt;" in stored claims (CodeQL js/double-escaping alerts 335/336 on PR 627); 3.10.0 BENCH-DATASET-1 (#1779 step 1): GET/POST /api/benchmark/dataset builds the 30-patent benchmark sample (CPC G06N, A61B, H01M; granted 2025-H1; direct claim to a US provisional within 366 days) from the keyless USPTO Patent Public Search API, one field per POST with paced reads, stored once in R2 benchmark/dataset.json; no model calls; 3.9.7: the benchmark source probes return fixed error strings and log the exception (CodeQL js/stack-trace-exposure on PR 624) */ // Worker Contract v1: VERSION constant == /health version
 
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
@@ -320,6 +320,7 @@ var LLMS_TXT = [
   "## Use it",
   "- [Draft a disclosure](https://ipatent.qnfo.org/): no account; nothing is stored unless the user opts in to a private copy",
   "- [A real run and what it got wrong](https://ipatent.qnfo.org/example): unedited output, the claim-support map, and five invented facts",
+  "- [Open register of defensive publications](https://ipatent.qnfo.org/register): disclosures whose inventors chose to publish them, each with a recorded consent, a date and a SHA-256 fingerprint; not a patent office, not legal advice; list at /api/register",
   "- [Provisional patent guide](https://ipatent.qnfo.org/guide): what a provisional protects (35 U.S.C. 112(a)), what to include, drawings, fees, why not to publish before filing",
   "- [Before you publish](https://ipatent.qnfo.org/guide/before-you-publish): US grace period vs European absolute novelty, what counts as public",
   "- [Claims in a provisional](https://ipatent.qnfo.org/guide/claims-in-a-provisional): optional, and why the description is what secures the date",
@@ -2186,6 +2187,7 @@ var LANDING_HTML = `<!DOCTYPE html>
       <a href="#draft">Draft</a>
       <a href="/guide">Guides</a>
       <a href="/example">Worked example</a>
+      <a href="/register">Register</a>
       <a href="#limits">Limits</a>
     </nav>
   </header>
@@ -2331,6 +2333,7 @@ var LANDING_HTML = `<!DOCTYPE html>
       <button type="button" id="dlHtml" class="invent">Download draft (.html)</button>
       <button type="button" id="dlPrint" class="invent">Print or save as PDF</button>
       <a href="/guide/file-a-us-provisional">How to file it as a US provisional</a>
+      <a href="/register/publish" id="pubLink" style="display:none">Publish it to the open register (optional)</a>
     </div>
     <div class="close-warn" id="closeWarn" style="display:none"></div>
     <section class="fz" id="smHero" style="display:none" data-flow="v2"><span id="flow-map"></span>
@@ -2420,6 +2423,7 @@ var LANDING_HTML = `<!DOCTYPE html>
     <div class="foot">
       <nav aria-label="Footer">
         <a href="/guide">Provisional guide</a>
+        <a href="/register">Open register</a>
         <a href="https://qnfo.org">QNFO</a>
         <a href="https://qnfo.org/papers">Papers</a>
         <a href="https://qnfo.org/legal">License</a>
@@ -2809,6 +2813,8 @@ var LANDING_HTML = `<!DOCTYPE html>
       lastDoc = { html: data.document_html || '', id: data.submission_id };
       var dl = document.getElementById('dlBar');
       if(dl) dl.style.display = 'flex';
+      var pl = document.getElementById('pubLink');
+      if(pl){ if(data.saved && data.submission_id){ pl.href = '/register/publish#' + encodeURIComponent(data.submission_id); pl.style.display = 'inline'; } else { pl.style.display = 'none'; } }
       status.textContent = data.saved
         ? 'Draft ready. A private copy is kept; reopen it at ' + data.private_link
         : 'Draft ready. It is not stored: download or print it now.';
@@ -2854,6 +2860,411 @@ ${fleetCtlLink(CANONICAL_ORIGIN + "/")}
 </body>
 </html>
 `;
+// BEGIN REGISTER-1
+// REGISTER-1 (3.21.0, RM-BS-DEFENSIVE-PUBLICATION-1, pillar research; blue-sky bet B15, docs/BLUE-SKY-ROADMAP-2026-11.md): a consented
+// register of defensive publications. A defensive publication puts an invention into the public record, with a date and a fingerprint, so
+// that nobody can patent it later. Nothing is published without an explicit, recorded act: the holder of a saved draft's private link
+// reads what publishing means, ticks a box that is never pre-ticked, and the register stores the exact consent text, its version and the
+// time next to the published text. Only the draft's disclosure text is published (never the print version, which carries the inventor's
+// e-mail), under a name the person chooses or none. Withdrawing removes the text from this site at once and keeps only the register id,
+// the dates, the fingerprint and the consent record. No DOI is minted here: that is a separate, consented step (next slice).
+// The register can verify one thing: that the person holds the private link. The consent text says so, and says the person must be the
+// inventor or act with the inventor's authority.
+var REG_CONSENT_VERSION = "dp-consent-1";
+var REG_CONSENT_TEXT = "I am the inventor, or I act with the inventor's authority, and I choose to publish the text of this saved draft on the open iPatent register at ipatent.qnfo.org, where anyone can read, copy and cite it. I understand that: (1) publishing makes it public prior art, and in many countries, including those in the European Patent Convention, it can stop me and everyone else from getting a patent on this invention afterwards; (2) I can withdraw it, which removes the text from this register but cannot recall copies others have made; (3) an AI model wrote the draft from my description and nobody has checked it for accuracy or legal effect; (4) this is not legal advice, and the register is not a patent office, a filing or a notary.";
+var REG_HASH_PREFIX = "iPatent-DP-v1\n";
+var REG_DAILY_CAP = 30;
+var REG_MIN_BODY = 400;
+var REG_MAX_BODY = 60000;
+var REG_MAX_LINKS = 5;
+var REG_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+var REG_SLUG_RE = /^dp-[a-hjkmnp-z2-9]{10}$/;
+var REG_SID_RE = /^USP-[A-Z0-9]{12}-[A-Z0-9]+$/;
+var REG_CONTACT = "https://qnfo.org/work-with-me?utm_source=ipatent&utm_medium=referral&utm_campaign=ipatent-register";
+var REG_READY = /* @__PURE__ */ new WeakSet();
+async function regSha256(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+__name(regSha256, "regSha256");
+function regRandom(n) {
+  const rnd = new Uint8Array(n);
+  crypto.getRandomValues(rnd);
+  let s = "";
+  for (let i = 0; i < n; i++) s += REG_ALPHABET[rnd[i] % REG_ALPHABET.length];
+  return s;
+}
+__name(regRandom, "regRandom");
+function regContentHash(title, body) { return regSha256(REG_HASH_PREFIX + title + "\n" + body); }
+__name(regContentHash, "regContentHash");
+function regCodeHash(code) { return regSha256("ipatent-dp-withdraw-v1:" + code); }
+__name(regCodeHash, "regCodeHash");
+function regCleanName(v) { return String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80); }
+__name(regCleanName, "regCleanName");
+function regNow() { return (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) + "Z"; }
+__name(regNow, "regNow");
+function regSameOrigin(request) {
+  const o = request.headers.get("Origin");
+  return !o || o === CANONICAL_ORIGIN || o === "https://qnfo.org";
+}
+__name(regSameOrigin, "regSameOrigin");
+async function regEnsure(env) {
+  if (!env.IPATENT_DB || REG_READY.has(env.IPATENT_DB)) return;
+  await env.IPATENT_DB.batch([
+    env.IPATENT_DB.prepare("CREATE TABLE IF NOT EXISTS public_disclosures (slug TEXT PRIMARY KEY, submission_id TEXT NOT NULL UNIQUE, title TEXT NOT NULL, body_text TEXT NOT NULL, content_hash TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'public', consent_version TEXT NOT NULL, consent_text TEXT NOT NULL, consented_at TEXT NOT NULL, published_at TEXT NOT NULL, withdraw_hash TEXT NOT NULL, withdrawn_at TEXT, note TEXT)"),
+    env.IPATENT_DB.prepare("CREATE INDEX IF NOT EXISTS idx_public_disclosures_status ON public_disclosures (status, published_at)")
+  ]);
+  REG_READY.add(env.IPATENT_DB);
+}
+__name(regEnsure, "regEnsure");
+function regMissingTable(e) { return /no such table/i.test(String(e && e.message || e)); }
+__name(regMissingTable, "regMissingTable");
+async function regList(env, limit) {
+  try {
+    const r = await env.IPATENT_DB.prepare("SELECT slug, title, display_name, published_at, content_hash FROM public_disclosures WHERE status = 'public' ORDER BY published_at DESC LIMIT ?1").bind(limit).all();
+    return r && r.results || [];
+  } catch (e) {
+    if (regMissingTable(e)) return [];
+    throw e;
+  }
+}
+__name(regList, "regList");
+async function regGet(env, slug) {
+  if (!REG_SLUG_RE.test(String(slug))) return null;
+  try {
+    return await env.IPATENT_DB.prepare("SELECT slug, submission_id, title, body_text, content_hash, display_name, status, consent_version, consented_at, published_at, withdrawn_at, withdraw_hash FROM public_disclosures WHERE slug = ?1").bind(slug).first() || null;
+  } catch (e) {
+    if (regMissingTable(e)) return null;
+    throw e;
+  }
+}
+__name(regGet, "regGet");
+async function regSitemapEntries(env) {
+  try {
+    const rows = await regList(env, 500);
+    return "<url><loc>" + CANONICAL_ORIGIN + "/register</loc><lastmod>" + (rows[0] ? String(rows[0].published_at).slice(0, 10) : GUIDE_UPDATED) + "</lastmod></url>" +
+      rows.map((r) => "<url><loc>" + CANONICAL_ORIGIN + "/register/" + r.slug + "</loc><lastmod>" + String(r.published_at).slice(0, 10) + "</lastmod></url>").join("");
+  } catch (e) { return ""; }
+}
+__name(regSitemapEntries, "regSitemapEntries");
+function regCiteAs(r) {
+  const who = r.display_name ? r.display_name : "Anonymous inventor";
+  return who + ". \"" + r.title + "\". iPatent Open Register of Defensive Publications, " + r.slug + ", published " + String(r.published_at).slice(0, 10) + " (UTC). " + CANONICAL_ORIGIN + "/register/" + r.slug + ". SHA-256 " + r.content_hash + ".";
+}
+__name(regCiteAs, "regCiteAs");
+function regShell(o) {
+  const esc = escapeHtml;
+  const url = CANONICAL_ORIGIN + o.path;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(o.title)} · iPatent</title>
+<meta name="description" content="${esc(o.description)}">
+<link rel="canonical" href="${url}">
+${o.noindex ? '<meta name="robots" content="noindex, nofollow">' : ""}
+<meta property="og:type" content="${o.ogType || "website"}"><meta property="og:site_name" content="iPatent by QNFO">
+<meta property="og:title" content="${esc(o.title)}"><meta property="og:description" content="${esc(o.description)}">
+<meta property="og:url" content="${url}"><meta property="og:image" content="${CANONICAL_ORIGIN}/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+${o.ld ? '<script type="application/ld+json">' + JSON.stringify(o.ld).replace(/</g, "\\u003c") + "<\/script>" : ""}
+<style>
+  :root{--paper:#eef1f4;--ink:#131c28;--ink-soft:#4a5666;--green:#1d3fc4;--amber:#9a5b00;--line:#c9d1da;--white:#ffffff}
+  *{box-sizing:border-box} body{margin:0;font-family:Georgia,'Times New Roman',serif;background:var(--paper);color:var(--ink);line-height:1.7}
+  .wrap{max-width:760px;margin:0 auto;padding:0 18px 60px} header{display:flex;justify-content:space-between;gap:10px;padding:20px 0;border-bottom:1px solid var(--line);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px}
+  header a{display:inline-flex;align-items:center;min-height:44px}
+  a{color:var(--green)} h1{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:-.02em;font-size:clamp(26px,6vw,38px);line-height:1.15;margin:32px 0 12px;overflow-wrap:anywhere} h2{font-size:21px;margin:30px 0 6px}
+  .lede{font-size:18px;color:var(--ink-soft)} li{margin:8px 0} .mono{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;color:var(--ink-soft)}
+  .cta,button.cta{display:inline-block;margin:10px 10px 0 0;background:var(--green);color:var(--white);text-decoration:none;padding:13px 18px;min-height:44px;border:0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:15px;cursor:pointer}
+  button.cta[disabled]{background:#8a94a3;cursor:not-allowed}
+  .box{border:1px solid var(--amber);background:#fff8ec;padding:12px 16px;margin:18px 0;font-size:16px}
+  .text{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--white);border:1px solid var(--line);padding:14px 16px;font-size:16px}
+  code,.hash{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;overflow-wrap:anywhere;word-break:break-all}
+  .cite{background:var(--white);border:1px solid var(--line);padding:12px 14px;font-size:15px;overflow-wrap:anywhere}
+  label{display:block;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:15px;font-weight:600;margin:18px 0 6px}
+  input[type=text]{width:100%;min-height:44px;padding:10px 12px;font-size:16px;border:1px solid var(--ink-soft);background:var(--white)}
+  .consent{display:flex;gap:12px;align-items:flex-start;margin:20px 0;padding:12px 14px;background:var(--white);border:1px solid var(--ink-soft)}
+  .consent input{width:24px;height:24px;flex:none;margin-top:4px} .consent label{margin:0;font-weight:400;font-size:15px;line-height:1.55}
+  .ok{color:#0b6b2e} .bad{color:#a11}
+  footer{border-top:1px solid var(--line);margin-top:48px;padding-top:16px}
+</style>
+</head>
+<body><div class="wrap">
+<header><a href="/">iPatent · ipatent.qnfo.org</a><a href="/register">Open register</a></header>
+${o.body}
+<footer><p class="mono">iPatent is a free experiment by Rowan Brad Quni-Gudzinas (<a href="https://orcid.org/0009-0002-4317-5604">ORCID</a>) at <a href="https://qnfo.org">QNFO</a>. The register publishes text its inventors chose to publish. It is not a patent office, a filing or legal advice; nobody here has checked a published text for accuracy. <a href="${REG_CONTACT}">Report a problem or ask for removal</a> · <a href="/guide/before-you-publish">Before you publish</a></p></footer>
+</div>${o.script || ""}${fleetCtlLink(url)}</body></html>`;
+}
+__name(regShell, "regShell");
+var REG_NOT_A_PATENT = "<div class=\"box\"><b>Read this first.</b> Publishing is not filing. A published disclosure is not a patent or a patent application, it gives no priority date at any patent office, and nobody examines it. It can end your own right to a patent: the United States allows one year after your own disclosure, Europe and most other countries allow none. This is not legal advice; ask a registered patent attorney or agent before you publish.</div>";
+function regIndexPage(rows) {
+  const esc = escapeHtml;
+  const list = rows.length
+    ? "<ul>" + rows.map((r) => '<li><a href="/register/' + r.slug + '">' + esc(r.title) + '</a><br><span class="mono">' + esc(String(r.published_at).slice(0, 10)) + " · " + esc(r.display_name || "Anonymous inventor") + " · SHA-256 " + esc(String(r.content_hash).slice(0, 12)) + "… · " + r.slug + "</span></li>").join("") + "</ul>"
+    : "<p>Nothing has been published yet. The first disclosure here will be one an inventor chose to publish.</p>";
+  const body = `<h1>Open register of defensive publications</h1>
+<p class="lede">A defensive publication puts an invention into the public record, with a date and a fingerprint, so that nobody can patent it later. This register publishes only text whose inventor chose to publish it, with the consent recorded.</p>
+${REG_NOT_A_PATENT}
+<p><a class="cta" href="/register/publish">Publish a saved draft</a><a class="cta" style="background:var(--white);color:var(--green);border:1px solid var(--green)" href="/register/withdraw">Withdraw one</a></p>
+<h2>Published disclosures (${rows.length})</h2>
+${list}
+<h2>How it works</h2>
+<ol>
+<li>Draft a disclosure at <a href="/">iPatent</a> with “keep a private copy” ticked. You get a private link.</li>
+<li>Open <a href="/register/publish">the publish page</a>, paste the private link, read the preview, and tick the consent box. It is never ticked for you.</li>
+<li>The register shows the text at its own address, with the date, a SHA-256 fingerprint anyone can recompute, and a citation line. You get a withdrawal code once.</li>
+</ol>
+<h2>What the register keeps, and does not</h2>
+<p>It keeps the published text, the register id, the date, the fingerprint and your consent (the exact wording you saw, its version and the time). It never publishes the e-mail address or the printable version of a draft, and shows a name only if you type one. Withdrawing removes the text from this site at once; it cannot recall copies others have made.</p>
+<h2>Limits</h2>
+<p>The date is this server's clock, not a notary's. The register can check only that you hold the private link, so it cannot prove you are the inventor. No DOI is minted yet; that will be a separate step you consent to. Machine-readable list: <a href="/api/register">/api/register</a>.</p>`;
+  return regShell({ path: "/register", title: "Open register of defensive publications", description: "Disclosures their inventors chose to publish as prior art, each with a recorded consent, a date and a SHA-256 fingerprint. Not a patent office, not legal advice.", body });
+}
+__name(regIndexPage, "regIndexPage");
+function regRecordPage(r) {
+  const esc = escapeHtml;
+  const url = CANONICAL_ORIGIN + "/register/" + r.slug;
+  const who = r.display_name || "Anonymous inventor";
+  const desc = String(r.body_text).replace(/\s+/g, " ").trim().slice(0, 155);
+  const ld = { "@context": "https://schema.org", "@type": "CreativeWork", name: r.title, url: url, identifier: [r.slug, "sha256:" + r.content_hash], datePublished: String(r.published_at).slice(0, 10), inLanguage: "en", isAccessibleForFree: true,
+    isPartOf: { "@type": "WebSite", name: "iPatent open register of defensive publications", url: CANONICAL_ORIGIN + "/register" } };
+  if (r.display_name) ld.author = { "@type": "Person", name: r.display_name };
+  const body = `<p class="mono"><a href="/register">← Open register</a></p>
+<h1>${esc(r.title)}</h1>
+<p class="mono">Register id <b>${r.slug}</b> · published ${esc(String(r.published_at).replace("T", " ").replace("Z", " UTC"))} · by ${esc(who)}</p>
+<div class="box"><b>What this is.</b> A defensive publication: text its author chose to publish, so that it is part of the public record. <b>What it is not.</b> It is not a patent or a patent application, it was not examined, and it gives no filing date at any patent office. An AI model drafted it from the author's description and nobody has checked it for accuracy, so it can contain statements the author did not make. Not legal advice.</div>
+<div class="text">${esc(r.body_text)}</div>
+<h2>Cite as</h2>
+<p class="cite">${esc(regCiteAs(r))}</p>
+<h2>Check that the text is unchanged</h2>
+<p>SHA-256: <span class="hash">${esc(r.content_hash)}</span></p>
+<p class="mono">Compute SHA-256 over the UTF-8 bytes of: <code>iPatent-DP-v1</code>, a line feed, the title, a line feed, then the text exactly as shown. The same record is at <a href="/api/register/${r.slug}">/api/register/${r.slug}</a>. The date is this server's clock when the author consented (${esc(r.consent_version)}), not a notary's.</p>
+<p class="mono"><a href="/register/withdraw">Author: withdraw this</a> · <a href="${REG_CONTACT}">Report a problem or ask for removal</a></p>`;
+  return regShell({ path: "/register/" + r.slug, title: r.title, description: desc, body, ld, ogType: "article" });
+}
+__name(regRecordPage, "regRecordPage");
+function regGonePage(r) {
+  const esc = escapeHtml;
+  const why = r.status === "removed" ? "removed by the register" : "withdrawn by its author";
+  const body = `<p class="mono"><a href="/register">← Open register</a></p>
+<h1>This disclosure was ${why}</h1>
+<p class="lede">The text is no longer shown here. The register keeps the id, the dates and the fingerprint of what was published, so that the record of the register is complete.</p>
+<p class="mono">Register id <b>${r.slug}</b> · published ${esc(String(r.published_at).slice(0, 10))} · ${esc(why)} ${esc(String(r.withdrawn_at || "").slice(0, 10))}</p>
+<p>SHA-256 of the text as published: <span class="hash">${esc(r.content_hash)}</span></p>
+<p class="mono">Withdrawing removes the text from this site. It cannot recall copies made while it was public.</p>`;
+  return regShell({ path: "/register/" + r.slug, title: "Disclosure " + r.slug + " " + why, description: "This disclosure was " + why + ". The text is no longer shown.", body, noindex: true });
+}
+__name(regGonePage, "regGonePage");
+var REG_SID_JS = "function sidOf(v){var m=String(v||'').match(/USP-[A-Z0-9]{12}-[A-Z0-9]+/);return m?m[0]:'';}";
+function regPublishPage(env) {
+  const esc = escapeHtml;
+  const body = `<h1>Publish a saved draft</h1>
+<p class="lede">Put a draft you saved at iPatent into the open register as a defensive publication. Nothing is published until you tick the box below and press the button.</p>
+${REG_NOT_A_PATENT}
+<form id="pf" novalidate>
+<label for="pid">Your private link or draft ID</label>
+<input id="pid" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://ipatent.qnfo.org/d/USP-...">
+<div id="prev" class="cite" style="display:none" aria-live="polite"></div>
+<label for="pname">Name to show (optional; empty publishes as “Anonymous inventor”)</label>
+<input id="pname" type="text" autocomplete="off" maxlength="80">
+<div class="consent"><input type="checkbox" id="pc"><label for="pc">${esc(REG_CONSENT_TEXT)}</label></div>
+${turnstileWidget(env, "ipatent_publish")}
+<button type="submit" id="pb" class="cta" disabled>Publish to the register</button>
+<p id="pm" role="status" aria-live="polite"></p>
+</form>
+<p class="mono">The draft must have been saved with “keep a private copy”. Drafts that were not saved cannot be published, because iPatent does not have them. <a href="/register">Back to the register</a></p>`;
+  const script = TURNSTILE_SCRIPT + `<script>
+(function(){
+  ${REG_SID_JS}
+  var pid=document.getElementById('pid'), pc=document.getElementById('pc'), pb=document.getElementById('pb'), pm=document.getElementById('pm'), prev=document.getElementById('prev'), previewed='';
+  function sync(){ pb.disabled = !(pc.checked && previewed && previewed===sidOf(pid.value)); }
+  function say(t,cls){ pm.className=cls||''; pm.textContent=t; }
+  function preview(){
+    var id=sidOf(pid.value); previewed=''; prev.style.display='none'; sync();
+    if(!id) return;
+    fetch('/api/submission/'+encodeURIComponent(id)).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+      if(!d || !d.title || d.title==='[private]' || !d.disclosure_text){ say('No saved draft was found for that link. Only drafts saved with \\u201Ckeep a private copy\\u201D can be published.','bad'); return; }
+      say('');
+      previewed=id; prev.style.display='block';
+      prev.textContent='You are about to publish: \\u201C'+d.title+'\\u201D ('+d.disclosure_text.length+' characters). The register shows the text of the draft, not your e-mail address. Start of the text: '+d.disclosure_text.replace(/\\s+/g,' ').slice(0,300)+'\\u2026';
+      sync();
+    }).catch(function(){ say('Could not load the draft. Try again.','bad'); });
+  }
+  if(location.hash && location.hash.length>1){ pid.value=location.hash.slice(1); }
+  pid.addEventListener('input',preview); pid.addEventListener('change',preview); pc.addEventListener('change',sync);
+  if(sidOf(pid.value)) preview();
+  document.getElementById('pf').addEventListener('submit',function(e){
+    e.preventDefault(); if(pb.disabled) return;
+    pb.disabled=true; say('Publishing\\u2026');
+    var tok=''; var t=document.querySelector('[name=cf-turnstile-response]'); if(t) tok=t.value;
+    fetch('/api/register/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({submission_id:sidOf(pid.value),display_name:document.getElementById('pname').value,consent:pc.checked===true,consent_version:'${REG_CONSENT_VERSION}',cf_turnstile:tok})})
+    .then(function(r){ return r.json().then(function(d){ return {s:r.status,d:d}; }); })
+    .then(function(x){
+      if(x.d && x.d.slug){
+        var h='<b>Published.</b> It is at <a href="'+x.d.url+'">'+x.d.url+'</a>. SHA-256 <span class="hash">'+x.d.content_hash+'</span>.';
+        if(x.d.withdraw_code) h+='<br><br><b>Your withdrawal code (shown once; keep it):</b> <code>'+x.d.withdraw_code+'</code><br>You can also withdraw with your private link.';
+        else h+='<br><br>It was already published; the withdrawal code was shown then. Your private link also withdraws it.';
+        pm.className='ok'; pm.innerHTML=h; pb.disabled=true;
+      } else { say((x.d && x.d.error) || 'Could not publish. Try again.','bad'); pb.disabled=false; if(window.turnstile && window.turnstile.reset) window.turnstile.reset(); }
+    }).catch(function(){ say('Could not publish. Try again.','bad'); pb.disabled=false; });
+  });
+})();
+<\/script>`;
+  return regShell({ path: "/register/publish", title: "Publish a saved draft to the open register", description: "Publish a draft you saved at iPatent as a defensive publication, with a recorded consent. Not legal advice.", body, script, noindex: true });
+}
+__name(regPublishPage, "regPublishPage");
+function regWithdrawPage() {
+  const body = `<h1>Withdraw a published disclosure</h1>
+<p class="lede">Removes the text from the register at once. It cannot recall copies made while the text was public.</p>
+<form id="wf" novalidate>
+<label for="wid">Register id or address (dp-…)</label>
+<input id="wid" type="text" autocomplete="off" spellcheck="false" placeholder="dp-abcde23456">
+<label for="wcode">Withdrawal code, or your private link</label>
+<input id="wcode" type="text" autocomplete="off" spellcheck="false" placeholder="wd-… or https://ipatent.qnfo.org/d/USP-...">
+<button type="submit" id="wb" class="cta">Withdraw from the register</button>
+<p id="wm" role="status" aria-live="polite"></p>
+</form>
+<p class="mono"><a href="/register">Back to the register</a></p>`;
+  const script = `<script>
+(function(){
+  ${REG_SID_JS}
+  var wid=document.getElementById('wid'), wm=document.getElementById('wm'), wb=document.getElementById('wb');
+  var m=(location.hash||'').match(/dp-[a-z0-9]{10}/); if(m) wid.value=m[0];
+  function say(t,cls){ wm.className=cls||''; wm.textContent=t; }
+  document.getElementById('wf').addEventListener('submit',function(e){
+    e.preventDefault();
+    var s=(wid.value.match(/dp-[a-z0-9]{10}/)||[''])[0], c=document.getElementById('wcode').value.trim(), sid=sidOf(c);
+    if(!s){ say('Enter the register id (dp-\\u2026).','bad'); return; }
+    if(!c){ say('Enter the withdrawal code or your private link.','bad'); return; }
+    wb.disabled=true; say('Withdrawing\\u2026');
+    fetch('/api/register/withdraw',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:s,withdraw_code:sid?'':c,submission_id:sid})})
+    .then(function(r){ return r.json().then(function(d){ return {s:r.status,d:d}; }); })
+    .then(function(x){ if(x.d && x.d.ok){ say('Withdrawn. The text is no longer shown at '+s+'.','ok'); } else { say((x.d && x.d.error) || 'Could not withdraw.','bad'); wb.disabled=false; } })
+    .catch(function(){ say('Could not withdraw. Try again.','bad'); wb.disabled=false; });
+  });
+})();
+<\/script>`;
+  return regShell({ path: "/register/withdraw", title: "Withdraw a published disclosure", description: "Withdraw a disclosure from the iPatent open register.", body, script, noindex: true });
+}
+__name(regWithdrawPage, "regWithdrawPage");
+async function handleRegPublish(request, env) {
+  if (!regSameOrigin(request)) return json({ error: "Cross-site requests are not accepted here." }, 403);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  if (!body || body.consent !== true) return json({ error: "Publishing needs your explicit consent: tick the box that states what publishing means." }, 400);
+  if (body.consent_version !== REG_CONSENT_VERSION) return json({ error: "The consent text has changed. Reload the page and read it again before publishing." }, 409);
+  const sid = sanitize(body.submission_id, 80);
+  if (!REG_SID_RE.test(sid)) return json({ error: "That is not a private link or draft ID from iPatent." }, 400);
+  const ts = await turnstileVerify(env, body.cf_turnstile, request.headers.get("CF-Connecting-IP") || "", "ipatent_publish");
+  if (!ts.ok) return json({ error: "Verification failed. Reload the page and try again." }, 403);
+  const row = await env.IPATENT_DB.prepare("SELECT submission_id, title, disclosure_text, status FROM submissions WHERE submission_id = ?1").bind(sid).first();
+  if (!row || row.title === "[private]" || !row.disclosure_text || row.status === "automated") return json({ error: "No saved draft was found for that link. Only drafts saved with “keep a private copy” can be published." }, 404);
+  const title = sanitize(row.title, 300);
+  const text = String(row.disclosure_text);
+  if (text.length < REG_MIN_BODY) return json({ error: "The draft is too short to publish as a disclosure (" + REG_MIN_BODY + " characters at least)." }, 422);
+  if (text.length > REG_MAX_BODY) return json({ error: "The draft is too long to publish here." }, 413);
+  if ((text.match(/https?:\/\//gi) || []).length > REG_MAX_LINKS) return json({ error: "The draft holds more than " + REG_MAX_LINKS + " links. The register does not publish link lists." }, 422);
+  await regEnsure(env);
+  const existing = await env.IPATENT_DB.prepare("SELECT slug, status, content_hash FROM public_disclosures WHERE submission_id = ?1").bind(sid).first();
+  if (existing && existing.status === "public") return json({ ok: true, already: true, slug: existing.slug, url: CANONICAL_ORIGIN + "/register/" + existing.slug, content_hash: existing.content_hash });
+  if (existing) return json({ error: "This draft was published and then withdrawn. It cannot be published again." }, 409);
+  const since = new Date(Date.now() - 864e5).toISOString().slice(0, 19) + "Z";
+  const day = await env.IPATENT_DB.prepare("SELECT COUNT(*) AS n FROM public_disclosures WHERE published_at > ?1").bind(since).first();
+  if (day && Number(day.n) >= REG_DAILY_CAP) return json({ error: "The register has reached its daily limit (" + REG_DAILY_CAP + " new disclosures in 24 hours). Please try again tomorrow." }, 429);
+  const slug = "dp-" + regRandom(10);
+  const code = "wd-" + regRandom(24);
+  const hash = await regContentHash(title, text);
+  const now = regNow();
+  const name = regCleanName(body.display_name);
+  try {
+    await env.IPATENT_DB.prepare("INSERT INTO public_disclosures (slug, submission_id, title, body_text, content_hash, display_name, status, consent_version, consent_text, consented_at, published_at, withdraw_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'public', ?7, ?8, ?9, ?9, ?10)")
+      .bind(slug, sid, title, text, hash, name, REG_CONSENT_VERSION, REG_CONSENT_TEXT, now, await regCodeHash(code)).run();
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "qnfo-ipatent", where: "handleRegPublish", error: String(e && e.message || e) }));
+    return json({ error: "Could not publish right now. Please try again." }, 503);
+  }
+  return json({ ok: true, slug, url: CANONICAL_ORIGIN + "/register/" + slug, content_hash: hash, published_at: now, withdraw_code: code, notice: "Keep the withdrawal code: it is shown once. Your private link also withdraws this disclosure." }, 201);
+}
+__name(handleRegPublish, "handleRegPublish");
+async function regRetire(env, slug, status, note) {
+  const now = regNow();
+  await env.IPATENT_DB.prepare("UPDATE public_disclosures SET status = ?2, withdrawn_at = ?3, title = '[' || ?2 || ']', body_text = '', display_name = '', note = ?4 WHERE slug = ?1 AND status = 'public'").bind(slug, status, now, note || null).run();
+}
+__name(regRetire, "regRetire");
+async function handleRegWithdraw(request, env) {
+  if (!regSameOrigin(request)) return json({ error: "Cross-site requests are not accepted here." }, 403);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  const slug = sanitize(body && body.slug, 40);
+  const code = sanitize(body && body.withdraw_code, 80);
+  const sid = sanitize(body && body.submission_id, 80);
+  if (!REG_SLUG_RE.test(slug)) return json({ error: "That is not a register id (dp-…)." }, 400);
+  if (!code && !sid) return json({ error: "Enter the withdrawal code or your private link." }, 400);
+  const row = await regGet(env, slug);
+  if (!row) return json({ error: "No disclosure has that register id." }, 404);
+  const proved = (code && safeEqual(await regCodeHash(code), row.withdraw_hash)) || (sid && safeEqual(sid, row.submission_id));
+  if (!proved) return json({ error: "That code or link does not match this disclosure." }, 403);
+  if (row.status !== "public") return json({ ok: true, already: true, slug, status: row.status });
+  await regRetire(env, slug, "withdrawn", "withdrawn by the holder of the withdrawal code or private link");
+  return json({ ok: true, slug, status: "withdrawn" });
+}
+__name(handleRegWithdraw, "handleRegWithdraw");
+async function handleRegTakedown(request, env) {
+  if (!adminOk(request, env)) return json({ error: "Not found" }, 404);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  const slug = sanitize(body && body.slug, 40);
+  const reason = sanitize(body && body.reason, 300);
+  if (!REG_SLUG_RE.test(slug) || !reason) return json({ error: "slug and reason are required" }, 400);
+  const row = await regGet(env, slug);
+  if (!row) return json({ error: "No disclosure has that register id." }, 404);
+  await regRetire(env, slug, "removed", reason);
+  return json({ ok: true, slug, status: "removed" });
+}
+__name(handleRegTakedown, "handleRegTakedown");
+function regApiRecord(r) {
+  if (r.status !== "public") return { slug: r.slug, status: r.status, published_at: r.published_at, withdrawn_at: r.withdrawn_at || null, content_hash: r.content_hash, text: null };
+  return { slug: r.slug, status: "public", url: CANONICAL_ORIGIN + "/register/" + r.slug, title: r.title, display_name: r.display_name || null, published_at: r.published_at, content_hash: r.content_hash, hash_input: "UTF-8 of: iPatent-DP-v1, LF, title, LF, text", consent: { version: r.consent_version, at: r.consented_at }, cite_as: regCiteAs(r), text: r.body_text, not_legal_advice: true, not_a_patent: true };
+}
+__name(regApiRecord, "regApiRecord");
+async function regRoutes(request, env, ctx, path) {
+  const isRead = request.method === "GET" || request.method === "HEAD";
+  const cached = (res, secs) => { res.headers.set("Cache-Control", "public, max-age=" + secs); return res; };
+  try {
+    if ((path === "/register" || path === "/register/") && isRead) {
+      if (request.method === "GET") ctx?.waitUntil?.(countPageView(env, "/register", pageSource(request)));
+      return cached(html(regIndexPage(await regList(env, 100))), 60);
+    }
+    if (path === "/register/publish" && isRead) return html(regPublishPage(env));
+    if (path === "/register/withdraw" && isRead) return html(regWithdrawPage());
+    if (path.startsWith("/register/") && isRead) {
+      const r = await regGet(env, path.slice(10).replace(/\/+$/, ""));
+      if (!r) return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      if (request.method === "GET") ctx?.waitUntil?.(countPageView(env, "/register/item", pageSource(request)));
+      if (r.status !== "public") return cached(html(regGonePage(r), 410), 60);
+      return cached(html(regRecordPage(r)), 60);
+    }
+    if (path === "/api/register" && isRead) {
+      const rows = await regList(env, 100);
+      return cached(json({ count: rows.length, consent_version: REG_CONSENT_VERSION, items: rows.map((r) => ({ slug: r.slug, url: CANONICAL_ORIGIN + "/register/" + r.slug, title: r.title, display_name: r.display_name || null, published_at: r.published_at, content_hash: r.content_hash })) }), 60);
+    }
+    if (path.startsWith("/api/register/") && isRead) {
+      const r = await regGet(env, path.slice(14));
+      if (!r) return json({ error: "Not found" }, 404);
+      return cached(json(regApiRecord(r), r.status === "public" ? 200 : 410), 60);
+    }
+    if (path === "/api/register/publish" && request.method === "POST") return await handleRegPublish(request, env);
+    if (path === "/api/register/withdraw" && request.method === "POST") return await handleRegWithdraw(request, env);
+    if (path === "/api/register/takedown" && request.method === "POST") return await handleRegTakedown(request, env);
+  } catch (e) {
+    console.error(JSON.stringify({ worker: "qnfo-ipatent", where: "regRoutes", path, error: String(e && e.message || e) }));
+    return json({ error: "The register is not available right now. Please try again." }, 503);
+  }
+  return null;
+}
+__name(regRoutes, "regRoutes");
+// END REGISTER-1
 var qnfo_ipatent_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -2878,7 +3289,7 @@ var qnfo_ipatent_default = {
           status: "ok",
           worker: "qnfo-ipatent",
           version: VERSION,
-          capabilities: ["disclosure-drafting", "prior-art-search", "private-saved-draft", "provisional-guide", "page-metrics", "usage-topics", "support-map", "completeness-meter", "guided-flow-v2", "ab-split-v2", "subscribe", "llms-txt", "cost-per-draft"],
+          capabilities: ["disclosure-drafting", "prior-art-search", "private-saved-draft", "provisional-guide", "page-metrics", "usage-topics", "support-map", "completeness-meter", "guided-flow-v2", "ab-split-v2", "subscribe", "llms-txt", "cost-per-draft", "defensive-register"],
           limitations: ["POST /api/draft allows 20 submissions per IP per hour", "each human page load of / is drawn at random onto the default page or the ?v=2 guided flow, with no cookie (share = ops_config ipatent_v2_share, 0 turns it off) so both variants can be measured per page view (AB-SPLIT-V2-1, BP26-NO-TRACKING-1)", "drafts are invention disclosures for review, not filed patents", "nothing is stored unless the inventor opts in; /api/disclosures needs X-Admin-Token", "searches and drafts are counted per day by broad topic only (usage_counts); their text is never stored (IPATENT-USAGE-1)", "page metrics are daily counts by source class only (no IP, user agent or cookie); crawler detection is a user-agent heuristic", "the support map is a lexical check of claim wording against numbered paragraphs, not a legal opinion", "at most 150 drafts in 24 hours across all users"],
           bindings: {
             d1: !!env.IPATENT_DB ? "ipatent-db" : null,
@@ -2934,7 +3345,7 @@ var qnfo_ipatent_default = {
         return new Response("User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /d/\nSitemap: " + CANONICAL_ORIGIN + "/sitemap.xml\n", { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       }
       if (path === "/sitemap.xml" && isRead) {
-        const urls = ["/", "/guide", "/example"].concat(GUIDE_PAGES.map((x) => "/guide/" + x.slug)).map((p) => "<url><loc>" + CANONICAL_ORIGIN + p + "</loc><lastmod>" + GUIDE_UPDATED + "</lastmod></url>").join("");
+        const urls = ["/", "/guide", "/example"].concat(GUIDE_PAGES.map((x) => "/guide/" + x.slug)).map((p) => "<url><loc>" + CANONICAL_ORIGIN + p + "</loc><lastmod>" + GUIDE_UPDATED + "</lastmod></url>").join("") + await regSitemapEntries(env);
         return new Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + "</urlset>", { headers: { "Content-Type": "application/xml; charset=utf-8" } });
       }
       if (path.startsWith("/d/") && isRead) {
@@ -2942,6 +3353,8 @@ var qnfo_ipatent_default = {
         if (!row || row.title === "[private]" || !row.document_html) return new Response("Not found", { status: 404, headers: { "X-Robots-Tag": "noindex" } });
         return new Response(row.document_html, { headers: { "Content-Type": "text/html; charset=utf-8", "X-Robots-Tag": "noindex, nofollow", "Cache-Control": "private, no-store" } });
       }
+      const regRes = await regRoutes(request, env, ctx, path); // REGISTER-1
+      if (regRes) return regRes;
       if (path === "/api/draft" && request.method === "POST") return handleDraft(request, env, ctx);
       if (path === "/api/mechanism" && request.method === "POST") return handleMechanism(request, env, ctx);
       if (path === "/api/search" && request.method === "GET") {

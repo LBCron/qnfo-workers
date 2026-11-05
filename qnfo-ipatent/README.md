@@ -87,6 +87,13 @@ drafts, distinct drafters); qnfo-fleet-control IMPROVEMENT-LOOP-1 (SURFACE-METRI
 | /api/submission/:id | GET | One saved submission (private drafts 404) |
 | /api/status | GET | Version/model/stats |
 | /api/metrics | GET | 7d/30d aggregate page and draft metrics (no personal data) |
+| /register | GET | Open register of defensive publications: disclosures whose inventors chose to publish them (REGISTER-1, 3.21.0) |
+| /register/:slug | GET | One published disclosure: og tags, cite-as line, SHA-256 fingerprint; 410 after withdrawal |
+| /register/publish, /register/withdraw | GET | The consent form and the withdrawal form (noindex) |
+| /api/register, /api/register/:slug | GET | The register as JSON (no personal data) |
+| /api/register/publish | POST | Publish a saved draft: needs `consent: true` and the current `consent_version`; returns a withdrawal code once |
+| /api/register/withdraw | POST | Withdraw with the withdrawal code or the private link; removes the text |
+| /api/register/takedown | POST | Remove a record (X-Admin-Token only) |
 | /api/cost | GET | Measured model cost per completed draft, 30 days, from qnfo-audit `ai_call_counters` (neurons, tokens, USD at the published neuron rate). A cost, not a price |
 
 ## Deploy
@@ -115,3 +122,24 @@ Owner directive 2026-10-10. The disclosure prompt carries process and style only
   shown to people; neither is sent to a model.
 
 Suite: `node qnfo-ipatent/ground.test.mjs`.
+
+## What v3.21.0 added: the open register of defensive publications (REGISTER-1, RM-BS-DEFENSIVE-PUBLICATION-1; pillar research)
+
+A defensive publication puts an invention into the public record so nobody can patent it later. The register publishes a saved draft only after an
+explicit, recorded consent:
+
+- The holder of a draft's private link opens `/register/publish`, sees a preview of what will be published (title, length, start of the text), reads the
+  consent text and ticks a box that is never pre-ticked. The server stores the exact consent text, its version (`dp-consent-1`) and the time with the
+  record. A stale version or `consent` other than `true` is refused.
+- Only the draft's disclosure text is published: never the print version (it carries the inventor's e-mail), never the inventor's name unless the person types
+  a name to show. Drafts that were not saved, private drafts and automated drafts cannot be published; a text under 400 characters or with more than five links is refused;
+  at most 30 new records in 24 hours.
+- Each record has its own address `/register/dp-xxxxxxxxxx` (a random id; the private draft id is never shown), og tags, JSON-LD, a cite-as line and a SHA-256
+  fingerprint of `iPatent-DP-v1`, LF, title, LF, text. The date is this server's clock, not a notary's.
+- Withdrawal (the withdrawal code shown once, or the private link) blanks the text, title and name and keeps the id, dates, fingerprint and consent record; the page then
+  answers 410 and leaves the sitemap. An admin takedown (`X-Admin-Token`) does the same with a recorded reason.
+- Storage: table `public_disclosures` in `ipatent-db`, created lazily by the first publish (`CREATE TABLE IF NOT EXISTS`); reads treat a missing table as an empty register.
+- Limits: the register can check only that the person holds the private link, so it cannot prove they are the inventor (the consent text says so). No DOI is minted
+  yet; that is a separate, consented step. Not legal advice; not a filing; nobody checks a published text.
+
+Suite: `node qnfo-ipatent/register.test.mjs`. Phone journey: `scripts/ux-journeys/apps/ipatent.journeys.mjs`.

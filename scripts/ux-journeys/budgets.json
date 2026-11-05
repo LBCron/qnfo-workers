@@ -153,5 +153,11 @@
    "taps": 0,
    "typing": 0
   }
+ },
+ "ipatent": {
+  "register-open-publish": {
+   "taps": 1,
+   "typing": 0
+  }
  }
 }

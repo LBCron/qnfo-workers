@@ -8,6 +8,12 @@
       "contains": [
         "\"worker\":\"qnfo-ipatent\""
       ]
+    },
+    {
+      "url": "https://ipatent.qnfo.org/register/publish",
+      "contains": [
+        "Nothing is published until you tick the box"
+      ]
     }
   ]
 }
