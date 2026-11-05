@@ -59,6 +59,7 @@ MTTR_MIN_EVENTS = 5
 DLQ_HELD_MIN = 120
 GH_CALLS_PER_RUN = 24
 CI_AUDIT_PER_RUN = 16
+STALE_REAUDIT_PER_RUN = 8  # CI-GATE-ERA-1: of those 16, rows classified by the pre-era rules audited again (the other 8 stay for new merges)
 CI_THROTTLE_MIN = 50
 CI_COVERAGE_MIN = 0.98
 GOOD_CONCLUSIONS = ("success", "neutral", "skipped")
@@ -550,15 +551,19 @@ def collect_ci_gate(ctx):
     except Exception as e:  # noqa: BLE001
         notes.append("GitHub pulls list: %s" % str(e)[:100])
     # CI-GATE-ERA-1: rows classified by the old single-list rules are audited again, newest first, after the new merges (they need no list call: head_sha is stored).
-    room = CI_AUDIT_PER_RUN - len(todo)
+    # The merges of the last hour (about 30) outnumber one batch, so a re-audit that waited for a short queue of new merges would starve: it takes a fixed share of every batch (STALE_REAUDIT_PER_RUN).
+    stale = {}
     for n, r in sorted(audited.items(), reverse=True):
-        if room <= 0:
+        if len(stale) >= STALE_REAUDIT_PER_RUN:
             break
         if n not in todo and r.get("required_state") != "green" and r.get("head_sha") and stale_classification(r):
-            todo[n] = {"merged_at": r["merged_at"], "merge_sha": r.get("merge_sha") or "", "head_sha": r["head_sha"]}
-            room -= 1
+            stale[n] = {"merged_at": r["merged_at"], "merge_sha": r.get("merge_sha") or "", "head_sha": r["head_sha"]}
+    work = [(n, todo[n]) for n in sorted(todo, reverse=True)[:CI_AUDIT_PER_RUN - len(stale)]] + sorted(stale.items(), reverse=True)
+    if stale:
+        notes.append("%d stored row(s) classified by the pre-era rules audited again" % len(stale))
     stamp = _iso(ctx.now)
-    for n in sorted(todo, reverse=True)[:CI_AUDIT_PER_RUN]:
+    for n, item in work:
+        todo[n] = item
         if budget[0] <= 0 or ctx.left() < 15:
             break
         try:
@@ -854,6 +859,24 @@ CREATE TABLE agent_issues (id INTEGER PRIMARY KEY, title TEXT, created_at INTEGE
                 return json.dumps({"required_checks": ["versions", "scans"]})
         collect_ci_gate(GC3())
         ok(db.execute("SELECT required_state, missing FROM ci_gate_audit WHERE pr = 21").fetchone() == ("green", ""), "a row classified by the old rules is re-audited and turns green: %r" % (db.execute("SELECT required_state, missing FROM ci_gate_audit WHERE pr = 21").fetchone(),))
+
+        # a queue of 30 new merges (more than one batch) must not starve the re-audit
+        db.execute("DELETE FROM ci_gate_audit")
+        db.execute("INSERT INTO ci_gate_audit VALUES (21, ?, 'm21', 'h21', 'not-green', 'gate', '', '2026-01-01T00:00:00Z')", [_iso(now - 900)])
+        BIG = [{"number": 100 + i, "merged_at": _iso(now - 800 + i), "merge_commit_sha": "mb%d" % i, "head": {"sha": "hb%d" % i}, "updated_at": _iso(now)} for i in range(30)]
+
+        class GC4(GC3):
+            def http(self, url, **kw):
+                if "/pulls?" in url:
+                    return Resp(200, {}, [], json.dumps(BIG), url, 1, [], None)
+                if "/search/issues" in url:
+                    return Resp(200, {}, [], json.dumps({"total_count": 31}), url, 1, [], None)
+                if "/check-runs" in url and "/commits/hb" in url:
+                    return Resp(200, {}, [], json.dumps({"check_runs": [{"name": "versions", "conclusion": "success"}, {"name": "scans", "conclusion": "success"}]}), url, 1, [], None)
+                return GC3.http(self, url, **kw)
+        collect_ci_gate(GC4())
+        ok(db.execute("SELECT required_state FROM ci_gate_audit WHERE pr = 21").fetchone() == ("green",) and db.execute("SELECT COUNT(*) FROM ci_gate_audit").fetchone()[0] == 16,
+           "30 new merges leave room for the stale row (15 new + 1 re-audit = one batch of 16): %r" % (db.execute("SELECT COUNT(*) FROM ci_gate_audit").fetchone(),))
     finally:
         if old_acc is None:
             os.environ.pop("CF_ACCOUNT_ID", None)
