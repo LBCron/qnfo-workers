@@ -1,0 +1,62 @@
+name: cf-estate
+# CI-ACTION-IDENTITY-1: the run title names the action, so scripts/ci_watchdog.py files a failure per action.
+run-name: cf-estate ${{ inputs.action }}
+
+# CF-ESTATE-1 (2026-11-05, pillar core; roadmap rows NEXT-QNFO.INFRA.WORK, PAGE, DNS, D1 and R2). The five read-only estate reports of scripts/cf_estate.py, run with the
+# repository's Cloudflare token (an agent session holds none; CLAUDE.md, Cloudflare actions without a token): worker-inventory, pages-inventory, dns-drift, d1-query-report,
+# r2-inventory. Each prints a markdown summary (also the job summary) and one RESULT_JSON line. Nothing here writes to Cloudflare: scripts/cf-estate.test.mjs fails on a PUT,
+# PATCH or DELETE call in the script, and the job token is read-only. A verdict (retire, detach, disable) is carried out by a separate guarded step after a dependency check.
+# A separate workflow, not another option of cf-ops-actions.yml, so the reports can change without queueing behind the write actions of that file.
+# Dispatch only (GitHub schedule never fires on this repository); a recurring run belongs to a Cloudflare cron. Style: step names colon-free, no heredocs, no inline python.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "worker-inventory | pages-inventory | dns-drift | d1-query-report | r2-inventory"
+        required: true
+        type: choice
+        options:
+          - worker-inventory
+          - pages-inventory
+          - dns-drift
+          - d1-query-report
+          - r2-inventory
+      db:
+        description: "d1-query-report only, the database name"
+        required: false
+        default: "qnfo-audit"
+      hours:
+        description: "d1-query-report only, the window in hours (the same window before and after a change makes the comparison)"
+        required: false
+        default: "6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cf-estate-${{ github.event.inputs.action }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    # RUNNER-PIN-2 (WORKFLOW-FAILURE-AUDIT-1): pinned to ubuntu-24.04 like cf-ops-actions.yml.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      IN_ACTION: ${{ github.event.inputs.action }}
+      IN_DB: ${{ github.event.inputs.db }}
+      IN_HOURS: ${{ github.event.inputs.hours }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      - name: Run the estate report
+        run: |
+          set -uo pipefail
+          python3 scripts/cf_estate.py "$IN_ACTION" --live --db "${IN_DB:-qnfo-audit}" --hours "${IN_HOURS:-6}"

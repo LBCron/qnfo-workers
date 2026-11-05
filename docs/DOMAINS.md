@@ -36,6 +36,8 @@ bindings) or has no route. The graph reads routes and custom domains only; a nam
 |---|---|---|---|
 | `me.q08.org` | personal | personal-api (the companion, `/v1`, `/mcp`) | yes; the address given to the owner |
 | `jobs.q08.org` | personal | qnfo-jobsearch (the job matches page; zone route by `scripts/attach-jobs-q08-route.py`, DOMAIN-PLANE-1:jobs.q08.org, agent_issues 1000582) | yes; owner-facing address, verified 2026-11-02 by the live route and `/health` probe |
+| `mind.q08.org` (custom domain and zone route) | personal | q08-mind (MIND-Q08-1, the inside reading surface) | yes; added by CF-ESTATE-1, served for weeks and absent from this table |
+| `watch.q08.org` | personal | personal-watch | yes; added by CF-ESTATE-1 |
 | `reading.q08.org` (custom domain) | personal | personal-companion | yes |
 | `travel.q08.org` | personal | personal-companion | yes |
 | `q08.org`, `www.q08.org` | personal | q08-signal-engine | yes |
@@ -43,6 +45,9 @@ bindings) or has no route. The graph reads routes and custom domains only; a nam
 | `qnfo.org`, `www.qnfo.org`, `legal.`, `papers.` (custom domain), `archive.`, `graph-api.` (custom domain) | research | qnfo-gateway | yes |
 | `ai.qnfo.org` | research | qnfo-ai | yes |
 | `ops.qnfo.org` | fleet | qnfo-ops | yes |
+| `agents.qnfo.org` (custom domain) | fleet | qnfo-agents | yes; added by CF-ESTATE-1 |
+| `lee.qnfo.org` (custom domain) | fleet | qnfo-fleet-lee (a live script with no source directory here; `python3 scripts/cf_estate.py worker-inventory` lists it as unmanaged) | kept; added by CF-ESTATE-1 |
+| `hub.qnfo.org`, `design.qnfo.org`, `hensel.qnfo.org`, `measure.qnfo.org`, `quantum.qnfo.org`, `unity.qnfo.org` | research | Pages project `qnfo-hub` (six static landing pages of about 6 KB, titled "QNFO - Hub", served 200 on 2026-11-04; `www.qnfo.org` is also listed on that project and is shadowed by the qnfo-gateway route) | kept (static); added by CF-ESTATE-1 |
 | `fleet.qnfo.org` | fleet | qnfo-fleet-dashboard | yes |
 | `ideas.qnfo.org` | research | idea-hub | yes |
 | `memory.qnfo.org` | fleet | qnfo-memory-mcp | yes |
@@ -55,11 +60,21 @@ bindings) or has no route. The graph reads routes and custom domains only; a nam
 | `score.qwav.tech` | quantum | zone redirect rule, 301 to `https://qwav.org/` | yes, a redirect |
 | `deep.qwav.tech`, `primer.qwav.tech` | quantum | Pages project `qwav` (about 500 static research pages under `/papers/`, no other host serves them) | kept; do not detach without migrating those pages |
 | `ask.qwav.org` | quantum | qnfo-ai-search | yes |
-| `ask.qwav.tech` | quantum | qnfo-ai-search | no, quantum surface on `qwav.tech`, not `qwav.org`: DOMAIN-PLANE-1:ask.qwav.tech |
+| `ask.qwav.tech` | quantum | qnfo-ai-search (zone route `ask.qwav.tech/*`; the Pages project `ask-qwav` also lists the name and is shadowed by the route) | no, quantum surface on `qwav.tech`, not `qwav.org`: DOMAIN-PLANE-1:ask.qwav.tech |
 | `qwav.tech` | quantum | zone redirect rule, 301 to `https://qwav.org` | yes, a redirect |
-| `qwave.tech`, `q-wave.tech` | quantum | zones active in the account, public DNS answers NXDOMAIN (registrar delegation lost, 2026-11-04); owner action at the registrar | no |
+| `www.qwav.tech` | quantum | zone redirect rule, 301 to `https://qwav.org`; added by CF-ESTATE-1 | yes, a redirect |
+| `qwave.tech`, `q-wave.tech`, `www.qwave.tech`, `www.q-wave.tech` | quantum | zones active in the account, public DNS answers NXDOMAIN (registrar delegation lost, 2026-11-04; `dns-drift` reports `delegation_lost`); owner action at the registrar | no |
 | `ipatent.me`, `www.ipatent.me` | research | spare zone, 301 to `https://ipatent.qnfo.org` | yes, a redirect |
-| `www.empoweringchange.today` | research | spare zone, 301 to `https://qnfo.org` | yes, a redirect |
+| `empoweringchange.today`, `www.empoweringchange.today` | research | spare zone, 301 to `https://qnfo.org` | yes, a redirect |
+| `qnfo.net`, `qnfo.uk` | research | spare zones (CNAME to `qnfo.org`, zone redirect), 301 to `https://qnfo.org`; added by CF-ESTATE-1 | yes, a redirect |
 
 Workers reached only by their `*.workers.dev` host serve machines (probes, service-binding callers). A check of `q08.workers.dev` strings in the
 owner-facing workers on 2026-10-20 found origin calls and probes, not an address printed for the owner.
+
+## Verification (CF-ESTATE-1, NEXT-QNFO.INFRA.DNS)
+
+The host table above is checked against the account, not remembered:
+- `python3 scripts/cf_estate.py doc-check` (offline, also a PR guard when this file changes): the table parses and the plane rules hold (personal hosts only on `q08.org`, every `q08.org` host personal, quantum hosts and `qwav.*` hosts agree). A row marked `no` is the record of a known wrong place, not a violation.
+- `python3 scripts/cf_estate.py dns-drift --live` (workflow `cf-estate`, action `dns-drift`; the repository token): every documented host must be answered by a zone route, a worker custom domain, a Pages domain, a redirect rule or a DNS record (`missing`); every served host must be named here (`undocumented`); a Pages domain that a worker route also answers is `shadowed_pages` (the route wins and the deployment serves nothing); a CNAME to a `*.workers.dev` or `*.pages.dev` target that is no longer in the account is `dangling_target`; an unproxied record to either is `unproxied_web` (it answers 522 or 1014); a zone whose public NS differ from Cloudflare's assignment is `delegation_lost` (qwave.tech and q-wave.tech on 2026-11-04). `stray_redirect` is a redirect rule that names a host of another zone (it can never match). `missing`, `dangling_target`, `unproxied_web` and `plane_violation` are the hard findings (`--strict` exits 1 on them; the report run exits 0 and carries the count in `RESULT_JSON`).
+- `pages-inventory` gives each Pages project a verdict (keep, active, document, retire-candidate) from the same table; `worker-inventory`, `r2-inventory` and `d1-query-report` are the other estate reports. A retirement or a detach is a separate, guarded step after a dependency check (CLAUDE.md, standing owner grant); these actions never write.
+- `mcp.q08.org` (CNAME to `gateway.agents.cloudflare.com`) is a DNS-only record, not a served host of this fleet's workers, and is not listed.
