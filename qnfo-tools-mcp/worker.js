@@ -12,7 +12,7 @@ var FLEET = "https://fleet.qnfo.org";
 // malformed tools/call returns -32602; tools carry readOnlyHint/destructiveHint annotations; /mcp/messages with a
 // token but no live SSE session returns the result inline instead of dropping it; audit ids cannot collide and
 // record the SSE session. Transports, tools, scopes and upstreams are unchanged.
-var VERSION = "1.5.0-fullscope";
+var VERSION = "1.6.0-fullscope";
 // 1.3.0 BP26-PROMPT-INJECTION-1 (agent_issues 1000359, pillar security): email_respond names its surface ("mcp") in the x-qnfo-agent-surface header, so qnfo-email 2.12.0 pins a reply to the sender of the email being answered, refuses a cold send outside the owner, QNFO addresses and the allow-list, and sends the body as plain text; the tool description says so. // 1.2.1 AUTOAUDIT-DEAD-CALLERS-1 (2026-10-12, agent_issues 2302, pillar personal): personal_search calls qnfo-intent-orchestrator /personal/search over the existing binding (it called a retired worker through a removed binding and failed on every call); topK is honoured; the retired worker leaves deps. // OWNER-QUEUE-MCP-1: owner_queue / owner_code / owner_act reach the fleet.qnfo.org queue from any MCP client; 1.1.6-capability-contract: MCP-TOKEN-NO-SCOPE-SEPARATION (954): MCP_TOKEN=read+write, MCP_READ_TOKEN=read-only
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var DEFAULT_PROTOCOL = "2024-11-05";
@@ -84,13 +84,6 @@ function capHex(bytes) {
   return s;
 }
 __name(capHex, "capHex");
-function capFromHex(h) {
-  if (typeof h !== "string" || h.length !== 64 || /[^0-9a-f]/.test(h)) throw new Error("bad signature");
-  const out = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
-__name(capFromHex, "capFromHex");
 async function capHmac(keyBytes, text) {
   const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(text)));
@@ -159,22 +152,38 @@ async function resolveScope(token, env) {
   return s;
 }
 __name(resolveScope, "resolveScope");
+// CAP-TOKEN-2 (independent review of 1.5.0): an open stream outlives its token unless the session carries the token's expiry. True when a capability token's x caveat has passed.
+function capExpired(caps, nowMs) {
+  return !!caps && caps.exp !== null && caps.exp !== void 0 && nowMs >= caps.exp * 1e3;
+}
+__name(capExpired, "capExpired");
+var CAP_MINT_KEYS = ["tools", "ttl_s", "read_only", "task"];
 // Derive a child. `scope` is a resolveScope() result for the parent; opts: { tools, ttl_s, read_only, task }. Only ever adds caveats.
+// CAP-TOKEN-2: a mint request is strict. An option the route does not know (a typo such as `tool`), a read_only that is not a boolean, a ttl_s that is not a number of at least 60
+// and a task that is not a short string are refused (400) instead of minting a wider child than the caller meant.
 async function capMint(scope, env, opts, nowMs) {
-  const o = opts && typeof opts === "object" ? opts : {};
+  if (!opts || typeof opts !== "object" || Array.isArray(opts)) throw new Error("body must be a JSON object");
+  const o = opts;
+  for (const key of Object.keys(o)) if (CAP_MINT_KEYS.indexOf(key) < 0) throw new Error("unknown option: " + key.slice(0, 32));
   const added = [];
-  const ttl = Math.min(Math.max(Math.floor(Number(o.ttl_s) || 3600), 60), CAP_MAX_TTL_S);
+  let ttl = 3600;
+  if (o.ttl_s !== void 0) {
+    if (typeof o.ttl_s !== "number" || !Number.isFinite(o.ttl_s) || o.ttl_s < 60) throw new Error("ttl_s must be a number of seconds, 60 or more");
+    ttl = Math.min(Math.floor(o.ttl_s), CAP_MAX_TTL_S);
+  }
   added.push({ x: Math.floor(nowMs / 1e3) + ttl });
   if (o.tools !== void 0) {
     if (!Array.isArray(o.tools) || !o.tools.length) throw new Error("tools must be a non-empty array of tool names");
-    for (const n of o.tools) if (TOOLS.every((t) => t.name !== n)) throw new Error("unknown tool: " + String(n).slice(0, 64));
+    for (const n of o.tools) if (typeof n !== "string" || TOOLS.every((t) => t.name !== n)) throw new Error("unknown tool: " + String(n).slice(0, 64));
     added.push({ t: o.tools.slice() });
   }
-  if (o.read_only === true) added.push({ w: 0 });
+  if (o.read_only !== void 0) {
+    if (typeof o.read_only !== "boolean") throw new Error("read_only must be true or false");
+    if (o.read_only) added.push({ w: 0 });
+  }
   if (o.task !== void 0) {
-    const k = String(o.task).slice(0, 64);
-    if (!k) throw new Error("task must be a non-empty string");
-    added.push({ k });
+    if (typeof o.task !== "string" || !o.task || o.task.length > 64) throw new Error("task must be a string of 1 to 64 characters");
+    added.push({ k: o.task });
   }
   let body, startSig;
   if (scope.caps) {
@@ -193,6 +202,37 @@ async function capMint(scope, env, opts, nowMs) {
   return { token: capEncode(body, sig), id: body.i, root: body.r, caveats: body.c, expires_at: new Date(effExp * 1e3).toISOString() };
 }
 __name(capMint, "capMint");
+// CAP-TOKEN-2: a secret-free proof that the live isolate mints, verifies, narrows and expires tokens. It runs the production functions against an EPHEMERAL root and a stepped clock, so
+// it touches no credential and writes nothing; GET /mcp/cap-selftest answers {"ok":true,...} while all of it holds (fm-capability-selftest-live reads it hourly).
+async function capSelfTest() {
+  const t0 = Date.now(), checks = [];
+  const chk = (name, pass) => checks.push({ name, pass: !!pass });
+  const rootBytes = crypto.getRandomValues(new Uint8Array(32));
+  const env2 = { MCP_TOKEN: capB64u(rootBytes), MCP_READ_TOKEN: capB64u(rootBytes) + "-r" };
+  try {
+    const m = await capMint({ ok: true, write: true, caps: null, root: "w" }, env2, { tools: ["infra_status"], ttl_s: 60, task: "selftest" }, t0);
+    const v = await capVerify(m.token, env2, t0);
+    chk("a fresh token verifies with its allowlist, task and write scope", v.ok && v.write && v.caps.tools.length === 1 && v.caps.tools[0] === "infra_status" && v.caps.task === "selftest");
+    chk("it is valid 59 s in and refused at 60 s", (await capVerify(m.token, env2, t0 + 59e3)).ok && !(await capVerify(m.token, env2, t0 + 60e3)).ok);
+    chk("an open session sees the same expiry", !capExpired(v.caps, t0 + 59e3) && capExpired(v.caps, t0 + 60e3));
+    const ro = await capMint(v, env2, { read_only: true, ttl_s: 3600 }, t0);
+    const vro = await capVerify(ro.token, env2, t0);
+    chk("a child is read-only and never outlives its parent", vro.ok && !vro.write && vro.caps.exp === v.caps.exp && vro.caps.tools.length === 1);
+    const parts = m.token.split(".");
+    const forged = parts[0] + "." + (parts[1][0] === "0" ? "1" : "0") + parts[1].slice(1);
+    chk("a flipped signature fails closed", !(await capVerify(forged, env2, t0)).ok);
+    chk("another root fails closed", !(await capVerify(m.token, { MCP_TOKEN: "x" + env2.MCP_TOKEN, MCP_READ_TOKEN: env2.MCP_READ_TOKEN }, t0)).ok);
+    let refused = 0;
+    for (const bad of [{ read_only: "true" }, { tool: ["infra_status"] }, { ttl_s: 0 }, { ttl_s: "5m" }, { ttl_s: 59 }, { task: 5 }, null, []]) {
+      try { await capMint({ ok: true, write: true, caps: null, root: "w" }, env2, bad, t0); } catch (e) { refused++; }
+    }
+    chk("a typo, a string read_only and a bad ttl_s are refused", refused === 8);
+  } catch (e) {
+    chk("self-test ran without an exception: " + String(e && e.message || e).slice(0, 80), false);
+  }
+  return { ok: checks.length > 0 && checks.every((c) => c.pass), worker: "qnfo-tools-mcp", version: VERSION, checks };
+}
+__name(capSelfTest, "capSelfTest");
 function ok(id, result) {
   return { jsonrpc: "2.0", id, result };
 }
@@ -496,7 +536,7 @@ async function selfRegister(env) {
     base_url: "https://qnfo-tools-mcp.q08.workers.dev",
     purpose: "MCP server (SSE + streamable HTTP) exposing the QNFO machine tool surface (web, research corpus, personal KB, intent queue, infra/analytics, email) to any MCP-capable LLM client",
     capabilities: ["mcp-server", "sse", "streamable-http", "tools", "web-search", "web-fetch", "research-search", "personal-search", "intent-express", "intent-query", "infra-state", "infra-analytics", "email"],
-    routes: ["/health", "/mcp/sse", "/mcp/messages", "/mcp", "/mcp/attenuate"],
+    routes: ["/health", "/mcp/sse", "/mcp/messages", "/mcp", "/mcp/attenuate", "/mcp/cap-selftest"],
     tools: TOOLS.map((t) => ({ name: t.name, description: t.description })),
     models: [],
     deps: ["qnfo-ai (router RT)", "qnfo-infra", "qnfo-intent-orchestrator", "qnfo-email"]
@@ -535,6 +575,13 @@ var worker_default = {
           controller.enqueue(encoder.encode("event: endpoint" + NL + "data: /mcp/messages?sessionId=" + sessionId + NL + NL));
           keep = setInterval(() => {
             try {
+              // CAP-TOKEN-2: the stream ends when the capability token's expiry passes (within one keepalive); each POST below is checked exactly.
+              if (capExpired(scSse.caps, Date.now())) {
+                clearInterval(keep);
+                sessions.delete(sessionId);
+                controller.close();
+                return;
+              }
               controller.enqueue(encoder.encode(": keepalive" + NL + NL));
             } catch (e) {
             }
@@ -549,7 +596,16 @@ var worker_default = {
     }
     if (path === "/mcp/messages" && method === "POST") {
       const sessionId = url.searchParams.get("sessionId") || "";
-      const sess = sessions.get(sessionId);
+      let sess = sessions.get(sessionId);
+      // CAP-TOKEN-2: the scope stored when the stream opened must not outlive the capability token's expiry (a 60 s token on an open stream worked for ever in 1.5.0).
+      if (sess && capExpired(sess.caps, Date.now())) {
+        sessions.delete(sessionId);
+        try {
+          sess.c.close();
+        } catch (e) {
+        }
+        sess = void 0;
+      }
       const controller = sess ? sess.c : null;
       const scMsg = await resolveScope(tokenFrom(url, request), env);
       // MCP-MESSAGES-UNAUTHENTICATED (953): this endpoint previously executed JSON-RPC
@@ -589,6 +645,10 @@ var worker_default = {
       const handled = await handleRpcBody(msg, env, scMcp.write, null, scMcp.caps);
       if (!handled.body) return new Response("", { status: 202, headers: cors });
       return new Response(JSON.stringify(handled.body), { headers: { "Content-Type": "application/json", ...cors } });
+    }
+    if (path === "/mcp/cap-selftest" && method === "GET") {
+      const st = await capSelfTest();
+      return new Response(JSON.stringify(st), { status: st.ok ? 200 : 500, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors } });
     }
     if (path === "/mcp/attenuate" && method === "POST") {
       // CAP-TOKEN-1: derive a narrower token from the one presented. A capability token as parent keeps every caveat it has; nothing here can widen.

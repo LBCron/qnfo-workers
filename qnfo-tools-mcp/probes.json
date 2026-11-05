@@ -10,6 +10,12 @@
       ]
     },
     {
+      "url": "https://qnfo-tools-mcp.q08.workers.dev/mcp/cap-selftest",
+      "contains": [
+        "\"ok\":true"
+      ]
+    },
+    {
       "url": "https://qnfo-tools-mcp.q08.workers.dev/mcp/sse",
       "status": 401,
       "contains": [

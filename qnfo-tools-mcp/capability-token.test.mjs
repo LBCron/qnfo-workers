@@ -149,5 +149,61 @@ await t("SSE session: a capability token's allowlist applies to /mcp/messages on
   await reader.cancel();
 });
 
+// ---- CAP-TOKEN-2: the independent review of 1.5.0 --------------------------------------------------------------------------------------------------------------------
+const withClock = async (offsetMs, fn) => { const real = Date.now; Date.now = () => real() + offsetMs; try { return await fn(); } finally { Date.now = real; } };
+
+await t("review 1: an open SSE stream and its session stop answering when the capability token expires", async () => {
+  const m = await mint(env.MCP_TOKEN, { tools: ["infra_status"], ttl_s: 60 });
+  eq(m.status, 200);
+  const sse = await worker.fetch(new Request(B + "/mcp/sse?token=" + encodeURIComponent(m.body.token)), env, { waitUntil() {} });
+  eq(sse.status, 200);
+  const reader = sse.body.getReader();
+  const sid = /sessionId=([0-9a-f-]+)/.exec(new TextDecoder().decode((await reader.read()).value))[1];
+  const post = (id) => worker.fetch(new Request(B + "/mcp/messages?sessionId=" + sid, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list" }) }), env, { waitUntil() {} });
+  eq((await post(1)).status, 202, "answers while the token is live");
+  eq(new TextDecoder().decode((await reader.read()).value).includes("infra_status"), true, "the frame arrived on the stream");
+  const late = await withClock(61e3, () => post(2));
+  eq(late.status, 401, "refused after expiry");
+  const closed = await Promise.race([reader.read(), new Promise((r) => setTimeout(() => r({ timeout: true }), 500))]);
+  ok(closed.done === true, "the stream was closed by the server: " + JSON.stringify({ done: closed.done, timeout: closed.timeout }));
+  eq((await post(3)).status, 401, "and the session is gone even if the clock were back");
+});
+
+await t("review 2: mint refuses a typo, a non-boolean read_only, a non-object body and a bad task instead of minting a wider child", async () => {
+  for (const bad of [{ read_only: "true" }, { read_only: 1 }, { tool: ["infra_status"] }, { tools: ["infra_status"], ttl: 600 }, { task: 5 }, { task: "x".repeat(65) }, [], "x", null]) {
+    const r = await mint(env.MCP_TOKEN, bad);
+    eq(r.status, 400, "refused " + JSON.stringify(bad));
+  }
+  const good = await mint(env.MCP_TOKEN, { read_only: false, tools: ["infra_status"], ttl_s: 120, task: "ok" });
+  eq(good.status, 200);
+  ok(!good.body.caveats.some((c) => c.w === 0), "read_only:false adds no read-only caveat");
+});
+
+await t("review 3: ttl_s must be a number of at least 60; nothing falls back to an hour", async () => {
+  for (const bad of [0, -5, 59, "5m", "3600", null, true, [60], Infinity]) {
+    const r = await mint(env.MCP_TOKEN, { ttl_s: bad });
+    eq(r.status, 400, "refused ttl_s " + JSON.stringify(bad));
+  }
+  const m = await mint(env.MCP_TOKEN, { ttl_s: 60 });
+  eq(m.status, 200);
+  ok(Date.parse(m.body.expires_at) - Date.now() <= 61e3, "60 s means 60 s");
+  const dflt = await mint(env.MCP_TOKEN, {});
+  ok(Date.parse(dflt.body.expires_at) - Date.now() > 3500e3 && Date.parse(dflt.body.expires_at) - Date.now() <= 3601e3, "an omitted ttl_s is the documented hour");
+});
+
+await t("review 4: the runtime self-test route proves mint, verify, narrow, expire and refuse with an ephemeral root", async () => {
+  const r = await worker.fetch(new Request(B + "/mcp/cap-selftest"), { ...env, MCP_TOKEN: undefined, MCP_READ_TOKEN: undefined }, { waitUntil() {} });
+  eq(r.status, 200);
+  const j = await r.json();
+  ok(j.ok === true && j.checks.length >= 7 && j.checks.every((c) => c.pass), "all checks pass: " + JSON.stringify(j.checks.filter((c) => !c.pass)));
+  ok(!JSON.stringify(j).includes("test-root"), "no credential appears in the answer");
+});
+
+await t("review 5: the dead helper is gone and the expiry helper is the one the session path uses", async () => {
+  const src = (await import("node:fs")).readFileSync(join(here, "worker.js"), "utf8");
+  ok(!/capFromHex/.test(src), "capFromHex removed");
+  ok((src.match(/capExpired\(/g) || []).length >= 4, "capExpired is used by the stream, the POST path and the self-test");
+});
+
 console.log(passed + " passed, " + failed + " failed");
 process.exit(failed ? 1 : 0);
