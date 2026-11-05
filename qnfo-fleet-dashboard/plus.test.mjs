@@ -56,6 +56,8 @@ const iso = (d) => new Date(now.getTime() - d * 86400000).toISOString().slice(0,
   ok(/resting to 2999-01-01/.test(h), "a resting product says so");
   ok(/href="\/plus"/.test(h) && /aria-current="page"/.test(h), "the page is in the navigation and lights its tab");
   ok(/<a href="https:\/\/github.com\/QNFO\/qnfo-workers\/pull\/1">PR<\/a>/.test(h), "a shipped plus links its pull request");
+  ok(/<thead><tr><th>Product<\/th>/.test(h) && (h.match(/data-l="Used \(7 days\)"/g) || []).length === 3 && /data-l="Host"/.test(h) && /@media\(max-width:640px\)/.test(h), "on a phone each product is a stacked card: header row hidden, every value labelled (data-l)");
+  ok(/<td><b>jobs<\/b> <span class="meta">20\d\d-\d\d-\d\d<\/span><\/td><td data-l="Plus">Show the reason on every match/.test(h), "the week list leads with the product and the date, the plus and its state are labelled");
   const e1 = r.headers.get("etag");
   const r2 = await worker.fetch(new Request("https://fleet.qnfo.org/api/plus", { headers: { "if-none-match": e1 || "x" } }), mkEnv(db), { waitUntil() {} });
   ok(!e1 || r2.status === 304 || r2.status === 200, "the feed carries an ETag like its sibling feeds");

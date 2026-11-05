@@ -11,7 +11,7 @@ var __name222 = /* @__PURE__ */ __name22((target, value) => __defProp222(target,
 var __name2222 = /* @__PURE__ */ __name222((target, value) => Object.defineProperty(target, "name", { value, configurable: true }), "__name");
 // 1.77.2 ERRATA-CHAIN-DISPATCH-1 (pillar research): wake the folded errata consumer and retry its legacy parked receipts.
 // VERSION-LINE-SPLIT-1 (agent_issues 100220): the release notes sit one per line below this statement, newest first, so a VERSION bump is a one-line patch; add a new note as the first line under it.
-var VERSION = "1.93.2";
+var VERSION = "1.93.3";
 // 1.89.0 NOW-NORTH-1 and HOME-MORE-1 (pillar core; minor): the Now screen opens with four numbers tied to the owner goals (readers, fleet cost, owner load, reliability) and drops the count of metrics off target (95 of 297; nothing can be done with it); a quiet footer on the home links the full dashboard, changelog, data index and managers.
 // 1.89.0 (cont.) MONEY-FIX-1 (pillar cost; patch): the Money card subtracted the subscription figure from a pace that never included it (fleet scope of v_cost_forecast), so it showed the fleet at 701 instead of 1151 a month; it now shows the fleet line, the subscriptions line and both together.
 // 1.85.0 (cont.) NOW-REVIEW-1: independent review fixes: Snooze and Not needed hide the card; a tap removes the card at once and reloads fresh, and the hand-back claims the card before filing (no duplicate tickets); strangers get no card keys or raw error text; only the signed-in owner (not the loop token) can run commands or hand work back; bound cards are read first; an unrefreshed metric reads n/a, not 0; one refresh in flight at a time and a failed refresh retries in 10 s; the Code poll says when the executor does not answer.
@@ -17361,7 +17361,7 @@ async function plusView(env) {
 __name(plusView, "plusView");
 
 function plusHtml(v, holder) {
-  const css = "<style>.pl-dg{white-space:pre-wrap;font:14.5px/1.6 var(--sans);margin:0;max-width:95ch}.pl-w{overflow-x:auto}.pl-t{width:100%;border-collapse:collapse;font-size:14px}.pl-t th,.pl-t td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);vertical-align:top}.pl-t th{color:var(--muted);font-weight:600;white-space:nowrap}.pl-t td.n{text-align:right;white-space:nowrap}.pl-un{color:var(--muted)}</style>";
+  const css = "<style>.pl-dg{white-space:pre-wrap;font:14.5px/1.6 var(--sans);margin:0;max-width:95ch}.pl-w{overflow-x:auto}.pl-t{width:100%;border-collapse:collapse;font-size:14px}.pl-t th,.pl-t td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);vertical-align:top}.pl-t th{color:var(--muted);font-weight:600;white-space:nowrap}.pl-t td.n{text-align:right;white-space:nowrap}.pl-un{color:var(--muted)}@media(max-width:640px){.pl-t thead{display:none}.pl-t,.pl-t tbody,.pl-t tr{display:block;width:100%}.pl-t tr{padding:10px 0;border-bottom:1px solid var(--rule)}.pl-t td{display:flex;justify-content:space-between;gap:14px;border:0;padding:2px 0;text-align:right}.pl-t td:first-child{display:block;text-align:left;padding-bottom:6px}.pl-t td[data-l]::before{content:attr(data-l);color:var(--muted);text-align:left;flex:none}.pl-t td.n{white-space:normal}}</style>";
   const head = fleetHead("Plus: what got better") + css + fleetTop("plus", false, holder);
   const fmt = function(n) { return Number(n).toLocaleString("en-GB"); };
   const day = function(s) { return s ? esc(String(s).slice(0, 10)) : "never"; };
@@ -17373,17 +17373,17 @@ function plusHtml(v, holder) {
   } else if (!(v.unavailable || []).includes("plus_digest")) {
     body += '<section class="card" style="margin:0 0 16px"><h2 style="font-size:18px;margin:0 0 6px">Digest</h2><p class="meta">No digest has been written yet; the first one is written by the hourly plus task on a Monday.</p></section>';
   }
-  body += '<section class="card" style="margin:0 0 16px"><h2 style="font-size:18px;margin:0 0 8px">Products</h2><div class="pl-w" role="region" aria-label="Products" tabindex="0"><table class="pl-t"><tr><th>Product</th><th>Host</th><th>Last plus</th><th>In flight</th><th>Kept</th><th>Reverted</th><th>Used (7 days)</th></tr>';
+  body += '<section class="card" style="margin:0 0 16px"><h2 style="font-size:18px;margin:0 0 8px">Products</h2><div class="pl-w" role="region" aria-label="Products" tabindex="0"><table class="pl-t"><thead><tr><th>Product</th><th>Host</th><th>Last plus</th><th>In flight</th><th>Kept</th><th>Reverted</th><th>Used (7 days)</th></tr></thead><tbody>';
   for (const p of v.products) {
     const rest = p.rest_until && String(p.rest_until) > new Date().toISOString() ? ' <span class="tag">resting to ' + day(p.rest_until) + '</span>' : "";
-    const use = p.usage ? '<b>' + esc(fmt(p.usage.value)) + '</b> <span class="meta">' + esc(p.usage.metric === "youtube_views_total" ? "views" : "requests") + (p.usage.errors ? ', ' + esc(fmt(p.usage.errors)) + ' errors' : '') + '</span>' : '<span class="pl-un">unmeasured</span>';
-    body += '<tr><td><b>' + esc(p.product) + '</b>' + rest + '<br><span class="meta">' + esc(p.what_for || "") + '</span></td><td>' + esc(p.host || "") + '</td><td>' + day(p.last_plus_at) + '</td><td class="n">' + esc(String(p.in_flight)) + '</td><td class="n">' + esc(String(p.shipped)) + '</td><td class="n">' + esc(String(p.reverted)) + '</td><td>' + use + '</td></tr>';
+    const use = p.usage ? '<span><b>' + esc(fmt(p.usage.value)) + '</b> <span class="meta">' + esc(p.usage.metric === "youtube_views_total" ? "views" : "requests") + (p.usage.errors ? ', ' + esc(fmt(p.usage.errors)) + ' errors' : '') + '</span></span>' : '<span class="pl-un">unmeasured</span>';
+    body += '<tr><td><b>' + esc(p.product) + '</b>' + rest + '<br><span class="meta">' + esc(p.what_for || "") + '</span></td><td data-l="Host">' + esc(p.host || "") + '</td><td data-l="Last plus">' + day(p.last_plus_at) + '</td><td class="n" data-l="In flight">' + esc(String(p.in_flight)) + '</td><td class="n" data-l="Kept">' + esc(String(p.shipped)) + '</td><td class="n" data-l="Reverted">' + esc(String(p.reverted)) + '</td><td data-l="Used (7 days)">' + use + '</td></tr>';
   }
-  body += '</table></div><p class="meta" style="margin:8px 0 0;max-width:95ch">Used is Cloudflare Worker requests for the product\'s worker over 7 days, cron ticks and calls between workers included: it shows which products are alive, not how many people use them. Unmeasured means no number was read, never zero.</p></section>';
+  body += '</tbody></table></div><p class="meta" style="margin:8px 0 0;max-width:95ch">Used is Cloudflare Worker requests for the product\'s worker over 7 days, cron ticks and calls between workers included: it shows which products are alive, not how many people use them. Unmeasured means no number was read, never zero.</p></section>';
   if (v.week && v.week.length) {
-    body += '<section class="card"><h2 style="font-size:18px;margin:0 0 8px">The last 7 days</h2><div class="pl-w" role="region" aria-label="The last 7 days" tabindex="0"><table class="pl-t"><tr><th>When</th><th>Product</th><th>Plus</th><th>State</th></tr>';
-    for (const w of v.week) body += '<tr><td>' + day(w.decided_at) + '</td><td>' + esc(w.product || "") + '</td><td>' + esc(w.title || "") + (w.pr_url ? ' <a href="' + esc(w.pr_url) + '">PR</a>' : '') + '</td><td>' + esc(w.status || "") + '</td></tr>';
-    body += '</table></div></section>';
+    body += '<section class="card"><h2 style="font-size:18px;margin:0 0 8px">The last 7 days</h2><div class="pl-w" role="region" aria-label="The last 7 days" tabindex="0"><table class="pl-t"><thead><tr><th>Product, when</th><th>Plus</th><th>State</th></tr></thead><tbody>';
+    for (const w of v.week) body += '<tr><td><b>' + esc(w.product || "") + '</b> <span class="meta">' + day(w.decided_at) + '</span></td><td data-l="Plus">' + esc(w.title || "") + (w.pr_url ? ' <a href="' + esc(w.pr_url) + '">PR</a>' : '') + '</td><td data-l="State">' + esc(w.status || "") + '</td></tr>';
+    body += '</tbody></table></div></section>';
   } else if (!(v.unavailable || []).includes("plus_ledger")) {
     body += '<section class="card"><h2 style="font-size:18px;margin:0 0 6px">The last 7 days</h2><p class="meta">No plus was proposed, shipped or reverted in the last 7 days.</p></section>';
   }
