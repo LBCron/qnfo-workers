@@ -168,6 +168,13 @@ Prediction lines are hypotheses to be logged in `decision_log` before the first 
   with rate limits [PROD-11]; redirects for verified AI-training crawlers to the canonical paper version [CF-A-26, CF-B-20]; agent journeys through Browser Run proving an
   agent can use the paper tools [CF-A-13]. W2: "ask the paper" endpoints with a reproduction capsule where a paper ships code [SCI-03]; shareable answer permalinks
   with a citation-card image [PROD-27].
+- **First reading (W0, R, 2026-11-05; one-off by hand, not yet the daily probe CF-A-09 asks for).** Nothing blocks AI crawlers at the robots or user-agent layer. `robots.txt` on
+  `qnfo.org`, `qwav.org`, `q08.org`, `papers.qnfo.org` and `ask.qwav.org` carries no Disallow for GPTBot, ClaudeBot, PerplexityBot, CCBot or Google-Extended; `papers.qnfo.org` lists 17 named search
+  and AI agents with a Content-Signal of search, ai-input and ai-train all yes, and `qnfo.org` declares the same signals. `qwav.org` and `q08.org` declare no Content-Signal at all (an
+  undeclared preference, not a no). Fetching `/` of the first three hosts and a paper page with the user agents of GPTBot, ClaudeBot, PerplexityBot, CCBot and Bytespider returned 200 every time
+  (24 of 24), the same as a browser. Caveats: a spoofed user agent from an unverified address is not what a verified crawler sees, and zone-level AI Crawl Control and bot-management settings were
+  not read, so a block that applies only to verified bot traffic is not ruled out; the daily probe should read those settings through the API. So the lever here is discoverability and
+  declared preference (Content-Signal on `qwav.org` and `q08.org`, a real `llms.txt` and sitemap on `qwav.org`, QWAV-DISCOVERY-1), not unblocking.
 - **Measure.** Prediction (est.): agent and answer-engine referrals become a measured series within 14 days (today there is none), and external-referrer loads per
   paper rise from 0.12 to 0.3 within 90 days. Cloudflare cites a 1,700 to 1 crawl-to-referral ratio for one operator (S, June 2025): the series may show that
   agents read far more than they send.
