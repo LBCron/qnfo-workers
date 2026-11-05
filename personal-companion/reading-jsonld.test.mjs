@@ -22,7 +22,7 @@ ok(!/<\/script>/i.test(pieceLd({ slug: "x", title: "</script><script>alert(1)</s
 const idx = block(readingIndexLd());
 ok(idx && idx["@type"] === "Blog" && idx.name === "Reading" && idx.url === "https://reading.q08.org/", "the index yields a Blog block");
 
-ok(src.includes("return page(p.title, shell(body + fb + foot), pieceLd(p));"), "renderPiece puts the block in the head");
+ok(/return page\(p\.title, shell\(body \+ fb \+ foot\), pieceLd\(p\)( \+ og)?(, blurb)?\);/.test(src), "renderPiece puts the block in the head (READING-FEED-LEDE-1 adds the og tags and the blurb to the same call)");
 ok(src.includes('return page("Reading", shell(body), readingIndexLd());'), "renderIndex puts the Blog block in the head");
 ok(/var AI_LABEL_HTML = afAiLabelHtml\(\);/.test(src) && /creditText: AF_AI_LABEL_TEXT/.test(src), "the visible label and the credit text both come from the one shared sentence");
 ok(/var AF_AI_LABEL_TEXT = "[^\n]*No human reviews pieces before they appear\.";/.test(shared), "the shared sentence says no human reviews pieces");

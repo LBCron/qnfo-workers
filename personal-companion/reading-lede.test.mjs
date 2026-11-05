@@ -35,7 +35,7 @@ for (const body_md of ["## Opening\n\nThe next paragraph.", "The next paragraph.
   const p = { ...piece, body_md };
   const html = renderPiece(p, "");
   ok(pageLede(html) === indexLede(p), "separate and paragraph-first ledes match the index");
-  ok(html.split(piece.lede).length - 1 === 1, "a separate or leading body lede is displayed once");
+  ok(html.slice(html.indexOf("<body")).split(piece.lede).length - 1 === 1, "a separate or leading body lede is displayed once (in the body: the page head carries the same text as its og/description blurb, READING-FEED-LEDE-1)");
 }
 
 const unsafe = { ...piece, lede: '<img src=x onerror="alert(1)"> & text.', body_md: "## Opening\n\nBody." };
@@ -59,7 +59,7 @@ for (const lede of ["", null, undefined]) {
   const p = { ...piece, lede, body_md: "The opening paragraph of the body.\n\nThe next paragraph." };
   const html = renderPiece(p, "");
   ok(pageLede(html) === "The opening paragraph of the body." && indexLede(p) === "The opening paragraph of the body.", "a lost lede is lifted from the body's opening paragraph, on the page and the index");
-  ok(html.split("The opening paragraph of the body.").length - 1 === 1 && html.includes("<p>The next paragraph.</p>"), "the lifted paragraph is shown once and the rest of the body remains");
+  ok(html.slice(html.indexOf("<body")).split("The opening paragraph of the body.").length - 1 === 1 && html.includes("<p>The next paragraph.</p>"), "the lifted paragraph is shown once in the body and the rest of the body remains");
 }
 {
   const long = Array.from({ length: 16 }, (_, i) => "Clause " + i + " says " + "word ".repeat(12).trim() + ".").join(" ");
