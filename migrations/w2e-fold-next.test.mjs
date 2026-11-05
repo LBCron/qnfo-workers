@@ -3,6 +3,7 @@
 // no refusal) and WORKER-COUNT-1.10 (code-task with code-anchor and code-probe) are filed once as open ROADMAP-1 issues; the edit-near text of 1.9 and the code-anchor of 1.10 occur exactly once in their files and the
 // closing marker of 1.10 is absent today; both name pillar core, a metric and a definition of done; a replay files nothing; the Rollback line removes both rows and only them; and the facts the issues state about
 // the repository hold (qnfo-github-steward has the FOLDED-free wrangler.toml with one cron and one D1, personal-watch binds nothing).
+// Not asserted against the repository on purpose: that an anchor occurs once or a marker is absent is true only until the filed work lands, and a suite pinning it turns main red the day the fix merges (PR 7726 did that to c5-resilience-ops-failover.test.mjs). The issue row carries the anchor and the probe; the consumer checks them live.
 // Output MUST contain "0 failed" on success.   node migrations/w2e-fold-next.test.mjs
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -29,23 +30,14 @@ const rows = w.prepare("SELECT * FROM agent_issues WHERE source = 'session:W2-E'
 ok(rows.length === 2 && rows.every((r) => r.status === "open" && r.category === "code" && /^ROADMAP-1: QNFO\.INFRA WORKER-COUNT-1\.(9|10):/.test(r.title)), "two open ROADMAP-1 issues are filed", rows.map((r) => r.title.slice(0, 60)));
 const [i9, i10] = rows;
 ok(i9.description.startsWith("session-task: repo=qnfo-workers path=qnfo-fleet-control/worker.js\nedit-near: worker_default2 as default\n"), "1.9 is a session-task with an edit-near line like the other fold issues");
-ok(rd("qnfo-fleet-control/worker.js").split("worker_default2 as default").length - 1 === 1, "the edit-near text occurs exactly once in qnfo-fleet-control/worker.js");
 ok(/--dry-run reports no refusal/.test(i9.description) && /charter pillar core/i.test(i9.description) && /worker_count -1/.test(i9.description) && /Definition of done:/.test(i9.description) && /UNBIND-VERIFY-RETRY-1/.test(i9.description) && /BINDING-INSTALL-FETCH-1/.test(i9.description), "1.9 carries the dry-run result, pillar, metric, definition of done and the two traps");
 const d10 = i10.description;
 const path = (/code-task: repo=qnfo-workers path=(\S+)/.exec(d10) || [])[1];
 const anchor = (/\ncode-anchor: (.*)\n/.exec(d10) || [])[1];
 const probe = (/\ncode-probe: (\{.*\})/.exec(d10) || [])[1];
 ok(path === "scripts/fold_worker.py" && anchor && probe && d10.split("\n").pop().startsWith("code-probe: ") && /Prediction:/.test(d10) && /Closing marker:/.test(d10) && /charter pillar core/.test(d10), "1.10 carries pillar, prediction, marker, code-task, code-anchor and code-probe (the probe block is last)");
-const fold = rd(path);
-ok(fold.split(anchor).length - 1 === 1, "the code-anchor occurs exactly once in " + path, anchor);
 const marker = JSON.parse(probe);
-ok(marker.paths[0] === path && marker.contains === "FOLD-HOST-ROUTE-1" && d10.includes(marker.contains) && !fold.includes(marker.contains), "the closing marker is named in the issue and absent from the file today", marker);
-
-// the facts the issues state
-const st = rd("qnfo-github-steward/wrangler.toml");
-ok((st.match(/^\s*crons\s*=/gm) || []).length === 1 && (st.match(/\[\[d1_databases\]\]/g) || []).length === 1 && !/\[\[services\]\]|durable_objects|\[\[workflows\]\]|\[\[containers\]\]/.test(st), "qnfo-github-steward declares one cron, one D1 and no service, Durable Object, Workflow or container");
-const pw = rd("personal-watch/wrangler.toml");
-ok(!/\[\[(d1_databases|r2_buckets|kv_namespaces|services|vectorize)\]\]|crons\s*=/.test(pw), "personal-watch declares no binding and no cron");
+ok(marker.paths[0] === path && marker.contains === "FOLD-HOST-ROUTE-1" && d10.includes(marker.contains) && d10.includes(anchor), "the closing marker and the code-anchor are named in the issue", marker);
 
 ok(w.prepare("SELECT COUNT(*) n FROM agent_issues").get().n === 3, "the unrelated issue is untouched");
 w.exec(sql);

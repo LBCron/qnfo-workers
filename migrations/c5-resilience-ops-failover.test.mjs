@@ -55,7 +55,10 @@ ok(path === "qnfo-ops/worker.js" && anchor && probe, "it carries code-task, code
 const file = rd("../" + path);
 ok(file.split(anchor).length - 1 === 1, "the anchor occurs exactly once in " + path, anchor);
 const marker = JSON.parse(probe);
-ok(marker.contains === "OPS-DEGRADED-1" && d.includes(marker.contains) && !file.includes(marker.contains), "the closing marker is named in the issue and is absent from the file today, so the probe fails until the fix lands");
+// Earlier state (until 2026-11-05T05:13Z): the marker was absent from qnfo-ops/worker.js, so the code-probe failed until the fix landed:
+//   ok(marker.contains === "OPS-DEGRADED-1" && d.includes(marker.contains) && !file.includes(marker.contains), "...absent from the file today...")
+// OPS-DEGRADED-1 landed in PR 7726 (qnfo-ops 2.67.0, W2-E, live 05:14:59Z), so the marker is now in the file and the closing probe passes. A test that pinned the defect would fail by design on main.
+ok(marker.contains === "OPS-DEGRADED-1" && d.includes(marker.contains) && file.includes(marker.contains), "the closing marker is named in the issue and is present in the file now that the fix landed (PR 7726), so the code-probe passes");
 ok(/Retry-After/.test(d) && /fleet-graph impact/.test(d) && /does not need D1|do not need D1|that does not need D1/.test(d), "the issue names the Retry-After requirement, the blast-radius lookup and which tools stay up");
 
 const r5 = one("SELECT status, evidence FROM roadmap_implementation WHERE id = 5");

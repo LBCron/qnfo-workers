@@ -2,6 +2,7 @@
 // Proves: the header opts in (APPLY-BY ci, DB qnfo-audit, one Rollback line, BACKUP named for the Rollback delete, nothing deleted in the body, no LIKE pattern over 50 bytes); two open ROADMAP-1 code issues are filed once
 // (a replay files nothing, an open twin blocks a second row), each carrying pillar, prediction, closing marker, code-task, code-anchor and code-probe; the code-anchor occurs exactly once in the named file and the closing
 // marker is absent from it today (so the issue cannot close before the work); the Rollback line removes both rows and no other row.
+// Not asserted against the repository on purpose: that an anchor occurs once or a marker is absent is true only until the filed work lands, and a suite pinning it turns main red the day the fix merges (PR 7726 did that to c5-resilience-ops-failover.test.mjs). The issue row carries the anchor and the probe; the consumer checks them live.
 // Output MUST contain "0 failed" on success.   node migrations/w2e-fold-followups.test.mjs
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -32,10 +33,8 @@ for (const r of rows) {
   const anchor = (/\ncode-anchor: (.*)\n/.exec(d) || [])[1];
   const probe = (/\ncode-probe: (\{.*\})/.exec(d) || [])[1];
   ok(path && anchor && probe && /charter pillar core/.test(d) && /Prediction:/.test(d) && /Closing marker:/.test(d) && d.split("\n").pop().startsWith("code-probe: "),"issue carries pillar, prediction, marker, code-task, code-anchor and code-probe (the probe block is last)", r.title.slice(0, 70));
-  const file = rd(path);
-  ok(file.split(anchor).length - 1 === 1, "the anchor occurs exactly once in " + path, anchor);
   const marker = JSON.parse(probe);
-  ok(marker.paths[0] === path && /^(UNBIND-VERIFY-RETRY-1|BINDING-INSTALL-FETCH-1)$/.test(marker.contains) && d.includes(marker.contains) && !file.includes(marker.contains), "the closing marker is named in the issue and absent from the file today", marker);
+  ok(marker.paths[0] === path && /^(UNBIND-VERIFY-RETRY-1|BINDING-INSTALL-FETCH-1)$/.test(marker.contains) && d.includes(marker.contains) && d.includes(anchor), "the closing marker and the code-anchor are named in the issue", marker);
 }
 ok(w.prepare("SELECT COUNT(*) n FROM agent_issues").get().n === 3, "the unrelated issue is untouched");
 w.exec(sql);

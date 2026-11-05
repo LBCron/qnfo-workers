@@ -26,7 +26,7 @@ ok(!/INSERT\s+(OR\s+\w+\s+)?INTO\s+fleet_tick/i.test(body) && !/claude\.ai|anthr
 ok(Array.from(body.matchAll(/LIKE\s+'((?:[^']|'')*)'/gi)).every((m) => Buffer.byteLength(m[1]) <= 50), "every LIKE pattern is at most 50 bytes");
 
 // the repository half of the fold (PR 7523 and 7624) is on this checkout
-ok(existsSync(new URL("qnfo-model-eval/FOLDED", root)), "qnfo-model-eval/FOLDED exists (the marker cf-ops-actions delete-worker read)");
+ok(existsSync(new URL("qnfo-model-eval/FOLDED", root)) || existsSync(new URL("archive/qnfo-model-eval/FOLDED", root)), "qnfo-model-eval/FOLDED exists, at the root or under archive/ (the marker cf-ops-actions delete-worker read)");
 ok(!/^qnfo-model-eval\s/m.test(rd("deploy-targets.txt")), "deploy-targets.txt no longer lists qnfo-model-eval");
 ok(/binding = "CH_QNFO_MODEL_EVAL"\r?\nservice = "qnfo-ai-calibration"\r?\nprops = \{ caller = "qnfo-ops", member = "qnfo-model-eval" \}/.test(rd("qnfo-ops/wrangler.toml")), "qnfo-ops/wrangler.toml binds CH_QNFO_MODEL_EVAL to the host with props.member");
 ok(/qnfoModelEvalFoldMod/.test(rd("qnfo-ai-calibration/worker.js")) && /\/model-eval\/health/.test(rd("qnfo-ai-calibration/probes.json")), "the host carries the member and probes its route");
