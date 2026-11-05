@@ -40,9 +40,9 @@ assert.match(sourceConfig, /^\[observability\.traces\]\r?\nenabled = false$/m, "
 assert.match(generatedConfig, /^\[observability\]\nenabled = false$/m, "the generated config uses Wrangler 3's supported disabled observability setting");
 assert.doesNotMatch(generatedConfig, /^\[observability\.traces\]/m, "the generated config omits Wrangler 3's unsupported traces table");
 assert.doesNotMatch(generatedConfig, /^routes\s*=/m, "the generated fallback has no placeholder routes");
-assert.equal(imports.length, 3, "worker.js imports both corpus JSON modules and the book list (MIND-BOOKS-1)");
+assert.equal(imports.length, 4, "worker.js imports both corpus JSON modules, the book list (MIND-BOOKS-1) and the video list (COMPANION-NO-TYPING-1:videos)");
 assert.equal(readFileSync(join(here, "deployed-current.worker.js"), "utf8"), workerSource, "deployed-current.worker.js mirrors the deploy source exactly");
-assert.match(workerSource, /const CAPABILITIES = \["reading-list", "evidence-graded-corpus", "shelves", "entry-pages", "json-api", "rss-feed", "sitemap", "book-list", "daily-pick"\];/, "the Worker declares its actual read-only capabilities");
+assert.match(workerSource, /const CAPABILITIES = \["reading-list", "evidence-graded-corpus", "shelves", "entry-pages", "json-api", "rss-feed", "sitemap", "book-list", "daily-pick", "video-pick"\];/, "the Worker declares its actual read-only capabilities");
 assert.match(workerSource, /const LIMITATIONS = \["static, read-only content with no accounts or tracking", "no model inference, data bindings, or outbound requests"\];/, "the Worker declares its runtime limitations");
 assert.match(workerSource, /version: VERSION, capabilities: CAPABILITIES, limitations: LIMITATIONS/, "the public health contract advertises both non-empty arrays");
 for (const modulePath of imports) {

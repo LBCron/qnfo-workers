@@ -27,12 +27,13 @@
 import A from "./data/entries-a.json";
 import B from "./data/entries-b.json";
 import BOOKS from "./data/books.json";
+import VIDEOS from "./data/videos.json";
 
-var VERSION = "2.2.2";
+var VERSION = "2.3.0";
 const BUILT = "2026-10-26";
 const ENTRIES = [...A, ...B];
 const BY_SLUG = new Map(ENTRIES.map((e) => [e.s, e]));
-const CAPABILITIES = ["reading-list", "evidence-graded-corpus", "shelves", "entry-pages", "json-api", "rss-feed", "sitemap", "book-list", "daily-pick"];
+const CAPABILITIES = ["reading-list", "evidence-graded-corpus", "shelves", "entry-pages", "json-api", "rss-feed", "sitemap", "book-list", "daily-pick", "video-pick"];
 const BOOK_BY_SLUG = new Map(BOOKS.map((b) => [b.s, b]));
 const QUESTIONS = [
   { id: "mind", label: "How my mind works", blurb: "What a brain is doing when you feel, think and remember, and why looking inward gives unreliable answers." },
@@ -55,6 +56,16 @@ function pickFor(lane, atMs) {
   const inQ = pool.filter((b) => b.q === q);
   const list = inQ.length ? inQ : pool;
   return { lane: l, book: list[Math.floor(day / QUESTIONS.length) % list.length] };
+}
+// COMPANION-NO-TYPING-1:videos (agent_issues 1001637, owner 2026-10-29: "something to do right now, videos are fine, no typing"). The video pick is the
+// book pick's sibling: a pure function of the day and the lane over data/videos.json, so the worker stays binding-free and nothing about the reader is stored.
+// Every entry's URL was read live when it was added (its "checked" date); a link that stops answering is fixed by editing the JSON.
+function videoPickFor(lane, atMs) {
+  const l = LANES[lane] ? lane : "steady";
+  const day = Math.floor((atMs + 36e5) / DAY_MS);
+  const pool = VIDEOS.filter((v) => v.lane === l);
+  const list = pool.length ? pool : VIDEOS;
+  return { lane: l, video: list[day % list.length] };
 }
 const LIMITATIONS = ["static, read-only content with no accounts or tracking", "no model inference, data bindings, or outbound requests"];
 
@@ -169,6 +180,25 @@ function nowPage(lane, atMs) {
 ${pickBox(l, atMs, "Today")}
 <p class="note"><a href="/">The whole list</a> · <a href="/how">How this is chosen</a></p>`;
   return page("Today — mind", body);
+}
+
+function videoBox(lane, atMs) {
+  const { lane: l, video: v } = videoPickFor(lane, atMs);
+  if (!v) return "";
+  return `<div class="pick"><h2>Today</h2><div class="book"><a class="q" href="${esc(v.l)}" rel="noopener">${esc(v.t)}</a>
+<div class="meta">${esc(v.a)} · ${esc(v.y)} · about ${esc(v.min)} minutes · <span class="lane">${esc((LANES[l] || [l])[0])}</span></div>
+<p style="margin-top:.5rem">${esc(v.w)}</p><p class="note"><b>Worth knowing:</b> ${esc(v.h)}</p>
+<p class="note"><a href="${esc(v.l)}" rel="noopener">Watch it on ted.com</a>. Free, no account. Stop whenever you like.</p></div>
+<p class="meta">Lane: ${esc((LANES[l] || [l])[0])}. ${esc((LANES[l] || ["", ""])[1])} Other lanes today: ${Object.keys(LANES).filter((k) => k !== l).map((k) => `<a href="/now?kind=video&amp;lane=${k}">${esc(LANES[k][0].toLowerCase())}</a>`).join(", ")}.</p></div>`;
+}
+
+function nowVideoPage(lane, atMs) {
+  const l = LANES[lane] ? lane : "steady";
+  const body = `<h1>Something to watch today</h1>
+<p class="sub">${esc(l === "gentle" ? "Something short and kind. Stop whenever you like." : l === "deep" ? "One that asks a little more of you." : "Today's pick from the watch list.")} Talks by people who live it or study it. No gurus. One tap, no typing.</p>
+${videoBox(l, atMs)}
+<p class="note"><a href="/now?lane=${esc(l)}">Something to read instead</a> · <a href="/">The whole reading list</a> · <a href="/how">How this is chosen</a></p>`;
+  return page("Watch today — mind", body);
 }
 
 function bookPage(slug, atMs) {
@@ -314,6 +344,7 @@ function apiJson() {
     questions: QUESTIONS,
     lanes: Object.fromEntries(Object.entries(LANES).map(([k, v]) => [k, { label: v[0], note: v[1] }])),
     books: BOOKS,
+    videos: VIDEOS,
   }, null, 1);
 }
 
@@ -337,14 +368,14 @@ var __wm_default = {
     const url = new URL(request.url);
     const p = url.pathname.replace(/\/+$/, "") || "/";
 
-    if (p === "/health") return text(JSON.stringify({ ok: true, worker: "q08-mind", version: VERSION, capabilities: CAPABILITIES, limitations: LIMITATIONS, entries: ENTRIES.length, books: BOOKS.length, shelves: SHELVES.length, built: BUILT }), "application/json; charset=utf-8");
+    if (p === "/health") return text(JSON.stringify({ ok: true, worker: "q08-mind", version: VERSION, capabilities: CAPABILITIES, limitations: LIMITATIONS, entries: ENTRIES.length, books: BOOKS.length, videos: VIDEOS.length, shelves: SHELVES.length, built: BUILT }), "application/json; charset=utf-8");
     if (p === "/api/entries.json") return text(apiJson(), "application/json; charset=utf-8");
     if (p === "/feed.xml") return text(feed(), "application/rss+xml; charset=utf-8");
     if (p === "/sitemap.xml") return text(sitemap(), "application/xml; charset=utf-8");
     if (p === "/robots.txt") return text("User-agent: *\nAllow: /\nSitemap: https://mind.q08.org/sitemap.xml\n", "text/plain; charset=utf-8");
 
     if (p === "/") return html(home(Date.now()), 200, "public, max-age=600");
-    if (p === "/now") return html(nowPage(url.searchParams.get("lane") || "gentle", Date.now()), 200, "private, no-store");
+    if (p === "/now") return html(url.searchParams.get("kind") === "video" ? nowVideoPage(url.searchParams.get("lane") || "gentle", Date.now()) : nowPage(url.searchParams.get("lane") || "gentle", Date.now()), 200, "private, no-store");
     if (p === "/how") return html(howPage());
     if (p === "/evidence") return html(evidenceHome());
     if (p.startsWith("/b/")) {

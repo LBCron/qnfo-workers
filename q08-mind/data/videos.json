@@ -1,0 +1,93 @@
+[
+{
+"s": "king-autism-freed-me",
+"t": "How autism freed me to be myself",
+"a": "Rosie King",
+"y": 2016,
+"min": 6,
+"q": "condition",
+"lane": "gentle",
+"w": "A short talk by an autistic young woman about how her mind works and how she writes and imagines. Warm, funny and easy to stop after six minutes.",
+"h": "One person's account. Autism looks different in different people, so take what fits and leave the rest.",
+"l": "https://www.ted.com/talks/rosie_king_how_autism_freed_me_to_be_myself",
+"checked": "2026-11-05"
+},
+{
+"s": "mccabe-living-with-adhd",
+"t": "This is what it's really like to live with ADHD",
+"a": "Jessica McCabe",
+"y": 2017,
+"min": 17,
+"q": "condition",
+"lane": "gentle",
+"w": "Jessica McCabe has ADHD and explains it from the inside: why 'just try harder' does not work, what the brain science says, and what helped her. Kind in tone and practical.",
+"h": "A personal story with some science, not clinical advice. What worked for her may not work for you.",
+"l": "https://www.ted.com/talks/jessica_mccabe_this_is_what_it_s_really_like_to_live_with_adhd_sep_2017",
+"checked": "2026-11-05"
+},
+{
+"s": "gopnik-what-do-babies-think",
+"t": "What do babies think?",
+"a": "Alison Gopnik",
+"y": 2011,
+"min": 18,
+"q": "mind",
+"lane": "gentle",
+"w": "A developmental psychologist shows that even the youngest minds learn by testing ideas, the way a scientist does. A light way into how a mind builds its picture of the world.",
+"h": "It is about children, not about autism or ADHD, and it is a popular summary of her lab's work.",
+"l": "https://www.ted.com/talks/alison_gopnik_what_do_babies_think",
+"checked": "2026-11-05"
+},
+{
+"s": "grandin-all-kinds-of-minds",
+"t": "The world needs all kinds of minds",
+"a": "Temple Grandin",
+"y": 2010,
+"min": 19,
+"q": "place",
+"lane": "steady",
+"w": "Temple Grandin is autistic. She describes thinking in pictures, how that differs from thinking in words or patterns, and why a world with only one kind of mind would get stuck.",
+"h": "She describes her own way of thinking, which is one pattern among autistic people, not all of them. Some of her wider views are debated.",
+"l": "https://www.ted.com/talks/temple_grandin_the_world_needs_all_kinds_of_minds",
+"checked": "2026-11-05"
+},
+{
+"s": "barrett-brain-creates-emotions",
+"t": "You aren't at the mercy of your emotions -- your brain creates them",
+"a": "Lisa Feldman Barrett",
+"y": 2017,
+"min": 18,
+"q": "mind",
+"lane": "steady",
+"w": "A neuroscientist and psychologist argues that emotions are built by the brain from body signals and past experience, rather than set off like fixed reflexes. Useful for reading a heavy mood as a signal about the body's budget, not a verdict on your life.",
+"h": "This is one side of a live scientific debate, and she says so. Treat it as a way of looking, not settled fact.",
+"l": "https://www.ted.com/talks/lisa_feldman_barrett_you_aren_t_at_the_mercy_of_your_emotions_your_brain_creates_them",
+"checked": "2026-11-05"
+},
+{
+"s": "silberman-forgotten-history-of-autism",
+"t": "The forgotten history of autism",
+"a": "Steve Silberman",
+"y": 2015,
+"min": 14,
+"q": "condition",
+"lane": "deep",
+"w": "A journalist who wrote a history of autism traces how it was understood, misunderstood and renamed over a century, and why the idea of neurodiversity grew out of it.",
+"h": "Given in 2015 by a journalist, not a clinician. Later historical work on Hans Asperger's wartime record complicates the story told about him here.",
+"l": "https://www.ted.com/talks/steve_silberman_the_forgotten_history_of_autism",
+"checked": "2026-11-05"
+},
+{
+"s": "kahneman-experience-vs-memory",
+"t": "The riddle of experience vs. memory",
+"a": "Daniel Kahneman",
+"y": 2010,
+"min": 20,
+"q": "place",
+"lane": "deep",
+"w": "A psychologist who won the Nobel prize in economics explains why the self that lives through a day and the self that remembers it disagree, and what that does to how we judge a life.",
+"h": "A 2010 talk. Some of the research behind it is more nuanced than twenty minutes can show.",
+"l": "https://www.ted.com/talks/daniel_kahneman_the_riddle_of_experience_vs_memory",
+"checked": "2026-11-05"
+}
+]
