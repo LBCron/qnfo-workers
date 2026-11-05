@@ -9,7 +9,7 @@
 // JOBSEARCH-CV-1 (1.5.0): the CV is part of this worker (page /cv): a yes/no interview that builds the claim bank, review of unconfirmed claims, roles, achievements and publications edited in D1, a resume per job (summary, roles, selected work, education, skills) and a cover note, history and backup. The search is tied to that bank (evidence the owner can back up weighs more; what the CV lacks is shown as a gap), decided postings (rejected, applied, approved) never come back under another id, rejections carry a reason the search learns from, and a wider net: stretch matches outside the stated preferences, more boards and aggregators.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.7.0-codeagent";
+var VERSION = "1.8.0-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1576,6 +1576,20 @@ function fileResponse(kind, row) {
   if (kind === "note.txt") return new Response(plainOf(row.note_md), { headers: { ...cors, "content-type": "text/plain; charset=utf-8" } });
   return new Response(plainOf(row.resume_md), { headers: { ...cors, "content-type": "text/plain; charset=utf-8" } });
 }
+// JOBSEARCH-FOLLOWUP-1: applications with no reply after 7 days (the status moves to no_reply on its own at 21), each with a short follow-up note.
+// The note states only facts the owner supplied by pressing Mark applied: the role, the employer and the date.
+async function followups(env) {
+  await ensure(env);
+  const cut = new Date(Date.now() - 7 * 86400000).toISOString();
+  const rows = (await env.JOBS_DB.prepare("SELECT m.id, m.title, m.company, m.url, MIN(e.ts) AS applied_at FROM jobsearch_matches m JOIN jobsearch_events e ON e.match_id=m.id AND e.event='applied' WHERE m.status='applied' GROUP BY m.id HAVING MIN(e.ts) <= ? ORDER BY MIN(e.ts) LIMIT 50").bind(cut).all()).results;
+  await loadBank(env);
+  const items = rows.map((r) => {
+    const day = String(r.applied_at).slice(0, 10), days = Math.floor((Date.now() - Date.parse(r.applied_at)) / 86400000);
+    return { id: r.id, title: r.title, company: r.company, url: r.url, applied_on: day, days_waiting: days,
+      note: ["Hello,", "", `I applied for the ${r.title} role at ${r.company} on ${day} and wanted to confirm that my application reached you. I remain interested and can share anything further that would help.`, "", "Best regards,", P.name].join("\n") };
+  });
+  return { count: items.length, items };
+}
 async function run(env) {
   await ensure(env);
   const t0 = Date.now(), started = iso(t0);
@@ -1976,6 +1990,7 @@ const handler = {
     if (p === "/api/ledger" && m === "GET") { await loadBank(env); return J({ person: { ...LEDGER.person, sign_in_email: undefined }, owner_stated: LEDGER.owner_stated, unverified_needs_owner: LEDGER.unverified_needs_owner, facts: LEDGER.facts.filter((f) => ((BANK.facts.find((x) => x.id === f.id) || {}).source === "verified_cv")).map((f) => ({ id: f.id, text: f.text, employer: f.employer, period: f.period })), headlines: LEDGER.headlines }); }   // public: only the verified CV record; what the owner adds in the interview stays private
     if (p === "/api/ops" && m === "GET") { const rep = await opsReport(env); return J(rep, rep.status === "ok" ? 200 : 503); }
     if (p === "/api/outcomes" && m === "GET") return J(await outcomes(env));
+    if (p === "/api/followups" && m === "GET") return J(await followups(env));
     if (p === "/api/prefs" && m === "GET") {
       const ctx = await loadCtx(env);
       const fb = (await env.JOBS_DB.prepare("SELECT verdict, title FROM jobsearch_feedback ORDER BY id DESC LIMIT 20").all()).results;
@@ -2112,7 +2127,7 @@ const handler = {
     return J({ error: "not found", see: "/api" }, 404);
   },
 };
-handler.__test = { atsOf, keywordReport, docxOf, resumeHtml, plainOf, applyKit, matchKit, stripTags, postingTerms, evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK, llmRerank, llmRerankRun, ensureResearchPubs, RESEARCH_PUBS, pubLine, parseRerank, reasonOk, rerankMessages, artifactsFor, titleCandidate, sitemapUrls, slugTitle, PUBLIC_SECTOR, opsReport };
+handler.__test = { followups, atsOf, keywordReport, docxOf, resumeHtml, plainOf, applyKit, matchKit, stripTags, postingTerms, evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK, llmRerank, llmRerankRun, ensureResearchPubs, RESEARCH_PUBS, pubLine, parseRerank, reasonOk, rerankMessages, artifactsFor, titleCandidate, sitemapUrls, slugTitle, PUBLIC_SECTOR, opsReport };
 export default handler;
 
 // ------------------------------------------------------------------ client script shared by both pages (JOBSEARCH-APPLY-1): kit handling and the Fill application bookmark
@@ -2176,7 +2191,7 @@ details{background:#fff;border:1px solid var(--line);border-radius:10px;padding:
 <select id="status"><option value="">Active (hides rejected)</option><option value="all">All, including rejected</option><option value="pending_owner_approval">Pending</option><option>approved</option><option>rejected</option><option>applied</option><option>replied</option><option>interview</option><option>offer</option><option>no_reply</option><option>expired</option></select>
 <input id="q" placeholder="Search title, company, place" size="26"><button id="ready">Ready to apply</button><button id="run" class="p">Run now</button><a href="/cv"><b>My CV</b></a> <a href="/api" class="mute">API</a> <a href="/api/ledger" class="mute">Claim ledger</a> <a href="/api/ops" class="mute">Operations</a> <span id="who" class="mute"></span><button id="signin" onclick="signIn()">Sign in</button><button id="signout" style="display:none" onclick="api(\'/api/auth/logout\',{method:\'POST\'}).then(who)">Sign out</button></div></header>
 <main><div class="note">Every sentence in a resume or note is copied from the claim ledger and re-checked line by line; a failed check blocks the draft. Nothing is sent: approve only marks your decision, then you apply from the posting link.</div><details id="fillsetup"><summary>One-click apply: set up once</summary><p>1. Drag this button to your bookmarks bar: <a id="bm" href="#" class="p" style="padding:6px 10px;border-radius:6px;background:var(--acc);color:#fff;text-decoration:none">Fill application</a></p><p class="mute">2. On any match press <b>Apply</b>: your tailored resume downloads, the form kit is copied and the application opens. 3. On the application page click the <b>Fill application</b> bookmark: it fills your details, adds the cover note and attaches the resume. 4. Answer the questions only you can answer, check the page, press Submit. Works on Greenhouse, Lever, Ashby, Workable and Recruitee; other sites open with the resume and note ready to paste. Nothing is submitted for you: employer systems reject unattended submissions, and an unreviewed application costs more than it saves.</p></details><details id="check" open><summary>Check a job I found</summary><textarea id="jin" rows="4" placeholder="Paste a job link, or paste the whole posting text" style="width:100%"></textarea><div class="bar"><input id="jtitle" placeholder="Title (optional)"><input id="jco" placeholder="Employer (optional)"><button class="p" id="jgo">How good a match am I?</button></div><div id="jres"></div></details>
-<details id="prefs"><summary>Search preferences: yes or no questions</summary><div id="survey" class="mute">loading</div><div class="bar"><button class="p" id="psave">Save and re-run the search</button><span id="prefmsg" class="mute"></span></div></details><div id="list"></div></main>
+<details id="prefs"><summary>Search preferences: yes or no questions</summary><div id="survey" class="mute">loading</div><div class="bar"><button class="p" id="psave">Save and re-run the search</button><span id="prefmsg" class="mute"></span></div></details><div id="follow"></div><div id="list"></div></main>
 <script>
 const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function api(path,opt){const r=await fetch(path,opt);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j}
@@ -2235,6 +2250,8 @@ $('#list').addEventListener('click',async function(e){
  var a=b.dataset.act;if(!k)return;
  if(a==='open')fireKit(k);else if(a==='copy')navigator.clipboard.writeText(kitPayload(k));else if(a==='dl')saveFile(k.resume_file,k.resume_docx_b64);else if(a==='done')decide(id,'applied')});
 $('#bm').setAttribute('href',bookmarkHref());$('#bm').onclick=function(e){e.preventDefault();alert('Drag this button to your bookmarks bar. Do not click it here.')};
+api('/api/followups').then(function(f){if(!f.count)return;window.FU=f.items;$('#follow').innerHTML='<div class="note"><b>'+f.count+' application(s) with no reply after 7 days.</b> '+f.items.map(function(x,i){return esc(x.title)+' at '+esc(x.company)+' ('+x.days_waiting+' days) <button data-fu="'+i+'">Copy follow-up</button>'}).join(' | ')+'</div>'}).catch(function(e){console.warn('followups: '+e.message)});
+$('#follow').addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-fu]');if(b)navigator.clipboard.writeText(window.FU[+b.dataset.fu].note)});
 $('#ready').onclick=function(){$('#tier').value='A';$('#status').value='pending_owner_approval';load()};
 load();who();loadPrefs();
 </script></body></html>`;

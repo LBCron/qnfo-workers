@@ -16,5 +16,5 @@ Charter pillar: personal. Owner ask 2026-11-05: one-stop, one-click applications
 - Fully unattended submission is declined: the Greenhouse Job Board API submit endpoint needs the employer's Basic-auth API key (docs.greenhouse.io/job-board.html, read 2026-11-05), the other ATS public APIs have no candidate submit, captchas and attestations are the applicant's own, and auto-apply measures 0.4-6% response. The owner presses Submit.
 - The bookmark runs in the owner's own browser, so no bot automation and no ATS terms issue. Verified on a local Greenhouse/Lever-style form: 7 items filled, resume attached, phone/company/authorization left blank. Strict page CSP can block a bookmark on some sites; the kit stays on the clipboard to paste.
 
-## Follow-ups filed
+## Follow-ups (shipped as JOBSEARCH-FOLLOWUP-1, 1.8.0: reminders after 7 days)
 Phone number is not in the CV bank (field left blank until added on /cv); follow-up reminders for applications with no reply after 7 days.

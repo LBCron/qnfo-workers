@@ -105,4 +105,13 @@ ok(home.includes("Ready to apply") && home.includes("One-click apply: set up onc
 const bm = home.match(/async function FILL\(\)\{[\s\S]*?\n\}\nfunction bookmarkHref/);
 ok(bm, "FILL source found");
 new vm.Script("(" + bm[0].replace(/\nfunction bookmarkHref$/, "").split("\n").join(" ") + ")");
+
+// 6. follow-ups: applied 8 days ago with no reply is listed with a note that states only role, employer and date
+db.prepare("UPDATE jobsearch_matches SET status='applied' WHERE id='gh:acme:1'").run();
+db.prepare("INSERT INTO jobsearch_events (match_id, event, ts, note) VALUES ('gh:acme:1','applied',?, 'owner')").run(new Date(Date.now() - 8 * 86400000).toISOString());
+const fu = await (await req("/api/followups")).json();
+ok(fu.count === 1 && fu.items[0].days_waiting >= 8 && fu.items[0].note.includes("Senior Policy Advisor role at Acme"), "follow-up listed: " + JSON.stringify(fu).slice(0, 200));
+db.prepare("INSERT INTO jobsearch_events (match_id, event, ts, note) VALUES ('gh:acme:1','replied',?, 'owner')").run(new Date().toISOString());
+db.prepare("UPDATE jobsearch_matches SET status='replied' WHERE id='gh:acme:1'").run();
+ok((await (await req("/api/followups")).json()).count === 0, "a reply removes it");
 console.log(`qnfo-jobsearch apply: ${pass} passed, 0 failed`);
