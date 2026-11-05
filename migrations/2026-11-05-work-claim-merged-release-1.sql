@@ -1,0 +1,15 @@
+-- WORK-CLAIM-MERGED-RELEASE-1: a work claim whose recorded pull request has merged keeps blocking the file until its TTL lapses (charter pillar autonomy; throughput of the parallel sessions).
+-- Evidence 2026-11-05 ~01:48Z: file:qnfo-gateway/worker.js was held by F1-research-reach/B with pr 7444 (REACH-AE-1b), PR 7444 merged, the claim stayed live until 03:06Z, so the one-line paperVideosJson fix of PAPER-VIDEOS-PAGE-URL-1 could not be taken for over an hour (acquire answered acquired:false with that holder).
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DELETE FROM agent_issues WHERE title = 'WORK-CLAIM-MERGED-RELEASE-1: a claim whose pull request merged is released at the merge, not at its TTL' AND source = 'session:roadmap-backlog';
+INSERT INTO agent_issues (title, description, source, category, priority, status, created_at, updated_at)
+SELECT 'WORK-CLAIM-MERGED-RELEASE-1: a claim whose pull request merged is released at the merge, not at its TTL',
+'Pillar autonomy (work claims, WORK-CLAIM-1). qnfo-deploy-guard sweepExpiredClaims releases a claim only when expires_at has passed, and a holder that renewed its TTL keeps the file locked after its pull request merged: file:qnfo-gateway/worker.js stayed with F1-research-reach/B (pr 7444, merged) until 03:06Z, which blocked the PAPER-VIDEOS-PAGE-URL-1 one-line fix for over an hour, and 131 live claims were open at 01:20Z.
+Change: a claim that carries a pr number is released with outcome merged once that pull request is merged. Do it where GitHub state is already read: add a step to the lane job of .github/workflows/pr-lane.yml (a step, not a new check; PR-CHECK-CAP-5-1) that, on a merged pull_request, POSTs https://qnfo-deploy-guard.q08.workers.dev/work-lock/release-merged {"repo":"QNFO/qnfo-workers","pr":<number>} and implement that route in qnfo-deploy-guard: UPDATE work_claims SET released_at = now, outcome = ''merged'' WHERE pr = ?1 AND released_at IS NULL, and answer how many claims it released. A claim is cooperative, so the route needs no secret, but it only touches rows whose pr equals the number and writes outcome merged; the holder token stays the only way to release anything else.
+Definition of done: a case in qnfo-deploy-guard/work-lock.test.mjs (claim with pr 7444, call release-merged 7444, a second acquire of the same key succeeds, a claim without pr is untouched), VERSION bumped with the mirror, and after the deploy a merged pull request frees its claim within a minute (GET /work-locks no longer lists the key).
+code-task: repo=qnfo-workers path=qnfo-deploy-guard/worker.js
+code-anchor: async function sweepExpiredClaims(env, nowMs) {
+code-probe: {"paths": ["qnfo-deploy-guard/worker.js"], "contains": "release-merged"}',
+'session:roadmap-backlog', 'autonomy', 'medium', 'open', CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000
+WHERE NOT EXISTS (SELECT 1 FROM agent_issues WHERE title = 'WORK-CLAIM-MERGED-RELEASE-1: a claim whose pull request merged is released at the merge, not at its TTL' AND status = 'open');
