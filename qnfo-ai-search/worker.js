@@ -10,6 +10,9 @@
 //                              source [1] with its most relevant sections; the rest of the corpus fills the other sources
 //   POST /api/feedback         {id, helpful: 0|1} for one answer
 //   GET  /api/stats, /api/recent, /api/explore?node=, /api/loop    public reads (OPEN-ACCESS-1)
+//   GET  /paper, /paper/<slug> LIVING-PAPER-1 (2.16.0): a published paper with live equations (tap one for a plain-language
+//                              explanation), explain-selected-text and a question box, all through POST /api/ask with the paper pinned
+//   GET  /api/paper?slug=      that page's paper text (published only; cached an hour per slug; misses rate limited)
 //
 // ASK-LOOP-1 (hourly cron :41; daily work in the 03:41 tick). Nothing here depends on a Claude session.
 //   MEASURE   every answer writes one ask_events row (latency, sources, citation validity, tokens, cost, error, config
@@ -29,7 +32,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.15.1-codeagent";
+var VERSION = "2.16.0-codeagent";
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
@@ -309,11 +312,16 @@ var worker_default = {
       if (path === "/api/concepts" && method === "GET") return cached(request, ctx, 300, function () { return conceptSearch(env, url.searchParams.get("q") || ""); });
       if (path === "/api/concepts/neighbors" && method === "GET") return cached(request, ctx, 300, function () { return conceptNeighbors(env, url.searchParams.get("id") || ""); });
       if (path === "/api/consistency" && method === "GET") return consistencyRoute(request, env, ctx);
+      // LIVING-PAPER-1 (2.16.0): a published paper with live equations, explanations and a question box.
+      if ((path === "/paper" || path === "/paper/") && method === "GET") return navPage(PAPER_PAGE);
+      var pm = path.match(/^\/paper\/([a-z0-9][a-z0-9-]{2,180})\/?$/);
+      if (pm && method === "GET") return navPage(PAPER_PAGE.replace('href="https://ask.qwav.tech/paper"', 'href="https://ask.qwav.tech/paper/' + pm[1] + '"'));
+      if (path === "/api/paper" && method === "GET") return paperRoute(request, env, ctx);
       if (path === "/api/loop") return loopReport(env);
       // ASK-CRAWLER-GATE-1 (2.5.0): a renderer that honours robots.txt loads the page but does not post the question.
-      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /api/ask\nDisallow: /api/feedback\nDisallow: /api/consistency\nSitemap: https://ask.qwav.tech/sitemap.xml\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
+      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /api/ask\nDisallow: /api/feedback\nDisallow: /api/consistency\nDisallow: /api/paper\nSitemap: https://ask.qwav.tech/sitemap.xml\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
       if (path === "/sitemap.xml" && method === "GET") {
-        return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ask.qwav.tech/</loc></url><url><loc>https://ask.qwav.tech/concepts</loc></url><url><loc>https://ask.qwav.tech/consistency</loc></url></urlset>\n', { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
+        return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ask.qwav.tech/</loc></url><url><loc>https://ask.qwav.tech/concepts</loc></url><url><loc>https://ask.qwav.tech/consistency</loc></url><url><loc>https://ask.qwav.tech/paper</loc></url></urlset>\n', { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
       }
       return json({ error: "Not found", path: path }, 404);
     } catch (e) {
@@ -440,7 +448,7 @@ function health(env) {
     status: "ok",
     worker: WORKER,
     version: VERSION,
-    capabilities: ["ai-search-query", "ai-search-ingest", "instance-list", "ask-page", "grounded-answer-stream", "knowledge-graph-subgraph", "answer-feedback", "ask-loop-measure", "ask-loop-eval", "ask-loop-tune", "ask-loop-fix-dispatch", "ask-named-paper", "ask-crawler-gate"],
+    capabilities: ["ai-search-query", "ai-search-ingest", "instance-list", "ask-page", "grounded-answer-stream", "knowledge-graph-subgraph", "answer-feedback", "ask-loop-measure", "ask-loop-eval", "ask-loop-tune", "ask-loop-fix-dispatch", "ask-named-paper", "ask-crawler-gate", "living-paper"],
     limitations: [
       "POST /ingest needs X-Sync-Token; every other route is a public read or a capped public write (OPEN-ACCESS-1)",
       "answers are written only from qnfo-corpus excerpts by one cheap Workers AI model chosen by ASK-TUNE-1; the model is told to say when the corpus does not cover a question",
@@ -681,12 +689,12 @@ svg.graph{width:100%;height:auto;max-height:70vh;background:var(--surface);borde
 svg.graph text{fill:var(--ink);font:12px var(--sans)}svg.graph .edge{stroke:var(--rule);stroke-width:1.5}
 svg.graph .nd{cursor:pointer}svg.graph .nd:focus-visible{outline:2px solid var(--teal)}
 `;
-function navHead(title, desc, path) {
-  return String.raw`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>` + title + String.raw`</title><meta name="description" content="` + desc + String.raw`"><link rel="canonical" href="https://ask.qwav.tech` + path + String.raw`"><meta name="theme-color" content="#F5F7FB" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#141A33" media="(prefers-color-scheme: dark)"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet"><style>` + NAV_CSS + `</style></head><body>`;
+function navHead(title, desc, path, extra) {
+  return String.raw`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>` + title + String.raw`</title><meta name="description" content="` + desc + String.raw`"><link rel="canonical" href="https://ask.qwav.tech` + path + String.raw`"><meta name="theme-color" content="#F5F7FB" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#141A33" media="(prefers-color-scheme: dark)"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet"><style>` + NAV_CSS + `</style>` + (extra || "") + String.raw`</head><body>`;
 }
 function navTop(current) {
   var a = function (href, label, key) { return '<a href="' + href + '"' + (current === key ? ' aria-current="page"' : "") + ">" + label + "</a>"; };
-  return '<a class="skip" href="#main">Skip to main content</a><header class="top"><a class="brand" href="/">Ask QWAV</a><nav aria-label="Primary">' + a("/", "Ask", "ask") + a("/concepts", "Concepts", "concepts") + a("/consistency", "Consistency", "consistency") + a("https://papers.qnfo.org/papers", "Papers", "papers") + "</nav></header>";
+  return '<a class="skip" href="#main">Skip to main content</a><header class="top"><a class="brand" href="/">Ask QWAV</a><nav aria-label="Primary">' + a("/", "Ask", "ask") + a("/concepts", "Concepts", "concepts") + a("/consistency", "Consistency", "consistency") + a("/paper", "Read", "paper") + a("https://papers.qnfo.org/papers", "Papers", "papers") + "</nav></header>";
 }
 var CONCEPTS_PAGE = navHead("Concept navigator | Ask QWAV", "Search the QNFO research knowledge graph and follow links between papers, concepts, findings and open questions.", "/concepts") + navTop("concepts") + String.raw`<main id="main" data-page="concept-nav">
 <h1>Concept navigator</h1>
@@ -818,6 +826,310 @@ route();
 })();
 </script></body></html>`;
 // ---- CONCEPT-NAV-1 and CONSISTENCY-1:END
+// ---- LIVING-PAPER-1:BEGIN (roadmap_implementation row 31 RM-VISION-LIVING-PAPER-1, 2026-11-05, pillar research; first vertical slice)
+// GET /paper and GET /paper/<slug> (the page) and GET /api/paper?slug= (one published paper's text) put a published paper on the screen with its
+// equations alive: an equation is a button that has the sentence around it explained in plain language through the existing ASK-PLAIN path
+// (POST /api/ask with the paper pinned), a selected passage can be explained the same way, and a box asks the paper a question (the same pin).
+// No new model call path and no new binding: every question goes through /api/ask, so the per-address and daily caps, the sources-only
+// fallback at the spend cap and the crawler gate apply unchanged. The paper text is drawn with textContent only (no HTML from the paper is parsed);
+// math is drawn by KaTeX, loaded from cdnjs with an integrity hash. /api/paper is cached for an hour per slug and rate limits its misses.
+var PAPER_VIEW_PER_IP_HOUR = 60, PAPER_VIEW_GLOBAL_HOUR = 600, PAPER_BODY_CHARS = 300000, PAPER_SLUG_RE = /^[a-z0-9][a-z0-9-]{2,180}$/, PAPER_PUBLIC_RE = /^(published|distributed|external_preprint)$/;
+async function viewAdmit(env, request, tag, perIp, perHourAll) {
+  try {
+    var ip = request.headers.get("CF-Connecting-IP") || "anon";
+    var hour = new Date().toISOString().slice(0, 13);
+    if ((await bump(env, tag + "-ip:" + (await sha(tag + "|" + ip + "|" + hour)) + ":" + hour)) > perIp) return false;
+    if ((await bump(env, tag + "-all:" + hour)) > perHourAll) return false;
+  } catch (e) { logErr(tag + " admit", e); }
+  return true;
+}
+function paperAuthors(a) {
+  if (typeof a === "string") { try { a = JSON.parse(a); } catch (e) { a = a ? [a] : []; } }
+  return (Array.isArray(a) ? a : []).slice(0, 12).map(function (x) { return String(x && x.name ? x.name : x).slice(0, 120); }).filter(Boolean);
+}
+async function paperView(env, slug) {
+  slug = String(slug || "").trim().toLowerCase();
+  if (!PAPER_SLUG_RE.test(slug)) return { status: 400, body: { error: "slug required" } };
+  var p = await up(env, "GATEWAY", UP.papers, "/papers/" + encodeURIComponent(slug), null, PAPER_DETAIL_TIMEOUT_MS);
+  if (!p || p.slug !== slug || !p.title || !PAPER_PUBLIC_RE.test(String(p.status || "published"))) return { status: 404, body: { error: "No published paper has this address", slug: slug } };
+  var md = String(p.body_md || "").replace(/^---[\s\S]*?\n---\s*\n/, "");
+  var prov = p._prov && typeof p._prov === "object" ? String(p._prov.basis || "").slice(0, 200) : "";
+  return { status: 200, body: {
+    slug: slug, title: String(p.title).slice(0, 300), authors: paperAuthors(p.authors), abstract: String(p.abstract || "").slice(0, 2000),
+    doi: nzDoi(p.doi) ? String(p.doi).slice(0, 120) : null, version: String(p.version_semver || p.version || "").slice(0, 40) || null,
+    published: String(p.first_published_at || "").slice(0, 10) || null, revised: String(p.last_revised_at || "").slice(0, 10) || null,
+    license: String(p.license || "").slice(0, 60) || null, provenance: prov || null, url: "https://papers.qnfo.org/papers/" + slug,
+    body_md: md.slice(0, PAPER_BODY_CHARS), truncated: md.length > PAPER_BODY_CHARS,
+  } };
+}
+async function paperRoute(request, env, ctx) {
+  var url = new URL(request.url), slug = String(url.searchParams.get("slug") || "").trim().toLowerCase();
+  if (!PAPER_SLUG_RE.test(slug)) return json({ error: "slug required" }, 400, { "Cache-Control": "no-store" });
+  var key = new Request(url.origin + "/api/paper?slug=" + encodeURIComponent(slug), { method: "GET" });
+  var hit = await caches.default.match(key);
+  if (hit) return hit;
+  if (!(await viewAdmit(env, request, "pv", PAPER_VIEW_PER_IP_HOUR, PAPER_VIEW_GLOBAL_HOUR))) return json({ error: "Too many papers opened just now. Try again in a few minutes." }, 429, { "Retry-After": "600", "Cache-Control": "no-store" });
+  var r = await paperView(env, slug);
+  var res = json(r.body, r.status, { "Cache-Control": r.status === 200 ? "public, max-age=3600" : r.status === 404 ? "public, max-age=60" : "no-store" });
+  if (r.status === 200 || r.status === 404) ctx.waitUntil(caches.default.put(key, res.clone()));
+  return res;
+}
+var KATEX_CSS_TAG = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.47/katex.min.css" integrity="sha384-nH0MfJ44wi1dd7w6jinlyBgljjS8EJAh2JBoRad8a3VDw2K69vfaaqm4WnR+gXtA" crossorigin="anonymous">';
+var KATEX_JS_TAG = '<script id="katex-js" defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.47/katex.min.js" integrity="sha384-CwjPRVHTvLiMBFjEoij+QZViMV5rhTOIp7CJzl24JEqpRDA1sJFHVXXLURktbYYp" crossorigin="anonymous"></script>';
+var LIVING_CSS = String.raw`[hidden]{display:none!important}
+.crumb{margin:0 0 6px;font-size:14px;color:var(--muted)}
+.doc{font:400 18px/1.65 var(--serif);max-width:68ch}
+.doc p,.doc li{margin:0 0 12px}.doc h2,.doc h3,.doc h4,.doc h5{scroll-margin-top:12px;max-width:68ch}
+.doc pre{overflow:auto;padding:12px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);font:13px/1.45 ui-monospace,Consolas,monospace;margin:0 0 14px}
+.doc code{font:.88em ui-monospace,Consolas,monospace;background:var(--wash);padding:1px 4px;border-radius:4px}.doc pre code{background:none;padding:0}
+.doc blockquote{margin:0 0 12px;padding:0 0 0 14px;border-left:3px solid var(--rule);color:var(--muted)}
+.tw{overflow-x:auto;margin:0 0 14px}.doc table{border-collapse:collapse;font:14px/1.4 var(--sans)}
+.doc th,.doc td{border:1px solid var(--rule);padding:6px 10px;text-align:left;vertical-align:top}
+.tex{cursor:pointer;border-radius:6px}.tex:hover{background:var(--teal-wash)}span.tex{padding:0 2px}
+.tex.disp{display:block;overflow-x:auto;overflow-y:hidden;padding:8px;margin:4px 0 14px;border:1px dashed var(--rule);text-align:center}
+.explain{border:1px solid var(--teal);background:var(--surface);border-radius:12px;padding:12px 16px;margin:0 0 16px;font:400 16px/1.5 var(--sans);max-width:68ch}
+.explain p,.ans p{margin:0 0 8px}.ex-h{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+button.sm{min-height:44px;padding:6px 14px;border:1px solid var(--rule);border-radius:8px;background:var(--wash);color:var(--ink);font:inherit}
+.ans{border:1px solid var(--rule);background:var(--surface);border-radius:12px;padding:12px 16px;margin:0 0 16px;max-width:68ch}
+.src{font-size:14px;color:var(--muted);margin:4px 0}.toolbar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin:8px 0 16px}
+.fups{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+#askf input{flex:1 1 260px;min-height:44px;padding:8px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+`;
+// Browser code shared by the paper pages: element helpers, math drawn by KaTeX into DOM nodes (never innerHTML), a small inline-markdown reader that
+// builds nodes from text, and the /api/ask event-stream reader. No backtick and no dollar-brace may appear in it (it sits in a template literal).
+var LIVING_LIB = String.raw`function $(id){return document.getElementById(id)}
+function clear(n){while(n.firstChild)n.removeChild(n.firstChild)}
+function el(t,a,txt){var e=document.createElement(t);if(a)for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e}
+var KQ=[],KDONE=false;
+function withKatex(fn){if(window.katex||KDONE)fn();else KQ.push(fn)}
+function katexFlush(){KDONE=true;var q=KQ;KQ=[];q.forEach(function(f){f()})}
+var KS=$('katex-js');if(KS){KS.addEventListener('load',katexFlush);KS.addEventListener('error',katexFlush)}
+function mathEl(tex,disp){
+  var s=el(disp?'div':'span',{'class':'tex'+(disp?' disp':''),'data-tex':tex});s.__tex=tex;s.__disp=!!disp;s.textContent=tex;
+  withKatex(function(){if(window.katex){try{katex.render(tex,s,{displayMode:!!disp,throwOnError:false,strict:'ignore',maxExpand:200})}catch(e){s.setAttribute('title','Shown as TeX: it could not be drawn')}}});
+  return s
+}
+var RULES=[
+ [/\$\$([\s\S]+?)\$\$/,function(p,m){p.appendChild(mathEl(m[1],true))}],
+ [/\$([^\s$](?:[^$\n]*?[^\s$\\])?)\$(?!\d)/,function(p,m){p.appendChild(mathEl(m[1],false))}],
+ [/\\\(([\s\S]+?)\\\)/,function(p,m){p.appendChild(mathEl(m[1],false))}],
+ [/\*\*\*([^*\n]+?)\*\*\*/,function(p,m){var s=el('strong'),e=el('em');inline(e,m[1]);s.appendChild(e);p.appendChild(s)}],
+ [/\*\*((?:[^*\n]|\*(?!\*))+?)\*\*/,function(p,m){var s=el('strong');inline(s,m[1]);p.appendChild(s)}],
+ [/\x60([^\x60\n]+?)\x60/,function(p,m){p.appendChild(el('code',null,m[1]))}],
+ [/!\[([^\]\n]*)\]\(([^)\s]+)\)/,function(p,m){p.appendChild(el('em',null,'[figure: '+(m[1]||'image')+']'))}],
+ [/\[([^\]\n]+?)\]\((https?:\/\/(?:[^\s()]|\([^\s()]*\))+)\)/,function(p,m){var a=el('a',{href:m[2],rel:'noopener noreferrer'});inline(a,m[1]);p.appendChild(a)}],
+ [/\*([^*\s][^*\n]*?)\*/,function(p,m){var s=el('em');inline(s,m[1]);p.appendChild(s)}],
+ [/\b_([^_\s][^_\n]*?)_\b/,function(p,m){var s=el('em');inline(s,m[1]);p.appendChild(s)}]
+];
+var RSTART=[],RGROUPS=0;
+RULES.forEach(function(r){RSTART.push(RGROUPS+1);RGROUPS+=1+new RegExp(r[0].source+'|').exec('').length-1});
+var INL=new RegExp(RULES.map(function(r){return '('+r[0].source+')'}).join('|'),'g');
+function inline(parent,text){
+  var re=new RegExp(INL.source,'g'),last=0,m,i;text=String(text);
+  while((m=re.exec(text))){
+    if(m.index>last)parent.appendChild(document.createTextNode(text.slice(last,m.index)));
+    last=re.lastIndex;
+    for(i=0;i<RULES.length;i++){if(m[RSTART[i]]!==undefined){RULES[i][1](parent,m.slice(RSTART[i]));break}}
+  }
+  if(last<text.length)parent.appendChild(document.createTextNode(text.slice(last)))
+}
+function answerText(box,raw){
+  clear(box);var txt=String(raw).split(/\n\s*\**FOLLOWUPS:?/i)[0].replace(/^#+\s*/gm,'');
+  txt.split(/\n{2,}/).forEach(function(par){
+    par=par.trim();if(!par)return;var lines=par.split('\n');
+    if(lines.every(function(l){return /^\s*[-*]\s/.test(l)})){var ul=el('ul');lines.forEach(function(l){var li=el('li');inline(li,l.replace(/^\s*[-*]\s/,''));ul.appendChild(li)});box.appendChild(ul)}
+    else{var p=el('p');inline(p,par.replace(/\n/g,' '));box.appendChild(p)}
+  })
+}
+function streamAsk(query,slug,hist,cb){
+  var ac=typeof AbortController==='function'?new AbortController():null;
+  fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:query,paper:slug,history:hist||[]}),signal:ac?ac.signal:undefined})
+  .then(function(r){
+    if(!r.ok||!/event-stream/.test(r.headers.get('content-type')||''))return r.json().then(function(j){throw new Error(j.error||('HTTP '+r.status))});
+    var rd=r.body.getReader(),dec=new TextDecoder(),buf='';
+    function pump(){return rd.read().then(function(x){
+      if(x.done)return;buf+=dec.decode(x.value,{stream:true});var parts=buf.split('\n\n');buf=parts.pop();
+      parts.forEach(function(b){var ev=(b.match(/^event: (.+)$/m)||[])[1],dl=(b.match(/^data: (.*)$/m)||[])[1];if(!ev||dl==null)return;var d;try{d=JSON.parse(dl)}catch(e){return}if(cb[ev])cb[ev](d)});
+      return pump()})}
+    return pump()
+  }).catch(function(e){if(e&&e.name==='AbortError')return;if(cb.error)cb.error({error:e.message||String(e)})}).then(function(){if(cb.end)cb.end()});
+  return {abort:function(){if(ac)ac.abort()}}
+}
+function sourceLine(meta){
+  var p=el('p',{'class':'src'});if(!meta||!meta.sources||!meta.sources.length)return p;p.appendChild(document.createTextNode('Sources: '));
+  meta.sources.slice(0,4).forEach(function(s,i){if(i)p.appendChild(document.createTextNode('; '));var t='['+(s.n||i+1)+'] '+String(s.title||s.slug||'').slice(0,80);
+    if(typeof s.url==='string'&&s.url.indexOf('https://papers.qnfo.org/')===0){var a=el('a',{href:s.url});inline(a,t);p.appendChild(a)}else inline(p,t)});
+  return p
+}
+`;
+var PAPER_PAGE = navHead("Living paper | Ask QWAV", "Read a published QNFO paper with its equations alive: tap an equation or select a passage for a plain-language explanation, or ask the paper a question.", "/paper", KATEX_CSS_TAG + "<style>" + LIVING_CSS + "</style>" + KATEX_JS_TAG) + navTop("paper") + String.raw`<main id="main" data-page="living-paper">
+<section id="pick">
+<h1>Living paper</h1>
+<p class="lede">Read a published paper with its equations alive. Tap an equation, or select a passage, to have it explained in plain language, or ask the paper a question. Answers are written by an AI from the paper's own text, so check them against the paper.</p>
+<form id="f" role="search"><label for="q">Find a paper</label><input id="q" type="search" autocomplete="off" placeholder="for example: ultrametric tree encoding"><button class="go" type="submit">Search</button></form>
+<ul class="list" id="results" aria-live="polite"></ul>
+</section>
+<article id="doc" hidden>
+<p class="crumb"><a href="/paper">Living paper</a> / <span id="slugl"></span></p>
+<h1 id="pt">Loading the paper</h1>
+<p class="meta" id="pm"></p>
+<p class="meta" id="pv"></p>
+<p class="note" id="howto">Tap or press an equation for a plain-language explanation of the sentence around it. Select a passage and press Explain selected text for the same. The explanations are written from the paper's text and are not part of it.</p>
+<form id="askf" role="search"><label for="aq">Ask this paper a question</label><input id="aq" type="text" autocomplete="off" maxlength="300" placeholder="for example: what is the main result?"><button class="go" type="submit">Ask</button></form>
+<div class="ans" id="ans" hidden aria-live="polite"></div>
+<div class="toolbar"><button type="button" class="sm" id="exsel">Explain selected text</button><span class="meta" id="selmsg" role="status"></span><a id="lorig" href="https://papers.qnfo.org/papers">Open on papers.qnfo.org</a><a id="lcons" href="/consistency">Consistency check</a></div>
+<div class="doc" id="body"></div>
+</article>
+<noscript><p class="note">The living paper needs JavaScript. You can still <a href="/">ask a question</a> or <a href="https://papers.qnfo.org/papers">read the papers</a>.</p></noscript>
+</main>
+<script>
+(function(){
+` + LIVING_LIB + String.raw`var SLUG=(location.pathname.match(/^\/paper\/([a-z0-9][a-z0-9-]{2,180})\/?$/)||[])[1]||'';
+var slots={ex:null,ask:null},hist=[],body=$('body'),lastSel=null;
+function get(u,cb){fetch(u).then(function(r){return r.json().then(function(j){cb(r.status,j)})}).catch(function(){cb(0,null)})}
+function search(q){
+  var ul=$('results');clear(ul);if(q.length<2)return;
+  ul.appendChild(el('li',{'class':'meta'},'Searching...'));
+  get('/api/concepts?q='+encodeURIComponent(q),function(s,d){
+    clear(ul);var ns=((d&&d.nodes)||[]).filter(function(n){return n.label==='Paper'&&n.slug});
+    if(!ns.length){ul.appendChild(el('li',{'class':'meta'},s===200?'No published paper matches that. Try other words from its title.':'The paper list could not be reached. Try again in a minute.'));return}
+    ns.slice(0,20).forEach(function(n){var li=el('li'),c=el('div',{'class':'card'});c.appendChild(el('a',{href:'/paper/'+encodeURIComponent(n.slug)},n.name));li.appendChild(c);ul.appendChild(li)})
+  })
+}
+function splitRow(line){
+  var t=line.trim().replace(/^\|/,'').replace(/\|$/,'');
+  t=t.replace(/\$[^\s$](?:[^$\n]*?[^\s$\\])?\$(?!\d)/g,function(m){return m.replace(/\|/g,'\u0001')});
+  return t.split('|').map(function(c){return c.replace(/\u0001/g,'|').trim()})
+}
+function renderDoc(md){
+  var lines=String(md).replace(/\r\n?/g,'\n').split('\n'),i=0,para=[],hn=0,toc=[];
+  function add(n,src){n.__src=src||n.textContent||'';body.appendChild(n);return n}
+  function flush(){if(!para.length)return;var t=para.join(' ').replace(/\s+/g,' ').trim();para=[];if(!t)return;var p=el('p');inline(p,t);add(p,t)}
+  function oddDD(x){return (x.match(/\$\$/g)||[]).length%2===1}
+  function oddD(x){return (x.replace(/\$\$/g,'').match(/\$/g)||[]).length%2===1}
+  function display(tex){var d=mathEl(tex.trim(),true);d.setAttribute('role','button');d.setAttribute('tabindex','0');d.setAttribute('aria-label','Explain this equation in plain language');add(d,'$$'+tex.trim()+'$$')}
+  while(i<lines.length){
+    var ln=lines[i],t=ln.trim(),m;
+    if(t===''){flush();i++;continue}
+    if(/^\x60{3}/.test(t)){flush();var code=[];i++;while(i<lines.length&&!/^\x60{3}/.test(lines[i].trim())){code.push(lines[i]);i++}i++;var pre=el('pre');pre.appendChild(el('code',null,code.join('\n')));add(pre,code.join(' '));continue}
+    if((/^\$\$/.test(t)||/^\\\[/.test(t))&&!(para.length&&oddDD(para.join(' ')))){
+      flush();var cl=t.slice(0,2)==='$$'?'$$':'\\]',rest=t.slice(2),buf=[],ci=rest.indexOf(cl),tail='',start=i,closed=false;
+      i++;
+      if(ci>=0){buf.push(rest.slice(0,ci));tail=rest.slice(ci+2).trim();closed=true}
+      else{buf.push(rest);var n=0;while(i<lines.length&&n<80){var l2=lines[i],cj=l2.indexOf(cl);i++;n++;if(cj>=0){buf.push(l2.slice(0,cj));tail=l2.slice(cj+2).trim();closed=true;break}buf.push(l2)}}
+      if(!closed){i=start+1;para.push(t);continue}
+      display(buf.join('\n'));if(tail)para.push(tail);continue
+    }
+    if((m=/^(#{1,6})\s+(.*?)\s*$/.exec(t))){
+      flush();var lv=m[1].length;i++;
+      if(lv===1&&!body.firstChild)continue;
+      var hh=el('h'+Math.max(2,lv));hh.id='s'+(++hn);inline(hh,m[2]);add(hh,m[2]);if(lv<=3)toc.push({id:hh.id,t:m[2]});continue
+    }
+    if(/^(-{3,}|\*{3,}|_{3,})$/.test(t)){flush();add(el('hr'),'');i++;continue}
+    if(t.charAt(0)==='|'&&i+1<lines.length&&/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i+1].trim())){
+      flush();var head=splitRow(t),rows=[];i+=2;
+      while(i<lines.length&&lines[i].trim().charAt(0)==='|'&&rows.length<300){rows.push(splitRow(lines[i]));i++}
+      var wrap=el('div',{'class':'tw'}),tb=el('table'),th=el('thead'),trh=el('tr');
+      head.forEach(function(c){var x=el('th');inline(x,c);trh.appendChild(x)});th.appendChild(trh);tb.appendChild(th);
+      var tbd=el('tbody');rows.forEach(function(r){var tr=el('tr');r.forEach(function(c){var x=el('td');inline(x,c);tr.appendChild(x)});tbd.appendChild(tr)});tb.appendChild(tbd);wrap.appendChild(tb);
+      add(wrap,rows.reduce(function(a,r){return a.concat(r)},head).join(' | '));continue
+    }
+    if((m=/^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(ln))&&!(para.length&&/\d/.test(m[2])&&parseInt(m[2],10)!==1)&&!(para.length&&oddD(para.join(' ')))){
+      flush();var ord=/\d/.test(m[2]),list=el(ord?'ol':'ul'),items=[],first=parseInt(m[2],10);
+      while(i<lines.length){var lm=/^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i]);
+        if(lm&&/\d/.test(lm[2])===ord){items.push(lm[3]);i++}
+        else if(lines[i].trim()===''){var k=i;while(k<lines.length&&lines[k].trim()==='')k++;var nx=k<lines.length?lines[k]:'',nm=/^\s*([-*+]|\d+[.)])\s+/.exec(nx);if(items.length&&k<lines.length&&((nm&&/\d/.test(nm[1])===ord)||/^\s{2,}\S/.test(nx)))i=k;else break}
+        else if(items.length&&/^\s{2,}\S/.test(lines[i])){items[items.length-1]+=' '+lines[i].trim();i++}
+        else break}
+      if(ord&&first!==1)list.setAttribute('start',String(first));
+      items.forEach(function(x){var li=el('li');inline(li,x);list.appendChild(li)});add(list,items.join(' '));continue
+    }
+    if(t.charAt(0)==='>'){
+      flush();var q=[];while(i<lines.length&&lines[i].trim().charAt(0)==='>'){q.push(lines[i].trim().replace(/^>\s?/,''));i++}
+      var bq=el('blockquote'),bp=el('p');inline(bp,q.join(' '));bq.appendChild(bp);add(bq,q.join(' '));continue
+    }
+    para.push(t);i++
+  }
+  flush();
+  if(toc.length>2){var det=el('details',{'class':'toc'}),ul=el('ul');det.appendChild(el('summary',null,'Contents'));
+    toc.forEach(function(x){var li=el('li');li.appendChild(el('a',{href:'#'+x.id},x.t.replace(/[*$\x60]/g,'')));ul.appendChild(li)});det.appendChild(ul);body.parentNode.insertBefore(det,body)}
+}
+function topBlock(n){while(n&&n.parentNode&&n.parentNode!==body)n=n.parentNode;return n&&n.parentNode===body?n:null}
+function lastSent(a){a=String(a||'').slice(-300);var j=a.search(/[.!?]\s+\S[^.!?]{39,}$/);return (j>=0?a.slice(j+1):a).trim()}
+function firstSent(b){b=String(b||'').trim();if(!/^(where|with|here|in which|which|and|so|hence|thus|therefore|since|for)\b/i.test(b))return '';var m=/^[\s\S]{30,260}?[.!?](\s|$)/.exec(b);return (m?m[0]:b.slice(0,220)).trim()}
+function sib(n,dir){var x=dir<0?n.previousSibling:n.nextSibling;while(x&&x.__src===undefined)x=dir<0?x.previousSibling:x.nextSibling;return x}
+function inPanel(n){while(n){if(n.nodeType===1&&n.classList&&n.classList.contains('explain'))return true;n=n.parentNode}return false}
+function ctxFor(node){
+  var blk=topBlock(node),tex=node.__tex||'',out;
+  if(node.__disp&&blk===node){var pv=sib(blk,-1),nx=sib(blk,1);out=lastSent(pv&&pv.__src)+' $$'+tex.replace(/\s+/g,' ').trim()+'$$ '+firstSent(nx&&nx.__src)}
+  else{var s=(blk&&blk.__src)||'',k=s.indexOf(tex);out=s.slice(Math.max(0,k<0?0:k-220),Math.max(0,k<0?0:k-220)+520)}
+  return out.replace(/"/g,"'").replace(/\s+/g,' ').trim().slice(0,560)
+}
+function panel(after,title){
+  var old=document.querySelector('.explain');if(old&&old.parentNode)old.parentNode.removeChild(old);
+  var p=el('div',{'class':'explain',role:'region','aria-label':title}),h=el('div',{'class':'ex-h'}),b=el('div');
+  h.appendChild(el('strong',null,title));var x=el('button',{type:'button','class':'sm'},'Close');x.addEventListener('click',function(){if(p.parentNode)p.parentNode.removeChild(p)});h.appendChild(x);
+  p.appendChild(h);p.appendChild(b);p.appendChild(el('p',{'class':'meta'},"Written by an AI from this paper's text. It is not part of the paper; check it against the paper."));
+  if(after&&after.parentNode===body)body.insertBefore(p,after.nextSibling);else body.insertBefore(p,body.firstChild);
+  if(p.scrollIntoView)p.scrollIntoView({block:'nearest'});
+  return b
+}
+function run(query,out,keep){
+  var k=keep?'ask':'ex',prev=slots[k];if(prev&&prev.h)prev.h.abort();
+  var my={h:null};slots[k]=my;
+  clear(out);out.appendChild(el('p',{'class':'meta'},'Reading the paper...'));
+  var raw='',meta=null,pend=false,failed=false,fups=[];
+  function live(){return slots[k]===my}
+  function paint(){pend=false;if(!live())return;answerText(out,raw);if(meta)out.appendChild(sourceLine(meta));
+    if(fups.length&&keep){var f=el('div',{'class':'fups'});fups.forEach(function(q){var b=el('button',{type:'button','class':'sm'},q);b.addEventListener('click',function(){$('aq').value=q;$('askf').dispatchEvent(new Event('submit',{cancelable:true}))});f.appendChild(b)});out.appendChild(f)}}
+  my.h=streamAsk(query,SLUG,keep?hist.slice(-2):[],{
+    status:function(d){if(live()&&!raw&&d&&d.stage){clear(out);out.appendChild(el('p',{'class':'meta'},d.stage==='writing'?'Writing the answer...':d.stage==='thinking'?'Thinking it through...':'Reading the paper...'))}},
+    meta:function(d){if(live())meta=d},
+    token:function(d){if(!live())return;raw+=d.t;if(!pend){pend=true;setTimeout(paint,120)}},
+    done:function(d){if(live())fups=(d&&d.followups||[]).filter(function(x){return typeof x==='string'}).slice(0,3)},
+    error:function(d){if(!live())return;failed=true;clear(out);out.appendChild(el('p',{'class':'note'},d.error||'The answer could not be written. Try again in a minute.'));if(meta)out.appendChild(sourceLine(meta))},
+    end:function(){if(!live()||failed)return;if(raw){paint();if(keep){hist.push({q:query,a:raw.split(/\n\s*\**FOLLOWUPS:?/i)[0].slice(0,1500)});hist=hist.slice(-2)}}else{clear(out);out.appendChild(el('p',{'class':'note'},'No answer came back. Try again in a minute.'))}}
+  })
+}
+function explainMath(node){var c=ctxFor(node);if(c.length<12)return;run('Explain in plain language what '+(node.__disp&&topBlock(node)===node?'this equation':'the math in this passage')+' says in words: "'+c+'"',panel(topBlock(node),'In plain language'),false)}
+function grabSel(){
+  var sel=window.getSelection();if(!sel||!sel.rangeCount||sel.isCollapsed)return;
+  var rg=sel.getRangeAt(0);if(!body.contains(rg.commonAncestorContainer)||inPanel(rg.commonAncestorContainer))return;
+  var d=document.createElement('div');d.appendChild(rg.cloneContents());
+  d.querySelectorAll('[data-tex]').forEach(function(n){n.parentNode.replaceChild(document.createTextNode('$'+n.getAttribute('data-tex')+'$'),n)});
+  var t=d.textContent.replace(/\s+/g,' ').trim();if(t.length<8)return;
+  lastSel={txt:t,blk:topBlock(rg.endContainer.nodeType===1?rg.endContainer:rg.endContainer.parentNode)}
+}
+function fail(msg){$('pt').textContent='This paper is not available';clear($('pm'));$('howto').hidden=true;$('askf').hidden=true;document.querySelector('.toolbar').hidden=true;body.appendChild(el('p',{'class':'note'},msg))}
+function load(){
+  $('pick').hidden=true;$('doc').hidden=false;$('slugl').textContent=SLUG;
+  get('/api/paper?slug='+encodeURIComponent(SLUG),function(s,d){
+    if(s===429){fail('Too many papers opened just now. Try again in a few minutes.');return}
+    if(s===404){fail('No published paper has this address.');return}
+    if(s!==200||!d){fail('The paper could not be loaded. Try again in a minute.');return}
+    document.title=d.title+' | Living paper | Ask QWAV';$('pt').textContent=d.title;
+    $('pm').textContent=[(d.authors||[]).join(', '),d.version?'Version '+d.version:'',d.published?'Published '+d.published:'',d.license||'',d.doi?'DOI '+d.doi:''].filter(Boolean).join(' '+String.fromCharCode(183)+' ');
+    if(d.provenance)$('pv').textContent='Provenance: '+d.provenance;
+    $('lorig').href=d.url;$('lcons').href='/consistency#'+encodeURIComponent(SLUG);
+    renderDoc(d.body_md);
+    if(d.truncated)body.appendChild(el('p',{'class':'note'},'This view shows the first part of a long paper. Read the rest on papers.qnfo.org.'))
+  })
+}
+body.addEventListener('click',function(e){var t=e.target.closest?e.target.closest('.tex'):null;if(t)explainMath(t)});
+body.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&e.target.classList&&e.target.classList.contains('disp')){e.preventDefault();explainMath(e.target)}});
+document.addEventListener('selectionchange',grabSel);
+$('exsel').addEventListener('click',function(){
+  var m=$('selmsg');m.textContent='';
+  if(!lastSel){m.textContent='Select a sentence or a passage in the paper first.';return}
+  var c=lastSel.txt.replace(/"/g,"'").slice(0,520);
+  run('Explain "'+c+'" in plain language',panel(lastSel.blk,'In plain language'),false)
+});
+$('askf').addEventListener('submit',function(e){e.preventDefault();var q=$('aq').value.trim();if(q.length<3)return;var out=$('ans');out.hidden=false;run(q,out,true)});
+$('f').addEventListener('submit',function(ev){ev.preventDefault();search($('q').value.trim())});
+if(SLUG)load();
+})();
+</script></body></html>`;
+// ---- LIVING-PAPER-1:END
 function keywords(q) {
   var raw = String(q).toLowerCase().match(/[a-z0-9]+(?:-[a-z0-9]+)*/g) || [];
   var uniq = Array.from(new Set(raw.filter(function (w) { return (w.length >= 5 || /-/.test(w)) && !STOP.has(w); })));
