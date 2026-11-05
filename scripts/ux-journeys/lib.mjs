@@ -9,6 +9,21 @@ export const NARROW_WIDTH = 360;
 export const MIN_TARGET_PX = 24;
 
 /**
+ * Whether a control that measured under MIN_TARGET_PX is a target a person actually taps (UX-SCREENS-1, agent_issues 1001734: the live run counted three kinds of
+ * element that no thumb reaches, so the findings hid the real small links). Only these three are exempt; every other control under 24x24 stays a finding.
+ *  - parked off the left or top edge of the page (right or bottom at or below 0): an off-screen skip link or an anti-bot field a visitor cannot scroll to;
+ *  - an anti-bot honeypot: hidden from assistive technology (aria-hidden on it or an ancestor), out of the tab order (tabindex -1) and 12px or less in each direction;
+ *  - a checkbox or radio inside a label whose box is 24x24 or more: tapping the label toggles the control, so the label is the target.
+ * @param {{w:number,h:number,right:number,bottom:number,hidden?:boolean,tabindex?:string|null,labelW?:number|null,labelH?:number|null}} c
+ */
+export function isTapTarget(c) {
+  if (c.right <= 0 || c.bottom <= 0) return false;
+  if (c.hidden && c.tabindex === "-1" && c.w <= 12 && c.h <= 12) return false;
+  if (c.labelW != null && c.labelH != null && c.labelW >= MIN_TARGET_PX && c.labelH >= MIN_TARGET_PX) return false;
+  return true;
+}
+
+/**
  * A console error that is not the app's: the 401 a signed-out visitor is meant to get, and Cloudflare's DevTools probe. Cloudflare's script injected into a proxied page logs
  * console.error("%c%d", "font-size:0;color:transparent", NaN) and the same with %o and {} to detect an open console; headless Chromium trips it, so UX-SCREENS-1 listed it as an
  * app error on every proxied host (travel, fleet, ideas, ipatent, ask-qwav-tech on 2026-11-04). The match is that exact signature, never a general "font-size:0" rule.

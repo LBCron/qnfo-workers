@@ -1,7 +1,7 @@
 // scripts/ux-journeys.test.mjs (UX-JOURNEYS-1): the pure half of the phone journey check (grading, screen findings, regressions),
 // plus the shape of budgets.json and of every journey module. No browser; runs in the offline suites (scripts/run-suites.mjs).
 import fs from "node:fs";
-import { grade, screenFindings, regressions, exitCode, journeyTitle, screensTitle, isForeignConsoleError, shouldRetryJourney, LIVE_TRIES } from "./ux-journeys/lib.mjs";
+import { grade, screenFindings, regressions, exitCode, journeyTitle, screensTitle, isForeignConsoleError, shouldRetryJourney, LIVE_TRIES, isTapTarget } from "./ux-journeys/lib.mjs";
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) { pass++; console.log("  ok   " + n); } else { fail++; console.log("  FAIL " + n + (x !== undefined ? "  -> " + JSON.stringify(x) : "")); } };
 
@@ -26,6 +26,16 @@ ok("the deterministic local harness is never retried", !shouldRetryJourney("brok
 const f = screenFindings({ label: "today", overflowPx: 30, narrowOverflowPx: 0, smallTargets: [{ name: "x", w: 20, h: 20 }], emptyOverlays: [{ name: "#toast", w: 388, h: 20 }],
   axe: [{ id: "color-contrast", impact: "serious", nodes: 2, help: "h" }, { id: "region", impact: "moderate", nodes: 1, help: "h" }] });
 ok("sideways scroll, small targets, empty bar and serious axe each make a finding; moderate axe does not", f.length === 4, f);
+
+// UX-SCREENS-1 (agent_issues 1001734): only elements no thumb reaches are exempt from the 24px rule; a real small link, button or unlabelled checkbox is still a finding.
+const tgt = (o) => ({ w: 20, h: 20, right: 200, bottom: 300, hidden: false, tabindex: null, labelW: null, labelH: null, ...o });
+ok("a visible small link is a tap target (still a finding)", isTapTarget(tgt({})));
+ok("a small control with no label is a tap target", isTapTarget(tgt({ w: 13, h: 13 })));
+ok("an anti-bot honeypot (aria-hidden, tabindex -1, a few px) is not a tap target", !isTapTarget(tgt({ w: 8, h: 6, hidden: true, tabindex: "-1" })));
+ok("an aria-hidden control that a thumb can reach by tab order or size stays a finding", isTapTarget(tgt({ w: 8, h: 6, hidden: true, tabindex: null })) && isTapTarget(tgt({ w: 120, h: 20, hidden: true, tabindex: "-1" })));
+ok("a control parked off the left or top edge is not a tap target", !isTapTarget(tgt({ right: -9000 })) && !isTapTarget(tgt({ bottom: -4 })));
+ok("a checkbox in a label of 24px or more is not a separate small target", !isTapTarget(tgt({ w: 13, h: 13, labelW: 300, labelH: 28 })));
+ok("a checkbox whose label is also under 24px stays a finding", isTapTarget(tgt({ w: 13, h: 13, labelW: 60, labelH: 18 })));
 
 const rep = (s) => ({ apps: [{ app: "c", journeys: [{ id: "a", grade: { status: s, reasons: ["r"] } }] }] });
 ok("ok on base, broken on head is a regression", regressions(rep("ok"), rep("broken")).length === 1);

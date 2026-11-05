@@ -20,7 +20,7 @@ export const journeys = HOSTS.map(([host, label, opt = {}]) => ({
     await u.page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {});
     const words = await u.page.evaluate(() => (document.body.innerText || "").trim().split(/\s+/).filter(Boolean).length);
     if (words < 5) throw new Error(host + " shows a blank page on a phone (" + words + " words)");
-    await u.screen("home");
+    await u.screen("home " + host); // the host is in the label, so a finding names the page (13 hosts were all "home" in UX-SCREENS-1 1001734)
     if (signInWall) return; // a private app: the sign-in screen is the whole public journey
     // The first same-site link in the main content (or the page), as a curious visitor would tap it.
     const link = u.page.locator("main a[href], article a[href], body a[href]").filter({ visible: true });

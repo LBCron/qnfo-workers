@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { PHONE, NARROW_WIDTH, MIN_TARGET_PX, grade, screenFindings, summarise, exitCode, isForeignConsoleError, shouldRetryJourney } from "./lib.mjs";
+import { PHONE, NARROW_WIDTH, MIN_TARGET_PX, grade, screenFindings, summarise, exitCode, isForeignConsoleError, shouldRetryJourney, isTapTarget } from "./lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith("--") ? a.concat([[x.slice(2), all[i + 1] && !all[i + 1].startsWith("--") ? all[i + 1] : "1"]]) : a), []));
@@ -43,7 +43,13 @@ async function measure(page, label) {
       // WCAG 2.5.8 exempts a link inside a sentence.
       if (e.tagName === "A" && getComputedStyle(e).display === "inline" && e.parentElement && /^(P|LI|SPAN|TD|SMALL)$/.test(e.parentElement.tagName) && (e.parentElement.textContent || "").trim().length > (e.textContent || "").trim().length + 10) continue;
       const r = e.getBoundingClientRect();
-      if (r.width < min || r.height < min) small.push({ name: (e.getAttribute("aria-label") || e.textContent || e.getAttribute("placeholder") || e.tagName).trim().slice(0, 40), w: Math.round(r.width), h: Math.round(r.height) });
+      if (r.width < min || r.height < min) {
+        // The raw facts go to lib.mjs isTapTarget, which decides (and the offline selftest covers) what is not a thumb target at all.
+        const lab = (e.type === "checkbox" || e.type === "radio") && e.closest ? e.closest("label") : null;
+        const lr = lab ? lab.getBoundingClientRect() : null;
+        small.push({ name: (e.getAttribute("aria-label") || e.textContent || e.getAttribute("placeholder") || e.tagName).trim().slice(0, 40), w: Math.round(r.width), h: Math.round(r.height),
+          right: r.right, bottom: r.bottom, hidden: !!(e.closest && e.closest('[aria-hidden="true"]')), tabindex: e.getAttribute("tabindex"), labelW: lr ? Math.round(lr.width) : null, labelH: lr ? Math.round(lr.height) : null });
+      }
     }
     // An empty bar floating over the page (a toast or banner whose hide rule lost to an id rule) covers content and looks broken.
     const emptyOverlays = [];
@@ -68,7 +74,8 @@ async function measure(page, label) {
   await page.setViewportSize({ width: NARROW_WIDTH, height: vp.height });
   const narrowOverflowPx = await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - innerWidth));
   await page.setViewportSize(vp);
-  return { label, ...m, narrowOverflowPx, axe };
+  const { smallTargets: candidates, ...rest } = m;
+  return { label, ...rest, smallTargets: candidates.filter(isTapTarget).map(({ name, w, h }) => ({ name, w, h })), narrowOverflowPx, axe };
 }
 
 // ---------------------------------------------------------------- the driver a journey uses

@@ -145,6 +145,10 @@
   }
  },
  "papers": {
+  "paper-from-list": {
+   "taps": 1,
+   "typing": 0
+  },
   "paper-with-short": {
    "taps": 0,
    "typing": 0
