@@ -36,7 +36,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.18.0-codeagent";
+var VERSION = "2.18.1-codeagent";
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
@@ -3024,7 +3024,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .feed{list-style:none;margin:0;padding:0}
 .feed li{padding:10px 0;border-bottom:1px solid var(--rule)}
 .feed li:last-child{border-bottom:0}
-.feed a{text-decoration:none;font:400 16.5px/1.35 var(--serif);display:block}
+.feed a{text-decoration:none;font:400 16.5px/1.35 var(--serif);display:block;min-height:24px}
 .feed small{color:var(--muted);font-size:13px}
 .skel{height:14px;border-radius:4px;background:var(--wash);margin:12px 0}
 
@@ -3121,7 +3121,7 @@ footer.site{border-top:1px solid var(--rule);padding:22px 0 40px;font-size:13px;
 .subbox .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 .subbox .go{white-space:nowrap}
 .subbox .msg{font-size:13px;color:var(--muted);min-height:1.2em;margin:8px 0 0}
-footer.site a{color:var(--muted)}
+footer.site a{color:var(--muted);display:inline-flex;align-items:center;min-height:24px;min-width:24px}
 
 @media (max-width: 1100px){
   .top nav{gap:14px;font-size:14px}
