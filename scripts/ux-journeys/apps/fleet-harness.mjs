@@ -31,10 +31,13 @@ function d1(db) {
 }
 
 export const OWNER_TOKEN = "harness-owner-token-".repeat(4);
+export const LEE_ZONES = [{ id: "0123456789abcdef0123456789abcdef", name: "qnfo.org", status: "active" }, { id: "fedcba9876543210fedcba9876543210", name: "q08.org", status: "active" }];
+export const LEE_REPLY = "The account has 2 active zones: qnfo.org and q08.org.";
 export const RUN_REPLY = "Fleet is healthy: 3 workers listed.";
 export const STREAM_REPLY = "Two pull requests are open and both are safe to merge.";
 
-export async function startFleet({ port = 0 } = {}) {
+// cf: true also gives the worker a Cloudflare token, a stub of the Cloudflare zones API and a Workers AI stub that asks for one tool and then answers (RM-LEE-CMD-1: the Lee journeys).
+export async function startFleet({ port = 0, cf = false } = {}) {
   const raw = new DatabaseSync(":memory:");
   raw.exec(`
     CREATE TABLE human_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT, title TEXT, why TEXT, default_in_effect TEXT, action TEXT, url TEXT, sev TEXT, due TEXT, status TEXT DEFAULT 'open', created_at TEXT DEFAULT (datetime('now')), source TEXT, resolution TEXT, updated_at TEXT, resolved_at TEXT);
@@ -69,6 +72,7 @@ export async function startFleet({ port = 0 } = {}) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = (input, init) => {
     const u = typeof input === "string" ? input : (input && input.url) || String(input);
+    if (cf && /^https:\/\/api\.cloudflare\.com\/client\/v4\/zones\?/.test(u)) return Promise.resolve(new Response(JSON.stringify({ success: true, result: LEE_ZONES }), { status: 200 }));
     return /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(u) ? realFetch(input, init) : Promise.resolve(new Response("{}", { status: 503 }));
   };
   const env = {
@@ -91,6 +95,15 @@ export async function startFleet({ port = 0 } = {}) {
       return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
     } }
   };
+  if (cf) {
+    env.CF_TOKEN = "harness-cf-token";
+    // Lee's model: the first call asks for list_zones, the next (a tool message is in the conversation) answers in words.
+    env.AI = { async run(model, input) {
+      if (!input || !input.tools) throw new Error("no model in the harness");
+      const done = (input.messages || []).some((m) => m.role === "tool");
+      return done ? { response: LEE_REPLY } : { tool_calls: [{ name: "list_zones", arguments: {} }] };
+    } };
+  }
   const ownerCookie = "fleet_owner=" + createHash("sha256").update(OWNER_TOKEN).digest("hex");
   const server = http.createServer(async (req, res) => {
     try {
