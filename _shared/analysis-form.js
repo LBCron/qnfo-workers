@@ -224,26 +224,40 @@ function afBalanceVerdict(res, minScore) {
   if (!res || typeof res.score !== "number" || !isFinite(res.score)) return { state: "unavailable", score: null, reason: String(res && res.reason || "no score") };
   return { state: res.score >= min ? "pass" : "fail", score: res.score, parts: res.parts || null, reason: String(res.reason || "") };
 }
-// The reviewer: the first model in the pool whose family is known, is not the writer's, and, when another is available, is not one of the
-// families that already judged the piece (a fresh family reads it, ENSEMBLE-POLICY-1 rule 2). The start rotates with the seed. "" when none.
-// opts: familyOf(id) -> family, allowed(id) -> bool, writerFamily, avoid (families), sick (map of model ids to skip), seed.
-function afPickBalanceReviewer(pool, opts) {
+// The reviewers, in the order to ask them: models whose family is known and is not the writer's, families that have not yet judged the piece
+// first (a fresh family reads it, ENSEMBLE-POLICY-1 rule 2), then those that have; one model per family. The start rotates with the seed.
+// Empty when no model qualifies. opts: familyOf(id) -> family, allowed(id) -> bool, writerFamily, avoid (families), sick (map of model ids to skip), seed.
+function afBalanceReviewers(pool, opts) {
   opts = opts || {};
   var fam = opts.familyOf || function (id) { return String(id).split("/")[1] || String(id); };
   var avoid = {}; (opts.avoid || []).forEach(function (f) { avoid[f] = 1; });
+  var seen = {};
   var list = (pool || []).filter(function (id) {
     var f = fam(id);
-    return f && String(f).indexOf("unknown") !== 0 && f !== opts.writerFamily && (!opts.allowed || opts.allowed(id)) && !(opts.sick && opts.sick[id]);
+    if (!f || String(f).indexOf("unknown") === 0 || f === opts.writerFamily || (opts.allowed && !opts.allowed(id)) || (opts.sick && opts.sick[id]) || seen[f]) return false;
+    seen[f] = 1;
+    return true;
   });
-  if (!list.length) return "";
+  if (!list.length) return [];
   var start = Math.abs(opts.seed | 0) % list.length, rotated = list.slice(start).concat(list.slice(0, start));
-  var fresh = rotated.filter(function (id) { return !avoid[fam(id)]; });
-  return (fresh.length ? fresh : rotated)[0];
+  return rotated.filter(function (id) { return !avoid[fam(id)]; }).concat(rotated.filter(function (id) { return avoid[fam(id)]; }));
 }
+function afPickBalanceReviewer(pool, opts) { return afBalanceReviewers(pool, opts)[0] || ""; }
 // The instruction a draft gets when the even-keel reviewer found it one-sided. It may reorganise, attribute and reword; it may not add a fact.
 function afBalanceRevisionNote(reason) {
   return "EVEN-KEEL REVISION. A reviewer from another editorial family found the draft below one-sided: " + String(reason || "it argues one position as the only reasonable view") + AF_NL +
     "Return the SAME piece in the SAME output format (a single # heading with the title, then the prose). State the strongest argument against your central claim at the strength its own holders would give it and weigh it honestly; attribute each disputed claim to the party the source material names as making it, or say it is disputed; replace loaded words with plain description. Use only what the source material states: add no name, date, figure, event or claim it does not contain, and keep the title, the headings and the length.";
+}
+
+// The instruction for a fresh draft after an attempt was rejected as one-sided and could not be revised in the time left.
+function afBalanceRetryFeedback(reason) {
+  return "The previous draft was found one-sided by a reviewer from another editorial family: " + String(reason || "it argues one position as the only reasonable view") + " Write a new draft that states the strongest argument against its central claim at the strength its own holders would give it, attributes each disputed claim to the party the source material names or says it is disputed, and uses plain descriptive words. Use only facts the source material states.";
+}
+// What is stored with the piece (quality_json): what the check said, never the draft. res is a balanceCheck result: { unavailable, ok, score, parts, reason, model, family, tried }.
+function afBalanceRecord(res) {
+  if (!res) return { state: "not-run" };
+  if (res.unavailable) return { state: "unavailable", reason: String(res.reason || "").slice(0, 200), tried: res.tried || [] };
+  return { state: res.ok ? "pass" : "fail", score: res.score, parts: res.parts || null, reason: String(res.reason || "").slice(0, 260), model: res.model || "", family: res.family || "" };
 }
 
 // ---- the sources footer and the host profile table (EK-2): where a source is from and what standpoint it speaks from

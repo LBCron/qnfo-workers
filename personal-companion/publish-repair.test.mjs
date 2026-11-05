@@ -221,6 +221,7 @@ function modelWorld(o) {
     const sys = (input.messages && input.messages[0] && input.messages[0].content) || "";
     if (input.text) return { data: [] };
     if (/strict fact-checker/.test(sys)) { log.review++; return { response: o.review(model, sys, log.review) }; }
+    if (/even-keel reviewer/.test(sys)) { log.balance = (log.balance || 0) + 1; return { response: '{"opposing":9,"wording":9,"attribution":9,"reason":"ok"}' }; }
     if (/adversarial reader/.test(sys)) { log.critic++; return { response: '{"specificity":8,"argument":8,"objection":8,"voice":8,"grounding":9,"systems":8,"verdict":"accept","why":"ok"}' }; }
     log.writer++; return { response: typeof o.draft === "function" ? o.draft(log.writer) : o.draft };
   } };

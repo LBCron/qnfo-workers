@@ -3232,7 +3232,7 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.44.18-codeagent";
+var VERSION = "1.45.0";
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -3532,26 +3532,40 @@ function afBalanceVerdict(res, minScore) {
   if (!res || typeof res.score !== "number" || !isFinite(res.score)) return { state: "unavailable", score: null, reason: String(res && res.reason || "no score") };
   return { state: res.score >= min ? "pass" : "fail", score: res.score, parts: res.parts || null, reason: String(res.reason || "") };
 }
-// The reviewer: the first model in the pool whose family is known, is not the writer's, and, when another is available, is not one of the
-// families that already judged the piece (a fresh family reads it, ENSEMBLE-POLICY-1 rule 2). The start rotates with the seed. "" when none.
-// opts: familyOf(id) -> family, allowed(id) -> bool, writerFamily, avoid (families), sick (map of model ids to skip), seed.
-function afPickBalanceReviewer(pool, opts) {
+// The reviewers, in the order to ask them: models whose family is known and is not the writer's, families that have not yet judged the piece
+// first (a fresh family reads it, ENSEMBLE-POLICY-1 rule 2), then those that have; one model per family. The start rotates with the seed.
+// Empty when no model qualifies. opts: familyOf(id) -> family, allowed(id) -> bool, writerFamily, avoid (families), sick (map of model ids to skip), seed.
+function afBalanceReviewers(pool, opts) {
   opts = opts || {};
   var fam = opts.familyOf || function (id) { return String(id).split("/")[1] || String(id); };
   var avoid = {}; (opts.avoid || []).forEach(function (f) { avoid[f] = 1; });
+  var seen = {};
   var list = (pool || []).filter(function (id) {
     var f = fam(id);
-    return f && String(f).indexOf("unknown") !== 0 && f !== opts.writerFamily && (!opts.allowed || opts.allowed(id)) && !(opts.sick && opts.sick[id]);
+    if (!f || String(f).indexOf("unknown") === 0 || f === opts.writerFamily || (opts.allowed && !opts.allowed(id)) || (opts.sick && opts.sick[id]) || seen[f]) return false;
+    seen[f] = 1;
+    return true;
   });
-  if (!list.length) return "";
+  if (!list.length) return [];
   var start = Math.abs(opts.seed | 0) % list.length, rotated = list.slice(start).concat(list.slice(0, start));
-  var fresh = rotated.filter(function (id) { return !avoid[fam(id)]; });
-  return (fresh.length ? fresh : rotated)[0];
+  return rotated.filter(function (id) { return !avoid[fam(id)]; }).concat(rotated.filter(function (id) { return avoid[fam(id)]; }));
 }
+function afPickBalanceReviewer(pool, opts) { return afBalanceReviewers(pool, opts)[0] || ""; }
 // The instruction a draft gets when the even-keel reviewer found it one-sided. It may reorganise, attribute and reword; it may not add a fact.
 function afBalanceRevisionNote(reason) {
   return "EVEN-KEEL REVISION. A reviewer from another editorial family found the draft below one-sided: " + String(reason || "it argues one position as the only reasonable view") + AF_NL +
     "Return the SAME piece in the SAME output format (a single # heading with the title, then the prose). State the strongest argument against your central claim at the strength its own holders would give it and weigh it honestly; attribute each disputed claim to the party the source material names as making it, or say it is disputed; replace loaded words with plain description. Use only what the source material states: add no name, date, figure, event or claim it does not contain, and keep the title, the headings and the length.";
+}
+
+// The instruction for a fresh draft after an attempt was rejected as one-sided and could not be revised in the time left.
+function afBalanceRetryFeedback(reason) {
+  return "The previous draft was found one-sided by a reviewer from another editorial family: " + String(reason || "it argues one position as the only reasonable view") + " Write a new draft that states the strongest argument against its central claim at the strength its own holders would give it, attributes each disputed claim to the party the source material names or says it is disputed, and uses plain descriptive words. Use only facts the source material states.";
+}
+// What is stored with the piece (quality_json): what the check said, never the draft. res is a balanceCheck result: { unavailable, ok, score, parts, reason, model, family, tried }.
+function afBalanceRecord(res) {
+  if (!res) return { state: "not-run" };
+  if (res.unavailable) return { state: "unavailable", reason: String(res.reason || "").slice(0, 200), tried: res.tried || [] };
+  return { state: res.ok ? "pass" : "fail", score: res.score, parts: res.parts || null, reason: String(res.reason || "").slice(0, 260), model: res.model || "", family: res.family || "" };
 }
 
 // ---- the sources footer and the host profile table (EK-2): where a source is from and what standpoint it speaks from
@@ -3668,6 +3682,7 @@ var P_STYLE = L(
   "- State uncertainty about the claim at its true size. Never inflate confidence to make a piece land better. Where the evidence leaves a point open, say the point is open, in terms of the subject itself; never write about the source material (what it covers, omits or does not say).",
   AF_CONTESTED_RULE,
   AF_OBJECTION_RULE,
+  AF_EVEN_KEEL_RULE,
   "",
   "The source material is raw research notes, usually encyclopedic extracts in a register you must not copy. Never reproduce their sentences. Banned habits they carry: definitional lead sentences, hedged attributions ('commentators have linked', 'observers note', 'a study found', 'some argue'), and disambiguation-style enumeration. If you need a definition, state it in your own words.",
   "Do not open with 'In [year], ...' unless the date itself is doing the work. Never repeat the opening move of one of your recent pieces (listed below). Pieces listed below are not sources.",
@@ -5053,7 +5068,7 @@ async function composePiece(env, form, topic, anchors, life, profile, continuity
   var sys = [P_STYLE, P_ADV1, "", formContract, "", outRule].join(NL);
   var concreteRule = "Every claim must be tied to a named, checkable particular that appears in the source material, and you may name nothing that does not appear there. A sentence that could have been written without the source material is a failed sentence. Write the title and every heading in sentence case: capitalise only the first word and names that appear in the source material.";
   var lenRule = concreteRule + " " + "Length: " + bandText + (form === "notes" ? ", in 3 to 5 movements" : "") + ". Reach it with what the source material says, never with particulars it does not hold: a shorter piece that adds nothing is better than a longer one that invents.";
-  var user = [anchorsBlock(topic, anchors, life, profile), "", lenRule, "", continuity, feedback ? "A previous draft was rejected by an adversarial reader for this reason: " + feedback + " Write a better draft that fixes that." : "", revision ? NL + factRevisionPrompt(revision.problems) + NL + NL + "--- DRAFT TO REVISE ---" + NL + "# " + String(revision.title || "") + NL + NL + String(revision.body_md || "").slice(0, 24e3) : ""].join(NL);
+  var user = [anchorsBlock(topic, anchors, life, profile), "", lenRule, "", continuity, feedback ? "A previous draft was rejected by an adversarial reader for this reason: " + feedback + " Write a better draft that fixes that." : "", revision ? NL + (revision.note || factRevisionPrompt(revision.problems)) + NL + NL + "--- DRAFT TO REVISE ---" + NL + "# " + String(revision.title || "") + NL + NL + String(revision.body_md || "").slice(0, 24e3) : ""].join(NL);
   var writerModel = form === "notes" ? WRITER_MODEL : WRITER_MODEL_ESSAY;
   authorFamilies = {}; // WRITER-FAMILY-1: a new draft, a new set of author families
   var r = await callModel(env, [{ role: "system", content: sys }, { role: "user", content: user }], GEN_MAX_TOKENS, WRITER_TIMEOUT_MS, writerModel, form === "notes" ? "writer" : "essay");
@@ -6324,36 +6339,45 @@ function aiReplyText(resp) {
   if (c && typeof c !== "string") c = JSON.stringify(c);
   return c || "";
 }
-var BALANCE_FAMILY = "ensemble-policy-1";
-var BALANCE_PROMPT = "You are an even-keel balance reviewer from a different editorial family. Score the draft for one-sidedness on a 0-100 scale, where 100 means the strongest opposing argument is stated at full strength, every disputed claim is attributed, and loaded terms are avoided. Return only JSON: {\"score\":<int>,\"pass\":<bool>,\"reason\":<string>}. A piece passes with score >= 70.";
-var BALANCE_MIN_SCORE = 70;
-function parseBalanceScore(text) {
-  var t = String(text || "").replace(/<think>[\s\S]*?<\/think>/gi, "");
-  var o = null, m = t.match(/\{[\s\S]*\}/);
-  if (m) { try { o = JSON.parse(m[0]); } catch (e) { o = null; } }
-  if (!o) { var sm = t.match(/"score"\s*:\s*(\d+)/); if (!sm) return null; o = { score: parseInt(sm[1], 10) }; }
-  var score = Number(o.score);
-  if (!Number.isFinite(score) || score < 0 || score > 100) return null;
-  var pass = typeof o.pass === "boolean" ? o.pass : score >= BALANCE_MIN_SCORE;
-  return { score: score, pass: pass, reason: String(o.reason || "").slice(0, 260) };
-}
+// EK-3 (roadmap row 1750, agent_issues 1000714): the even-keel check. Until 1.44.17 the reviewer was chosen from a family called "ensemble-policy-1", which
+// no model has (MODEL_FAMILY names nvidia, openai, moonshot, deepseek and zai), so balanceCheck answered "unavailable" for every piece, verifyPiece
+// ignored an unavailable check, and companion_audits.balance_score is NULL on every row, 2026-10-28 to 2026-11-04. The reviewer is now chosen by
+// afBalanceReviewers (_shared/analysis-form.js): a family other than the writer's, one that has not judged the piece when there is one, asked after
+// the grounding check and both fact-check judges have passed it. Measured 2026-11-04 on 16 published pieces with kimi-k2.6 and nemotron (31 scores):
+// min 68, max 90, one score under 70; three one-sided polemics and three balanced essays on the same topics scored 0 to 25 and 88 to 95 with
+// kimi, nemotron and gpt-oss alike, so the bar of 70 separates them and costs a published piece about one verdict in thirty.
+var BALANCE_MIN_SCORE = AF_BALANCE_MIN_SCORE;
+var BALANCE_PROMPT = AF_BALANCE_PROMPT;
+var BALANCE_TIMEOUT_MS = 6e4;
+var BALANCE_ASKS = 2;
+function parseBalanceScore(text) { return afParseBalanceScore(text); }
 async function balanceCheckOne(env, modelId, draft) {
   try {
     var body = BALANCE_PROMPT + "\n\n" + todayLine() + "\n\n--- DRAFT ---\n" + String(draft).trim().slice(0, 30000);
-    var resp = await aiRunAttr(env, "personal-companion", "balance", modelId, { messages: [{ role: "user", content: body }], max_tokens: REVIEW_MAX_TOKENS, temperature: 0.1 }, { gateway: { id: "default", skipCache: true }, signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS) });
+    var resp = await aiRunAttr(env, "personal-companion", "balance", modelId, Object.assign({ messages: [{ role: "user", content: body }], max_tokens: REVIEW_MAX_TOKENS, temperature: 0.1 }, factCheckExtra(modelId)), { gateway: { id: "default", skipCache: true }, signal: AbortSignal.timeout(BALANCE_TIMEOUT_MS) });
     var out = aiReplyText(resp);
     var s = parseBalanceScore(out);
     if (s) { s.model = modelId; s.family = familyOf(modelId); return s; }
     return { failed: true, model: modelId, error: "no balance score in reply (" + String(out).length + " chars)" };
   } catch (e) { return { failed: true, model: modelId, error: String(e && e.message || e).slice(0, 140) }; }
 }
-async function balanceCheck(env, draft, writerModel, seedText) {
+// judged: the fact-check judges (their families are the ones the piece has already been read by). Fails open ("unavailable") when no reviewer answers;
+// verifyPiece records that, and only after the grounding check and the fact-check have passed.
+async function balanceCheck(env, draft, writerModel, seedText, judged) {
   var wf = writerModel ? familyOf(writerModel) : "";
-  var ids = orderByHealth(pickReviewers(wf ? [wf] : [], 20, seedOf(seedText)).filter(function (id) { return familyOf(id) === BALANCE_FAMILY && (!wf || familyOf(id) !== wf); }), await sickReviewers(env));
-  if (!ids.length) return { unavailable: true, reason: "no " + BALANCE_FAMILY + " reviewer available", score: null };
-  var res = await balanceCheckOne(env, ids[0], draft);
-  if (res.failed) return { unavailable: true, reason: res.error, score: null, model: res.model };
-  return { unavailable: false, ok: res.pass !== false, score: res.score, pass: res.pass, reason: res.reason, model: res.model, family: res.family };
+  var avoid = (judged || []).map(function (j) { return j && (j.family || familyOf(j.model)); }).filter(Boolean);
+  var order = afBalanceReviewers(REVIEW_POOL, { familyOf: familyOf, allowed: modelAllowed, writerFamily: wf, avoid: avoid, sick: await sickReviewers(env), seed: seedOf(seedText) });
+  if (!order.length) return { unavailable: true, reason: "no reviewer from a family other than the writer's", score: null, tried: [] };
+  var tried = [];
+  for (var i = 0; i < order.length && i < BALANCE_ASKS; i++) {
+    var res = await balanceCheckOne(env, order[i], draft);
+    if (!res.failed) {
+      var v = afBalanceVerdict(res);
+      return { unavailable: false, ok: v.state === "pass", score: v.score, parts: v.parts, reason: v.reason, model: res.model, family: res.family };
+    }
+    tried.push(String(order[i]).split("/").pop() + ": " + res.error);
+  }
+  return { unavailable: true, reason: "no balance score from " + tried.length + " reviewer(s) (" + tried.join(" | ").slice(0, 300) + ")", score: null, tried: tried };
 }
 // FACTCHECK-NOTHINK-1 (measured 2026-10-12 against the live models with the same fact-check prompt): reasoning reviewers spent 4-9 s thinking about a
 // task that needs a comparison. These per-model switches return the same verdict in 0.7-2.6 s. Models without a measured switch get none.
@@ -6521,9 +6545,11 @@ async function verifyPiece(env, text, ground, writerModel, seedText, opts) {
   var det = groundingProblems(stripAnalysisMark(text), ground, opts);
   if (det.length) return { ok: false, stage: "grounding", problems: det, judges: [], unavailable: false };
   var fc = await factCheck(env, reviewText(text), ground, writerModel, seedText);
-  var bal = await balanceCheck(env, reviewText(text), writerModel, seedText);
-  if (fc.unavailable) return { ok: false, stage: "factcheck", problems: ["fact-check unavailable: " + fc.reason], judges: fc.judges, unavailable: true, balance: bal };
-  if (!fc.ok) return { ok: false, stage: "factcheck", problems: fc.unsupported.map(function (u) { return "unsupported claim: " + u; }), judges: fc.judges, unavailable: false, balance: bal };
+  if (fc.unavailable) return { ok: false, stage: "factcheck", problems: ["fact-check unavailable: " + fc.reason], judges: fc.judges, unavailable: true, balance: null };
+  if (!fc.ok) return { ok: false, stage: "factcheck", problems: fc.unsupported.map(function (u) { return "unsupported claim: " + u; }), judges: fc.judges, unavailable: false, balance: null };
+  // EK-3: the even-keel reviewer reads a draft only after the deterministic gate and both fact-check judges passed it (class A layers first, no model call
+  // spent on a draft that is about to be pruned). opts.noBalance skips it: the audit of published pieces judges accuracy, and a one-sided piece is not retracted.
+  var bal = opts && opts.noBalance ? null : await balanceCheck(env, reviewText(text), writerModel, seedText, fc.judges);
   if (bal && !bal.unavailable && !bal.ok) return { ok: false, stage: "balance", problems: ["one-sided: " + (bal.reason || ("score " + (bal.score == null ? "unknown" : bal.score)))], judges: fc.judges.concat(bal.model ? [{ model: bal.model, family: bal.family, verdict: "balance-fail" }] : []), unavailable: false, balance: bal };
   return { ok: true, stage: "pass", problems: [], judges: fc.judges, unavailable: false, inferences: fc.inferences || [], balance: bal };
 }
@@ -6597,7 +6623,7 @@ async function auditPublished(env, limit) {
       res.withdrawn++;
       continue;
     }
-    var vr = await verifyPiece(env, pieceText(p), p.ground_text, "", "audit:" + p.slug, {});
+    var vr = await verifyPiece(env, pieceText(p), p.ground_text, "", "audit:" + p.slug, { noBalance: true });
     if (vr.unavailable) { res.deferred++; continue; }
     res.checked++;
     if (vr.ok) { await recordAudit(env, p.slug, "pass", vr.stage, vr); res.passed++; continue; }
@@ -6996,7 +7022,7 @@ async function generate(env, form, opts) {
         if (prunedShort && extendFb) finalPiece = prunedShort.piece;
         var rev = extendFb
           ? await composePiece(env, form, topic, anchors, life, profile, continuity, extendFb + NL + NL + "Add no name, date, figure or claim that the source material does not state.")
-          : await composePiece(env, form, topic, anchors, life, profile, continuity, "", { title: finalPiece.title, body_md: (finalPiece.lede ? finalPiece.lede + NL + NL : "") + finalPiece.body_md, problems: vr.problems });
+          : await composePiece(env, form, topic, anchors, life, profile, continuity, "", { title: finalPiece.title, body_md: (finalPiece.lede ? finalPiece.lede + NL + NL : "") + finalPiece.body_md, problems: vr.problems, note: vr.stage === "balance" ? afBalanceRevisionNote(vr.balance && vr.balance.reason) : "" });
         var rp = rev && rev.piece ? withAutoMark(splitLongLede(rev.piece)) : null; // ANALYSIS-AUTO-1
         // the revision keeps the draft's title when it dropped the "# " line (composePiece then falls back to the topic name)
         if (rp && !/^\s*(?:```[^\n]*\n)?\s*# /.test(String(rev.raw || ""))) rp.title = finalPiece.title;
@@ -7026,7 +7052,7 @@ async function generate(env, form, opts) {
       }
       if (!vr.ok) {
         await logRun(env, form, model, topic.id, "rejected", "fact-check " + vr.stage + ": " + vr.problems.slice(0, 4).join(" | ").slice(0, 600), Date.now() - t0);
-        feedback = "The previous draft was rejected by independent fact-checkers; every item is a claim the source material does not support. Write a new draft that uses only facts copied word-for-word from the source material with a quoted citation after each, and no outside knowledge: " + vr.problems.slice(0, 4).join(" | ");
+        feedback = vr.stage === "balance" ? afBalanceRetryFeedback(vr.balance && vr.balance.reason) : "The previous draft was rejected by independent fact-checkers; every item is a claim the source material does not support. Write a new draft that uses only facts copied word-for-word from the source material with a quoted citation after each, and no outside knowledge: " + vr.problems.slice(0, 4).join(" | ");
         continue;
       }
       // COMPANION-FACT-INFERENCE-1: sentences the reviewers listed as the piece's own reasoning are deleted when the draft can spare them
@@ -7072,6 +7098,9 @@ async function generate(env, form, opts) {
       }
       q.gate = "passed";
       q.factcheck = { stage: vr.stage, models: (vr.judges || []).map(function (j) { return j.model; }), pruned: pruneTrail.join(", ") };
+      // EK-3: the even-keel result is stored with the piece (quality_json.balance) and as companion_audits.balance_score; a check that could not run says so
+      q.balance = afBalanceRecord(vr.balance);
+      await logRun(env, form, model, topic.id, "stage", "even-keel: " + (q.balance.state === "unavailable" ? "unavailable (" + q.balance.reason + "), published after the grounding check and both fact-check judges passed" : q.balance.state + " " + q.balance.score + " by " + String(q.balance.model).split("/").pop() + " (" + q.balance.family + ")"), Date.now() - t0);
       // COMPANION-SERIAL-TITLE-1: a reframe, a prune or the fact revision can hand the title back as the bare running title
       if (installmentTitle && finalPiece.title !== installmentTitle && serialTitleMatches(finalPiece.title, serialRun && serialRun.title)) finalPiece = Object.assign({}, finalPiece, { title: installmentTitle });
       best = { piece: finalPiece, quality: q, words: v.words, vr: vr };
@@ -7198,6 +7227,25 @@ function stallRecurred(statuses) {
   }
   return false;
 }
+// EK-3 (1.45.0, roadmap row 1750): the even-keel check is measured, counts only (no text leaves the personal plane). scored_share: of the audit rows that passed in the
+// 7 days to now, the share that carry a balance_score, i.e. the check ran and answered (it was 0 of 20 rows before this version). hold_share: of the drafts that
+// reached the even-keel reviewer in the same window (the scored passes plus the attempts it stopped at stage balance), the share it stopped: a wall would show here
+// before it shows as a stall. Written each hourly tick into the two metrics the migration registers; an unregistered metric updates no row.
+async function writeBalanceMetrics(env, now) {
+  try {
+    var since = new Date(now - 7 * 864e5).toISOString();
+    var a = await env.PERSONAL.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN balance_score IS NOT NULL THEN 1 ELSE 0 END) AS scored FROM companion_audits WHERE verdict = 'pass' AND checked_at >= ?1").bind(since).first();
+    var h = await env.PERSONAL.prepare("SELECT COUNT(*) AS held FROM companion_runs WHERE status = 'rejected' AND run_at >= ?1 AND detail LIKE 'fact-check balance:%'").bind(since).first();
+    var passes = Number(a && a.n) || 0, scored = Number(a && a.scored) || 0, held = Number(h && h.held) || 0;
+    var scoredShare = passes ? Math.round(1000 * scored / passes) / 1000 : null;
+    var holdShare = scored + held ? Math.round(1000 * held / (scored + held)) / 1000 : null;
+    var stamp = new Date(now).toISOString();
+    var put = "UPDATE metric_registry SET last_value = ?2, last_refreshed = ?3, state = 'MEASURED' WHERE metric = ?1";
+    await env.AUDIT.prepare(put).bind("companion_balance_scored_share_7d", scoredShare == null ? null : String(scoredShare), stamp).run();
+    await env.AUDIT.prepare(put).bind("companion_balance_hold_share_7d", holdShare == null ? null : String(holdShare), stamp).run();
+    return { passes: passes, scored: scored, held: held, scoredShare: scoredShare, holdShare: holdShare };
+  } catch (e) { stallLog("balance.metric", e); return null; }
+}
 async function companionStallDetector(env, nowMs) {
   if (!env.AUDIT || !env.PERSONAL) return { skipped: "no binding" };
   var now = nowMs || Date.now();
@@ -7211,6 +7259,7 @@ async function companionStallDetector(env, nowMs) {
   try {
     await env.AUDIT.prepare("UPDATE metric_registry SET last_value = ?2, last_refreshed = ?3, state = 'MEASURED' WHERE metric = ?1").bind("companion_hours_since_last_piece", hours == null ? null : String(hours), new Date(now).toISOString()).run();
   } catch (eM) { stallLog("stall.metric", eM); }
+  await writeBalanceMetrics(env, now);
   var open = await env.AUDIT.prepare("SELECT id, created_at FROM agent_issues WHERE status='open' AND title LIKE ?1 ORDER BY id DESC").bind(STALL_TITLE + ":%").all();
   var openRows = (open && open.results) || [];
   var openIds = openRows.map(function (o) { return o.id; });
@@ -8359,6 +8408,7 @@ function groundingNeedles(problems) {
   return needles.filter(function (n, i, a) { return n.length > 0 && a.indexOf(n) === i; });
 }
 var __verify = { stallRecurred: stallRecurred, shortenFeedback: shortenFeedback, LENGTH_CEILING: LENGTH_CEILING, pruneClassOf: pruneClassOf, pruneClassesOf: pruneClassesOf, pruneRepeat: pruneRepeat, PRUNE_REPEAT_AFTER: PRUNE_REPEAT_AFTER, attemptBudgetStop: attemptBudgetStop, STALL_MIN: STALL_MIN, pruneHeadings: pruneHeadings, mirrorPipeline: mirrorPipeline, pipeItem: pipeItem, pipeSince: pipeSince, PIPE_SELECT: PIPE_SELECT, PIPE_PROPERTY: PIPE_PROPERTY, PIPE_ID_PREFIX: PIPE_ID_PREFIX, qualityWorst: qualityWorst, gateWorst: gateWorst, criticGroundingGates: criticGroundingGates, STARVED_RETRY_QUIET_MS: STARVED_RETRY_QUIET_MS, quotesAllSourced: quotesAllSourced, sourcedPassage: sourcedPassage, sourceSentences: sourceSentences, sourcedRereadNote: sourcedRereadNote, SOURCED_COVER: SOURCED_COVER, SENT_ABBREV_RE: SENT_ABBREV_RE, GROUND_MAX: GROUND_MAX, PRIMARY_SHARE: PRIMARY_SHARE, deleteSentences: deleteSentences, rubricNoQuoteNote: rubricNoQuoteNote, quotesAllInAnalysis: quotesAllInAnalysis, rubricRereadNote: rubricRereadNote, eventTitles: eventTitles, eventDay: eventDay, fetchEventTitles: fetchEventTitles, EVENT_POOL: EVENT_POOL, WRITER_LEAD: WRITER_LEAD, CF_FALLBACK_GPT_OSS: CF_FALLBACK_GPT_OSS, loadWriterOrder: loadWriterOrder, fallbackChain: fallbackChain, cutAtSentence: cutAtSentence, causalScore: causalScore, CAUSAL_MIN: CAUSAL_MIN, CAUSAL_CHARS: CAUSAL_CHARS, fitAnchors: fitAnchors, logCaught: logCaught, foldAccents: foldAccents, todayLine: todayLine, reframePiece: reframePiece, parseDraftMd: parseDraftMd, P_REFRAME: P_REFRAME, REFRAME_BAND: REFRAME_BAND, REFRAME_START_BEFORE_MS: REFRAME_START_BEFORE_MS, CF_FALLBACK: CF_FALLBACK, pieceWords: pieceWords, splitText: splitText, autoMarkAnalysis: autoMarkAnalysis, withAutoMark: withAutoMark, analysisSplitInfo: analysisSplitInfo, CRITIC_INVENTED_MAX: CRITIC_INVENTED_MAX, writerBand: writerBand, writerIsFallback: writerIsFallback, WRITER_TEMPERATURE_FB: WRITER_TEMPERATURE_FB, CRITIC_TEMPERATURE: CRITIC_TEMPERATURE, ANALYSIS_MARK: ANALYSIS_MARK, stripAnalysisMark: stripAnalysisMark, analysisSplitOk: analysisSplitOk, reviewText: reviewText, stripPieceMark: stripPieceMark, persistPiece: persistPiece, STARVED_RETRY_MAX_24H: STARVED_RETRY_MAX_24H, fetchWikiIntros: fetchWikiIntros, introScore: introScore, screenTopics: screenTopics, wikiAnchors: wikiAnchors, TOPIC_POOL: TOPIC_POOL, pruneBlockFixable: pruneBlockFixable, pruneRepairFeedback: pruneRepairFeedback, expandFeedback: expandFeedback, rankLinked: rankLinked, linkMentionScore: linkMentionScore, CRITIC_PRUNE_ROUNDS: CRITIC_PRUNE_ROUNDS, criticQuotes: criticQuotes, critiqueWorst: critiqueWorst, QUOTE_MIN_WORDS: QUOTE_MIN_WORDS, systemsFit: systemsFit, generationHold: generationHold, gatherVerdicts: gatherVerdicts, orderByHealth: orderByHealth, sickReviewers: sickReviewers, FACTCHECK_HEDGE_MS: FACTCHECK_HEDGE_MS, starvedRetryDue: starvedRetryDue, arxivWindow: arxivWindow, fetchWiki: fetchWiki, splitLongLede: splitLongLede, stallAttemptStage: stallAttemptStage, companionStallDigest: companionStallDigest, arxivIdOf: arxivIdOf, paperFullTextUrls: paperFullTextUrls, paperHtmlText: paperHtmlText, ledeProblems: ledeProblems, ledeOf: ledeOf, pruneUnsupported: pruneUnsupported, deleteSentences: deleteSentences, splitFactItems: splitFactItems, sourceLabel: sourceLabel, anchorsText: anchorsText, floorFor: floorFor, critiquePiece: critiquePiece, REPAIR_FLOOR_SHARE: REPAIR_FLOOR_SHARE, FALLBACK_FLOOR_RATIO: FALLBACK_FLOOR_RATIO, NOTES_OBJECTION_PLACEHOLDER: NOTES_OBJECTION_PLACEHOLDER, groundingNeedles: groundingNeedles, stemGrounded: stemGrounded, repairGroundingDraft: repairGroundingDraft, GROUNDING_PREFIX: GROUNDING_PREFIX, problemContext: problemContext, factCheckExtra: factCheckExtra, blockedRetryDue: blockedRetryDue, steward: steward, fetchCfg: fetchCfg, fetchUA: fetchUA, groundingProblems: groundingProblems, parseFactVerdict: parseFactVerdict, factCheck: factCheck, verifyPiece: verifyPiece, auditPublished: auditPublished, retractPiece: retractPiece, pieceVerified: pieceVerified, recordAudit: recordAudit, generate: generate, unwrapJsonItem: unwrapJsonItem, itemHasNoClaim: itemHasNoClaim, reviewerSaysSupported: reviewerSaysSupported, factItemText: factItemText, splitFactItems: splitFactItems, serialInstallmentTitle: serialInstallmentTitle, serialBaseTitle: serialBaseTitle, serialChaptersDone: serialChaptersDone, serialTitleMatches: serialTitleMatches, withInstallmentTitle: withInstallmentTitle, freeInstallmentPiece: freeInstallmentPiece, pickTopic: pickTopic, sendMail: sendMail, pickReviewers: pickReviewers, familyOf: familyOf, anchorsBlock: anchorsBlock, plainCredit: plainCredit, sourcesFoot: sourcesFoot, renderPiece: renderPiece, prompts: { P_STYLE: P_STYLE, P_ESSAY: P_ESSAY, P_NOTES: P_NOTES, P_SERIAL: P_SERIAL, P_CRITIQUE: P_CRITIQUE, FACTCHECK_PROMPT: FACTCHECK_PROMPT }, VISIBLE_SQL: VISIBLE_SQL, REVIEW_POOL: REVIEW_POOL };
+Object.assign(__verify, { writeBalanceMetrics: writeBalanceMetrics, balanceCheck: balanceCheck, balanceCheckOne: balanceCheckOne, parseBalanceScore: parseBalanceScore, verifyPiece: verifyPiece, recordAudit: recordAudit, factRevisionPrompt: factRevisionPrompt, BALANCE_MIN_SCORE: BALANCE_MIN_SCORE, REVIEW_POOL: REVIEW_POOL, familyOf: familyOf });
 Object.assign(__verify, { isContestedTopic: isContestedTopic, sourceHost: sourceHost, sourceViewpoint: sourceViewpoint, sourceCountry: sourceCountry, contestedSourcesOk: contestedSourcesOk });
 export {
   __verify,

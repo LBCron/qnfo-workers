@@ -107,6 +107,7 @@ function modelWorld(titleOf, lede) {
     const sys = (input.messages && input.messages[0] && input.messages[0].content) || "";
     if (input.text) return { data: [] };
     if (/strict fact-checker/.test(sys)) return { response: '{"unsupported":[],"verdict":"pass"}' };
+    if (/even-keel reviewer/.test(sys)) return { response: '{"opposing":9,"wording":9,"attribution":9,"reason":"ok"}' };
     if (/adversarial reader/.test(sys)) return { response: '{"specificity":8,"argument":8,"objection":8,"voice":8,"grounding":9,"systems":8,"verdict":"accept","why":"ok"}' };
     log.writer++; return { response: draft(titleOf, lede || "The Alpha Subject drifts when it is read at the Beta Station.") };
   } };

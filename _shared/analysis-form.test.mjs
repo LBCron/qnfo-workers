@@ -74,6 +74,11 @@ ok(AF.afPickBalanceReviewer(["x", "y"], { familyOf: famOf, writerFamily: "deepse
 ok(AF.afPickBalanceReviewer(pool, { familyOf: famOf, writerFamily: "deepseek", allowed: (id) => id === "e" }) === "e", "the allow list is honoured");
 ok(AF.afPickBalanceReviewer(pool, { familyOf: famOf, writerFamily: "deepseek", sick: { c: 1, e: 1 }, avoid: ["nvidia", "openai"] }) !== "c", "a model marked sick is skipped");
 ok(AF.afPickBalanceReviewer([], {}) === "" && AF.afPickBalanceReviewer(null, null) === "", "an empty pool gives no reviewer");
+const order = AF.afBalanceReviewers(pool, { familyOf: famOf, writerFamily: "deepseek", avoid: ["nvidia", "openai"], seed: 0 });
+ok(order.join("") === "ceab" || order.join("") === "ceba", "reviewers are listed fresh families first, then those that already judged, never the writer's", order);
+ok(AF.afBalanceReviewers(["a", "a2"], { familyOf: (id) => (id === "a" || id === "a2" ? "nvidia" : "x"), writerFamily: "deepseek" }).length === 1, "one model per family");
+ok(AF.afBalanceRetryFeedback("it never weighs the case against it.").indexOf("never weighs the case against it.") > 0 && /Use only facts the source material states/.test(AF.afBalanceRetryFeedback("")), "the retry feedback names the finding and forbids outside facts");
+ok(AF.afBalanceRecord(null).state === "not-run" && AF.afBalanceRecord({ unavailable: true, reason: "x".repeat(500), tried: ["m"] }).reason.length === 200 && AF.afBalanceRecord({ ok: true, score: 88, model: "m", family: "f" }).state === "pass" && AF.afBalanceRecord({ ok: false, score: 40, reason: "r" }).state === "fail", "the stored record has a state, the score and the reason, never the draft");
 const note = AF.afBalanceRevisionNote("The third section states the policy as settled.");
 ok(/third section states the policy as settled/.test(note) && /add no name, date, figure, event or claim it does not contain/.test(note) && /strongest argument against your central claim/.test(note), "the revision note names the finding and forbids new facts");
 ok(/Return only JSON/.test(AF.AF_BALANCE_PROMPT) && /opposing/.test(AF.AF_BALANCE_PROMPT) && /wording/.test(AF.AF_BALANCE_PROMPT) && /attribution/.test(AF.AF_BALANCE_PROMPT), "the reviewer prompt asks for the three parts");

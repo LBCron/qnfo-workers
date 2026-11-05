@@ -47,7 +47,8 @@ ok(!V.pickReviewers(["deepseek"], 5, 1).some((id) => /deepseek/.test(id)), "a de
 let calls = [];
 let script = () => '{"unsupported":[],"verdict":"pass"}';
 const goodText = "# Drift in the readings\n\nThe Alpha Subject recorded 14 measurements in 1987 at the Beta Station.";
-const AI0 = { run: async (model, input) => { const c = input.messages[0].content; calls.push({ model, c }); const r = script(model, c); if (r instanceof Error) throw r; return { response: r }; } };
+let balanceCalls = []; // EK-3 (1.45.0): the even-keel reviewer is asked after the fact-check; it has its own counter so the fact-check counts below stay what they were
+const AI0 = { run: async (model, input) => { const c = input.messages[0].content; if (/even-keel reviewer/.test(c)) { balanceCalls.push({ model, c }); return { response: '{"opposing":9,"wording":9,"attribution":9,"reason":"ok"}' }; } calls.push({ model, c }); const r = script(model, c); if (r instanceof Error) throw r; return { response: r }; } };
 {
   calls = [];
   const r = await V.verifyPiece({ AI: AI0 }, bad, source, "@cf/openai/gpt-oss-120b", "s1", {});
@@ -58,6 +59,7 @@ const AI0 = { run: async (model, input) => { const c = input.messages[0].content
   const r = await V.verifyPiece({ AI: AI0 }, goodText, source, "@cf/openai/gpt-oss-120b", "s2", {});
   const fs = new Set(calls.map((c) => V.familyOf(c.model)));
   ok(r.ok && calls.length === 2 && fs.size === 2 && !fs.has("openai"), "two reviewers, two families, neither the writer's, both pass", { ok: r.ok, n: calls.length, fs: [...fs] });
+  ok(balanceCalls.length === 1 && !fs.has(V.familyOf(balanceCalls[0].model)) && V.familyOf(balanceCalls[0].model) !== "openai" && r.balance && r.balance.ok === true, "EK-3: one even-keel reviewer, from a family that neither wrote nor fact-checked the piece, is asked after both pass", { n: balanceCalls.length, model: balanceCalls[0] && balanceCalls[0].model });
 }
 {
   // COMPANION-FACTCHECK-PARALLEL-1 (1.15.8): a reviewer that times out in round 1 is replaced in round 2 by the untried ones
@@ -123,6 +125,7 @@ function modelWorld(o) {
     const sys = (input.messages && input.messages[0] && input.messages[0].content) || "";
     if (input.text) return { data: [] };
     if (/strict fact-checker/.test(sys)) { log.review++; if (o.reviewDown) throw new Error("reviewer down"); return { response: o.review ? o.review(model, sys) : '{"unsupported":[],"verdict":"pass"}' }; }
+    if (/even-keel reviewer/.test(sys)) { log.balance = (log.balance || 0) + 1; return { response: '{"opposing":9,"wording":9,"attribution":9,"reason":"ok"}' }; }
     if (/adversarial reader/.test(sys)) { log.critic++; if (o.criticDown) throw new Error("critic down"); return { response: o.critic || '{"specificity":8,"argument":8,"objection":8,"voice":8,"grounding":9,"systems":8,"verdict":"accept","why":"ok"}' }; }
     log.writer++; return { response: typeof o.draft === "function" ? o.draft(log.writer, input) : (o.draft || goodBody()) };
   } };
