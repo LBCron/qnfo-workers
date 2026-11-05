@@ -55,7 +55,7 @@ import urllib.parse
 import urllib.request
 
 BUCKET = "qnfo-backups"
-COLD_BUDGET_SEC = float(os.environ.get("COLD_BUDGET_SEC") or 210)   # 150 until COLD-TIER-2: seven tiers share it now (the workflow step allows 8 minutes for all four stages)
+COLD_BUDGET_SEC = float(os.environ.get("COLD_BUDGET_SEC") or 270)   # 150 until COLD-TIER-2, 210 until COLD-TIER-TUNE-1: seven tiers share it (the workflow step allows 8 minutes for all four stages, the others take about 1.5)
 CHUNKS_PER_TIER = int(os.environ.get("COLD_CHUNKS_PER_TIER") or 6)
 DELETE_BATCH = 400          # D1 rows in one DELETE statement (RETENTION-PRUNE-SPREAD-1: a bigger statement stalls every other query)
 DELETE_PAUSE_SEC = 1.0
@@ -73,13 +73,13 @@ TIERS = [
     # errors since it, per cron_name) for cron_fire_log; v_cron_faults_task (last 5,000 ids, 24 h), v_cron_activity for fleet_runs; v_persona_recovered_close (newest
     # row per trigger and status) for analytics_action_log. The keep-latest key therefore carries the status column the reader filters on.
     {"table": "cron_fire_log", "ts": "fired_at", "keep_days": 3, "mode": "delete", "latest": ("cron_name", "outcome"), "dims": ("cron_name", "outcome"),
-     "ok": None, "ok_sql": "outcome IN ('ok', 'idle')", "fail_sql": "outcome = 'error'", "num": None, "newer": "fired_epoch_ms", "roll_days": 16, "chunk": 800},
+     "ok": None, "ok_sql": "outcome IN ('ok', 'idle')", "fail_sql": "outcome = 'error'", "num": None, "newer": "fired_epoch_ms", "roll_days": 16, "chunk": 2000},
     {"table": "fleet_runs", "ts": "started_at", "keep_days": 7, "mode": "delete", "latest": ("task_id", "status"), "dims": ("task_id", "status"),
-     "ok": None, "ok_sql": "status = 'ok'", "fail_sql": "status = 'failed'", "num": "cost_neurons", "newer": "id", "roll_days": 16, "chunk": 800},
+     "ok": None, "ok_sql": "status = 'ok'", "fail_sql": "status = 'failed'", "num": "cost_neurons", "newer": "id", "roll_days": 16, "chunk": 2000},
     {"table": "analytics_action_log", "ts": "fired_at", "keep_days": 30, "mode": "delete", "latest": ("trigger_id", "status"), "dims": ("trigger_id", "status"),
      "ok": None, "ok_sql": "status = 'recovered'", "fail_sql": "status = 'fired'", "num": "metric_value", "newer": "id", "space_ts": True, "roll_days": 70, "chunk": 800},
     # BLOB-TIER-1: the row stays, base and patch go to R2 (see the docstring). keep_days 0.25: a row is only here once code_tasks.ctx no longer holds the text (slimmed = 1).
-    {"table": "code_task_ctx_archive", "ts": "archived_at", "keep_days": 0.25, "mode": "blob", "cols": ("base", "patch"), "where": "slimmed = 1", "chunk": 10, "chunks": 12},
+    {"table": "code_task_ctx_archive", "ts": "archived_at", "keep_days": 0.25, "mode": "blob", "cols": ("base", "patch"), "where": "slimmed = 1", "chunk": 16, "chunks": 12},
 ]
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
