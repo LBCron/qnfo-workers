@@ -14,9 +14,8 @@
 # qnfo-artifacts: RETIRED 2026-10-26 (worker_count 36 against the cap of 30, rem-a5; qnfo-artifacts/RETIRED has the dependency check). It was listed here by
 # SCRIPT-SOURCE-RECONCILE-1 (2026-10-19); artifacts-canonical-sync.yml never ran through it (its scripts call the Cloudflare REST API).
 qnfo-social qnfo-social/worker.js
-# EVOLVE-1 (2026-10-17): the organ that turns the fleet's own gap registers into named work.
-# Listed here because a worker absent from this manifest gets its wrangler.toml crons applied as INERT.
-qnfo-evolve qnfo-evolve/worker.js
+# qnfo-evolve: FOLDED 2026-11-05 into qnfo-ai-calibration as the member qnfoEvolveFoldMod (WORKER-COUNT-1.2, worker_count 39 against the cap of 30; qnfo-evolve/FOLDED has the detail).
+# EVOLVE-1 (2026-10-17) listed it here so its crons were applied; the member now rides the host's */30 trigger, so there is nothing left to list.
 # CF-MODEL-EVAL-1 (2026-10-18): the loop that evaluates new Workers AI models and carries a
 # winner into production. It shipped from a raw PUT first and had no tracked source at all --
 # a deployed worker nobody could redeploy. Listed here so its 6-hourly [triggers] crons are

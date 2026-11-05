@@ -11,7 +11,7 @@ import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { versionAtLeast } from "../scripts/version-at-least.mjs";
 const src = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
-const api = new Function(src.replace(/export \{\s*worker_default as default\s*\};?/, "") +
+const api = new Function(src.replace(/export \{\s*(?:worker_default|__fk_\w+_default) as default\s*\};?/, "") +
   "\nreturn { pingMaxTokens, probeCompletion, gatewayFailureSweep, fnv32, VERSION };")();
 let pass = 0, fail = 0;
 const ok = (c, m, d) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (d === undefined ? "" : " :: " + JSON.stringify(d).slice(0, 300))); } };

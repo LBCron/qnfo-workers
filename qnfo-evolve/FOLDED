@@ -1,0 +1,7 @@
+qnfo-evolve is FOLDED into qnfo-ai-calibration (2026-11-05, FOLD-KIT-1, WORKER-COUNT-1.2, owner standing grant OWNER-STANDING-GRANT-1 / charter decision rule 9).
+
+Its code runs unchanged as the member qnfoEvolveFoldMod inside qnfo-ai-calibration/worker.js (member version 0.2.12-folded; it was 0.2.12-revert-a339688 as its own worker).
+GET https://qnfo-ai-calibration.q08.workers.dev/evolve/health serves its health; service-binding callers reach it through qnfo-ai-calibration with
+props.member = "qnfo-evolve" and a qnfo-* props.caller. Its job runs on qnfo-ai-calibration's own trigger; its own crons (5,20,35,50 * * * *) are gone.
+
+Do not redeploy this directory: canonical-deploy skips a FOLDED directory (WORKER-FOLD-SKIP-1).

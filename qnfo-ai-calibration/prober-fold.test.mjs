@@ -12,7 +12,7 @@ import { versionAtLeast } from "../scripts/version-at-least.mjs";
 const src = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 const prober = fs.readFileSync(new URL("../ai-health-prober/worker.js", import.meta.url), "utf8");
 const toml = fs.readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
-const api = new Function(src.replace(/export \{\s*worker_default as default\s*\};?/, "") +
+const api = new Function(src.replace(/export \{\s*(?:worker_default|__fk_\w+_default) as default\s*\};?/, "") +
   "\nreturn { worker_default, proberMod, PROBER_CRON, PROBER_VERSION, VERSION };")();
 let pass = 0, fail = 0;
 const ok = (c, m, extra) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (extra !== undefined ? " :: " + JSON.stringify(extra).slice(0, 300) : "")); } };

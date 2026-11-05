@@ -8,6 +8,12 @@
       "contains": [
         "\"worker\":\"qnfo-ai-calibration\""
       ]
+    },
+    {
+      "url": "https://qnfo-ai-calibration.q08.workers.dev/evolve/health",
+      "contains": [
+        "\"worker\":\"qnfo-evolve\""
+      ]
     }
   ]
 }

@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import { versionAtLeast } from "../scripts/version-at-least.mjs";
 const src = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
-const api = new Function(src.replace(/export \{\s*worker_default as default\s*\};?/, "") + "\nreturn { gwErrorClass, GW_NO_DEGRADE_CLASSES, VERSION, worker_default };")();
+const api = new Function(src.replace(/export \{\s*(?:worker_default|__fk_\w+_default) as default\s*\};?/, "") + "\nreturn { gwErrorClass, GW_NO_DEGRADE_CLASSES, VERSION, worker_default };")();
 const fail = [];
 const eq = (l, g, w) => { if (JSON.stringify(g) !== JSON.stringify(w)) fail.push(l + ": got " + JSON.stringify(g) + " want " + JSON.stringify(w)); };
 const ok = (l, c) => { if (!c) fail.push(l); };

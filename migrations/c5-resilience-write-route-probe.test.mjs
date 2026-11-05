@@ -83,7 +83,7 @@ const collector = rd("../scripts/bp26_writeroutes.py");
 ok(collector.includes('"unauth_write_routes_open"') && sql.includes("scripts/bp26_writeroutes.py"), "the collector and the migration use the same metric name and path");
 const gaps = manifest.register.filter((r) => r.disposition === "open-gap");
 ok(gaps.length >= 4 && gaps.every((g) => g.worker === "qnfo-deploy-guard" && sql.includes(g.route.split(",")[0].replace(/^POST /, ""))), "every open-gap route is named in the filed deploy-guard issue", gaps.map((g) => g.route));
-ok(manifest.probe.some((p) => p.url === "https://qnfo-evolve.qnfo.example/tick".replace("qnfo-evolve.qnfo.example", "qnfo-evolve.q08.workers.dev")), "the evolve route that this change closes is in the probe list");
+ok(!manifest.probe.some((p) => /qnfo-evolve\.q08\.workers\.dev/.test(p.url)) && manifest.register.some((r) => r.worker === "qnfo-ai-calibration" && /evolve\/tick/.test(r.route)), "the evolve route that PR 7353 closed left the probe list when qnfo-evolve was folded into qnfo-ai-calibration (WORKER-COUNT-1.2); the register says why it is not reachable");
 const evolve = rd("../qnfo-evolve/worker.js");
 ok(/function tickAllowed\(env, req\) \{\s*if \(!env\.LOOP_TOKEN\) return false;/.test(evolve), "qnfo-evolve fails closed when no LOOP_TOKEN is bound");
 

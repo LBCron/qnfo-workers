@@ -25,7 +25,7 @@ const src = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
 const mirror = fs.readFileSync(new URL("./deployed-current.worker.js", import.meta.url), "utf8");
 let mig = "";
 try { mig = fs.readFileSync(new URL("../migrations/2026-10-19-model-health-budget-probe.sql", import.meta.url), "utf8"); } catch (e) { /* absent on the base commit: the migration checks below fail */ }
-const api = new Function(src.replace(/export \{\s*worker_default as default\s*\};?/, "") +
+const api = new Function(src.replace(/export \{\s*(?:worker_default|__fk_\w+_default) as default\s*\};?/, "") +
   "\nreturn { worker_default, VERSION, PROBER_VERSION, judge: typeof judgeBudgetReply === 'function' ? judgeBudgetReply : null, fnv32 };")();
 let pass = 0, fail = 0;
 const ok = (c, m, extra) => { if (c) pass++; else { fail++; console.log("FAIL " + m + (extra !== undefined ? " :: " + JSON.stringify(extra).slice(0, 300) : "")); } };
