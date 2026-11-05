@@ -92,7 +92,7 @@ globalThis.fetch = async (u) => {
   return new Response("", { status: 404 });
 };
 const dir = mkdtempSync(join(tmpdir(), "plainart-"));
-writeFileSync(join(dir, "w.mjs"), src + "\nexport { articleParse, articleProblems, articleGround, articleLookup, articleLinks, articleBuild, articleFill, articleGet, articleRev, articleSource, articlePrompt, articleStats, articleTargetWords, plainHasRefusal, plainRefusalSql, ARTICLE_FILL_MAX, ARTICLE_FILL_BATCH };\n");
+writeFileSync(join(dir, "w.mjs"), src + "\nexport { articleParse, articleProblems, articleGround, articleLookup, articleLinks, articleBuild, articleFill, articleGet, articleImmaterial, ARTICLE_MATERIAL_PCT, articleRev, articleSource, articlePrompt, articleStats, articleTargetWords, plainHasRefusal, plainRefusalSql, ARTICLE_FILL_MAX, ARTICLE_FILL_BATCH };\n");
 const m = await import(pathToFileURL(join(dir, "w.mjs")).href);
 const gw = m.default;
 
@@ -201,7 +201,7 @@ const mkLP = (extra) => {
       async all() {
         if (/FROM papers p LEFT JOIN plain_article/i.test(sql)) {
           const limit = Number((sql.match(/\bLIMIT\s+(\d+)/i) || [])[1] || 99);
-          const rows = Object.values(papers).filter((p) => { const a = art.get(p.slug); if (!a) return true; if (a.status === "ok") return a.version !== String(p.version || "") || a.body_len !== p.body_md.length || m.plainHasRefusal(a.short) || m.plainHasRefusal(a.body); return a.attempts < 3 && Date.now() - Date.parse(a.generated_at) > 6 * 3600e3; });
+          const rows = Object.values(papers).filter((p) => { const a = art.get(p.slug); if (!a) return true; if (a.status === "ok") return a.version !== String(p.version || "") || a.body_len <= 0 || Math.abs(p.body_md.length - a.body_len) * 100 > a.body_len * m.ARTICLE_MATERIAL_PCT || m.plainHasRefusal(a.short) || m.plainHasRefusal(a.body); return a.attempts < 3 && Date.now() - Date.parse(a.generated_at) > 6 * 3600e3; });
           rows.sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)));
           return { results: rows.slice(0, limit).map((p) => ({ slug: p.slug, attempts: (art.get(p.slug) || {}).attempts || 0 })) };
         }
@@ -224,11 +224,34 @@ const row = art.get(SLUG);
 ok(row.status === "ok" && row.rev === m.articleRev(P) && row.version === "2.0.0" && row.body_len === BODY.length && JSON.parse(row.body).length === 4, "the row is keyed on the paper text and carries the sections");
 const got = await m.articleGet(env, P);
 ok(got && got.title === "How Much Energy One Answer Costs" && got.minutes >= 1 && got.sections.length === 4 && Array.isArray(got.links), "articleGet returns the stored article", got && Object.keys(got));
-ok((await m.articleGet(env, Object.assign({}, P, { body_md: BODY + " changed" }))) === null, "an article for a paper whose text has changed is not shown");
-papers[SLUG].body_md = BODY + "\n\nOne more sentence in the limitations of this controller paper.";
+// COST-GATEWAY-ARTICLE-1: the article describes the paper, not its typography
+ok((await m.articleGet(env, Object.assign({}, P, { body_md: BODY + " changed" }))) !== null, "an article for a paper whose text changed by a few characters is still shown");
+const grown = BODY + "\n\n" + "More text about the limitations of this controller paper. ".repeat(Math.ceil(BODY.length * 0.25 / 55) + 1);
+ok(grown.length > BODY.length * 1.2, "the grown body is over the material bar", { len: grown.length, base: BODY.length });
+ok((await m.articleGet(env, Object.assign({}, P, { body_md: grown }))) === null, "an article for a paper whose text grew by over 20 percent is not shown");
+ok((await m.articleGet(env, Object.assign({}, P, { body_md: BODY.slice(0, Math.floor(BODY.length * 0.7)) }))) === null, "an article for a paper whose text shrank by over 20 percent is not shown");
+ok((await m.articleGet(env, Object.assign({}, P, { version: "9.9.9" }))) === null, "an article for another version of the paper is not shown");
+ok(m.articleImmaterial(row.rev, Object.assign({}, P, { body_md: BODY.slice(0, Math.floor(BODY.length * 0.81)) })) === true && m.articleImmaterial(row.rev, Object.assign({}, P, { body_md: BODY.slice(0, Math.floor(BODY.length * 0.79)) })) === false, "the bar is 20 percent of the length the article was built on", row.rev);
+ok(m.articleImmaterial("old|2.0.0|100|abc", P) === false && m.articleImmaterial("", P) === false && m.articleImmaterial(row.rev + "", { version: "3" , body_md: BODY }) === false, "another rules tag, an empty rev or another version is never immaterial");
+// a format-only revision (a few characters) is not rebuilt; the article stays in the store untouched
+papers[SLUG].body_md = BODY + "\n\nOne more sentence.";
+const wBefore = calls.writer, genBefore = art.get(SLUG).generated_at;
+fresh();
+const frFmt = await m.articleFill(env);
+ok(art.get(SLUG).generated_at === genBefore && art.get(SLUG).body_len === BODY.length && art.get(SLUG).rev === m.articleRev(Object.assign({}, P, { body_md: BODY })), "a paper whose text moved by a few characters is not rebuilt (its article is untouched)", { fr: frFmt, w: calls.writer, wBefore, row: art.get(SLUG).body_len });
+ok(frFmt.tried === 36 - m.ARTICLE_FILL_MAX, "only the papers that never had an article were built in that run", frFmt);
+ok((await m.articleGet(env, papers[SLUG])) !== null, "and its article is still shown on the page");
+// a material revision is rebuilt
+papers[SLUG].body_md = grown;
 fresh();
 const fr2 = await m.articleFill(env);
-ok(fr2.tried >= 1 && art.get(SLUG).body_len === papers[SLUG].body_md.length, "a paper whose text changed is rebuilt", fr2);
+ok(fr2.tried >= 1 && art.get(SLUG).body_len === papers[SLUG].body_md.length, "a paper whose text changed materially is rebuilt", fr2);
+// a new version is rebuilt
+papers[SLUG].version = "3.0.0";
+fresh();
+const fr3 = await m.articleFill(env);
+ok(fr3.tried >= 1 && art.get(SLUG).version === "3.0.0", "a paper with a new version is rebuilt", fr3);
+papers[SLUG].version = "2.0.0";
 // failures: kept as failed rows, retried after six hours, three times
 for (const k of [...art.keys()]) art.delete(k);
 for (let i = 1; i <= 35; i++) delete papers["p" + i];
