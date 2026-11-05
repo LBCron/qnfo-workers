@@ -79,6 +79,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [EXEC-2026-09-08 — Backlog drain executed; listIssues one-line fix (pending deploy)](EXEC-2026-09-08-listIssues-fix-pending.md) - `docs/EXEC-2026-09-08-listIssues-fix-pending.md`
 - [Exuvia integration (EXUVIA-1, EXUVIA-HANDOFF-1)](EXUVIA-INTEGRATION.md) - `docs/EXUVIA-INTEGRATION.md`
 - [FIX-2026-09-07 — ops_issues_list returns 0 rows (missing await on D1 .all())](FIX-2026-09-07-ops_issues_list-await.md) - `docs/FIX-2026-09-07-ops_issues_list-await.md`
+- [QNFO fleet audit, 2026-10-30](FLEET-AUDIT-2026-10-30.md) - `docs/FLEET-AUDIT-2026-10-30.md`
 - [FLEET-BUDGET (canonical, 2026-09-26) -- the consolidation wave plan](FLEET-BUDGET.md) - `docs/FLEET-BUDGET.md`
 - [FLEET-GRAPH-1: the fleet code and topology graph](FLEET-GRAPH.md) - `docs/FLEET-GRAPH.md`
 - [FLEET-NODE-MAP (canonical, 2026-09-26)](FLEET-NODE-MAP.md) - `docs/FLEET-NODE-MAP.md`

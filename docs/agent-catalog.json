@@ -416,6 +416,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/FIX-2026-09-07-ops_issues_list-await.md"
     },
     {
+      "path": "docs/FLEET-AUDIT-2026-10-30.md",
+      "title": "QNFO fleet audit, 2026-10-30",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/FLEET-AUDIT-2026-10-30.md"
+    },
+    {
       "path": "docs/FLEET-BUDGET.md",
       "title": "FLEET-BUDGET (canonical, 2026-09-26) -- the consolidation wave plan",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/FLEET-BUDGET.md"
