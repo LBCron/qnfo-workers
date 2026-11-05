@@ -1,14 +1,8 @@
 {
-  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving. CONCEPT-NAV-1 and CONSISTENCY-1 add the two pages and the concept search; LIVING-PAPER-1 adds the reader page and the paper route; REPRODUCE-1 adds the reproduce page and the record route.",
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving. CONCEPT-NAV-1 and CONSISTENCY-1 add the two pages and the concept search; LIVING-PAPER-1 adds the reader page and the paper route; REPRODUCE-1 adds the reproduce page and the record route; COMPUTE-1 adds the calculators page. The plain /health probe is the top-level health key (it polls for the new VERSION), so the http list spends its eight places on pages and routes.",
   "mode": "revert",
   "health": "https://qnfo-ai-search.q08.workers.dev/health",
   "http": [
-    {
-      "url": "https://qnfo-ai-search.q08.workers.dev/health",
-      "contains": [
-        "\"worker\":\"qnfo-ai-search\""
-      ]
-    },
     {
       "url": "https://ask.qwav.org/concepts",
       "contains": [
@@ -55,6 +49,13 @@
       "contains": [
         "\"script\":",
         "\"recorded\":"
+      ]
+    },
+    {
+      "url": "https://ask.qwav.org/compute",
+      "contains": [
+        "data-page=\"compute\"",
+        "p-adic valuation and ultrametric distance"
       ]
     }
   ]

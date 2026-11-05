@@ -144,6 +144,20 @@
    "typing": 0
   }
  },
+ "ask-qwav": {
+  "living-paper": {
+   "taps": 0,
+   "typing": 0
+  },
+  "reproduce-record": {
+   "taps": 0,
+   "typing": 0
+  },
+  "compute-padic": {
+   "taps": 1,
+   "typing": 0
+  }
+ },
  "papers": {
   "paper-from-list": {
    "taps": 1,
