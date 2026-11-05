@@ -36,7 +36,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.18.1-codeagent";
+var VERSION = "2.18.2-codeagent";
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
@@ -677,7 +677,8 @@ a{color:inherit;text-underline-offset:3px}a:hover{color:var(--teal)}
 :focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:4px}
 .skip{position:absolute;left:-999px}.skip:focus{left:8px;top:8px;background:var(--surface);padding:8px 12px;z-index:9}
 header.top{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:space-between;max-width:960px;margin:0 auto;padding:14px 20px;border-bottom:1px solid var(--rule)}
-header.top a.brand{font:600 18px var(--sans);text-decoration:none}
+header.top a.brand{font:600 18px var(--sans);text-decoration:none;display:inline-flex;align-items:center;min-height:24px}
+.toc a,ul.demos a{display:inline-block;padding:2px 0;min-height:24px}
 header.top nav{display:flex;flex-wrap:wrap;gap:4px 16px}header.top nav a{padding:6px 2px;text-decoration:none;color:var(--muted)}
 header.top nav a[aria-current=page]{color:var(--ink);border-bottom:2px solid var(--teal)}
 main{max-width:960px;margin:0 auto;padding:24px 20px 56px}
@@ -1238,7 +1239,7 @@ var REPRODUCE_PAGE = navHead("Reproduce | Ask QWAV", "Run the script that checke
 <p class="meta" id="runs"></p>
 <div id="rb" hidden>
 <h2>What the script checks</h2>
-<div class="rtab" id="ctw"><table id="ct"><thead><tr><th>Claim</th><th>Stated in the paper</th><th>Computed in your browser</th><th>Expected</th><th>Script's verdict</th></tr></thead><tbody id="cb"></tbody></table></div>
+<div class="rtab" id="ctw" tabindex="0" role="region" aria-label="Claims table, scrolls sideways on a small screen"><table id="ct"><thead><tr><th>Claim</th><th>Stated in the paper</th><th>Computed in your browser</th><th>Expected</th><th>Script's verdict</th></tr></thead><tbody id="cb"></tbody></table></div>
 <p class="meta" id="cn"></p>
 <h2>Recorded when the pipeline ran it</h2>
 <p class="meta" id="rs"></p>
