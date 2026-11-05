@@ -1,0 +1,54 @@
+// C3-PRODUCTS offline suite: replays migrations/2026-11-05-c3-products-roadmap.sql on node:sqlite against a fixture of the live layout.
+// No live state is read. Output MUST contain "0 failed" on success.   node migrations/c3-products-roadmap.test.mjs
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+const sql = readFileSync(new URL("../migrations/2026-11-05-c3-products-roadmap.sql", import.meta.url), "utf8");
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
+ok(/^-- APPLY-BY: ci$/m.test(sql) && /^-- DB: qnfo-audit$/m.test(sql) && /^-- Rollback: /m.test(sql) && /^-- BACKUP: /m.test(sql), "header opts in");
+ok(/^-- CAUSE-MAPPED: /m.test(sql) && !/INTO metric_registry/i.test(sql), "registers no metric, says so");
+const body = sql.split("\n").filter((l) => !l.startsWith("--")).join("\n");
+const db = new DatabaseSync(":memory:");
+db.exec(`
+CREATE TABLE roadmap_implementation(id INTEGER PRIMARY KEY, item TEXT, source TEXT, title TEXT, artifact_type TEXT, artifact_ref TEXT, status TEXT, evidence TEXT, verified_at TEXT, created_at TEXT);
+CREATE TABLE human_actions(id INTEGER PRIMARY KEY, slug TEXT, title TEXT, why TEXT, default_in_effect TEXT, action TEXT, url TEXT, sev TEXT, status TEXT, source TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE remediation_contracts(class TEXT PRIMARY KEY, issue_id, precondition, action, verify_probe, verify_transport, max_attempts, escalate_to, expected_cadence_h, status, module, next_due_at);
+CREATE TABLE decision_log(id INTEGER PRIMARY KEY, actor, assumption, action, evidence, outcome, blast_radius, rollback_path, capability_gain, predicted_outcome, reach_gain, surfaces_tested);
+CREATE TABLE cloud_ops_events(id TEXT, ts TEXT, kind TEXT, job TEXT, text TEXT, status TEXT);
+CREATE TABLE youtube_videos(id INTEGER PRIMARY KEY, state TEXT, views INT);
+`);
+const rows = [[1622, "YT-5", "yt-shorts-2026"], [1679, "JS-8", "jobsearch-2026"], [1680, "JS-9", "jobsearch-2026"], [1713, "YT-9", "yt-shorts-2026"], [1716, "YT-12", "yt-shorts-2026"], [1797, "PLUS-2", "plussing-2026"], [3109, "YT-16", "yt-shorts-2026"]];
+const ins = db.prepare("INSERT INTO roadmap_implementation(id,item,source,status,evidence) VALUES (?,?,?,'planned','old')");
+rows.forEach((r) => ins.run(...r));
+db.exec(body);
+const R = (id) => db.prepare("SELECT status s, evidence e, verified_at v FROM roadmap_implementation WHERE id=?").get(id);
+ok(R(1622).s === "owner-decision" && /yt-oauth-publish/.test(R(1622).e), "YT-5 is an owner decision pointing at its card");
+ok(R(1679).s === "owner-decision" && /owner-card-jobsearch-ledger/.test(R(1679).e), "JS-8 is an owner decision pointing at its contract");
+ok(R(1680).s === "built" && R(1680).v === null && /Data-gated/.test(R(1680).e), "JS-9 is built, data-gated, not claimed verified");
+ok(R(1713).s === "built" && /listening verdict is not claimed/.test(R(1713).e), "YT-9 does not claim the owner's ear");
+ok(R(1716).s === "deferred" && /rm-yt-12-gate/.test(R(1716).e), "YT-12 is deferred behind a named gate");
+ok(R(1797).s === "built" && R(1797).v !== null && /PR 7337/.test(R(1797).e), "PLUS-2 is built and verified");
+ok(R(3109).s === "planned", "rows outside the file are untouched (YT-16)");
+ok(db.prepare("SELECT COUNT(*) n FROM bak_20261105_c3_rows").get().n === 6 && db.prepare("SELECT COUNT(*) n FROM bak_20261105_c3_rows WHERE evidence = 'old'").get().n === 6, "backup holds the six prior rows");
+const card = db.prepare("SELECT * FROM human_actions WHERE slug='yt-oauth-publish'").all();
+ok(card.length === 1 && /^IDENTITY-BOUND:/.test(card[0].why) && card[0].default_in_effect.length > 40 && card[0].status === "open", "one open IDENTITY-BOUND card with its default in effect");
+// contracts: the YT-5 probe pends before 21 days of uploads and goes ok after; the gate pends until 5 view counts
+const probe = (c) => db.prepare(db.prepare("SELECT verify_probe p FROM remediation_contracts WHERE class=?").get(c).p).get();
+const ev = db.prepare("INSERT INTO cloud_ops_events(id,ts,kind,job) VALUES (?,?,?,?)");
+const iso = (d) => new Date(Date.now() - d * 86400000).toISOString();
+ev.run("a", iso(8), "youtube.uploaded", "qnfo-youtube-shorts"); ev.run("b", iso(0.05), "youtube.uploaded", "qnfo-youtube-shorts");
+let p = probe("owner-card-yt-oauth-publish");
+ok(p.expected === "ok" && /^pending: uploads have run 8 of 21 days/.test(p.observed), "YT-5 contract pends at 8 days: " + p.observed);
+db.exec("DELETE FROM cloud_ops_events"); ev.run("a", iso(22), "youtube.uploaded", "qnfo-youtube-shorts"); ev.run("b", iso(1), "youtube.uploaded", "qnfo-youtube-shorts");
+ok(probe("owner-card-yt-oauth-publish").observed === "ok", "YT-5 contract reads ok after 22 days with an upload in the last 2");
+db.exec("DELETE FROM cloud_ops_events"); ev.run("a", iso(22), "youtube.uploaded", "qnfo-youtube-shorts"); ev.run("b", iso(5), "youtube.uploaded", "qnfo-youtube-shorts");
+ok(/^pending/.test(probe("owner-card-yt-oauth-publish").observed), "YT-5 contract does not close when uploads stopped 5 days ago");
+db.exec("INSERT INTO youtube_videos(state, views) VALUES ('uploaded', NULL), ('uploaded', 3), ('uploaded', 0)");
+p = probe("rm-yt-12-gate");
+ok(/^pending: 2 of 5 Shorts have a view count/.test(p.observed), "YT-12 gate counts 0 views as measured, NULL as not: " + p.observed);
+db.exec("INSERT INTO youtube_videos(state, views) VALUES ('uploaded', 1), ('uploaded', 2), ('uploaded', 9)");
+ok(probe("rm-yt-12-gate").observed === "ok", "YT-12 gate opens at 5 view counts");
+ok(db.prepare("SELECT COUNT(*) n FROM decision_log").get().n === 2, "two decision_log rows (YT-9, YT-12)");
+db.exec(body.slice(body.indexOf("INSERT INTO human_actions"), body.indexOf("UPDATE roadmap_implementation")));
+ok(db.prepare("SELECT COUNT(*) n FROM human_actions").get().n === 1 && db.prepare("SELECT COUNT(*) n FROM decision_log").get().n === 2 && db.prepare("SELECT COUNT(*) n FROM remediation_contracts").get().n === 2, "a replay adds nothing");
+console.log(pass + " passed, " + fail + " failed");
