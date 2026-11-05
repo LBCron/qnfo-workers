@@ -75,7 +75,9 @@ ok(!/model such as llama/i.test(src.split("\n").filter((l) => l.includes('name: 
   ok(!r.ok && r.candidates.length === 2, "fleet_graph passes refusals and candidates through", r);
   ok((await lib.fleetGraphTool({ MEMORY: mem }, { op: "find", query: "%".repeat(11) })).error === "Query pattern too complex", "fleet_graph rejects an over-wildcard query");
   ok((await lib.fleetGraphTool({ MEMORY: mem }, { op: "find", query: "a".repeat(101) })).error === "Query pattern too complex", "fleet_graph rejects a too-long query");
-  ok((await lib.fleetGraphTool({ MEMORY: mem }, { op: "drop" })).ok === false, "fleet_graph refuses an unknown op");
+  seen = "";
+  r = await lib.fleetGraphTool({ MEMORY: mem }, { op: "drop" });
+  ok(r.ok === true && r.op === "freshness" && /not a fleet_graph op/.test(r.note) && /\/fleet-graph\/freshness$/.test(seen) && !/drop/.test(seen), "fleet_graph never forwards an unknown op: it is read as a missing op and runs the read-only query its arguments ask for (OPS-TOOL-ERRSHAPE-1)", [r, seen]);
   // dashboard_feed.
   const dash = { fetch: async (u) => { seen = u; return J({ endpoints: 23 }); } };
   r = await lib.dashboardFeed({ CH_QNFO_FLEET_DASHBOARD: dash }, {});

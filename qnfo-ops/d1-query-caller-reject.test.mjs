@@ -20,7 +20,7 @@ const d1Query = new Function("DB_MAP", "__name", src.slice(a, b) + "\nreturn d1Q
 // The status logToolEvent derives from the result, sliced from worker.js with the redactor it writes meta through.
 const rb0 = src.indexOf("var OPS_REDACT_MARK");
 const rb1 = src.indexOf("\n__name(redactLooksSecret", rb0);
-const l0 = src.indexOf("async function logToolEvent(");
+const l0 = src.indexOf("function opsFitArgs(args, budget) {"); // OPS-TOOL-META-FIT-1: logToolEvent fits its arguments into the 600-character meta
 const l1 = src.indexOf('__name(logToolEvent, "logToolEvent");', l0);
 ok(rb0 > 0 && rb1 > rb0 && l0 > 0 && l1 > l0, "the redactor and logToolEvent blocks are found in worker.js");
 const logToolEvent = new Function("__name", "randId", "iso", "logAuditTrail", src.slice(rb0, rb1) + "\n" + src.slice(l0, l1) + "\nreturn logToolEvent;")((f) => f, (p) => p + "test", () => "2026-10-26T12:00:00.000Z", async () => {});

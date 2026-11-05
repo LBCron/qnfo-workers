@@ -23,10 +23,11 @@ const parts = [
   grab("async function githubRepoRead(env, args) {", "\n__name(githubRepoRead"),
   grab("async function githubIssueGet(env, args) {", "\nasync function githubIssueComment"),
   grab("async function githubIssueComment(env, args) {", "\nvar FPA_FIELD"),
-  grab("async function webSearchTool(env, args) {", "\n__name(webSearchTool"),
+  grab("function b64Utf8(b64) {", "\n// ---- UTF8-DEPLOY-1:END"),
+  grab("var WS_UA =", "\n__name(webSearchTool"),
 ];
 ok(parts.every((p) => p.length > 30), "githubApi, encPath, FPA_REPO_RE, FPA_GH_ERR, fpaRepoArg, fpaCap, fpaIssueRow, githubIssuesList, githubRepoRead, githubIssueGet, githubIssueComment and webSearchTool are found in worker.js", parts.map((p) => p.length));
-const logSrc = grab("async function logToolEvent(env, name, args, res, ms) {", "\n__name(logToolEvent");
+const logSrc = grab("function opsFitArgs(args, budget) {", "\n__name(logToolEvent");
 ok(logSrc.length > 100, "logToolEvent is found in worker.js");
 
 const decodeBase64 = (b) => Buffer.from(b, "base64").toString("utf8");
@@ -118,10 +119,10 @@ ok(r.ok === false && r.error === "q required", "a blank query is still an error"
 responder = () => new Response("<html></html>", { status: 200 });
 calls = [];
 r = await tools.webSearchTool(env, { q: "both-empty" });
-ok(r.ok === false && r.path === "fallback" && /no results parsed/.test(r.error) && calls.length === 2, "both parsers empty is an explicit error on the fallback path, never a successful empty result", { r, calls });
+ok(r.ok === false && r.search_unavailable === true && r.path === "all-failed" && /0 results parsed/.test(r.error) && calls.length === 3 && r.paths_tried.length === 3, "every parser empty is an explicit fail-closed error naming all three paths (OPS-WEBSEARCH-PATHS-1), never a successful empty result", { r, calls });
 responder = (u) => isLite(u) ? new Response("nope", { status: 503 }) : new Response("<html></html>", { status: 200 });
 r = await tools.webSearchTool(env, { q: "y" });
-ok(r.ok === false && r.path === "fallback" && /fallback HTTP 503/.test(r.error), "a failed fallback fetch is an explicit error on the fallback path", r);
+ok(r.ok === false && r.search_unavailable === true && /ddg-lite: HTTP 503/.test(r.error) && r.paths_tried[1].status === 503, "a failed lite fetch no longer ends the call (Bing is tried next) and its HTTP 503 stays in paths_tried and in the final error", r);
 responder = (u) => isLite(u) ? litePage(20) : new Response("<html></html>", { status: 200 });
 r = await tools.webSearchTool(env, { q: "z" });
 ok(r.ok === true && r.results.length === 5, "the fallback is bounded by k", r);

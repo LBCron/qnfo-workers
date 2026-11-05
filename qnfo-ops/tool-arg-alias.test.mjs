@@ -48,7 +48,7 @@ ok(r.ok && r.op === "path", "from+to infers path", r);
 r = await t.fleetGraphTool(env, { op: "search", q: "x" });
 ok(r.ok && r.op === "find", "op alias search -> find", r);
 r = await t.fleetGraphTool(env, { op: "bogus" });
-ok(!r.ok && r.arg_error === true && /op must be one of find/.test(r.error) && r.hint, "bad op is arg_error with hint", r);
+ok(r.ok === true && r.op === "freshness" && /op 'bogus' is not a fleet_graph op/.test(r.note), "an invented op is coerced from the other arguments and the answer says so (OPS-TOOL-ERRSHAPE-1; was an arg_error that the model retried)", r);
 
 // cf_worker_read (6671, 6792): {name, maxChars}
 const rEnv = { CF_API_TOKEN: "t" };
