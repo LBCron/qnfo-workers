@@ -30,6 +30,8 @@ db.exec(`CREATE VIEW v_issue_age_ladder AS
     WHEN EXISTS (SELECT 1 FROM breach_diagnoses d WHERE d.issue_id = a.id AND d.mode = 'on' AND d.state IN ('queued', 'applied', 'verifying') AND d.lease_until > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')) THEN 'breach doctor'
   END AS doer FROM agent_issues a WHERE a.status = 'open';`);
 db.exec(sql);
+// BREACH-PLAYBOOK-TAINT-1 (2026-11-05): version 1 of the playbook carries a semicolon in its close evidence, which the production validator refuses; version 2 is what runs.
+db.exec(readFileSync(here("./2026-11-05-iar-r1-live-doer-v2.sql"), "utf8"));
 
 let failures = 0;
 const ok = (condition, name, data) => {
