@@ -68,7 +68,7 @@ TIERS = [
     {"table": "bp26_probe_results", "ts": "run_at", "keep_days": 7, "mode": "delete", "latest": ("metric", "subject"), "dims": ("metric", "subject"),
      "ok": "ok", "num": None, "roll_days": 60, "chunk": 800},
     {"table": "remediation_verifications", "ts": "verified_at", "keep_days": 6, "mode": "copy", "latest": None, "dims": ("class", "transport"),
-     "ok": "pass", "num": None, "roll_days": 7, "chunk": 2000},
+     "ok": "pass", "num": None, "roll_days": 7, "chunk": 2000, "chunks": 3},   # COLD-TIER-CADENCE-1: copy only (no D1 row leaves), so 3 chunks (6,000 rows) a run is enough for the 18,000 rows it gains a day and frees the time for the tiers that prune
     # COLD-TIER-2. Readers (fleet-graph impact, 2026-11-05): v_cron_activity (7 days), v_cron_faults_worker (2 days; errors since the last ok), cronGridDue (last ok and
     # errors since it, per cron_name) for cron_fire_log; v_cron_faults_task (last 5,000 ids, 24 h), v_cron_activity for fleet_runs; v_persona_recovered_close (newest
     # row per trigger and status) for analytics_action_log. The keep-latest key therefore carries the status column the reader filters on.
