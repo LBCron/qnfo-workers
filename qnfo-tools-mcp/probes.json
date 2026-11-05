@@ -8,6 +8,13 @@
       "contains": [
         "\"worker\":\"qnfo-tools-mcp\""
       ]
+    },
+    {
+      "url": "https://qnfo-tools-mcp.q08.workers.dev/mcp/sse",
+      "status": 401,
+      "contains": [
+        "unauthorized"
+      ]
     }
   ]
 }
