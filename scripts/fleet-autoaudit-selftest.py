@@ -526,5 +526,26 @@ check("main --apply with FLEET_AUTOAUDIT_APPLY_REUSE=off sweeps as before", _run
 _write(dict(_full, ahead=[{"worker": "w", "repo": "1.0.1", "live": "1.0.0", "artifact": "w/worker.js"}]))
 check("main --apply with a worker ahead sweeps again before it deploys", _run_main(["--apply"])[1] == 1)
 
+# ---------------------------------------------------------------- HEALTH-READBACK-1 (agent_issues 1000982)
+# worker_live_audit.health_probed_at and health_error existed since migration 2026-11-01-one-probe-pass and nothing wrote them, so a version label in service_registry never had a read-back on record.
+_HN = "2026-11-05 01:20:52"
+check("health_stamp: a 200 that names a version is stamped", fa.health_stamp({"http": 200, "live": "1.2.3", "note": "SYNC"}, _HN) == (_HN, None))
+check("health_stamp: a 200 that names no version is not a read-back", fa.health_stamp({"http": 200, "live": None, "note": "NO_LIVE_VERSION"}, _HN) == (None, "/health answered 200 without a version (NO_LIVE_VERSION)"))
+check("health_stamp: a blank version is not a read-back", fa.health_stamp({"http": 200, "live": "  ", "note": "SYNC"}, _HN)[0] is None)
+check("health_stamp: a 404 is an error with its reason", fa.health_stamp({"http": 404, "live": None, "note": "NOT_DEPLOYED"}, _HN) == (None, "/health answered http 404 (NOT_DEPLOYED)"))
+check("health_stamp: a cron-only worker had no /health read", fa.health_stamp({"http": None, "live": None, "note": "CRON_ONLY"}, _HN) == (None, "no /health read (CRON_ONLY)"))
+check("health_stamp: a transport failure (http 0) is an error", fa.health_stamp({"http": 0, "live": None, "note": "LIVE_ERR"}, _HN) == (None, "/health answered http 0 (LIVE_ERR)"))
+_hdb = sqlite3.connect(":memory:")
+_hdb.execute("CREATE TABLE worker_live_audit (worker TEXT PRIMARY KEY, http INTEGER, live_version TEXT, registry_before TEXT, match INTEGER, note TEXT, probed_at TEXT, health_probed_at TEXT, health_error TEXT)")
+def _hput(row, now):
+    hp, he = fa.health_stamp(row, now)
+    _hdb.execute(fa.UPSERT, [row["worker"], row["http"], row["live"], row["before"], row["match"], row["note"], now, hp, he])
+_hput({"worker": "w", "http": 200, "live": "1.0.0", "before": "1.0.0", "match": 1, "note": "SYNC"}, "2026-11-05 01:00:00")
+check("the upsert writes the read-back stamp with the row", _hdb.execute("SELECT live_version, health_probed_at, health_error FROM worker_live_audit WHERE worker = 'w'").fetchone() == ("1.0.0", "2026-11-05 01:00:00", None))
+_hput({"worker": "w", "http": 0, "live": None, "before": None, "match": 0, "note": "LIVE_ERR"}, "2026-11-05 02:00:00")
+check("a later failed read clears the stamp and records why (a stamp never outlives its read)", _hdb.execute("SELECT health_probed_at, health_error FROM worker_live_audit WHERE worker = 'w'").fetchone() == (None, "/health answered http 0 (LIVE_ERR)"))
+_hput({"worker": "w", "http": 200, "live": "1.0.1", "before": "1.0.1", "match": 1, "note": "SYNC"}, "2026-11-05 03:00:00")
+check("a recovered read stamps again with the new version", _hdb.execute("SELECT live_version, health_probed_at, health_error FROM worker_live_audit WHERE worker = 'w'").fetchone() == ("1.0.1", "2026-11-05 03:00:00", None))
+
 print("\n%d failure(s)" % len(fails))
 sys.exit(1 if fails else 0)

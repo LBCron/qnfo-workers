@@ -67,11 +67,25 @@ STATE = "/tmp/fleet-audit.json"
 ISSUE_TAG = "FLEET-AUTOAUDIT"
 
 UPSERT = ("INSERT INTO worker_live_audit "
-          "(worker,http,live_version,registry_before,match,note,probed_at) "
-          "VALUES (?,?,?,?,?,?,?) ON CONFLICT(worker) DO UPDATE SET "
+          "(worker,http,live_version,registry_before,match,note,probed_at,health_probed_at,health_error) "
+          "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(worker) DO UPDATE SET "
           "http=excluded.http, live_version=excluded.live_version, "
           "registry_before=excluded.registry_before, match=excluded.match, "
-          "note=excluded.note, probed_at=excluded.probed_at")
+          "note=excluded.note, probed_at=excluded.probed_at, "
+          "health_probed_at=excluded.health_probed_at, health_error=excluded.health_error")
+# HEALTH-READBACK-1 (agent_issues 1000982 IMPROVEMENT-TERMINAL-DISPOSITION, "a version bump must be tied to a verified deploy (health-check read-back), not a string edit"): migration
+# 2026-11-01-one-probe-pass added worker_live_audit.health_probed_at and health_error and nothing ever wrote them, so no version label in service_registry had a read-back on record (0 of 38 live
+# workers on 2026-11-05). The audit already reads each worker's /health through scripts/deploy-drift-guard.py and records the version it served in live_version; the stamp says that read happened.
+def health_stamp(row, now):
+    """(health_probed_at, health_error) for one audit row: stamped only when /health answered 200 and named a version this run; otherwise NULL and the reason (never a stamp without a read)."""
+    http, live, note = row.get("http"), row.get("live"), str(row.get("note") or "")
+    if http == 200 and isinstance(live, str) and live.strip():
+        return now, None
+    if http == 200:
+        return None, ("/health answered 200 without a version (" + note + ")")[:160]
+    if http is None:
+        return None, ("no /health read (" + note + ")")[:160]
+    return None, ("/health answered http " + str(http) + " (" + note + ")")[:160]
 # TOMBSTONE-AUDIT-ROW-1 (agent_issues 1000157, 2026-10-26): qnfo-fleet-control writes one row for the Workers Builds stub (qnfo-workers, HTTP 410,
 # note TOMBSTONE_410) on every state pass, and this guard counts a 410 tombstone in unmanaged_workers without listing it, so no run of this script
 # advances that row and the purge below deleted it every few minutes: the registry worker stayed without an audit row (read live 2026-10-26: 123
@@ -436,7 +450,8 @@ def write_audit_rows(rows):
     ok, failed = 0, []
     for w in sorted(rows):
         r = rows[w]
-        res = d1(UPSERT, [w, r["http"], r["live"], r["before"], r["match"], r["note"], now])
+        hp, he = health_stamp(r, now)
+        res = d1(UPSERT, [w, r["http"], r["live"], r["before"], r["match"], r["note"], now, hp, he])
         if d1_ok(res):
             ok += 1
         else:
