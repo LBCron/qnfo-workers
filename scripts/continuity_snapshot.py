@@ -44,6 +44,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import remediation_consumer as RC  # noqa: E402
+import retention_sweep as RSW  # noqa: E402
 
 BUCKET = "qnfo-backups"
 PAGE = 500
@@ -254,9 +255,10 @@ SCHEMA_SQL = ("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS 
               "AND name NOT LIKE '_cf_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name")
 
 
-def export_table(q, table, st, put, deadline):
+def export_table(q, table, st, put, deadline, blank=()):
     """Pages one table from st['last'] on; writes a part to R2 every PART_ROWS rows. Returns True when the table is done.
-    st holds live, exported, parts, last, mode, bytes and shas, and is advanced only after a part is stored."""
+    st holds live, exported, parts, last, mode, bytes and shas, and is advanced only after a part is stored.
+    blank (BP26-RETENTION-SWEEP-1) names columns set to NULL in every exported row; empty unless ops_config.retention_enforce is on (scripts/retention_sweep.py)."""
     qt = '"%s"' % table.replace('"', '""')
     if "live" not in st:
         st["live"] = int((q("SELECT COUNT(*) AS n FROM %s" % qt) or [{"n": 0}])[0]["n"] or 0)
@@ -278,7 +280,8 @@ def export_table(q, table, st, put, deadline):
                 continue
         else:
             page = q("SELECT * FROM %s LIMIT %d OFFSET %d" % (qt, EXPORT_PAGE, int(cursor)))
-        buf.extend(page)
+        blank_page_cols = RSW.blank_page(page, blank)
+        buf.extend(blank_page_cols)
         if page:
             cursor = page[-1]["_rowid"] if st["mode"] == "rowid" else cursor + len(page)
         done = len(page) < EXPORT_PAGE
@@ -314,6 +317,7 @@ def export_database(d1, plane, database, call, deadline):
     if recent:
         return "skipped"
     q = export_query(d1, plane, database)
+    redact = RSW.switch_on(d1)    # BP26-RETENTION-SWEEP-1: a copy in R2 must not outlive the retention policy once the owner has answered 'enforce'
     pkey = "export/%s/_progress.json" % database
     prog = r2_get_json(pkey, call)
     if prog and prog.get("complete") and prog.get("errors") and prog.get("stamp") and int(prog.get("retries") or 0) < EXPORT_RETRY_MAX:
@@ -355,7 +359,7 @@ def export_database(d1, plane, database, call, deadline):
             save()
             return "paused"
         try:
-            finished = export_table(q, t, st, put, deadline)
+            finished = export_table(q, t, st, put, deadline, RSW.export_blank(database, t, redact))
         except Exception as e:  # noqa: BLE001
             prog["errors"][t] = str(e)[:160]
             print(json.dumps({"d1-export": database, "table": t, "error": str(e)[:160]}))
@@ -548,7 +552,7 @@ def stages(argv):
     for a in argv:
         if a.startswith("--only="):
             return set(a[len("--only="):].split(","))
-    return {"daily"} if "--no-export" in argv else {"daily", "export", "bak", "blob", "cold"}
+    return {"daily"} if "--no-export" in argv else {"daily", "export", "bak", "blob", "cold", "retention"}
 
 
 def main(argv=None, d1=None, plane=None, call=cf, out_dir=None, deadline=None):
@@ -569,6 +573,11 @@ def main(argv=None, d1=None, plane=None, call=cf, out_dir=None, deadline=None):
             cold_tier.run(d1)
         except Exception as e:  # noqa: BLE001
             print(json.dumps({"cold-tier": {"error": str(e)[:160]}}))
+    if "retention" in want or "cold" in want:
+        # BP26-RETENTION-SWEEP-1: the TTL sweep rides the table-sweep stage (the workflow's --only list names cold); a dry run until the owner answers the retention card
+        out = RSW.run(lambda sql: d1(sql), lambda transport, sql: plane(transport, sql))
+        print(json.dumps({"retention-sweep": {"mode": out.get("mode"), "changed": out.get("changed"), "status": out.get("retention-sweep"),
+                                              "would": {k: v.get("past_period") for k, v in (out.get("policies") or {}).items() if v.get("past_period")}}}))
     return 0
 
 
@@ -617,7 +626,7 @@ INSERT INTO human_actions VALUES (1, 'owner card');
     assert d1("SELECT last_value FROM metric_registry")[0]["last_value"] == "0.9"
     assert main(["--no-export"], d1, lambda t, s: [{"n": 0, "f": 0}], call, d) == 0 and len(d1("SELECT id FROM continuity_snapshots")) == 1  # fresh: skipped
     # CONSUMER-SPEED-1: the stage flags. Every stage by default, daily only for --no-export, the named ones for --only=; a stage that is not named never runs.
-    assert stages([]) == {"daily", "export", "bak", "blob", "cold"} and stages(["--no-export"]) == {"daily"}
+    assert stages([]) == {"daily", "export", "bak", "blob", "cold", "retention"} and stages(["--no-export"]) == {"daily"}
     assert stages(["--only=daily,bak,blob"]) == {"daily", "bak", "blob"} and stages(["--force", "--only=export"]) == {"export"}
     assert main(["--force", "--only=bak,blob"], d1, lambda t, s: [{"n": 10, "f": 9}], call, d) == 0 and len(d1("SELECT id FROM continuity_snapshots")) == 1  # --force alone cannot start a daily snapshot that --only left out
     export_selftest(c, d1)
@@ -819,6 +828,11 @@ INSERT INTO tags VALUES ('a', '1'), ('b', '2'), ('c', '3');
         assert export_table(q, "papers", st, lambda k, b: parts.__setitem__(k, b) or True, time.time() + 600) is True
         ids = [json.loads(x)["id"] for k in sorted(parts) for x in gzip.decompress(parts[k]).decode("utf-8").splitlines()]
         assert sorted(ids) == list(range(1, 30502)) and st["exported"] == 30501, (len(ids), st["exported"])
+        # 5b. BP26-RETENTION-SWEEP-1: named columns are NULL in the exported rows, the rest (and the row count) are unchanged; no names means no change.
+        parts_b, st_b = {}, {}
+        assert export_table(q, "papers", st_b, lambda k, b: parts_b.__setitem__(k, b) or True, time.time() + 600, ("id",)) is True
+        rows_b = [json.loads(x) for k in sorted(parts_b) for x in gzip.decompress(parts_b[k]).decode("utf-8").splitlines()]
+        assert len(rows_b) == 30501 and all(r["id"] is None for r in rows_b) and all("_rowid" in r for r in rows_b[:5]), rows_b[:2]
         # 6. export rows never satisfy the daily snapshot's 20-hour freshness check.
         c.execute("DELETE FROM continuity_snapshots WHERE r2_prefix LIKE 'qnfo-backups/continuity/%'")
         assert not d1("SELECT id FROM continuity_snapshots WHERE ok = 1 AND r2_prefix LIKE ?1", [BUCKET + "/continuity/%"])
