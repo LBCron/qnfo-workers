@@ -32,6 +32,13 @@ for (const [name, text] of [["duplicate", '{"order":[1,1,2]}'], ["missing", '{"o
 const job = { title: "Senior Policy Researcher", company: "Rijkswaterstaat", location: "Den Haag", desc: "The role needs 5 years of evidence-based policy research. Work with the OECD and ministries.", match: { why: ["title in your lane: policy", "evidence in the posting: federal"] } };
 ok(T.reasonOk("Policy research in a ministry setting matches the title and the federal evidence.", job) !== null, "a grounded reason is shown");
 ok(T.reasonOk("The posting asks for 5 years in the OECD setting.", job) !== null, "a number and an acronym the posting contains are allowed");
+// the posting's own score was given to the model, so repeating it is allowed; another number is still not
+{
+  const scored = { ...job, match: { ...job.match, score: 80 } };
+  ok(T.reasonOk("Ranks first with the highest score of 80 and a policy title with federal evidence.", scored) !== null, "a reason may repeat the posting's own score");
+  ok(T.reasonOk("Ranks first with the highest score of 99 and a policy title with federal evidence.", scored) === null, "a different score is still an invented number");
+  ok(T.reasonOk("Ranks first and the posting asks 12 years of policy research.", scored) === null, "an invented requirement is still rejected");
+}
 for (const [name, r] of [
   ["an invented number", "The posting asks for 12 years of policy research."],
   ["an invented name", "Strong fit for the Google research team."],
