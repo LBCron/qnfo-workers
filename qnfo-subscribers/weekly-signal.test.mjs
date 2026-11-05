@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import worker, { signalSlot, signalDate, signalTick, signalToken, sigPick, sigCheck, sigLimits } from "./worker.js";
+import worker, { signalSlot, signalDate, signalTick, signalToken, sigPick, sigTitle, sigCheck, sigLimits } from "./worker.js";
 
 const originalFetch = globalThis.fetch;
 let networkCalls = 0;
@@ -73,7 +73,7 @@ function seedPapers(f) {
   f.paper("paper-a", "Paper A: a constant gap", "2026-11-03 10:00:00", "published", BODY_A, "A gap of one unit holds in the idealised model. It says nothing about hardware.");
   f.paper("paper-b", "Paper B: plain only", "2026-11-04 10:00:00", "published", BODY_B, "A short claim without any test attached to it.");
   f.paper("paper-e", "Paper E: an experiment", "2026-11-02 09:00:00", "published", BODY_E, "Five qubits are enough to see the effect in principle.");
-  f.paper("paper-h", "Paper H: headings", "2026-11-01 09:00:00", "published", BODY_H, "A replication decides this claim.");
+  f.paper("paper-h", "Paper H: headings of a $\\mathbb{Z}_2$ kind", "2026-11-01 09:00:00", "published", BODY_H, "A replication decides this claim.");
   f.paper("paper-err", "Paper with an open erratum", "2026-11-04 12:00:00", "published", BODY_A, "Should never be chosen.");
   f.db.prepare("INSERT INTO internal_errata VALUES('x1','paper','paper-err','open','high')").run();
   f.db.prepare("INSERT INTO internal_errata VALUES('x2','paper','paper-a','closed','high')").run();
@@ -102,6 +102,11 @@ try {
   assert.match(sigCheck(BODY_E), /^Run the circuit on five qubits/, "the smallest falsifying experiment is preferred to the general falsification paragraph");
   assert.match(sigCheck(BODY_H), /^This claim fails if the replication shows no effect/, "a heading works as well as a bold label");
   assert.equal(sigCheck(BODY_B), "");
+  assert.equal(sigTitle("A $\\mathbb{Z}_2$ invariant of $x^{2}$ maps"), "A Z2 invariant of x2 maps", "TeX in a title is flattened to plain text");
+  assert.equal(sigPick("$a$ and $b$ and $c$ hold. Plain next sentence.", 400, 1, true), "", "with lead set the excerpt never starts mid-passage");
+  assert.match(sigCheck("**Falsification.** The claim fails for $a$, $b$ and $c$ together. A later sentence.\n"), /formulas this step does not quote/, "a test that exists but cannot be quoted is said so, not reported missing");
+  assert.match(sigCheck("**(c) The smallest next test.** Measure the gap on five qubits. A gap under one refutes the claim.\n"), /^Measure the gap on five qubits\./);
+  assert.match(sigLimits("**Limitations list.**\n\n1. $a$, $b$ and $c$ are assumed.\n"), /formulas this step does not quote/);
   assert.equal(sigLimits(BODY_A), "Limits the paper states: (1) Integer penalties are available (Section 3). (2) Thermal equilibrium holds.");
   assert.match(sigLimits(BODY_H), /^The sample is small/);
   assert.match(sigLimits(BODY_E), /^The numbers are exact for the model/);
@@ -135,6 +140,8 @@ try {
     for (const bad of ["paper-err", "paper-draft", "paper-nosummary", "paper-oldrev", "paper-hard", "paper-old"]) assert.ok(!slugs.includes(bad), bad + " is not eligible");
     assert.deepEqual(slugs.slice().sort(), ["paper-a", "paper-e", "paper-h"], "papers with a stated check and limits rank above the plain-only paper");
     assert.ok(!slugs.includes("paper-b"));
+    assert.equal(items.find(i => i.slug === "paper-h").title, "Paper H: headings of a Z2 kind", "the stored title carries no TeX");
+    assert.ok(!row.body_text.includes("$") && !row.body_text.includes("\\mathbb"), "no TeX reaches the issue text");
     assert.ok(row.body_text.includes("Claim (plain-language summary, written by a model):"));
     assert.ok(row.body_text.includes("Check: "));
     assert.ok(row.body_text.includes("Limits: "));

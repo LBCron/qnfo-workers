@@ -2,7 +2,7 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
-var VERSION = "1.6.0-codeagent";
+var VERSION = "1.6.1-codeagent";
 /* 1.5.8 CRON-D1-RETRY-1 (pillar autonomy; patch): the fleet_heartbeat upsert retries transient D1 errors (overloaded, timeout, reset) with backoff, so a short D1 overload no longer leaves the worker looking silent to CRON-WATCH-1 (worker-silent:qnfo-subscribers). */ /* 1.5.0-no-registrar NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by prefix only */ // 1.4.0 CRON-GRID-1 (owner directive 2026-10-19, pillar autonomy): one hourly trigger. The weekly digest keeps its Sunday 16:00 UTC slot (never retried: it is a send to subscribers); subscriber attribution and the heartbeat now run every hour (they ran weekly). Every fire is logged to cron_fire_log for CRON-WATCH-1. // 1.3.4 SUBSCRIBERS-ATTRIBUTION-CHAIN-1 (2026-10-19, agent_issues 2899, QNFO/qnfo-workers#2489, pillar reach): the attribution snapshot passes the reach_signals CHECK (quality unknown), is one batch with its DELETE, sums per entity_id, and the utm columns are ensured per column before the cron reads them. // 1.3.1 WORKERS-BP-LOGGING-qnfo-subscribers-1 (2026-10-14, agent_issues 2539, child of 2342, pillar autonomy): the swallowed catch in handleSubscribe logs as a structured console.error (worker, where, error); control flow unchanged. // 1.3.0 (2026-10-13, pillar autonomy, issue 2397) CRON-ONLY-HEARTBEAT-1: the weekly cron upserts qnfo-audit.fleet_heartbeat after the digest run.
 // 1.2.0 (2026-10-12, pillar reach, issue 1753) SUBSCRIBE-FUNNEL-1: every step of the sign-up
 // funnel is counted in qnfo-audit.subscribe_funnel (day, stage, source, n; a counter, never an address): box and page views,
@@ -585,7 +585,7 @@ var SIGNAL_CANDIDATES = 30;
 var SIGNAL_BODY_CHARS = 70000;
 var SIGNAL_VOICE = "Audio edition: not yet published. When it is, the voice is synthetic and will be labelled as such.";
 var SIGNAL_HOW = "How this issue was made: the text is drafted by rule from papers QNFO published in the past seven days (no language model is called in this step) and is read and approved by a human editor before it is sent. The Claim lines are QNFO's plain-language summaries, which a model wrote; the Check and Limits lines are quoted from the paper itself.";
-var SIG_RE_EXPERIMENT = /^\*\*(?:\([a-z]\)\s*)?Smallest falsifying experiment\.?\*\*\s*/i;
+var SIG_RE_EXPERIMENT = /^\*\*(?:\([a-z]\)\s*)?(?:The )?Smallest (?:falsifying experiment|next test|test|experiment)\.?\*\*\s*/i;
 var SIG_RE_FALSIFY = /^\*\*Falsification\.?\*\*\s*/i;
 var SIG_RE_FALSIFY_H = /^#{2,4}[ \t]*(?:\d+(?:\.\d+)*\.?[ \t]*)?(?:Falsification|Falsifiability)\b[^\n]*$/im;
 var SIG_RE_LIMITS = /^\*\*Limitations?[^*\n]{0,40}\*\*\s*/i;
@@ -610,12 +610,19 @@ function sigClean(s) {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*+|__|`/g, "")
     .replace(/\s*\[\d+(?:\s*[,;\u2013-]\s*\d+)*\]/g, "").replace(/\s+/g, " ").trim();
 }
-// Up to maxSent whole sentences within about maxChars; a sentence that still carries formula markup is left out.
-function sigPick(text, maxChars, maxSent) {
+// A title without TeX: "$\mathbb{Z}_2$" reads "Z2".
+function sigTitle(t) {
+  return String(t == null ? "" : t).replace(/\$([^$]*)\$/g, function (_, m) {
+    return m.replace(/\\(?:mathbb|mathrm|mathcal|mathbf|text)\{([^}]*)\}/g, "$1").replace(/[\\{}_^]/g, "");
+  }).replace(/\s+/g, " ").trim();
+}
+// Up to maxSent whole sentences within about maxChars; a sentence that still carries formula markup is left out. With lead set the excerpt
+// must begin at the first sentence of the text: skipping into the middle of a passage leaves a sentence whose subject is gone.
+function sigPick(text, maxChars, maxSent, lead) {
   var sents = sigClean(text).split(SIG_SPLIT), out = [], len = 0;
   for (var i = 0; i < sents.length && out.length < maxSent; i++) {
     var s = sents[i].trim();
-    if (!s || /[$\\]/.test(s) || (s.match(/\(formula\)/g) || []).length > 2) { if (out.length) break; continue; }
+    if (!s || /[$\\]/.test(s) || (s.match(/\(formula\)/g) || []).length > 2) { if (out.length || lead) break; continue; }
     if (out.length && len + s.length + 1 > maxChars) break;
     if (s.length > maxChars) s = s.slice(0, maxChars - 1).replace(/\s+\S*$/, "") + "\u2026";
     out.push(s);
@@ -646,9 +653,11 @@ function sigHeading(body, re) {
   }
   return null;
 }
+var SIG_NOTE_CHECK = "The paper states a falsification test, but in formulas this step does not quote; read it in the paper.";
+var SIG_NOTE_LIMITS = "The paper states its limits, but in formulas this step does not quote; read them in the paper.";
 function sigCheck(body) {
   var b = sigBlock(body, SIG_RE_EXPERIMENT) || sigBlock(body, SIG_RE_FALSIFY) || sigHeading(body, SIG_RE_FALSIFY_H);
-  return b ? sigPick(b.text, 520, 3) : "";
+  return b ? sigPick(b.text, 800, 3, true) || SIG_NOTE_CHECK : "";
 }
 function sigLimits(body) {
   var b = sigBlock(body, SIG_RE_LIMITS) || sigHeading(body, SIG_RE_LIMITS_H) || sigBlock(body, SIG_RE_LIMITS_ALT);
@@ -657,10 +666,10 @@ function sigLimits(body) {
   var lines = (b.text + (more ? "\n" + b.next : "")).split("\n"), items = [];
   for (var i = 0; i < lines.length && items.length < 2; i++) {
     var m = /^\s*(?:\d+[.)]|[-*])\s+(.*)$/.exec(lines[i]);
-    if (m) { var one = sigPick(m[1], 200, 1); if (one) items.push(one); }
+    if (m) { var one = sigPick(m[1], 200, 1, true); if (one) items.push(one); }
   }
   if (items.length) return "Limits the paper states: (1) " + items[0] + (items[1] ? " (2) " + items[1] : "");
-  return sigPick(b.text, 360, 2);
+  return more ? SIG_NOTE_LIMITS : sigPick(b.text, 360, 2, true) || SIG_NOTE_LIMITS;
 }
 function sigNotChecked(body) {
   var m = /^[ \t]*[-*][ \t]*Not checked:[ \t]*([^\n]+)/im.exec(String(body || ""));
@@ -670,8 +679,8 @@ function sigNotChecked(body) {
 function sigItem(p, body, errataOpen) {
   var check = sigCheck(body), limits = sigLimits(body), notChecked = sigNotChecked(body);
   return {
-    slug: p.slug, title: String(p.title || "").replace(/\s+/g, " ").trim(), created_at: fmtDate(p.created_at), version: String(p.version || ""),
-    claim: sigPick(p.plain, 420, 3), check: check, check_found: !!check, limits: limits, limits_found: !!limits, not_checked: notChecked,
+    slug: p.slug, title: sigTitle(p.title), created_at: fmtDate(p.created_at), version: String(p.version || ""),
+    claim: sigPick(p.plain, 420, 3), check: check, check_found: !!check && check !== SIG_NOTE_CHECK, limits: limits, limits_found: !!limits && limits !== SIG_NOTE_LIMITS, not_checked: notChecked,
     errata_open: errataOpen, grade: Number(p.grade) || 0
   };
 }
@@ -686,9 +695,9 @@ function signalCompose(items, sendDate) {
     lines.push(i + 1 + ". " + it.title);
     lines.push("   Published " + it.created_at + (it.version ? ", version " + it.version : ""));
     lines.push("   Claim (plain-language summary, written by a model): " + (it.claim || "No summary available."));
-    lines.push("   Check: " + (it.check_found ? it.check : "No falsification test or runnable check was found in the paper text; read the paper before you rely on this claim."));
+    lines.push("   Check: " + (it.check || "No falsification test or runnable check was found in the paper text; read the paper before you rely on this claim."));
     var lim = ["Not independently peer-reviewed.", it.errata_open === 0 ? "No open erratum is recorded." : "Open errata: " + it.errata_open + "."];
-    if (it.limits_found) lim.unshift(it.limits); else lim.unshift("The paper has no limitations section that this step could read.");
+    if (it.limits) lim.unshift(it.limits); else lim.unshift("The paper has no limitations section that this step could read.");
     if (it.not_checked) lim.push("Not checked, per the paper's own provenance note: " + it.not_checked);
     lines.push("   Limits: " + lim.join(" "));
     lines.push("   Read: " + utmLink("/papers/" + it.slug, "digest", it.slug));
@@ -1252,6 +1261,7 @@ export {
   signalDraft,
   signalToken,
   sigPick,
+  sigTitle,
   sigCheck,
   sigLimits
 };
