@@ -42,5 +42,7 @@ a rollback or canary revert inside 24 h counts toward `change_failure_rate`, and
 | Control-plane workers (qnfo-ops, qnfo-fleet-control, qnfo-deploy-guard) | after two clean proofs; the canary and revert rules in CLAUDE.md stay in force |
 | Workers that need DO migrations, bindings or crons | stay on the canonical path; documented exception |
 
+ES-module guard (GRADUAL-ES-MODULE-1, 2026-11-05): the Versions upload is modules-only, and the script accepts a worker whose code has `export default` or a bundler's `export { x as default }`. Before, only the first form passed, so 15 of the 34 worker directories (every esbuild bundle: qnfo-pdf, qnfo-subscribers, qnfo-gateway, qnfo-lifecycle, qnfo-tools-mcp and others) were refused with "not an ES module" in a dry run; now all 34 pass this guard. Durable Object, queue and binding changes still take the canonical path, and a worker joins `scripts/gradual-deploy-workers.txt` only after a clean staged proof.
+
 Honest limits: analytics lag a few minutes, so a short soak can see no requests at all; the script then trusts `/health`. A regression that only shows in
 a cron step or a downstream write is for LOOP-WATCH-1 and the metric triggers, as with the canary.

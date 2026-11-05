@@ -128,6 +128,16 @@ def deploy(api, acct, worker, versions, message):
     return api("POST", "/accounts/%s/workers/scripts/%s/deployments" % (acct, worker), body)
 
 
+# GRADUAL-ES-MODULE-1 (GitHub 5585, BP26-GRADUAL-ADOPT-1): a bundled worker ends with `export { worker_default as default }`, not `export default`. The textual guard accepted only the
+# second form, so the staged path refused qnfo-pdf, qnfo-subscribers, qnfo-tools-mcp, qnfo-lifecycle, qnfo-memory-mcp, qnfo-ai-search and qnfo-gateway on 2026-11-05 (dry runs of
+# gradual-deploy.yml: "worker.js is not an ES module"), 7 of the 10 sampled, although all are modules. Both forms are an ES module with a default export.
+ES_DEFAULT_EXPORT = re.compile(r"^\s*export\s+default\b|^\s*export\s*\{[^}]*\bas\s+default\b[^}]*\}", re.M)
+
+
+def is_es_module(code):
+    return bool(ES_DEFAULT_EXPORT.search(code or ""))
+
+
 def run(worker, acct, token, path=None, stages=(10, 50, 100), soak=120, dry=False, api=None, sleep=time.sleep, fetch=fetch_health, now=time.time, emit=print):
     api = api or (lambda m, p, b=None, files=None: http(m, p, token, b, files))
     acctp = "/accounts/%s/workers/scripts/%s" % (acct, worker)
@@ -143,8 +153,8 @@ def run(worker, acct, token, path=None, stages=(10, 50, 100), soak=120, dry=Fals
     except OSError as e:
         return out(why="cannot read %s: %s" % (path, e))
     want = file_version(code)
-    if "export default" not in code:
-        return out(why="worker.js is not an ES module (no export default): the Versions upload here is modules-only")
+    if not is_es_module(code):
+        return out(why="worker.js is not an ES module (no export default and no export { x as default }): the Versions upload here is modules-only")
     st, j = api("GET", acctp + "/deployments")
     deps = ((j.get("result") or {}).get("deployments") or []) if st == 200 else []
     if not deps:
@@ -229,6 +239,10 @@ def selftest():
     ok(not regression({"requests": 100, "errors": 1, "p99": None}, {"requests": 1000, "errors": 5, "p99": None})[0], "1 percent errors passes")
     ok(regression({"requests": 100, "errors": 0, "p99": 400}, {"requests": 1000, "errors": 0, "p99": 100})[0], "p99 4x is a regression")
     ok(file_version('var VERSION = "1.2.3-x";') == "1.2.3-x", "version parse")
+    ok(is_es_module("var x = 1;\nexport default {};\n") and is_es_module("export default { fetch() {} };"), "export default is an ES module")
+    ok(is_es_module("var worker_default = {};\nexport {\n  worker_default as default\n};\n") and is_es_module("export { a, worker_default as default, b };"), "a bundled export { x as default } is an ES module")
+    ok(not is_es_module("addEventListener('fetch', e => e.respondWith(new Response('x')));") and not is_es_module("// export default is only mentioned here\nvar a = 1;") and not is_es_module("export { a, b };") and not is_es_module(""), "a service-worker script, a comment, a named export list and an empty file are not")
+    ok(not is_es_module("var s = 'export { x as default }';"), "a string that contains the text is not an export statement")
 
     def mk(bad_stats=False, health_bad=False, upload_ok=True, live=1, preview_misses=0):
         calls = []
