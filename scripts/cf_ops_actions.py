@@ -178,8 +178,63 @@ def iso(ms_ago: int) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ms_ago / 1000))
 
 
+REPO_DIR_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+MARKERS = ("RETIRED", "FOLDED")
+
+
+def repo_dir(name: str, root: str = ".") -> str | None:
+    """ARCHIVE-MARKER-READ-1 (RM-REPO-DEAD-SOURCES-1, agent_issues 1002077): the repository directory of a worker is
+    <root>/<name>, or <root>/archive/<name> once the directory was moved there, or the archive directory whose
+    wrangler.toml declares `name` (archive/skills-discovery declares qnfo-skills-discovery). A top-level directory wins
+    over an archive twin, so an unmarked live directory is never shadowed by a marked archive copy. None when the name is
+    not a plain directory name or no directory exists."""
+    if not REPO_DIR_NAME_RE.match(name or "") or name in (".", ".."):
+        return None
+    top = os.path.join(root, name)
+    if os.path.isdir(top):
+        return top
+    base = os.path.join(root, "archive")
+    direct = os.path.join(base, name)
+    if os.path.isdir(direct):
+        return direct
+    if os.path.isdir(base):
+        pat = re.compile(r'^\s*name\s*=\s*"' + re.escape(name) + '"', re.M)
+        for d in sorted(os.listdir(base)):
+            w = os.path.join(base, d, "wrangler.toml")
+            if os.path.isfile(w) and pat.search(open(w, encoding="utf-8").read()):
+                return os.path.join(base, d)
+    return None
+
+
+def retirement_marker(name: str, root: str = ".") -> str | None:
+    """The RETIRED/FOLDED marker file name of the repo directory repo_dir() resolves for `name`, else None. A directory
+    with no marker anywhere (top level or archive/) returns None, so every refusal that needs a marker still refuses."""
+    d = repo_dir(name, root)
+    return next((m for m in MARKERS if d and os.path.isfile(os.path.join(d, m))), None)
+
+
+def live_repo_dirs(root: str = ".") -> list:
+    """Directories whose wrangler.toml counts as a live declaration: every top-level directory without a RETIRED/FOLDED marker,
+    plus any archive/<dir> that has lost its marker (fail-safe: archive/MANIFEST.md rule 1 forbids it, and an unmarked one
+    must block a database delete rather than vanish from the census). Returns (relative dir name, absolute path) pairs."""
+    out = []
+    for d in sorted(os.listdir(root)):
+        if d == "archive":
+            continue
+        p = os.path.join(root, d)
+        if os.path.isfile(os.path.join(p, "wrangler.toml")) and not any(os.path.isfile(os.path.join(p, m)) for m in MARKERS):
+            out.append((d, p))
+    base = os.path.join(root, "archive")
+    if os.path.isdir(base):
+        for d in sorted(os.listdir(base)):
+            p = os.path.join(base, d)
+            if os.path.isfile(os.path.join(p, "wrangler.toml")) and not any(os.path.isfile(os.path.join(p, m)) for m in MARKERS):
+                out.append(("archive/" + d, p))
+    return out
+
+
 def delete_worker(name: str, acct: str, token: str) -> int:
-    marker = next((m for m in ("RETIRED", "FOLDED") if os.path.isfile(os.path.join(name, m))), None)
+    marker = retirement_marker(name)
     if name in PROTECTED:
         emit({"action": "delete-worker", "worker": name, "ok": False, "refused": "protected"})
         return 3
@@ -553,7 +608,7 @@ def delete_vectorize_index(name: str, acct: str, token: str) -> int:
     if not owner:
         emit({"action": "delete-vectorize-index", "index": name, "ok": False, "refused": "not in VECTORIZE_RETIRED"})
         return 3
-    marker = next((m for m in ("RETIRED", "FOLDED") if os.path.isfile(os.path.join(owner, m))), None)
+    marker = retirement_marker(owner)
     if not marker:
         emit({"action": "delete-vectorize-index", "index": name, "ok": False,
               "refused": "no RETIRED/FOLDED marker in the repo directory " + owner})
@@ -1221,11 +1276,8 @@ def _days_since(iso_ts: str, now: float | None = None) -> int | None:
 def declared_store_bindings(root: str = ".") -> list:
     """(worker, binding, secret_name) for every [[secrets_store_secrets]] block in a live repo directory's wrangler.toml."""
     out = []
-    for d in sorted(os.listdir(root)):
-        w = os.path.join(root, d, "wrangler.toml")
-        if not os.path.isfile(w) or any(os.path.isfile(os.path.join(root, d, m)) for m in ("RETIRED", "FOLDED")):
-            continue
-        text = open(w, encoding="utf-8").read()
+    for d, p in live_repo_dirs(root):
+        text = open(os.path.join(p, "wrangler.toml"), encoding="utf-8").read()
         name = (re.search(r'^\s*name\s*=\s*"([^"]+)"', text, re.M) or [None, d])[1]
         for block in re.split(r"^\s*\[\[secrets_store_secrets\]\]", text, flags=re.M)[1:]:
             body = re.split(r"^\s*\[", block, maxsplit=1, flags=re.M)[0]
@@ -1443,11 +1495,8 @@ def d1_dump(acct: str, token: str, db: str, run=None) -> tuple[str, dict]:
 def wrangler_binders(db_id: str, root: str = ".") -> list:
     """Repo directories whose wrangler.toml names the database id, except RETIRED/FOLDED ones."""
     hits = []
-    for d in sorted(os.listdir(root)):
-        w = os.path.join(root, d, "wrangler.toml")
-        if not os.path.isfile(w) or any(os.path.isfile(os.path.join(root, d, m)) for m in ("RETIRED", "FOLDED")):
-            continue
-        if db_id in open(w, encoding="utf-8").read():
+    for d, p in live_repo_dirs(root):
+        if db_id in open(os.path.join(p, "wrangler.toml"), encoding="utf-8").read():
             hits.append(d)
     return hits
 
@@ -1745,14 +1794,14 @@ def unbind_service(target: str, acct: str, token: str) -> int:
     target_live = False
     if svc:
         s2, _ = call("GET", f"/accounts/{acct}/workers/scripts/{svc}/settings", token)
-        marked = os.path.isdir(svc) and any(os.path.isfile(os.path.join(svc, m)) for m in ("RETIRED", "FOLDED"))
+        marked = retirement_marker(svc) is not None  # ARCHIVE-MARKER-READ-1: archive/<svc>/RETIRED counts
         # UNBIND-BEFORE-DELETE-1 (#1756): delete-worker refuses while a live binder targets the worker (DELETE-AFTER-UNBIND-1),
         # so a target that is still deployed may be unbound when its repo directory is RETIRED or FOLDED (it is on its way
         # out); an unmarked live target is still refused.
         if s2 != 404 and not marked:
             emit({"action": "unbind-service", "worker": worker, "binding": binding, "service": svc, "ok": False, "refused": "the target worker still exists (settings HTTP " + str(s2) + ") and its repo directory has no RETIRED/FOLDED marker"})
             return 3
-        if s2 == 404 and os.path.isdir(svc) and not marked:
+        if s2 == 404 and repo_dir(svc) is not None and not marked:
             emit({"action": "unbind-service", "worker": worker, "binding": binding, "service": svc, "ok": False, "refused": "the target's repo directory has no RETIRED/FOLDED marker"})
             return 3
         target_live = s2 != 404
@@ -1768,8 +1817,8 @@ def unbind_service(target: str, acct: str, token: str) -> int:
         # The canonical deploy keeps a live binding by (type, name) and only refreshes its props, so the dangling one must
         # go before the declared one can install. Refuse while the declaration still names the dead target, a RETIRED or
         # FOLDED directory, or a worker with no repo directory.
-        if (not declared or declared == svc or not os.path.isdir(declared)
-                or any(os.path.isfile(os.path.join(declared, m)) for m in ("RETIRED", "FOLDED"))):
+        if (not declared or declared == svc or repo_dir(declared) is None
+                or retirement_marker(declared) is not None):
             emit({"action": "unbind-service", "worker": worker, "binding": binding, "ok": False, "refused": d + "/wrangler.toml still declares the binding" + (" to " + declared if declared else "")})
             return 3
         repoint = declared

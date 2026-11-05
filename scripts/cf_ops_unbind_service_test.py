@@ -155,6 +155,20 @@ try:
         rc = C.unbind_service("qnfo-dash:SVC_REV", "a", "t")
         ok(rc == 3 and "still declares" in emitted[-1]["refused"] and len(patched) == n_patch, "refused while the declaration names " + why, emitted[-1])
         SETTINGS["qnfo-dash"]["bindings"].pop(0)
+    # ARCHIVE-MARKER-READ-1 (RM-REPO-DEAD-SOURCES-1): the target's RETIRED marker may sit under archive/<name>/; no marker anywhere still refuses.
+    os.makedirs(os.path.join(root, "archive", "qnfo-arch-target"), exist_ok=True)
+    open(os.path.join(root, "archive", "qnfo-arch-target", "RETIRED"), "w").write("x")
+    os.makedirs(os.path.join(root, "archive", "qnfo-arch-nomark"), exist_ok=True)
+    open(os.path.join(root, "qnfo-dash", "wrangler.toml"), "w").write('name = "qnfo-dash"\n')
+    LIVE.update({"qnfo-arch-target", "qnfo-arch-nomark"})
+    SETTINGS["qnfo-dash"]["bindings"][:0] = [{"type": "service", "name": "SVC_ARCH", "service": "qnfo-arch-target"},
+                                             {"type": "service", "name": "SVC_NOMARK", "service": "qnfo-arch-nomark"}]
+    n_patch = len(patched)
+    ok(C.unbind_service("qnfo-dash:SVC_NOMARK", "a", "t") == 3 and "still exists" in emitted[-1]["refused"] and len(patched) == n_patch, "a live target whose archive directory has no marker is refused")
+    LIVE.discard("qnfo-arch-nomark")
+    ok(C.unbind_service("qnfo-dash:SVC_NOMARK", "a", "t") == 3 and "no RETIRED/FOLDED marker" in emitted[-1]["refused"] and len(patched) == n_patch, "an absent target whose archive directory has no marker is refused")
+    rc = C.unbind_service("qnfo-dash:SVC_ARCH", "a", "t")
+    ok(rc == 0 and emitted[-1]["ok"] and emitted[-1]["target_still_deployed"] is True and len(patched) == n_patch + 1, "a binding to a still-deployed worker whose RETIRED marker is under archive/ is removed (unbind before delete)", emitted[-1])
 finally:
     os.chdir(cwd)
 
