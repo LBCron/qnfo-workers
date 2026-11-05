@@ -1,5 +1,5 @@
 {
-  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving.",
+  "_note": "DEPLOY-PROBES-1 (scripts/deploy_probes.py): what canonical-deploy.yml checks from the runner after this worker deploys. A probe that passed before the deploy and fails after it reverts the push (scripts/canary_revert.py); add the routes and D1 statements this worker must keep serving. CONCEPT-NAV-1 and CONSISTENCY-1 add the two pages and the concept search.",
   "mode": "revert",
   "health": "https://qnfo-ai-search.q08.workers.dev/health",
   "http": [
@@ -7,6 +7,26 @@
       "url": "https://qnfo-ai-search.q08.workers.dev/health",
       "contains": [
         "\"worker\":\"qnfo-ai-search\""
+      ]
+    },
+    {
+      "url": "https://ask.qwav.org/concepts",
+      "contains": [
+        "data-page=\"concept-nav\"",
+        "Concept navigator"
+      ]
+    },
+    {
+      "url": "https://ask.qwav.org/consistency",
+      "contains": [
+        "data-page=\"consistency\"",
+        "Consistency check"
+      ]
+    },
+    {
+      "url": "https://ask.qwav.org/api/concepts?q=ultrametric",
+      "contains": [
+        "\"nodes\":[{"
       ]
     }
   ]

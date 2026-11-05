@@ -29,7 +29,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.14.0";
+var VERSION = "2.15.0";
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
@@ -303,11 +303,17 @@ var worker_default = {
       if (path === "/api/stats") return cached(request, ctx, 600, function () { return stats(env); });
       if (path === "/api/recent") return cached(request, ctx, 600, function () { return recent(env); });
       if (path === "/api/explore") return explore(env, url.searchParams.get("node") || "");
+      // CONCEPT-NAV-1 and CONSISTENCY-1 (2.15.0): the concept navigator and the cross-paper consistency candidates.
+      if (path === "/concepts" && method === "GET") return navPage(CONCEPTS_PAGE);
+      if (path === "/consistency" && method === "GET") return navPage(CONSISTENCY_PAGE);
+      if (path === "/api/concepts" && method === "GET") return cached(request, ctx, 300, function () { return conceptSearch(env, url.searchParams.get("q") || ""); });
+      if (path === "/api/concepts/neighbors" && method === "GET") return cached(request, ctx, 300, function () { return conceptNeighbors(env, url.searchParams.get("id") || ""); });
+      if (path === "/api/consistency" && method === "GET") return consistencyRoute(request, env, ctx);
       if (path === "/api/loop") return loopReport(env);
       // ASK-CRAWLER-GATE-1 (2.5.0): a renderer that honours robots.txt loads the page but does not post the question.
-      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /api/ask\nDisallow: /api/feedback\nSitemap: https://ask.qwav.tech/sitemap.xml\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
+      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /api/ask\nDisallow: /api/feedback\nDisallow: /api/consistency\nSitemap: https://ask.qwav.tech/sitemap.xml\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
       if (path === "/sitemap.xml" && method === "GET") {
-        return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ask.qwav.tech/</loc></url></urlset>\n', { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
+        return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ask.qwav.tech/</loc></url><url><loc>https://ask.qwav.tech/concepts</loc></url><url><loc>https://ask.qwav.tech/consistency</loc></url></urlset>\n', { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
       }
       return json({ error: "Not found", path: path }, 404);
     } catch (e) {
@@ -521,6 +527,297 @@ async function explore(env, id) {
   if (!id) return json({ error: "node required" }, 400);
   return json(await neighborhood(env, [id], [], 40), 200, { "Cache-Control": "public, max-age=300" });
 }
+// ---- CONCEPT-NAV-1 and CONSISTENCY-1:BEGIN (roadmap_implementation rows 35 RM-VISION-CONCEPT-GRAPH-1 and 33 RM-VISION-CONSISTENCY-ENGINE-1, 2026-11-05, pillar research)
+// CONCEPT-NAV-1: a public navigator over the knowledge graph the answers already draw. GET /api/concepts?q= finds public nodes (papers, concepts,
+// findings, questions) by words; GET /api/concepts/neighbors?id= returns a node with its neighbours, the same public filter as /api/explore and
+// with withdrawn papers left out; GET /concepts is the page: search, click a node to re-centre, share the address with #<node id>.
+// CONSISTENCY-1: GET /api/consistency?slug= reads one published paper and lists, as candidates for a reader to check and never as verdicts,
+// (1) papers that say much the same (redundancy) and (2) papers on the same ground that the text never mentions (missing citations). The paper
+// is compared through four of its own passages (abstract, introduction, a middle section, conclusion) against the paper index; a neighbour counts
+// as matched by a passage when the passage's best hits include it. Contradictions between papers need claims read in pairs and are the next slice.
+// Misses are rate limited (per address per hour, and in total per hour) because each one searches the index four times.
+var NAV_HIDDEN = /^(retracted|quarantined|duplicate|draft|superseded|withdrawn)$/i;
+function navVisible(n) { return !(n && n.label === "Paper" && NAV_HIDDEN.test(String(n.status || ""))); }
+async function conceptSearch(env, q) {
+  q = String(q || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (q.length < 2) return { query: q, nodes: [] };
+  var r = await up(env, "GATEWAY", UP.graph, "/nodes?search=" + encodeURIComponent(q) + "&limit=40", null, 8000);
+  var seen = new Map();
+  ((r && r.nodes) || []).forEach(function (n) { if (publicNode(n) && !seen.has(n.id)) { var o = nodeOut(n); if (navVisible(o)) seen.set(n.id, o); } });
+  var nodes = Array.from(seen.values()).sort(function (a, b) { return (LABEL_RANK[a.label] ?? 9) - (LABEL_RANK[b.label] ?? 9) || String(a.name).localeCompare(String(b.name)); }).slice(0, 30);
+  return { query: q, nodes: nodes };
+}
+async function conceptNeighbors(env, id) {
+  id = String(id || "").slice(0, 200);
+  if (!id) return { error: "id required" };
+  var g = await neighborhood(env, [id], [], 40);
+  var keep = new Set();
+  var nodes = g.nodes.filter(function (n) { if (!navVisible(n)) return false; keep.add(n.id); return true; });
+  var edges = g.edges.filter(function (e) { return keep.has(e.source) && keep.has(e.target); });
+  return { center: id, found: nodes.some(function (n) { return n.id === id; }), nodes: nodes, edges: edges };
+}
+var CONS_PASSAGE_CHARS = 420, CONS_HITS = 10, CONS_REDUNDANT_MIN = 0.9, CONS_RELATED_MIN = 0.85, CONS_PAIR_MIN = 0.75, CONS_MAX = 8, CONS_PER_IP_HOUR = 20, CONS_GLOBAL_HOUR = 150;
+function consNorm(t) { return String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+function consTitleKey(t) { return consNorm(String(t || "").replace(/\((version|v)[^)]*\)|\bv\d+(\.\d+)*\b/gi, " ")).slice(0, 70); }
+function consPlain(t) {
+  return String(t || "").replace(/\$\$[\s\S]*?\$\$/g, " ").replace(/\$[^$\n]{0,200}\$/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[#*_`>|~]/g, " ").replace(/\s+/g, " ").trim();
+}
+// Up to four passages of one paper: abstract, introduction, the longest other section and the conclusion, each cut to CONS_PASSAGE_CHARS.
+function consPassages(abstract, bodyMd) {
+  var body = String(bodyMd || "").replace(/^---[\s\S]*?---\s*/, "");
+  var secs = body.split(/\n(?=#{1,3}\s)/).map(function (t) {
+    var head = (t.match(/^#{1,3}\s+(.+)/) || [])[1] || "";
+    return { head: head, text: consPlain(t.replace(/^#{1,3}\s+.*\n?/, "")) };
+  }).filter(function (s) { return s.text.length >= 120 && !/^[\d.\s]*(references|bibliography|declarations|acknowledg|appendix)/i.test(s.head); });
+  var intro = secs.filter(function (s) { return /introduc|background|motivat|overview/i.test(s.head); })[0] || secs[0];
+  var concl = secs.slice().reverse().filter(function (s) { return /conclu|discussion|summary|outlook/i.test(s.head); })[0];
+  var rest = secs.filter(function (s) { return s !== intro && s !== concl; }).sort(function (a, b) { return b.text.length - a.text.length; })[0];
+  var out = [], seen = new Set();
+  [consPlain(abstract)].concat([intro, rest, concl].map(function (s) { return s ? s.text : ""; })).forEach(function (t) {
+    t = t.slice(0, CONS_PASSAGE_CHARS);
+    var k = t.slice(0, 60);
+    if (t.length >= 80 && !seen.has(k)) { seen.add(k); out.push(t); }
+  });
+  return out;
+}
+// results: one array of search chunks per passage. A slug counts once per passage; best is its highest chunk score.
+function consGroups(results, ownSlug) {
+  var g = new Map();
+  results.forEach(function (chunks, pi) {
+    (chunks || []).forEach(function (c) {
+      var slug = slugOf((c.item && c.item.key) || c.filename || c.file_id || "");
+      if (!slug || slug === ownSlug || JUNK_SLUG.test(slug)) return;
+      var e = g.get(slug) || { slug: slug, passages: new Set(), best: 0, heads: [] };
+      e.best = Math.max(e.best, Number(c.score) || 0);
+      e.passages.add(pi);
+      var h = headingOf(c.text || (c.content && c.content[0] && c.content[0].text) || "");
+      if (h && e.heads.length < 2 && e.heads.indexOf(h) < 0) e.heads.push(h);
+      g.set(slug, e);
+    });
+  });
+  return g;
+}
+function consClassify(groups, bySlug, own, bodyMd, passageCount) {
+  var out = { redundancy: [], missing_citations: [], same_work: [] };
+  var bodyNorm = consNorm(bodyMd), bodyLow = String(bodyMd || "").toLowerCase(), ownKey = consTitleKey(own.title);
+  groups.forEach(function (e) {
+    var c = bySlug && bySlug.get(e.slug);
+    if (!c || !c.title) return; // not a published paper
+    var tNorm = consNorm(c.title), sNorm = consNorm(e.slug);
+    // Named by its address, by a long slug written out, or by (the start of) its title.
+    var cited = bodyLow.indexOf("/papers/" + e.slug) >= 0 || (sNorm.length >= 12 && bodyNorm.indexOf(sNorm) >= 0) || (tNorm.length >= 14 && bodyNorm.indexOf(tNorm.slice(0, 48)) >= 0);
+    var item = { slug: e.slug, title: String(c.title).slice(0, 200), url: "https://papers.qnfo.org/papers/" + e.slug, matched_passages: e.passages.size, best_score: Math.round(e.best * 1000) / 1000, where: e.heads, mentioned_in_text: cited };
+    if (ownKey && consTitleKey(c.title) === ownKey) { out.same_work.push(item); return; }
+    if (e.passages.size >= Math.min(3, passageCount) && e.best >= CONS_REDUNDANT_MIN) out.redundancy.push(item);
+    else if (!cited && ((e.passages.size >= 2 && e.best >= CONS_PAIR_MIN) || e.best >= CONS_RELATED_MIN)) out.missing_citations.push(item);
+  });
+  var order = function (a, b) { return b.matched_passages - a.matched_passages || b.best_score - a.best_score; };
+  Object.keys(out).forEach(function (k) { out[k] = out[k].sort(order).slice(0, CONS_MAX); });
+  return out;
+}
+async function consAdmit(env, request) {
+  try {
+    var ip = request.headers.get("CF-Connecting-IP") || "anon";
+    var hour = new Date().toISOString().slice(0, 13);
+    if ((await bump(env, "cons-ip:" + (await sha("cons|" + ip + "|" + hour)) + ":" + hour)) > CONS_PER_IP_HOUR) return false;
+    if ((await bump(env, "cons-all:" + hour)) > CONS_GLOBAL_HOUR) return false;
+  } catch (e) { logErr("consistency admit", e); }
+  return true;
+}
+async function consistency(env, slug) {
+  slug = String(slug || "").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{2,200}$/.test(slug)) return { status: 400, body: { error: "slug required" } };
+  var p = await up(env, "GATEWAY", UP.papers, "/papers/" + encodeURIComponent(slug), null, PAPER_DETAIL_TIMEOUT_MS);
+  if (!p || p.slug !== slug || !p.title || String(p.status || "published") !== "published") return { status: 404, body: { error: "No published paper has this address", slug: slug } };
+  var passages = consPassages(p.abstract, p.body_md);
+  if (!passages.length) return { status: 200, body: { slug: slug, title: p.title, checked: { passages: 0 }, redundancy: [], missing_citations: [], same_work: [], note: "The paper has no passage long enough to compare." } };
+  var res = await Promise.all(passages.map(function (t) { return corpusSearch(env, t, CONS_HITS); }));
+  var cat = await deadline(catalogIndex(env), CATALOG_WAIT_MS * 2, "catalog").catch(function () { return null; });
+  var cls = consClassify(consGroups(res, slug), cat && cat.bySlug, { slug: slug, title: p.title }, p.body_md, passages.length);
+  return { status: 200, body: Object.assign({ slug: slug, title: String(p.title).slice(0, 200), url: "https://papers.qnfo.org/papers/" + slug, checked: { passages: passages.length, compared_with: cat ? cat.n : null }, thresholds: { redundancy: { passages: Math.min(3, passages.length), best_score: CONS_REDUNDANT_MIN }, missing_citation: { passages: 2, best_score: CONS_PAIR_MIN, or_best_score: CONS_RELATED_MIN } }, note: "Candidates for a reader to check, not findings. Contradictions between papers are not checked yet." }, cls) };
+}
+async function consistencyRoute(request, env, ctx) {
+  var url = new URL(request.url), slug = String(url.searchParams.get("slug") || "").trim().toLowerCase();
+  var key = new Request(url.origin + "/api/consistency?slug=" + encodeURIComponent(slug), { method: "GET" });
+  var hit = await caches.default.match(key);
+  if (hit) return hit;
+  if (!(await consAdmit(env, request))) return json({ error: "Too many comparisons just now. Try again in an hour." }, 429, { "Retry-After": "3600", "Cache-Control": "no-store" });
+  var r = await consistency(env, slug);
+  var res = json(r.body, r.status, { "Cache-Control": r.status === 200 ? "public, max-age=3600" : "no-store" });
+  if (r.status === 200) ctx.waitUntil(caches.default.put(key, res.clone()));
+  return res;
+}
+function navPage(html) {
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "DENY", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(), microphone=(), geolocation=()" } });
+}
+var NAV_CSS = String.raw`:root{--paper:#F5F7FB;--surface:#FFFFFF;--ink:#182042;--muted:#5A6386;--rule:#D9DEEC;--wash:#E9EDF7;--teal:#0E7C70;--teal-wash:#DDF1EE;--n-paper:#182042;--n-concept:#0E7C70;--n-question:#B5562A;--n-finding:#5B4BB7;--n-program:#7A8199;--serif:"Newsreader",Georgia,serif;--sans:"Familjen Grotesk",system-ui,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--paper:#141A33;--surface:#1B2346;--ink:#E6E8F3;--muted:#9AA3C6;--rule:#2D3762;--wash:#222B52;--teal:#5FD3C4;--teal-wash:#173B45;--n-paper:#E6E8F3;--n-concept:#5FD3C4;--n-question:#F08A5D;--n-finding:#A99BFF;--n-program:#8C93AE;color-scheme:dark}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.5 var(--sans)}
+a{color:inherit;text-underline-offset:3px}a:hover{color:var(--teal)}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;left:-999px}.skip:focus{left:8px;top:8px;background:var(--surface);padding:8px 12px;z-index:9}
+header.top{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:space-between;max-width:960px;margin:0 auto;padding:14px 20px;border-bottom:1px solid var(--rule)}
+header.top a.brand{font:600 18px var(--sans);text-decoration:none}
+header.top nav{display:flex;flex-wrap:wrap;gap:4px 16px}header.top nav a{padding:6px 2px;text-decoration:none;color:var(--muted)}
+header.top nav a[aria-current=page]{color:var(--ink);border-bottom:2px solid var(--teal)}
+main{max-width:960px;margin:0 auto;padding:24px 20px 56px}
+h1{font:500 clamp(28px,5vw,40px)/1.15 var(--serif);margin:0 0 8px}
+h2{font:500 24px/1.2 var(--serif);margin:28px 0 8px}h3{font:600 16px var(--sans);margin:20px 0 8px}
+.lede{color:var(--muted);max-width:62ch;margin:0 0 20px}.meta{color:var(--muted);font-size:14px;margin:4px 0}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:0 0 12px}
+form label{flex:1 0 100%;font-weight:600;font-size:14px}
+input[type=search]{flex:1 1 220px;min-height:44px;padding:8px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+button.go{min-height:44px;padding:8px 18px;border:0;border-radius:8px;background:var(--teal);color:#fff;font-weight:600}
+@media (prefers-color-scheme:dark){button.go{color:#0b1226}}
+ul.list{list-style:none;margin:0;padding:0}ul.list li{margin:0 0 6px}
+button.item{display:flex;gap:10px;align-items:baseline;width:100%;min-height:44px;text-align:left;padding:8px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);color:var(--ink)}
+.kind{flex:0 0 auto;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--wash);color:var(--muted)}
+.nm{flex:1 1 auto}
+.card{border:1px solid var(--rule);border-radius:12px;background:var(--surface);padding:14px 16px;margin:0 0 10px}
+.card a{font-weight:600}
+.note{border-left:3px solid var(--teal);background:var(--teal-wash);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+svg.graph{width:100%;height:auto;max-height:70vh;background:var(--surface);border:1px solid var(--rule);border-radius:12px}
+svg.graph text{fill:var(--ink);font:12px var(--sans)}svg.graph .edge{stroke:var(--rule);stroke-width:1.5}
+svg.graph .nd{cursor:pointer}svg.graph .nd:focus-visible{outline:2px solid var(--teal)}
+`;
+function navHead(title, desc, path) {
+  return String.raw`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>` + title + String.raw`</title><meta name="description" content="` + desc + String.raw`"><link rel="canonical" href="https://ask.qwav.tech` + path + String.raw`"><meta name="theme-color" content="#F5F7FB" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#141A33" media="(prefers-color-scheme: dark)"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet"><style>` + NAV_CSS + `</style></head><body>`;
+}
+function navTop(current) {
+  var a = function (href, label, key) { return '<a href="' + href + '"' + (current === key ? ' aria-current="page"' : "") + ">" + label + "</a>"; };
+  return '<a class="skip" href="#main">Skip to main content</a><header class="top"><a class="brand" href="/">Ask QWAV</a><nav aria-label="Primary">' + a("/", "Ask", "ask") + a("/concepts", "Concepts", "concepts") + a("/consistency", "Consistency", "consistency") + a("https://papers.qnfo.org/papers", "Papers", "papers") + "</nav></header>";
+}
+var CONCEPTS_PAGE = navHead("Concept navigator | Ask QWAV", "Search the QNFO research knowledge graph and follow links between papers, concepts, findings and open questions.", "/concepts") + navTop("concepts") + String.raw`<main id="main" data-page="concept-nav">
+<h1>Concept navigator</h1>
+<p class="lede">Search the research graph, open a paper, concept, finding or question, and follow its links to the next one.</p>
+<form id="f" role="search"><label for="q">Search the graph</label><input id="q" type="search" autocomplete="off" placeholder="for example: ultrametric, joules per solution"><button class="go" type="submit">Search</button></form>
+<ul class="list" id="results" aria-live="polite"></ul>
+<section id="view" hidden aria-live="polite">
+<h2 id="vt"></h2><p class="meta" id="vm"></p><p id="vl"></p>
+<svg class="graph" id="g" role="group" aria-label="Items linked to the selected one" viewBox="-300 -210 600 420"></svg>
+<h3>Linked items</h3><ul class="list" id="nb"></ul>
+</section>
+<noscript><p class="note">Searching the graph needs JavaScript. You can still <a href="/">ask a question</a> or <a href="https://papers.qnfo.org/papers">browse the papers</a>.</p></noscript>
+</main>
+<script>
+(function(){
+var NS='http://www.w3.org/2000/svg';
+function $(id){return document.getElementById(id)}
+function clear(n){while(n.firstChild)n.removeChild(n.firstChild)}
+function el(t,a,txt){var e=document.createElement(t);if(a)for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e}
+function sv(t,a){var e=document.createElementNS(NS,t);if(a)for(var k in a)e.setAttribute(k,a[k]);return e}
+function short(s,n){s=String(s||'');return s.length>n?s.slice(0,n-1)+'2026':s}
+function lab(l){return l==='ResearchQuestion'?'Question':l}
+function nice(t){return String(t||'linked to').toLowerCase().split('_').join(' ')}
+function color(l){return l==='Paper'?'var(--n-paper)':l==='Concept'?'var(--n-concept)':l==='ResearchQuestion'?'var(--n-question)':l==='Program'?'var(--n-program)':'var(--n-finding)'}
+function get(u,cb){fetch(u).then(function(r){return r.json()}).then(cb).catch(function(){cb(null)})}
+function go(id){location.hash=encodeURIComponent(id)}
+function search(q){
+  var ul=$('results');clear(ul);if(q.length<2)return;
+  ul.appendChild(el('li',{'class':'meta'},'Searching2026'));
+  get('/api/concepts?q='+encodeURIComponent(q),function(d){
+    clear(ul);var ns=(d&&d.nodes)||[];
+    if(!ns.length){ul.appendChild(el('li',{'class':'meta'},d?'Nothing in the graph matches that. Try a shorter or different word.':'The graph could not be reached. Try again in a minute.'));return}
+    ns.forEach(function(n){var li=el('li'),b=el('button',{type:'button','class':'item'});b.appendChild(el('span',{'class':'kind'},lab(n.label)));b.appendChild(el('span',{'class':'nm'},short(n.name,140)));b.addEventListener('click',function(){go(n.id)});li.appendChild(b);ul.appendChild(li)})
+  })
+}
+function draw(id,d){
+  var v=$('view');v.hidden=false;
+  var ns=(d&&d.nodes)||[],es=(d&&d.edges)||[],c=null;
+  ns.forEach(function(n){if(n.id===id)c=n});
+  clear($('g'));clear($('nb'));clear($('vl'));
+  if(!c){$('vt').textContent='That item is not in the public graph';$('vm').textContent='';return}
+  $('vt').textContent=c.name;$('vm').textContent=lab(c.label)+(c.status?' 00b7 '+c.status:'');
+  var vl=$('vl');
+  if(c.label==='Paper'&&c.slug){vl.appendChild(el('a',{href:'https://papers.qnfo.org/papers/'+encodeURIComponent(c.slug)},'Read the paper'));vl.appendChild(document.createTextNode(' 00b7 '));vl.appendChild(el('a',{href:'/consistency#'+encodeURIComponent(c.slug)},'Check overlap and missing references'));vl.appendChild(document.createTextNode(' 00b7 '))}
+  vl.appendChild(el('a',{href:'/?q='+encodeURIComponent('What does the research say about '+c.name+'?')},'Ask about this'));
+  var others=ns.filter(function(n){return n.id!==id}),rel={};
+  es.forEach(function(e){if(e.source===id)rel[e.target]='2192 '+nice(e.type);else if(e.target===id)rel[e.source]='2190 '+nice(e.type)});
+  var g=$('g'),R=others.length>18?175:150,labels=others.length<=14;
+  others.forEach(function(n,i){
+    var a=2*Math.PI*i/Math.max(others.length,1)-Math.PI/2,x=Math.round(R*Math.cos(a)),y=Math.round(R*Math.sin(a));
+    g.appendChild(sv('line',{'class':'edge',x1:0,y1:0,x2:x,y2:y}));
+  });
+  var cg=sv('g');cg.appendChild(sv('circle',{cx:0,cy:0,r:16,fill:color(c.label)}));cg.appendChild(sv('text',{x:0,y:34,'text-anchor':'middle'})).textContent=short(c.name,40);g.appendChild(cg);
+  others.forEach(function(n,i){
+    var a=2*Math.PI*i/Math.max(others.length,1)-Math.PI/2,x=Math.round(R*Math.cos(a)),y=Math.round(R*Math.sin(a));
+    var ng=sv('g',{'class':'nd',tabindex:'0',role:'button','aria-label':'Open '+n.name});
+    ng.appendChild(sv('circle',{cx:x,cy:y,r:10,fill:color(n.label)}));
+    ng.appendChild(sv('title')).textContent=n.name;
+    if(labels){var left=x<-20,right=x>20;ng.appendChild(sv('text',{x:x+(right?16:left?-16:0),y:y+(right||left?4:(y<0?-16:22)),'text-anchor':right?'start':left?'end':'middle'})).textContent=short(n.name,26)}
+    ng.addEventListener('click',function(){go(n.id)});
+    ng.addEventListener('keydown',function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();go(n.id)}});
+    g.appendChild(ng);
+    var li=el('li'),b=el('button',{type:'button','class':'item'});
+    b.appendChild(el('span',{'class':'kind'},lab(n.label)));b.appendChild(el('span',{'class':'nm'},short(n.name,160)));b.appendChild(el('span',{'class':'meta'},rel[n.id]||''));
+    b.addEventListener('click',function(){go(n.id)});li.appendChild(b);$('nb').appendChild(li);
+  });
+  if(!others.length)$('nb').appendChild(el('li',{'class':'meta'},'No public links from this item yet.'));
+}
+function route(){var h=decodeURIComponent((location.hash||'').slice(1));if(!h)return;get('/api/concepts/neighbors?id='+encodeURIComponent(h),function(d){draw(h,d)})}
+$('f').addEventListener('submit',function(ev){ev.preventDefault();search($('q').value.trim())});
+window.addEventListener('hashchange',route);
+var q0=new URLSearchParams(location.search).get('q');if(q0){$('q').value=q0;search(q0.trim())}
+route();
+})();
+</script></body></html>`;
+var CONSISTENCY_PAGE = navHead("Consistency check | Ask QWAV", "Pick a published QNFO paper and see which other papers say much the same and which papers on the same ground it never mentions.", "/consistency") + navTop("consistency") + String.raw`<main id="main" data-page="consistency">
+<h1>Consistency check</h1>
+<p class="lede">Pick a published paper. This page lists papers that say much the same, and papers on the same ground that its text never mentions. Both lists are candidates for a reader to check, not findings. It does not yet look for claims that contradict each other.</p>
+<form id="f" role="search"><label for="q">Find a paper</label><input id="q" type="search" autocomplete="off" placeholder="for example: joules per solution"><button class="go" type="submit">Search</button></form>
+<ul class="list" id="results" aria-live="polite"></ul>
+<section id="out" hidden aria-live="polite"></section>
+<noscript><p class="note">The check needs JavaScript. You can still <a href="https://papers.qnfo.org/papers">browse the papers</a>.</p></noscript>
+</main>
+<script>
+(function(){
+function $(id){return document.getElementById(id)}
+function clear(n){while(n.firstChild)n.removeChild(n.firstChild)}
+function el(t,a,txt){var e=document.createElement(t);if(a)for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e}
+function get(u,cb){fetch(u).then(function(r){return r.json().then(function(j){cb(r.status,j)})}).catch(function(){cb(0,null)})}
+function search(q){
+  var ul=$('results');clear(ul);if(q.length<2)return;
+  ul.appendChild(el('li',{'class':'meta'},'Searching2026'));
+  get('/api/concepts?q='+encodeURIComponent(q),function(s,d){
+    clear(ul);var ns=((d&&d.nodes)||[]).filter(function(n){return n.label==='Paper'&&n.slug});
+    if(!ns.length){ul.appendChild(el('li',{'class':'meta'},s===200?'No published paper matches that. Try other words from its title.':'The paper list could not be reached. Try again in a minute.'));return}
+    ns.forEach(function(n){var li=el('li'),b=el('button',{type:'button','class':'item'});b.appendChild(el('span',{'class':'nm'},n.name));b.addEventListener('click',function(){location.hash=encodeURIComponent(n.slug)});li.appendChild(b);ul.appendChild(li)})
+  })
+}
+function section(out,title,intro,items,n){
+  out.appendChild(el('h2',null,title));out.appendChild(el('p',{'class':'meta'},intro));
+  if(!items.length){out.appendChild(el('p',null,'None found.'));return}
+  items.forEach(function(it){
+    var c=el('div',{'class':'card'});c.appendChild(el('a',{href:it.url},it.title));
+    c.appendChild(el('p',{'class':'meta'},'Matched '+it.matched_passages+' of '+n+' passages compared (best match '+it.best_score+')'+(it.mentioned_in_text?'; the paper does mention it':'')+'.'));
+    if(it.where&&it.where.length)c.appendChild(el('p',{'class':'meta'},'Closest sections: '+it.where.join(' / ')));
+    out.appendChild(c)
+  })
+}
+function show(slug){
+  var out=$('out');out.hidden=false;clear(out);out.appendChild(el('p',{'class':'meta'},'Comparing2026'));
+  get('/api/consistency?slug='+encodeURIComponent(slug),function(s,d){
+    clear(out);
+    if(s===429){out.appendChild(el('p',{'class':'note'},'Too many comparisons just now. Try again in an hour.'));return}
+    if(s===404){out.appendChild(el('p',{'class':'note'},'No published paper has this address.'));return}
+    if(s!==200||!d){out.appendChild(el('p',{'class':'note'},'The comparison could not be completed. Try again in a minute.'));return}
+    var h=el('h2',null,d.title);out.appendChild(h);
+    var p=el('p',{'class':'meta'});p.appendChild(el('a',{href:d.url},'Read the paper'));p.appendChild(document.createTextNode(' 00b7 compared through '+d.checked.passages+' of its passages against '+(d.checked.compared_with||'the')+' published papers'));out.appendChild(p);
+    out.appendChild(el('p',{'class':'note'},d.note));
+    var n=d.checked.passages;
+    section(out,'Papers that say much the same','Close to a repeat of this paper: most of the compared passages match closely.',d.redundancy,n);
+    section(out,'Other versions of this work','Same title apart from a version mark.',d.same_work,n);
+    section(out,'On the same ground, not mentioned here','Papers that match two or more passages and whose title the text never names.',d.missing_citations,n);
+  })
+}
+function route(){var h=decodeURIComponent((location.hash||'').slice(1));if(h)show(h)}
+$('f').addEventListener('submit',function(ev){ev.preventDefault();search($('q').value.trim())});
+window.addEventListener('hashchange',route);
+route();
+})();
+</script></body></html>`;
+// ---- CONCEPT-NAV-1 and CONSISTENCY-1:END
 function keywords(q) {
   var raw = String(q).toLowerCase().match(/[a-z0-9]+(?:-[a-z0-9]+)*/g) || [];
   var uniq = Array.from(new Set(raw.filter(function (w) { return (w.length >= 5 || /-/.test(w)) && !STOP.has(w); })));
