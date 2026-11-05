@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.63.1-tool-arg-alias";
+var VERSION = "2.64.0-tool-arg-alias";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -872,9 +872,12 @@ var MAX_TOOL_RESULT_CHARS = 16384;
 // deadline is hit. Before this recorder existed that event left no trace in
 // qnfo-audit, so a caller-visible "tool budget exhausted before these could
 // run" could not be diagnosed from the fleet's own logs.
-function opsToolBudgetBail(env, scope, iter, maxIters, deadlineHit, reason) {
+// PUBLIC-TURN-CAP-KIND-1 (2026-11-05): the optional kind lets a public (anonymous, keyless) turn record its own deliberate
+// 4-round and 90-second cap as ops_public_turn_cap. Such a turn can never be promoted to a durable job (a stranger must not
+// start server-side work), so it is not the failure class ops_tool_budget_bail_7d counts; it stays in the event stream.
+function opsToolBudgetBail(env, scope, iter, maxIters, deadlineHit, reason, kind) {
   try {
-    return env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(randId("evt-"), iso(), "ops_tool_budget_bail", scope, snippet({ iter: iter, maxIters: maxIters, deadlineHit: !!deadlineHit, reason: reason || void 0, version: VERSION }, 600), "qnfo-ops", "ok").run();
+    return env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(randId("evt-"), iso(), kind || "ops_tool_budget_bail", scope, snippet({ iter: iter, maxIters: maxIters, deadlineHit: !!deadlineHit, reason: reason || void 0, version: VERSION }, 600), "qnfo-ops", "ok").run();
   } catch (e) { return null; }
 }
 __name(opsToolBudgetBail, "opsToolBudgetBail");
@@ -977,6 +980,88 @@ async function opsSurfaceCheckpoints(env) {
   } catch (e) { return ""; }
 }
 __name(opsSurfaceCheckpoints, "opsSurfaceCheckpoints");
+
+// ---- SESSION-AUTOCONTINUE-1:BEGIN (2026-11-05, roadmap RM-DURABLE-AGENT-EXECUTION-1 and RM-TP-6-DURABLE-EXECUTION, pillar autonomy; minor: a capability the durable agent session did not have)
+// A background run of the durable agent session (AgenticOpsExec, op start) that spends its round budget used to end with a forced
+// final answer and no continuation: 14 such runs were counted as ops_tool_budget_bail on 2026-10-29 to 10-31 (before 2.60.4 gave
+// session exhaustion its own kind, ops_agent_session_budget), each one dropping the rest of the task. The interactive chat path already
+// hands an over-budget turn to a durable job (BUDGET-AUTO-PROMOTE-1); this is the same continuation for the session path. The session
+// history already lives in DO storage, so the checkpoint is the stored transcript: when a run exhausts its rounds the final round
+// reports what is done, the history is compacted at the boundary (old tool results shortened, nothing else touched) and a follow-up
+// run of the same session is scheduled one second later by the DO alarm, with a fresh budget. Bounded to SESSION_CONTINUE_MAX_DEPTH
+// follow-ups per task. Off switch without a deploy: ops_config key ops_session_autocontinue set to off (or the env var
+// OPS_SESSION_AUTOCONTINUE set to 0); absent means on. Each follow-up writes one cloud_ops_events row of kind ops_session_continue.
+// A synchronous run (op run, WebSocket) is never continued: its caller is waiting and receives budget_exhausted in the result.
+var SESSION_CONTINUE_MARKER = "[SESSION-AUTOCONTINUE-1]";
+var SESSION_CONTINUE_MAX_DEPTH = 3;
+var SESSION_CONTINUE_KEEP_TOOL_RESULTS = 8;
+var SESSION_CONTINUE_TOOL_CAP = 1500;
+var SESSION_CONTINUE_DIRECTIVE = "TOOL BUDGET OF THIS RUN IS SPENT, but the task continues automatically in a follow-up run of the same session, which sees every tool result above. In this final message: state what is COMPLETED with its evidence, then list the remaining steps under the heading 'Continuing in the next run'. Do NOT call the task complete while steps remain, and do NOT repeat finished steps.";
+function opsSessionContinueFlag(configValue, envValue) {
+  const off = function(v) {
+    const s = String(v == null ? "" : v).trim().toLowerCase();
+    return s === "off" || s === "0" || s === "false" || s === "no";
+  };
+  return !(off(configValue) || off(envValue));
+}
+__name(opsSessionContinueFlag, "opsSessionContinueFlag");
+async function opsSessionContinueEnabled(env) {
+  let cfg = null;
+  try {
+    if (env && env.QNFO_AUDIT) {
+      const row = await env.QNFO_AUDIT.prepare("SELECT value FROM ops_config WHERE key = 'ops_session_autocontinue' LIMIT 1").first();
+      cfg = row && row.value;
+    }
+  } catch (e) { cfg = null; }
+  return opsSessionContinueFlag(cfg, env && env.OPS_SESSION_AUTOCONTINUE);
+}
+__name(opsSessionContinueEnabled, "opsSessionContinueEnabled");
+// Pure: the follow-up run for a finished run row, or null. run is the schedule row (id, sid, run, max_iters, depth, root);
+// result is what runTurn returned; opts.enabled must be true (the caller read the switch and the depth before the run).
+function opsSessionContinuation(run, result, opts) {
+  const o = opts || {};
+  if (!o.enabled) return null;
+  if (!run || !run.run || !result || !result.ok || !result.budget_exhausted) return null;
+  const depth = Number(run.depth) || 0;
+  const maxDepth = Number.isFinite(Number(o.maxDepth)) ? Number(o.maxDepth) : SESSION_CONTINUE_MAX_DEPTH;
+  if (depth >= maxDepth) return null;
+  const root = String(run.root || run.id || "run");
+  const id = (root + "-c" + (depth + 1)).slice(0, 64);
+  const now = Number(o.now) || Date.now();
+  const text = SESSION_CONTINUE_MARKER + " Continuation " + (depth + 1) + " of at most " + maxDepth + ": the previous run of this session spent its " + (Number(result.max_iters) || "tool") + "-round budget before the task was finished. Continue the ORIGINAL task from exactly where it stopped, using the tool results already in this session; do not repeat steps that succeeded. Deliver the completed result with evidence.";
+  return {
+    id: id, depth: depth + 1, root: root, parent: run.id,
+    schedule: { id: id, sid: run.sid, text: text, at: now + 1000, max_iters: Number(run.max_iters) || 16, run: true, created: now, depth: depth + 1, root: root, parent: run.id },
+    queued: { id: id, sid: run.sid, status: "queued", steps: [], created: now, continues: run.id, depth: depth + 1, root: root }
+  };
+}
+__name(opsSessionContinuation, "opsSessionContinuation");
+// Pure: a copy of the history with every tool result but the newest keep ones cut to cap characters. Roles, order, assistant
+// messages and tool_call ids are untouched, so the transcript stays a valid tool conversation.
+function opsCompactHistory(history, keep, cap) {
+  const list = Array.isArray(history) ? history : [];
+  const k = Number.isFinite(Number(keep)) ? Number(keep) : SESSION_CONTINUE_KEEP_TOOL_RESULTS;
+  const c = Number.isFinite(Number(cap)) && Number(cap) > 0 ? Number(cap) : SESSION_CONTINUE_TOOL_CAP;
+  let seen = 0;
+  const out = list.slice();
+  for (let i = out.length - 1; i >= 0; i--) {
+    const m = out[i];
+    if (!m || m.role !== "tool") continue;
+    if (++seen <= k) continue;
+    const t = String(m.content == null ? "" : m.content);
+    if (t.length > c) out[i] = Object.assign({}, m, { content: t.slice(0, c) + " ...[shortened by SESSION-AUTOCONTINUE-1]" });
+  }
+  return out;
+}
+__name(opsCompactHistory, "opsCompactHistory");
+async function opsSessionContinueEvent(env, parentId, childId, depth, iters) {
+  try {
+    if (!env || !env.QNFO_AUDIT) return null;
+    return await env.QNFO_AUDIT.prepare("INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(randId("evt-"), iso(), "ops_session_continue", "continued " + parentId + " -> " + childId, snippet({ parent: parentId, child: childId, depth: depth, iters: iters, version: VERSION }, 400), "qnfo-ops", "ok").run();
+  } catch (e) { return null; }
+}
+__name(opsSessionContinueEvent, "opsSessionContinueEvent");
+// ---- SESSION-AUTOCONTINUE-1:END
 
 // ---- OPS-BRANCH-CLOSE-1:BEGIN (2.59.0, agent_issues 1000036 OPS-ENDPOINT-BRANCH-CLOSE-GAP-1, pillar reliability; minor: two tools the endpoint did not have)
 // The endpoint could open a pull request, write a file and graft a commit, but it could not close a pull request or delete a branch, so branch cleanup had one path (the
@@ -8304,7 +8389,7 @@ async function handleChatCore(env, body, ua, ctx, pub) {
               work.push({ role: "system", content: BUDGET_PROMOTED_DIRECTIVE.replace(/\{job\}/g, _pj.id) });
             }
           }
-          if (_firstBail && !promotedJobId) opsToolBudgetBail(env, "chat", iter, maxIters, deadlineHit);
+          if (_firstBail && !promotedJobId) opsToolBudgetBail(env, pub ? "public" : "chat", iter, maxIters, deadlineHit, void 0, pub ? "ops_public_turn_cap" : void 0);
           // OPS-PUBLIC-READ-1: a public turn never leaves a checkpoint; opsSurfaceCheckpoints would replay it into a keyed turn.
           if (_firstBail && !pub && !promotedJobId) await opsBudgetCheckpoint(env, lastUserText(messages), toolLog, iter, deadlineHit);
         }
@@ -8938,7 +9023,7 @@ function manifest() {
     version: VERSION,
     base_url: "https://ops.qnfo.org",
     purpose: "QNFO ops/infrastructure AI execution endpoint: queue-and-query cloud-native services (research_queue -> intent orchestrator -> autonomous backend batch execution), full-fleet health, multi-DB read-only query, Vectorize/R2/KV read, machine-readable service registry.",
-    capabilities: ["ops-ai-gateway", "openai-compatible", "chat", "agent", "code", "tool-execution", "fleet-probes", "full-fleet-probes", "multi-db-query", "vectorize-search", "r2-access", "kv-access", "research-queue", "queue-query", "analytics", "self-registration", "service-registry", "capability-advertising-audit", "telemetry", "self-heal", "isolated-ops-logging", "pure-server-exec", "streamed-answers", "async-jobs", "run-to-completion", "self-chaining-jobs", "workspace-edit", "workspace-grep", "workspace-glob", "workspace-diff", "workspace-patch", "run-code-net", "exec-pipeline", "git-ops", "parallel-reads", "claude-code-parity", "full-stack-shell", "cloudflare-containers", "real-python-interpreter", "real-node-interpreter", "bash-execution", "pip-install", "npm-install", "git-clone", "firecracker-vm", "agents-sdk", "durable-agent-sessions", "websocket-hibernation", "agent-http-rpc", "tool-bridge", "agent-schedule"],
+    capabilities: ["ops-ai-gateway", "openai-compatible", "chat", "agent", "code", "tool-execution", "fleet-probes", "full-fleet-probes", "multi-db-query", "vectorize-search", "r2-access", "kv-access", "research-queue", "queue-query", "analytics", "self-registration", "service-registry", "capability-advertising-audit", "telemetry", "self-heal", "isolated-ops-logging", "pure-server-exec", "streamed-answers", "async-jobs", "run-to-completion", "self-chaining-jobs", "workspace-edit", "workspace-grep", "workspace-glob", "workspace-diff", "workspace-patch", "run-code-net", "exec-pipeline", "git-ops", "parallel-reads", "claude-code-parity", "full-stack-shell", "cloudflare-containers", "real-python-interpreter", "real-node-interpreter", "bash-execution", "pip-install", "npm-install", "git-clone", "firecracker-vm", "agents-sdk", "durable-agent-sessions", "websocket-hibernation", "agent-http-rpc", "tool-bridge", "agent-schedule", "session-autocontinue"],
     routes: ROUTES,
     tools: OPS_TOOLS.map(function(t) {
       return { name: t.name, description: t.description, parameters: t.parameters };
@@ -9470,7 +9555,15 @@ var AgenticOpsExec = class extends DurableObject {
       if (op === "result") {
         const rrow = await this.ctx.storage.get("run:" + String(body && body.id || ""));
         if (!rrow) return json({ ok: false, error: "no such run" }, 404);
-        return json({ ok: true, run: rrow });
+        // SESSION-AUTOCONTINUE-1: a run that continued in a follow-up answers with the whole chain, so one id answers for the task.
+        let latest = rrow, hops = 0;
+        while (latest && latest.continued_by && hops < SESSION_CONTINUE_MAX_DEPTH + 2) {
+          const nx = await this.ctx.storage.get("run:" + latest.continued_by);
+          if (!nx) break;
+          latest = nx;
+          hops++;
+        }
+        return json(hops ? { ok: true, run: rrow, latest: latest, chain_len: hops + 1 } : { ok: true, run: rrow });
       }
       const text = String(body && (body.text || body.content) || "").trim();
       if (!text) return json({ ok: false, error: "text required" }, 400);
@@ -9483,12 +9576,12 @@ var AgenticOpsExec = class extends DurableObject {
     histList.forEach(function(h) {
       messages += (h || []).length;
     });
-    return json({ ok: true, worker: WORKER, class: "AgenticOpsExec", version: VERSION, sessions, messages, capabilities: ["websocket-hibernation", "durable-agent-session", "ops-tool-loop", "agent-http-rpc", "agent-schedule"] });
+    return json({ ok: true, worker: WORKER, class: "AgenticOpsExec", version: VERSION, sessions, messages, capabilities: ["websocket-hibernation", "durable-agent-session", "ops-tool-loop", "agent-http-rpc", "agent-schedule", "session-autocontinue"] });
   }
   // AGENT-RPC-1 (2.55.0): one agent turn, shared by the hibernating WebSocket and the HTTP RPC
   // (POST /agents/ops-exec {op:"run", text, sid}). Before this the DO could only be driven over a
   // WebSocket, so no dashboard or other worker could use the durable agent session.
-  async runTurn(sid, userContent, cap, onStep) {
+  async runTurn(sid, userContent, cap, onStep, opts) {
     const conversationId = await opsTraceConversationId(sid);
     return await opsAgentSpan("invoke_agent", conversationId, {}, async () => {
     const historyKey = "history:" + sid;
@@ -9496,6 +9589,8 @@ var AgenticOpsExec = class extends DurableObject {
     history.push({ role: "user", content: userContent });
     const messages = [{ role: "system", content: OPS_SYSTEM_PROMPT }].concat(history);
     let finalText = "", turns = 0, toolCallsRun = 0, err = "";
+    // SESSION-AUTOCONTINUE-1: opts.continuable is true only for a background run the alarm will continue when it spends its rounds.
+    let budgetExhausted = false, usedMaxIters = 0, storedHistory = history;
     const steps = [];
     try {
       // AGENT-RPC-1.1: a caller (the fleet console) asks for a short turn with max_iters; honour it but never above
@@ -9503,6 +9598,7 @@ var AgenticOpsExec = class extends DurableObject {
       const _envMax = envInt(this.env, "OPS_MAX_TOOL_ITERS", MAX_TOOL_ITERS);
       const _capN = Number(cap);
       const maxIters = Number.isFinite(_capN) && _capN > 0 ? Math.min(_envMax, Math.floor(_capN)) : _envMax;
+      usedMaxIters = maxIters;
       let iter = 0;
       while (iter < maxIters) {
         const { resp } = await opsAgentChat(this.env, messages, DEFAULT_MAX_OUT, toolsPayload(), {}, conversationId);
@@ -9536,22 +9632,26 @@ var AgenticOpsExec = class extends DurableObject {
         turns = iter;
       }
       if (!finalText) {
+        budgetExhausted = true;
+        const _cont = !!(opts && opts.continuable);
         try {
-          const _fin = await opsAgentChat(this.env, messages.concat([{ role: "system", content: BUDGET_EXHAUSTED_DIRECTIVE }]), DEFAULT_MAX_OUT, null, {}, conversationId);
+          const _fin = await opsAgentChat(this.env, messages.concat([{ role: "system", content: _cont ? SESSION_CONTINUE_DIRECTIVE : BUDGET_EXHAUSTED_DIRECTIVE }]), DEFAULT_MAX_OUT, null, {}, conversationId);
           const _fc = _fin && _fin.resp && _fin.resp.choices && _fin.resp.choices[0];
           const _fm = _fc && _fc.message || {};
           finalText = stripToolFrames(String(_fm.content || "").trim());
         } catch (e) { finalText = ""; }
         try { await logToolBudgetBail(this.env, "do-session", 0, "", maxIters, false); } catch (e) { console.error(JSON.stringify({ evt: "ops:runTurn:caught", error: String((e && e.message) || e) })); }
+        // The checkpoint for the follow-up run: the final report joins the stored transcript and old tool results are shortened.
+        if (_cont) storedHistory = opsCompactHistory(finalText ? history.concat([{ role: "assistant", content: finalText }]) : history);
         if (!finalText) finalText = "(tool loop did not converge within " + maxIters + " iterations)";
       }
     } catch (e) {
       err = String(e && e.message || e);
     }
-    try { await this.ctx.storage.put(historyKey, history); } catch (e) {
+    try { await this.ctx.storage.put(historyKey, storedHistory); } catch (e) {
       console.error(JSON.stringify({ evt: "ops:runTurn:store", error: String((e && e.message) || e) }));
     }
-    return { ok: !err, sid, reply: finalText, error: err || null, turns, tool_calls: toolCallsRun, steps };
+    return { ok: !err, sid, reply: finalText, error: err || null, turns, tool_calls: toolCallsRun, steps, budget_exhausted: budgetExhausted && !err, max_iters: usedMaxIters };
     });
   }
   // AGENT-SCHEDULE-1 (2.55.1): the durable-run half of the Agents SDK surface. A schedule survives eviction in DO
@@ -9584,10 +9684,23 @@ var AgenticOpsExec = class extends DurableObject {
           const base = await this.ctx.storage.get(rkey) || { id: v.id, sid: v.sid, created: v.created };
           await this.ctx.storage.put(rkey, Object.assign({}, base, { status: "running", started: Date.now() }));
           const self = this;
+          // SESSION-AUTOCONTINUE-1: read the switch and the depth before the run so its final round knows a follow-up will carry the rest.
+          const _depth = Number(v.depth) || 0;
+          const _continuable = _depth < SESSION_CONTINUE_MAX_DEPTH && await opsSessionContinueEnabled(this.env);
           r = await this.runTurn(String(v.sid || "scheduled"), String(v.text || ""), Number(v.max_iters) || 16, async function(st) {
             await self.ctx.storage.put(rkey, Object.assign({}, base, { status: "running", started: base.started || Date.now(), steps: st.slice(-30) }));
-          });
-          await this.ctx.storage.put(rkey, Object.assign({}, base, { status: r && r.ok ? "done" : "failed", reply: String(r && r.reply || "").slice(0, 12e3), error: r && r.error ? String(r.error).slice(0, 300) : null, turns: r && r.turns || 0, tool_calls: r && r.tool_calls || 0, steps: ((r && r.steps) || []).slice(-30), finished: Date.now() }));
+          }, { continuable: _continuable });
+          const _next = opsSessionContinuation(v, r, { enabled: _continuable });
+          let _reply = String(r && r.reply || "").slice(0, 11000);
+          if (_next) {
+            await this.ctx.storage.put("run:" + _next.id, _next.queued);
+            await this.ctx.storage.put("schedule:" + _next.id, _next.schedule);
+            await opsSessionContinueEvent(this.env, v.id, _next.id, _next.depth, r.max_iters);
+            _reply += "\n\n" + SESSION_CONTINUE_MARKER + " The round budget of this run is spent; the task continues automatically in run " + _next.id + " (follow-up " + _next.depth + " of at most " + SESSION_CONTINUE_MAX_DEPTH + "). Read it with op result and id " + _next.id + ".";
+          } else if (r && r.budget_exhausted) {
+            _reply += "\n\n" + SESSION_CONTINUE_MARKER + " The round budget of this run is spent and no follow-up was scheduled (" + (_depth >= SESSION_CONTINUE_MAX_DEPTH ? "the follow-up limit of " + SESSION_CONTINUE_MAX_DEPTH + " is reached" : "automatic continuation is switched off") + "). Send a new message in this session to continue.";
+          }
+          await this.ctx.storage.put(rkey, Object.assign({}, base, { status: r && r.ok ? "done" : "failed", reply: _reply.slice(0, 12e3), error: r && r.error ? String(r.error).slice(0, 300) : null, turns: r && r.turns || 0, tool_calls: r && r.tool_calls || 0, steps: ((r && r.steps) || []).slice(-30), finished: Date.now(), partial: !!(r && r.budget_exhausted), continued_by: _next ? _next.id : void 0, depth: _depth }));
         } else r = await this.runTurn(String(v.sid || "scheduled"), String(v.text || ""), Math.min(8, Number(v.max_iters) || 8));
         if (!r || !r.ok) failed++;
       } catch (e) {

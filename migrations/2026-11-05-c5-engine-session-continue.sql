@@ -1,0 +1,38 @@
+-- C5-ENGINE-SESSION-CONTINUE-1 (2026-11-05, charter pillar autonomy; roadmap RM-DURABLE-AGENT-EXECUTION-1 id 10 and RM-TP-6-DURABLE-EXECUTION id 131; pairs with qnfo-ops 2.64.0, SESSION-AUTOCONTINUE-1 and PUBLIC-TURN-CAP-KIND-1).
+-- Seeds the off switch for session auto-continuation, records the measure change for ops_tool_budget_bail_7d, logs the decision, and states the two rows honestly: partial, live verification pending.
+-- Prediction: ops_tool_budget_bail_7d (32 on 2026-11-05T00:05Z) reads at most 8 on 2026-11-08 and 0 on 2026-11-12 if no owner-facing run exhausts its budget (the 8 rows recorded since 2026-11-01 are all public-turn caps recorded under the old kind; they age out on 2026-11-09 and 2026-11-11), and a durable-session exhaustion produces one ops_session_continue row instead of a dropped task.
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DELETE FROM ops_config WHERE key = 'ops_session_autocontinue'; UPDATE metric_registry SET formula = 'COUNT(*) of cloud_ops_events rows with kind = ops_tool_budget_bail in the last 7 days: ops agent runs that stopped at the interactive tool budget (TP-6 lever 1)' WHERE metric = 'ops_tool_budget_bail_7d'; UPDATE roadmap_implementation SET status = 'not-built', evidence = substr(evidence, 1, instr(evidence, ' | 2026-11-05 c5-engine') - 1) WHERE id IN (10, 131) AND instr(evidence, ' | 2026-11-05 c5-engine') > 0; DELETE FROM decision_log WHERE actor = 'session:c5-engine' AND action LIKE 'SESSION-AUTOCONTINUE-1%';
+
+INSERT OR IGNORE INTO ops_config (key, value, note)
+VALUES ('ops_session_autocontinue', 'on', 'SESSION-AUTOCONTINUE-1 (qnfo-ops 2.64.0): a background run of the durable agent session (AgenticOpsExec, op start) that spends its round budget continues in a follow-up run of the same session, at most 3 follow-ups per task, each logged as cloud_ops_events kind ops_session_continue. Set value to off to stop it without a deploy (the env var OPS_SESSION_AUTOCONTINUE=0 does the same); absent means on.');
+
+UPDATE metric_registry
+SET formula = 'COUNT(*) of cloud_ops_events rows with kind = ops_tool_budget_bail in the last 7 days: owner-facing ops chat turns that stopped at the interactive tool budget and were NOT handed to a durable job (TP-6 lever 1). Since qnfo-ops 2.60.4 a turn promoted to a job (BUDGET-AUTO-PROMOTE-1) and a durable agent session (ops_agent_session_budget, continued by SESSION-AUTOCONTINUE-1 as ops_session_continue) are recorded under their own kinds; since 2.64.0 a public turn''s deliberate cap of 4 rounds and 90 seconds is recorded as ops_public_turn_cap (a stranger cannot start server-side work, so it cannot be continued)'
+WHERE metric = 'ops_tool_budget_bail_7d';
+
+UPDATE roadmap_implementation
+SET status = 'partial',
+    evidence = COALESCE(evidence, '') || ' | 2026-11-05 c5-engine (read live): of the 30 ops_tool_budget_bail rows in the 7 days to 2026-11-04, 14 were durable agent-session exhaustions (kind relabelled ops_agent_session_budget by 2.60.4 on 2026-11-01; the last on 2026-10-31), 5 were turns that WERE promoted to a durable job (counted before 2.60.4 gated the record on no promotion) and 11 were public-turn caps (4 rounds, 90 s). Since 2026-11-01 there is no owner-facing bail: all 8 rows are public-turn caps, recorded under the old kind. BUDGET-AUTO-PROMOTE-1 is live and works (72 ops_budget_promote events 2026-10-21 to 10-31, 55 jobs with origin budget-promote, all succeeded). The gap was the session path: a run of AgenticOpsExec that spent its rounds ended with a forced final answer and no continuation (14 in 3 days). PR 7552 (qnfo-ops 2.64.0, SESSION-AUTOCONTINUE-1) schedules a follow-up run of the same session by the DO alarm (history compacted at the boundary, at most 3 follow-ups, off switch ops_config ops_session_autocontinue, one ops_session_continue event per hop, op result follows the chain) and records public-turn caps as ops_public_turn_cap. Verified offline on the real AgenticOpsExec with a stubbed model (54 assertions, session-continue.test.mjs). NOT yet verified live: /agents/ops-exec needs the owner router key, so no exhausted run could be triggered from a session; verification pending the first ops_session_continue row after the deploy. Strongest argument against: splitting the public caps out lowers the metric without a fix for them (they hit the 90 s deadline at round 1 or 2, which says the public path is slow, not that tool budgets are short), and a stub model proves the plumbing, not that a real model resumes well.'
+WHERE id = 10;
+
+UPDATE roadmap_implementation
+SET status = 'partial',
+    evidence = COALESCE(evidence, '') || ' | 2026-11-05 c5-engine (read live): T6 lever 1 (ops agent promotes an over-budget run to a Workflow with checkpointed continuation) is landed for interactive turns (BUDGET-AUTO-PROMOTE-1: 72 promote events, 55 jobs, all succeeded) and, with PR 7552, for durable agent sessions (SESSION-AUTOCONTINUE-1); live verification of the session path is pending (see row 10). Levers 2 (research pipeline as a Workflow per version request), 3 (code tasks as a Workflow) and 4 (metric events on a Queue) are pending levers tp 6 n 2 to 4 in transformation_levers, wave W3; none is started, and the first Queue slice for polling waste is filed under RM-S2-EVENT-DRIVEN-1 (ROADMAP-1 autonomy #S2.1). The exit (0 bails in 7 days, cron_schedules at most 40) is not met: ops_tool_budget_bail_7d reads 32 until the pre-2026-11-01 rows and the 8 public-turn rows age out on 2026-11-09 and 2026-11-11.'
+WHERE id = 131;
+
+INSERT INTO decision_log
+  (actor, assumption, action, evidence, outcome, blast_radius, rollback_path, capability_gain, predicted_outcome, reach_gain, surfaces_tested)
+SELECT 'session:c5-engine',
+  'a durable agent session that spends its round budget should continue, not drop the rest of the task (owner directive: tool-budget exhaustion is not a failure class); a public (keyless) turn is capped on purpose and cannot be promoted, so it is not the failure class the metric names; both are reversible and in scope (DEFAULT-APPROVE-1)',
+  'SESSION-AUTOCONTINUE-1 and PUBLIC-TURN-CAP-KIND-1 in qnfo-ops 2.64.0: follow-up run by the DO alarm (max 3, off switch ops_config ops_session_autocontinue) and ops_public_turn_cap as its own event kind; ops_tool_budget_bail_7d formula text updated to say what it counts',
+  'cloud_ops_events 2026-10-28..11-04: ops_tool_budget_bail 30 = 14 do-session (no continuation) + 5 promoted turns + 11 public caps (maxIters 4, deadline 90 s); since 2026-11-01 0 owner-facing bails and 8 public caps; ops_jobs origin budget-promote 55 succeeded of 55; 54-assertion offline test on the real AgenticOpsExec',
+  'pending',
+  'qnfo-ops AgenticOpsExec background runs (op start) and the event kind of public-turn caps; no schema change; sync runs, WebSocket and the job workflow are untouched',
+  'set ops_config ops_session_autocontinue to off (instant, no deploy); revert qnfo-ops to 2.63.0 for the event kind; the Rollback line of migrations/2026-11-05-c5-engine-session-continue.sql restores the metric text and rows',
+  'a durable agent session carries a task past its round budget in bounded follow-up runs',
+  'ops_tool_budget_bail_7d from 32 to at most 8 by 2026-11-08 and 0 by 2026-11-12; a durable-session exhaustion writes one ops_session_continue row',
+  'owner-facing durable-agent continuity',
+  'offline: real AgenticOpsExec class, 6 scenarios (never finishes, follow-up finishes, config off, env off, synchronous run, run inside budget); live: pending the first exhaustion after deploy'
+WHERE NOT EXISTS (SELECT 1 FROM decision_log WHERE actor = 'session:c5-engine' AND action LIKE 'SESSION-AUTOCONTINUE-1%');
