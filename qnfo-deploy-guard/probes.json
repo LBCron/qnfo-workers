@@ -7,6 +7,13 @@
       "contains": [
         "\"claims\":["
       ]
+    },
+    {
+      "url": "https://qnfo-deploy-guard.q08.workers.dev/twin/baseline?days=30",
+      "contains": [
+        "\"window_days\":30",
+        "\"change_failure_rate\":"
+      ]
     }
   ],
   "d1": [
