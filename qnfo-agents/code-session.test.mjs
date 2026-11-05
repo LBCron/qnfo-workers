@@ -3,7 +3,8 @@
 // cf_agent_approvals) and the closing probes of the three issues.
 import { readFileSync } from "node:fs";
 import {
-  sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_ROUTE_CHEAP, CODE_SESSION_ROUTE_ESCALATE, CODE_SESSION_REPLAY_TURNS, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET,
+  sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_ROUTE_CHEAP, CODE_SESSION_ROUTE_ESCALATE, CODE_SESSION_REPLAY_TURNS, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, SEED_ROUND, APPROVAL_SELFTEST_REQUESTER,
+  sessionLaneStep, codeSessionDailyCap, codeSessionLaneAllowed, approvalSelftestSeed, CODE_SESSION_LANE_CHEAP, CODE_SESSION_DAILY_DEFAULT, CODE_SESSION_CONCURRENT, APPROVAL_SELFTEST_MAX, APPROVAL_SELFTEST_RETRY_MIN,
   sandboxToolClass, sandboxClaimKey, sandboxGate, sandboxPlan, sandboxPrRef
 } from "./src/session.js";
 import { validateRequest, REQUEST_KINDS, approvalPayload, pendingApprovalMatches, pendingEmailApprovalMatches, emailApprovalPayload, stagedActionArgs, approvalNext, APPROVAL_SUFFIX, OPS_READ_ONLY, LEAN_MAX_STEPS } from "./src/lib.js";
@@ -114,12 +115,53 @@ ok(/INSERT OR IGNORE INTO cf_agent_session_usage[\s\S]{0,300}'failed'/.test(ts),
 ok(/prepareStep: \(\{ messages \}: any\) => \(\{ messages: compactMessages\(messages, step\.stubChars\) \}\)/.test(ts) && /stopWhen: stepCountIs\(step\.maxSteps\)/.test(ts), "a CodeSession compacts earlier tool results and caps its steps from the budget step");
 ok(/await meter\(this\.env, routeId, \{ i: inputTokens, o: outputTokens, n: steps \+ 1/.test(ts), "a CodeSession's tokens are metered into ai_spend_ledger, so the daily neuron budget sees them");
 ok(/this\.event\("budget", \{ turn, state: step\.state/.test(ts), "the stream announces the budget state of each turn");
-ok(/kind === "code_session"/.test(ts) && /startSession\(\{ text: q\.prompt, scope: "read", caller, budget: CODE_SESSION_REPLAY_BUDGET \}\)/.test(ts), "the drain starts a read-scope CodeSession for a code_session request");
-ok(/async function seedMeasurements/.test(ts) && /qnfo_agents_replay/.test(ts) && /SELECT COUNT\(\*\) AS n FROM cf_agent_requests WHERE requester = \?1 AND kind = \?2/.test(ts) && /AUDIT_DB\.batch\(CODE_SESSION_REPLAY_TURNS\.map/.test(ts), "the replay and the selftest seed once (the ten replay turns in one atomic batch), behind an off switch");
+ok(/startSession\(\{ text: q\.prompt, scope: "read", caller: "loop:" \+ q\.requester, budget: CODE_SESSION_REPLAY_BUDGET, lane: CODE_SESSION_LANE_CHEAP \}\)/.test(ts), "the code_session lane starts a read-scope CodeSession on the cheap lane");
+ok(/async function seedMeasurements/.test(ts) && /qnfo_agents_replay/.test(ts) && /SUM\(status IN \('queued', 'running', 'done'\)\) AS live, MAX\(finished_at\) AS last FROM cf_agent_requests WHERE requester = \?1 AND kind = \?2/.test(ts) && /AUDIT_DB\.batch\(CODE_SESSION_REPLAY_TURNS\.map/.test(ts) && /approvalSelftestSeed\(await tally\(APPROVAL_SELFTEST_REQUESTER, "approval_selftest"\), Date\.now\(\)\)/.test(ts), "the replay seeds once per round (ten turns in one atomic batch) and the selftest is retried a bounded number of times, behind an off switch");
 ok(/this\.ctx\.abort\("RM-DURABLE-INTERRUPT-1 selftest: forced restart"\)/.test(ts) && /async function approvalSelftest/.test(ts) && /restart_survived/.test(ts), "the selftest forces a Durable Object reset and records that the pause survived it");
 ok(/t\.stage_irreversible_step = tool\(/.test(ts) && /c\.scope === "write" && c\.runId/.test(ts), "the staging tool is write-scope and run-bound");
 ok(/path === "\/approvals" && request\.method === "GET"\) return scope === "write"/.test(ts) && /approved: true\|false/.test(ts), "the approvals routes need the write scope");
-ok(!/stagedAction: unsafeToRepeat\(async \(\[input\]: any\[\]\) => \{[\s\S]{0,700}opsCall/.test(ts), "the staged step never calls an ops tool: it sends nothing");
+ok(!/stagedAction: async \(input: any\) => \{[\s\S]{0,700}opsCall/.test(ts) && /stagedAction: async \(input: any\) => \{/.test(ts), "the staged step never calls an ops tool: it sends nothing");
+
+// ---- 0.8.2: the code_session lane (the ten replay turns were shed unrun).
+ok(SEED_ROUND === "r2" && CODE_SESSION_REPLAY_REQUESTER === "rm-code-session-1.r2" && APPROVAL_SELFTEST_REQUESTER === "rm-durable-interrupt-1.r2", "round r2 seeds new requesters: the shed rows and the failed selftest of round one stay as history");
+ok(/^[A-Za-z0-9][A-Za-z0-9:._-]{1,79}$/.test(APPROVAL_SELFTEST_REQUESTER), "the selftest requester is a valid loop name");
+const base = sessionBudgetStep(0, 30000);
+const cheap = sessionLaneStep(base, CODE_SESSION_LANE_CHEAP);
+ok(cheap.route === CODE_SESSION_ROUTE_CHEAP && cheap.state === "cheap" && cheap.maxSteps <= 8 && cheap.stubChars < base.stubChars && cheap.canEscalate === false, "a cheap-lane session runs on dynamic/value, with a lean step cap and compaction, and cannot escalate");
+ok(sessionLaneStep(base, "") === base && sessionLaneStep(base, undefined) === base, "a session without the lane is untouched");
+ok(sessionLaneStep(sessionBudgetStep(40000, 30000), CODE_SESSION_LANE_CHEAP).state === "spent" && sessionLaneStep(sessionBudgetStep(40000, 30000), CODE_SESSION_LANE_CHEAP).maxSteps > 0, "a spent cheap session keeps running (downgraded, never stopped)");
+ok(sessionTurnRoute(cheap, true, "R") === CODE_SESSION_ROUTE_CHEAP, "an escalate flag cannot lift a cheap-lane turn off the cheap route");
+ok(codeSessionDailyCap(undefined) === CODE_SESSION_DAILY_DEFAULT && codeSessionDailyCap("12") === 12 && codeSessionDailyCap("off") === 0 && codeSessionDailyCap("0") === 0 && codeSessionDailyCap("junk") === CODE_SESSION_DAILY_DEFAULT && codeSessionDailyCap("9999") === CODE_SESSION_DAILY_DEFAULT, "the daily cap is a number of 1 to 500, off pauses, junk falls back to the default");
+ok(codeSessionLaneAllowed(0, 0, 30).start === true && codeSessionLaneAllowed(null, null, 30).start === true, "an idle lane starts a session");
+ok(codeSessionLaneAllowed(3, CODE_SESSION_CONCURRENT, 30).start === false && /running/.test(codeSessionLaneAllowed(3, CODE_SESSION_CONCURRENT, 30).why), "at most CODE_SESSION_CONCURRENT sessions run at once");
+ok(codeSessionLaneAllowed(30, 0, 30).start === false && /next UTC day/.test(codeSessionLaneAllowed(30, 0, 30).why), "the daily cap stops the lane (the replay cannot run away) and says when it resumes");
+ok(codeSessionLaneAllowed(0, 0, 0).start === false && /paused/.test(codeSessionLaneAllowed(0, 0, 0).why), "a cap of 0 pauses the lane");
+{
+  // the replay finishes inside the lane: 10 requests, one start a tick, cap 30 -> all ten start within ten ticks and the lane never exceeds 2 running
+  let started = 0, running = 0, maxRunning = 0;
+  for (let tick = 0; tick < 10; tick++) {
+    if (running > 0 && tick % 2 === 1) running = 0; // sessions finish within two ticks in this model
+    const g = codeSessionLaneAllowed(started, running, 30);
+    if (g.start) { started++; running++; maxRunning = Math.max(maxRunning, running); }
+  }
+  ok(started === 10 && maxRunning <= CODE_SESSION_CONCURRENT, "ten replay requests all start within ten ticks and never more than two run at once: started " + started + ", max running " + maxRunning);
+}
+const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
+const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
+ok(approvalSelftestSeed({ n: 0, live: 0, last: null }, NOW) === true && approvalSelftestSeed(undefined, NOW) === true, "a round with no selftest seeds one");
+ok(approvalSelftestSeed({ n: 1, live: 1, last: null }, NOW) === false, "a queued, running or done selftest is never seeded again");
+ok(approvalSelftestSeed({ n: 1, live: 0, last: iso(NOW - 60 * 60000) }, NOW) === false, "a failed selftest waits before a retry");
+ok(approvalSelftestSeed({ n: 1, live: 0, last: iso(NOW - (APPROVAL_SELFTEST_RETRY_MIN + 1) * 60000) }, NOW) === true, "a failed selftest is retried after the wait");
+ok(approvalSelftestSeed({ n: APPROVAL_SELFTEST_MAX, live: 0, last: iso(NOW - 24 * 3600000) }, NOW) === false, "the retries are bounded");
+ok(approvalSelftestSeed({ n: 1, live: 0, last: null }, NOW) === false, "a failed row with no finish time is not retried blindly");
+
+// source shape of the lane
+ok(/async function drainCodeSessions\(env: Env, out: any\)/.test(ts) && /await drainCodeSessions\(env, out\);\s*return out;/.test(ts), "the drain runs the code_session lane after the shared queue");
+ok(/status = 'queued' AND COALESCE\(kind, 'run'\) != 'code_session' ORDER BY CASE priority/.test(ts), "the shared priority queue no longer carries code_session requests");
+ok(/COALESCE\(kind, 'run'\) = 'run' AND created_at < strftime/.test(ts) && !/COALESCE\(kind, 'run'\) IN \('run', 'code_session'\)/.test(ts), "a code_session request is never shed");
+ok(/sessionLaneStep\(sessionBudgetStep\(session\.neurons_used, session\.neuron_budget\), session\.lane\)/.test(ts) && /ALTER TABLE code_session ADD COLUMN lane/.test(ts), "the session reads its lane");
+ok(/meterSteps\(this\.env, this\.name \+ "-t" \+ turn, routeId, \{ steps: await out\.steps \}\)/.test(ts), "a CodeSession writes per-step cache telemetry too");
+ok(/bgError = errText\(e\)/.test(ts) && /the staged step failed before its interrupt/.test(ts), "the selftest reports why a staged step failed before its interrupt");
 
 console.log("qnfo-agents code-session.test: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

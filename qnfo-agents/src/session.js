@@ -33,7 +33,11 @@ export function sessionBudgetFrom(value) {
 
 // Ten plain-English turns that a CodeSession replays through its stream (RM-CMD-FAILURES-1 asked for ten turns of the kinds the owner types: a question, a
 // probe, a code change, a decision). Each is read-only, so replaying them changes nothing; the code change is a proposal, which the owner still files.
-export const CODE_SESSION_REPLAY_REQUESTER = "rm-code-session-1";
+// Seeding is keyed by requester, so a re-seed is a new requester: ".r2" (2026-11-05) replaces the ten rows of "rm-code-session-1" that were shed unrun (see
+// codeSessionLane below) and the one selftest that failed on its host module name. Bump the round to seed again; never delete the old rows.
+export const SEED_ROUND = "r2";
+export const CODE_SESSION_REPLAY_REQUESTER = "rm-code-session-1." + SEED_ROUND;
+export const APPROVAL_SELFTEST_REQUESTER = "rm-durable-interrupt-1." + SEED_ROUND;
 export const CODE_SESSION_REPLAY_BUDGET = 30000;
 export const CODE_SESSION_REPLAY_TURNS = [
   "What is the constraint program right now, and which focus issues have no doer? Read it from the fleet managers feed (dashboard_feed /api/managers) and answer in five lines.",
@@ -100,4 +104,52 @@ export function sandboxPrRef(res) {
   const num = Number(r.number || r.pr || (r.pull_request && r.pull_request.number)) || 0;
   const url = String(r.html_url || r.url || (r.pull_request && r.pull_request.html_url) || "").slice(0, 300);
   return { number: num > 0 ? num : 0, url };
+}
+
+// ---- 0.8.2: code_session requests run in their own lane, on the cheapest route.
+// Measured 2026-11-05: ten code_session requests (priority low) sat behind the 3-slot, priority-ordered queue of the loop drain and were all shed after 110 minutes
+// ("waited over 110 minutes under the daily neuron budget") although the day's budget was 11 percent spent (about 27,000 of 250,000 neurons at 05:42Z): the drain level-loads
+// the day (left / ticks-left, one request per 15 minutes at that hour) and a low request never reached the front. BUDGET-SOFT-ROUTE-1: a budget steers a request to
+// the cheapest capable route, it does not refuse, defer or skip it. So a code_session request is never shed, never competes for the shared model slots, and is bounded by
+// its own caps instead: one start a tick, at most CODE_SESSION_CONCURRENT running, at most a daily number started (ops_config qnfo_agents_code_session_daily), and each
+// session runs on dynamic/value with the lean step cap and a small neuron budget.
+export const CODE_SESSION_LANE_CHEAP = "cheap";
+export const CODE_SESSION_DAILY_DEFAULT = 30;
+export const CODE_SESSION_CONCURRENT = 2;
+export function sessionLaneStep(step, lane) {
+  if (lane !== CODE_SESSION_LANE_CHEAP || !step) return step;
+  return Object.assign({}, step, {
+    state: step.state === "ok" ? "cheap" : step.state,
+    route: CODE_SESSION_ROUTE_CHEAP,
+    stubChars: Math.min(step.stubChars, LEAN_OLD_RESULT_CHARS),
+    maxSteps: Math.min(step.maxSteps, 8),
+    canEscalate: false
+  });
+}
+// ops_config qnfo_agents_code_session_daily: a number, or 'off' / '0' to pause the lane. Anything else is the default.
+export function codeSessionDailyCap(value) {
+  const v = String(value == null ? "" : value).trim().toLowerCase();
+  if (v === "off" || v === "0") return 0;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 1 && n <= 500 ? Math.floor(n) : CODE_SESSION_DAILY_DEFAULT;
+}
+// May the drain start one more code_session request this tick? startedToday and running come from cf_agent_requests.
+export function codeSessionLaneAllowed(startedToday, running, cap) {
+  const c = Number.isFinite(Number(cap)) ? Number(cap) : CODE_SESSION_DAILY_DEFAULT;
+  if (c <= 0) return { start: false, why: "paused (qnfo_agents_code_session_daily is off)" };
+  if ((Number(running) || 0) >= CODE_SESSION_CONCURRENT) return { start: false, why: "waiting: " + CODE_SESSION_CONCURRENT + " code sessions are running" };
+  if ((Number(startedToday) || 0) >= c) return { start: false, why: "waiting for the next UTC day: " + c + " code sessions already started today" };
+  return { start: true, why: "" };
+}
+
+// The approval selftest is seeded once per round and retried a bounded number of times: a failed run is tried again after RETRY_MIN minutes, at most
+// APPROVAL_SELFTEST_MAX runs in all, and never while one is queued, running or done. rows: { n, live, last } from cf_agent_requests of the round's requester.
+export const APPROVAL_SELFTEST_MAX = 3;
+export const APPROVAL_SELFTEST_RETRY_MIN = 180;
+export function approvalSelftestSeed(rows, nowMs) {
+  const n = Number(rows && rows.n) || 0, live = Number(rows && rows.live) || 0;
+  if (n === 0) return true;
+  if (live > 0 || n >= APPROVAL_SELFTEST_MAX) return false;
+  const last = Date.parse(String(rows && rows.last || ""));
+  return Number.isFinite(last) && (Number.isFinite(nowMs) ? nowMs : Date.now()) - last >= APPROVAL_SELFTEST_RETRY_MIN * 60000;
 }

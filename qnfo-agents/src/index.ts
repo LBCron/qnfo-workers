@@ -36,8 +36,9 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, emailApprovalGranted, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
-import { sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS } from "./session.js";
+import { stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
+import { approvalModules, approvalSource } from "./approval.js";
+import { sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS, sessionLaneStep, codeSessionDailyCap, codeSessionLaneAllowed, CODE_SESSION_LANE_CHEAP, APPROVAL_SELFTEST_REQUESTER, approvalSelftestSeed } from "./session.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
 declare var VERSION: string;
@@ -490,34 +491,29 @@ export class FleetCodeAgent extends Agent<Env, State> {
           loader: this.env.LOADER,
           id: "worker-javascript",
           onInterrupt: "replay",
-          modules: {
-            "codemode:approval": {
-              requestApproval: async ([input]: any[], call: any) => {
-                if (!input || !APPROVAL_SUFFIX[String(input.action)]) throw new Error("unsupported approval action");
-                return emailApprovalGranted(await call.interrupt(input));
-              },
-              sendEmail: unsafeToRepeat(async ([input]: any[]) => {
-                const row = this.row(String(input && input.run_id || ""));
-                if (!row || row.scope !== "write" || row.caller !== input.caller || input.action !== "send_email") throw new Error("the approved email no longer matches its run");
-                const result = await opsCall(this.env, "write", "send_email", input.arguments, APPROVED_SEND_EMAIL);
-                if (!result || !result.ok) {
-                  await this.recordApproval(String(input.run_id), "send_email", "failed", { note: String(result && result.error || "send_email failed") });
-                  throw new Error(String(result && result.error || "send_email failed"));
-                }
-                await this.finishApproved(String(input.run_id), "send_email", row, result);
-                return result;
-              }),
-              // The staging step sends nothing: it only completes the run, so the pause, the restart and the resume can be proved without an identity-bound side effect.
-              stagedAction: unsafeToRepeat(async ([input]: any[]) => {
-                const row = this.row(String(input && input.run_id || ""));
-                if (!row || row.scope !== "write" || row.caller !== input.caller || input.action !== "staged_action") throw new Error("the approved step no longer matches its run");
-                const a = input.arguments || {};
-                const result = { ok: true, staged: true, sent: false, label: String(a.label || "").slice(0, 120), note: String(a.note || "").slice(0, 400) };
-                await this.finishApproved(String(input.run_id), "staged_action", row, result);
-                return result;
-              })
+          // RM-DURABLE-INTERRUPT-1: the host module is named in src/approval.js (APPROVAL_MODULE, a ws:* specifier: the backend refuses any other name when it is constructed).
+          modules: approvalModules({
+            unsafe: unsafeToRepeat,
+            sendEmail: async (input: any) => {
+              const row = this.row(String(input && input.run_id || ""));
+              if (!row || row.scope !== "write" || row.caller !== input.caller || input.action !== "send_email") throw new Error("the approved email no longer matches its run");
+              const result = await opsCall(this.env, "write", "send_email", input.arguments, APPROVED_SEND_EMAIL);
+              if (!result || !result.ok) {
+                await this.recordApproval(String(input.run_id), "send_email", "failed", { note: String(result && result.error || "send_email failed") });
+                throw new Error(String(result && result.error || "send_email failed"));
+              }
+              await this.finishApproved(String(input.run_id), "send_email", row, result);
+              return result;
+            },
+            stagedAction: async (input: any) => {
+              const row = this.row(String(input && input.run_id || ""));
+              if (!row || row.scope !== "write" || row.caller !== input.caller || input.action !== "staged_action") throw new Error("the approved step no longer matches its run");
+              const a = input.arguments || {};
+              const result = { ok: true, staged: true, sent: false, label: String(a.label || "").slice(0, 120), note: String(a.note || "").slice(0, 400) };
+              await this.finishApproved(String(input.run_id), "staged_action", row, result);
+              return result;
             }
-          },
+          }),
           onWait: (call: any) => this.markApprovalPending(call)
         })]
       });
@@ -570,14 +566,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
     const serialized = JSON.stringify(args || {});
     if (serialized.length > 12000) throw new Error(action + " arguments exceed the approval limit");
     const input = approvalPayload(action, id, caller, JSON.parse(serialized));
-    const payload = JSON.stringify(input).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-    const fn = action === "send_email" ? "sendEmail" : "stagedAction";
-    const source = `import { requestApproval, ${fn} } from "codemode:approval";
-export default async function() {
-  const request = ${payload};
-  if (!(await requestApproval(request))) throw new Error("${action} was not approved");
-  return await ${fn}(request);
-}`;
+    const source = approvalSource(action, JSON.stringify(input));
     const workspace = await this.computerWorkspace();
     const execution = await workspace.runtime.exec(source, { backend: "worker-javascript", id: "computer_" + id + "_" + APPROVAL_SUFFIX[action], onInterrupt: "replay" });
     const result = await execution.result();
@@ -644,8 +633,10 @@ export default async function() {
     this.sql`INSERT INTO runs (id, prompt, scope, caller, status, created_ms) VALUES (${id}, ${"approval selftest (RM-DURABLE-INTERRUPT-1): stage one step, pause, restart, resume"}, 'write', ${caller}, 'running', ${now})`;
     await ledger(this.env, { id, instance: this.name, caller, scope: "write", status: "running", prompt: "approval selftest (RM-DURABLE-INTERRUPT-1)", created_ms: now });
     // not awaited: the step waits for the answer; a forced restart ends this promise and the Computer runtime keeps the pending call in storage
-    void this.runApproval("staged_action", { label: "approval selftest", note: "RM-DURABLE-INTERRUPT-1 staging proof; sends nothing" }, id, caller).catch((e) => logErr("selftest-approval", e));
+    let bgError = "";
+    void this.runApproval("staged_action", { label: "approval selftest", note: "RM-DURABLE-INTERRUPT-1 staging proof; sends nothing" }, id, caller).catch((e) => { bgError = errText(e); logErr("selftest-approval", e); });
     for (let i = 0; i < 40; i++) {
+      if (bgError) return { ok: false, run_id: id, error: "the staged step failed before its interrupt: " + bgError };
       const p = await this.pendingApprovals(caller);
       const mine: any = p.approvals.find((a: any) => a.payload && a.payload.run_id === id);
       if (mine) return { ok: true, run_id: id, call_id: mine.callId };
@@ -742,6 +733,8 @@ export class CodeSession extends Agent<Env, State> {
     this.sql`CREATE TABLE IF NOT EXISTS code_session_claims (key TEXT PRIMARY KEY, token TEXT NOT NULL DEFAULT '', holder TEXT, note TEXT, pr INTEGER, url TEXT, created_ms INTEGER NOT NULL)`;
     // RM-CODE-SESSION-1: a turn may ask for the premium route; the column is added once to a table that predates it.
     try { this.sql`ALTER TABLE code_session_turns ADD COLUMN escalate INTEGER NOT NULL DEFAULT 0`; } catch (e) { /* already there */ }
+    // 0.8.2: a session started by a fleet loop runs in the cheap lane (dynamic/value, lean step cap); the column is added once to a table that predates it.
+    try { this.sql`ALTER TABLE code_session ADD COLUMN lane TEXT NOT NULL DEFAULT ''`; } catch (e) { /* already there */ }
   }
 
   private sessionRow(): any {
@@ -764,12 +757,13 @@ export class CodeSession extends Agent<Env, State> {
     return Number(r[0] && r[0].seq) || 0;
   }
 
-  async startSession(input: { text: string; scope: Scope; caller: string; budget?: number }) {
+  async startSession(input: { text: string; scope: Scope; caller: string; budget?: number; lane?: string }) {
     const text = String(input.text || "").trim().slice(0, 8000);
     if (!text) return { ok: false, error: "empty request" };
     const now = Date.now();
     const scope: Scope = input.scope === "write" ? "write" : "read";
-    this.sql`INSERT INTO code_session (id, caller, scope, status, neuron_budget, created_ms) VALUES (${this.name}, ${input.caller}, ${scope}, 'idle', ${sessionBudgetFrom(input.budget)}, ${now})`;
+    const lane = input.lane === CODE_SESSION_LANE_CHEAP ? CODE_SESSION_LANE_CHEAP : "";
+    this.sql`INSERT INTO code_session (id, caller, scope, status, neuron_budget, lane, created_ms) VALUES (${this.name}, ${input.caller}, ${scope}, 'idle', ${sessionBudgetFrom(input.budget)}, ${lane}, ${now})`;
     this.event("status", { status: "queued", turn: 1 });
     return this.startTurn(text, input.caller);
   }
@@ -937,7 +931,7 @@ export class CodeSession extends Agent<Env, State> {
     let inputTokens = 0, outputTokens = 0, neurons = 0, costUsd = 0, steps = 0;
     try {
       // RM-CODE-SESSION-1: the session's budget decides the route and the step cap; a spent session is downgraded, never stopped.
-      const step = sessionBudgetStep(session.neurons_used, session.neuron_budget);
+      const step = sessionLaneStep(sessionBudgetStep(session.neurons_used, session.neuron_budget), session.lane);
       const history = (turns || []).slice().reverse().map((x: any) => "User: " + clip(x.prompt, 1200) + "\nAssistant: " + clip(x.answer || "", 1800)).join("\n\n");
       const gate = this.gate(turn);
       const plan = gate ? this.planRow() : null;
@@ -967,6 +961,8 @@ export class CodeSession extends Agent<Env, State> {
         }
       }
       const usage = await out.totalUsage;
+      // RM-DSH-CACHE-1: per-step cache telemetry for a CodeSession too (cf_agent_step_usage, keyed by session and turn).
+      try { await meterSteps(this.env, this.name + "-t" + turn, routeId, { steps: await out.steps }); } catch (e) { logErr("meter-steps-session", e); }
       inputTokens = Number(usage && usage.inputTokens) || 0;
       outputTokens = Number(usage && usage.outputTokens) || 0;
       const response = await out.response;
@@ -1034,25 +1030,28 @@ async function agentPlan(env: Env) {
   }
 }
 
-// RM-CODE-SESSION-1 and RM-DURABLE-INTERRUPT-1 seed their own measurements once, from the version that can run them: a migration inserting these rows would race the
-// deploy (the previous version fails an unknown kind for good). Idempotent (a requester with any row of the kind is never seeded again, finished or not) and switched
-// off by ops_config qnfo_agents_replay = off. The ten replay turns are read-only, low priority, and run on 30,000-neuron sessions; the selftest calls no model.
+// RM-CODE-SESSION-1 and RM-DURABLE-INTERRUPT-1 seed their own measurements from the version that can run them: a migration inserting these rows would race the
+// deploy (the previous version fails an unknown kind for good). Seeding is keyed by requester and round (SEED_ROUND in src/session.js): the ten replay turns are seeded
+// once per round, and the approval selftest once per round and again, at most APPROVAL_SELFTEST_MAX runs in all and APPROVAL_SELFTEST_RETRY_MIN minutes apart, while none
+// is queued, running or done. Switched off by ops_config qnfo_agents_replay = off. The ten replay turns are read-only and run in the cheap code_session lane; the selftest
+// calls no model.
 async function seedMeasurements(env: Env) {
   try {
     const off: any = await env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_replay'").first();
     if (off && String(off.value).trim().toLowerCase() === "off") return 0;
     let seeded = 0;
-    const have = async (requester: string, kind: string) => Number(((await env.AUDIT_DB.prepare("SELECT COUNT(*) AS n FROM cf_agent_requests WHERE requester = ?1 AND kind = ?2").bind(requester, kind).first()) as any || {}).n) > 0;
-    if (!(await have(CODE_SESSION_REPLAY_REQUESTER, "code_session"))) {
+    const tally = async (requester: string, kind: string) => (await env.AUDIT_DB.prepare("SELECT COUNT(*) AS n, SUM(status IN ('queued', 'running', 'done')) AS live, MAX(finished_at) AS last FROM cf_agent_requests WHERE requester = ?1 AND kind = ?2").bind(requester, kind).first()) as any;
+    const replay = await tally(CODE_SESSION_REPLAY_REQUESTER, "code_session");
+    if (!(Number(replay && replay.n) > 0)) {
       // one atomic batch: all ten turns or none, so a fault half-way cannot leave a replay that never completes
       await env.AUDIT_DB.batch(CODE_SESSION_REPLAY_TURNS.map((text) => env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES (?1, 'code_session', ?2, 'low')").bind(CODE_SESSION_REPLAY_REQUESTER, text)));
       seeded += CODE_SESSION_REPLAY_TURNS.length;
     }
-    // the selftest writes cf_agent_approvals rows: wait (this tick only) until that table exists, so a deploy that lands before its migration cannot burn the one request
+    // the selftest writes cf_agent_approvals rows: wait (this tick only) until that table exists, so a deploy that lands before its migration cannot burn a run
     let approvalsReady = true;
     try { await env.AUDIT_DB.prepare("SELECT 1 FROM cf_agent_approvals LIMIT 1").first(); } catch (e) { approvalsReady = false; }
-    if (approvalsReady && !(await have("rm-durable-interrupt-1", "approval_selftest"))) {
-      await env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES ('rm-durable-interrupt-1', 'approval_selftest', 'stage one irreversible step, pause, force a restart, approve, resume (sends nothing)', 'medium')").run();
+    if (approvalsReady && approvalSelftestSeed(await tally(APPROVAL_SELFTEST_REQUESTER, "approval_selftest"), Date.now())) {
+      await env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES (?1, 'approval_selftest', 'stage one irreversible step, pause, force a restart, approve, resume (sends nothing)', 'medium')").bind(APPROVAL_SELFTEST_REQUESTER).run();
       seeded++;
     }
     return seeded;
@@ -1081,6 +1080,38 @@ async function approvalSelftest(env: Env, caller: string) {
   }
   out.error = "the approved step did not execute within 15 s";
   return out;
+}
+
+// 0.8.2: code_session requests run in their own lane. They are not in the shared, priority-ordered 3-slot queue (a low request never reached its front: ten replay
+// turns were shed unrun after 110 minutes while 11 percent of the day's neuron budget was spent) and they are never shed (BUDGET-SOFT-ROUTE-1). One start a tick, at most
+// CODE_SESSION_CONCURRENT running, at most ops_config qnfo_agents_code_session_daily started a UTC day (default 30, 'off' pauses), each session on the cheap route.
+async function drainCodeSessions(env: Env, out: any) {
+  const db = env.AUDIT_DB;
+  try {
+    const cfg: any = await db.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_code_session_daily'").first();
+    const dayStart = new Date().toISOString().slice(0, 10) + "T00:00:00Z";
+    const c: any = await db.prepare("SELECT SUM(started_at >= ?1) AS today, SUM(status = 'running') AS running FROM cf_agent_requests WHERE kind = 'code_session' AND (status = 'running' OR started_at >= ?1)").bind(dayStart).first();
+    const gate = codeSessionLaneAllowed(c && c.today, c && c.running, codeSessionDailyCap(cfg && cfg.value));
+    out.code_session_lane = gate.start ? "open" : gate.why;
+    if (!gate.start) return;
+    const q: any = await db.prepare("SELECT * FROM cf_agent_requests WHERE status = 'queued' AND kind = 'code_session' ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, id LIMIT 1").first();
+    if (!q) return;
+    const claim = await db.prepare("UPDATE cf_agent_requests SET status = 'running', attempts = attempts + 1, started_at = " + NOW_SQL + " WHERE id = ?1 AND status = 'queued'").bind(q.id).run();
+    if (!claim.meta || !claim.meta.changes) return;
+    const v = validateRequest(q);
+    if (v.error) { await finishRequest(env, q.id, "failed", null, v.error); out.failed++; return; }
+    try {
+      const sid = runId();
+      const session: any = await getAgentByName(env.CodeSession as any, sid);
+      const r = await session.startSession({ text: q.prompt, scope: "read", caller: "loop:" + q.requester, budget: CODE_SESSION_REPLAY_BUDGET, lane: CODE_SESSION_LANE_CHEAP });
+      if (!r.ok) { await finishRequest(env, q.id, "failed", null, String(r.error || "the code session did not start")); out.failed++; return; }
+      await db.prepare("UPDATE cf_agent_requests SET run_id = ?2 WHERE id = ?1").bind(q.id, sid).run();
+      out.started++;
+    } catch (e) {
+      await finishRequest(env, q.id, "failed", null, errText(e));
+      out.failed++;
+    }
+  } catch (e) { logErr("drain-code-sessions", e); }
 }
 
 async function drainRequests(env: Env) {
@@ -1115,13 +1146,13 @@ async function drainRequests(env: Env) {
   let modelSlots = gov.plan.take;
   out.governor = { limited: gov.plan.limited, spent: gov.spent, budget: gov.budget, duty: gov.plan.duty };
   if (gov.plan.limited) {
-    const old: any = await db.prepare("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND COALESCE(instance, '') NOT LIKE 'lever-%' AND COALESCE(kind, 'run') IN ('run', 'code_session') AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-" + AGENT_SHED_MIN + " minutes') LIMIT 25").all();
+    const old: any = await db.prepare("SELECT id FROM cf_agent_requests WHERE status = 'queued' AND priority != 'critical' AND COALESCE(instance, '') NOT LIKE 'lever-%' AND COALESCE(kind, 'run') = 'run' AND created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-" + AGENT_SHED_MIN + " minutes') LIMIT 25").all();
     for (const o of old.results || []) { await finishRequest(env, o.id, "failed", null, "shed: waited over " + AGENT_SHED_MIN + " minutes under the daily neuron budget (QNFO-AGENTS-BUDGET-1)"); out.shed = (out.shed || 0) + 1; }
   }
-  const queued: any = await db.prepare("SELECT * FROM cf_agent_requests WHERE status = 'queued' ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, id LIMIT ?1").bind(DRAIN_PER_TICK).all();
+  const queued: any = await db.prepare("SELECT * FROM cf_agent_requests WHERE status = 'queued' AND COALESCE(kind, 'run') != 'code_session' ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, id LIMIT ?1").bind(DRAIN_PER_TICK).all();
   for (const q of queued.results || []) {
     // A critical request, a request on a lever-* instance (cf_agent_requests.instance; the requester is program-manager:QNFO.*; the agents_lever_usable_share_48h verdict window, decision 1552, needs every lever row) and a request that calls no model (sandbox, schedule) are never deferred; the rest take the tick's model slots.
-    if (q.priority !== "critical" && !/^lever-/.test(String(q.instance || "")) && ["run", "code_session"].indexOf(String(q.kind || "run")) >= 0) {
+    if (q.priority !== "critical" && !/^lever-/.test(String(q.instance || "")) && String(q.kind || "run") === "run") {
       if (modelSlots <= 0) { out.deferred++; continue; }
       modelSlots--;
     }
@@ -1131,15 +1162,6 @@ async function drainRequests(env: Env) {
     if (v.error) { await finishRequest(env, q.id, "failed", null, v.error); out.failed++; continue; }
     const caller = "loop:" + q.requester;
     try {
-      if (v.kind === "code_session") {
-        const sid = runId();
-        const session: any = await getAgentByName(env.CodeSession as any, sid);
-        const r = await session.startSession({ text: q.prompt, scope: "read", caller, budget: CODE_SESSION_REPLAY_BUDGET });
-        if (!r.ok) { await finishRequest(env, q.id, "failed", null, String(r.error || "the code session did not start")); out.failed++; continue; }
-        await db.prepare("UPDATE cf_agent_requests SET run_id = ?2 WHERE id = ?1").bind(q.id, sid).run();
-        out.started++;
-        continue;
-      }
       if (v.kind === "approval_selftest") {
         const r = await approvalSelftest(env, caller);
         await finishRequest(env, q.id, r.ok ? "done" : "failed", r, r.ok ? null : String(r.error || "approval selftest failed"));
@@ -1164,6 +1186,7 @@ async function drainRequests(env: Env) {
       out.failed++;
     }
   }
+  await drainCodeSessions(env, out);
   return out;
 }
 
