@@ -506,7 +506,13 @@ def run_https_probe(probe):
             body = r.read(HTTPS_READ_CAP)
             status = r.status
     except urllib.error.HTTPError as e:
-        body, status = b"", e.code
+        # W2-J 2026-11-05: a 401 or 404 page carries the marker a "must be refused" probe asks for ("contains": "unauthorized"); the body was dropped
+        # here, so two fm-mcp-front-door-open contracts read missing-marker on a correct 401. An unreadable error body is still an empty body.
+        try:
+            body = e.read(HTTPS_READ_CAP)
+        except Exception:  # noqa: BLE001 - the observation is the status; the body is best effort
+            body = b""
+        status = e.code
         location = e.headers.get("Location") if e.headers is not None else None
     except Exception as e:  # noqa: BLE001 - the failure is the observation
         reason = getattr(e, "reason", None)
@@ -891,6 +897,30 @@ def _selftest():
         return 1
     if parse_https_probe('{"url": "https://qnfo.org/", "absent": ""}')[1] != "bad-absent":
         print(json.dumps({"ok": False, "case": "absent-parse"}))
+        return 1
+    # W2-J 2026-11-05: the marker of a non-2xx answer is read (a tokenless MCP door must answer 401 "unauthorized"); an unreadable body is empty.
+    import io
+    real_opener = globals()["_HTTPS_OPENER"]
+
+    class _ErrOpener:
+        def __init__(self, code, payload):
+            self.code, self.payload = code, payload
+
+        def open(self, req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, self.code, "err", {}, io.BytesIO(self.payload) if self.payload is not None else None)
+
+    try:
+        globals()["_HTTPS_OPENER"] = _ErrOpener(401, b"unauthorized")
+        door = {"url": "https://qnfo-tools-mcp.q08.workers.dev/mcp/sse", "status": 401, "contains": "unauthorized", "absent": None, "min_version": None, "max_ms": None}
+        got401 = run_https_probe(door)
+        globals()["_HTTPS_OPENER"] = _ErrOpener(401, b"nope")
+        got_wrong = run_https_probe(door)
+        globals()["_HTTPS_OPENER"] = _ErrOpener(401, None)
+        got_nobody = run_https_probe(door)
+    finally:
+        globals()["_HTTPS_OPENER"] = real_opener
+    if got401 != "ok" or got_wrong != "missing-marker" or got_nobody != "missing-marker":
+        print(json.dumps({"ok": False, "case": "https-error-body", "ok401": got401, "wrong": got_wrong, "nobody": got_nobody}))
         return 1
     for (st, ms, body), want in judged:
         got = judge_https(pr, st, ms, body)
