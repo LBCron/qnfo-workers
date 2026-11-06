@@ -709,3 +709,9 @@ because each one was broken at least once; the linked issue holds the evidence.
 - **Audit unimplemented documents.** Documents under `docs/`, in R2 and in `owner_documents` that name a design nobody built are listed by the weekly sweep (CMDLINE-MAINTAIN-1); each gets a roadmap entry with a doer and a probe, or is retired with the reason.
 - **Audit your own output twice.** Before delivering: run the code or the check, read the real output, and compare it with what you are about to claim. After delivering: re-read the live result (a `/health` version, a probe, the merged diff) and file what is missing as an issue in the same turn. A bot finding is a claim to verify against the code, not an order; record the verdict on the PR or issue.
 - **Ask what you are not thinking about.** Close every substantial piece by naming one gap you did not cover (a failure path, the front end of a back-end change, a metric with no refresh, a step only the owner can do) and fix it or file it with a doer.
+
+## Act, never announce (ACT-DONT-ANNOUNCE-1, owner directive 2026-11-06, every repo)
+- A request made in chat is a request for deployed code. Wording (chat, code, research, question) never changes that: infer the repo or worker, run the research inside a worker or script, and use existing Cloudflare resources first.
+- A reply never says what will be done next, never offers ("want me to", "next I would", "say go"), and never asks permission for a reversible in-scope step. It reports only what is deployed (URL, probe result, issue and PR numbers) or the exact blocker. Reversible and in scope means already done before the reply.
+- A reply, a note or the assistant is never the guard against a problem. An unclosed loop is a defect closed in code (guard, probe, metric, migration), never described.
+- Canonical copy of the standing rules: KV qnfo-fleet-config key standing/CLAUDE.md (rules 1-10). This section mirrors rules 8-10 (STANDING-INSTRUCTIONS-1).
