@@ -6,6 +6,13 @@ import { makeApi } from "./copilot-pr-lifecycle.mjs";
 
 export const DRAFT_MINUTES = 30;
 export const ISSUE_MINUTES = 7 * 24 * 60;
+// TRACKER-D1-CANON-1: a GitHub issue carrying this label mirrors one qnfo-audit agent_issues row. D1 is canonical: qnfo-github-steward
+// opens and closes the mirror from the D1 status, and D1's own age ladder (v_issue_age_ladder) advances the work. The seven-day policy
+// is for issues that have no D1 row, so it never closes a mirror (134 open D1 issues had their mirror closed not_planned on 2026-11-06).
+export const MIRROR_LABEL = "fleet-issue";
+export function isD1Mirror(issue) {
+  return (issue?.labels || []).some((l) => String(l?.name ?? l) === MIRROR_LABEL);
+}
 const MARKER = "<!-- repository-age-policy:v1 -->";
 const READY = `mutation Ready($id: ID!) {
   markPullRequestReadyForReview(input: {pullRequestId: $id}) {
@@ -118,6 +125,7 @@ export async function run(opts, deps = {}) {
   catch (e) { recordError("list issues", "", e); }
   for (const listed of issues) {
     if (listed.pull_request || !olderThan(listed.created_at, ISSUE_MINUTES, now)) continue;
+    if (isD1Mirror(listed)) { (sum.issues_d1_governed ||= []).push(listed.number); continue; }
     try {
       const path = "/repos/" + repo + "/issues/" + listed.number;
       const issue = requireOk(await api.req("GET", path), "read issue");
