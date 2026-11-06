@@ -382,6 +382,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [qnfo-github-steward](../qnfo-github-steward/README.md) - `qnfo-github-steward/README.md`
 - [qnfo-intent-orchestrator](../qnfo-intent-orchestrator/README.md) - `qnfo-intent-orchestrator/README.md`
 - [qnfo-ipatent — Inventor Disclosure Assistant (ipatent.qnfo.org)](../qnfo-ipatent/README.md) - `qnfo-ipatent/README.md`
+- [qnfo-jobsearch handoff (fail-safe for a session that stops mid-work)](../qnfo-jobsearch/HANDOFF.md) - `qnfo-jobsearch/HANDOFF.md`
 - [qnfo-kaizen](../qnfo-kaizen/README.md) - `qnfo-kaizen/README.md`
 - [qnfo-model-eval](../qnfo-model-eval/README.md) - `qnfo-model-eval/README.md`
 - [qnfo-observability](../qnfo-observability/README.md) - `qnfo-observability/README.md`

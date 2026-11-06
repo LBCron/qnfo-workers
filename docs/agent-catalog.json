@@ -1859,6 +1859,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-ipatent/README.md"
     },
     {
+      "path": "qnfo-jobsearch/HANDOFF.md",
+      "title": "qnfo-jobsearch handoff (fail-safe for a session that stops mid-work)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-jobsearch/HANDOFF.md"
+    },
+    {
       "path": "qnfo-kaizen/README.md",
       "title": "qnfo-kaizen",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/qnfo-kaizen/README.md"

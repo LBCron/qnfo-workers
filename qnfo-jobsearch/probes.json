@@ -15,6 +15,14 @@
         "\"rerank\":{\"status\"",
         "\"checks\":["
       ]
+    },
+    {
+      "url": "https://qnfo-jobsearch.q08.workers.dev/api",
+      "contains": [
+        "/api/answers",
+        "/api/prep",
+        "resume.pdf"
+      ]
     }
   ]
 }

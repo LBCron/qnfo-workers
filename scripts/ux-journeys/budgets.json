@@ -202,6 +202,10 @@
   "apply-controls-visible": {
    "taps": 0,
    "typing": 0
+  },
+  "apply-and-prepare-screens": {
+   "taps": 2,
+   "typing": 0
   }
  }
 }

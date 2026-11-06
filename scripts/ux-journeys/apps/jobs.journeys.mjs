@@ -9,5 +9,15 @@ export const journeys = [
       await u.see("Ready to apply");
       await u.see("One-click apply: set up once");
       await u.screen("home");
+    } },
+  { id: "apply-and-prepare-screens", title: "Open the Apply and prepare page on a phone and see its three screens: check fit, answers, interview prep", modes: ["live"],
+    async run(u) {
+      await u.open("/prep");
+      await u.see("Check fit");
+      await u.tap("Answers");
+      await u.see("Draft answers");
+      await u.tap("Interview prep");
+      await u.see("Build interview brief");
+      await u.screen("prep");
     } }
 ];
