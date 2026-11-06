@@ -54,6 +54,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Cloudflare Self-Knowledge Integration for QNFO](CLOUDFLARE-CAPABILITY-INTEGRATION.md) - `docs/CLOUDFLARE-CAPABILITY-INTEGRATION.md`
 - [Cloudflare Integration — Verification Follow-up (2026-09-07)](CLOUDFLARE-INTEGRATION-VERIFICATION-2026-09-07.md) - `docs/CLOUDFLARE-INTEGRATION-VERIFICATION-2026-09-07.md`
 - [Code-agent console (CODE-AGENT-CONSOLE-1)](CODE-AGENT-CONSOLE.md) - `docs/CODE-AGENT-CONSOLE.md`
+- [Code-agent UX: one ask, a full implementation (CODE-AGENT-UX-1)](CODE-AGENT-UX.md) - `docs/CODE-AGENT-UX.md`
 - [Research code as reach (CODE-REACH-1)](CODE-REACH-PROGRAM.md) - `docs/CODE-REACH-PROGRAM.md`
 - [Code-mode MCP surface for qnfo-ops: evaluation (CODEMODE-SURFACE-1)](CODEMODE-EVAL.md) - `docs/CODEMODE-EVAL.md`
 - [Composio and the DeepSeek harness (COMPOSIO-1, DSH-LESSONS-1)](COMPOSIO-INTEGRATION.md) - `docs/COMPOSIO-INTEGRATION.md`

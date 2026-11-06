@@ -291,6 +291,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CODE-AGENT-CONSOLE.md"
     },
     {
+      "path": "docs/CODE-AGENT-UX.md",
+      "title": "Code-agent UX: one ask, a full implementation (CODE-AGENT-UX-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CODE-AGENT-UX.md"
+    },
+    {
       "path": "docs/CODE-REACH-PROGRAM.md",
       "title": "Research code as reach (CODE-REACH-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CODE-REACH-PROGRAM.md"

@@ -36,7 +36,7 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
+import { verifyGithubSignature, githubEventRoute, githubEventPrompt, stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
 import { approvalModules, approvalSource } from "./approval.js";
 import { sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS, sessionLaneStep, codeSessionDailyCap, codeSessionLaneAllowed, CODE_SESSION_LANE_CHEAP, APPROVAL_SELFTEST_REQUESTER, approvalSelftestSeed } from "./session.js";
 
@@ -69,6 +69,8 @@ interface Env {
   CodeSession: DurableObjectNamespace<CodeSession>;
   // RM-CODE-SANDBOX-1: qnfo-deploy-guard by service binding (a Worker cannot reach another workers.dev host of its own account over HTTP); optional, a missing binding is recorded as an unreachable claim service.
   GUARD?: Fetcher;
+  // CODE-AGENT-UX-1: the GitHub App webhook secret; absent, the webhook route answers 503 and does nothing.
+  GITHUB_WEBHOOK_SECRET?: string;
 }
 interface RunInput { text: string; scope: Scope; caller: string; instance?: string; wait_ms?: number }
 interface State { runs: number; last_run: string | null; last_status: string | null; version: string }
@@ -1298,6 +1300,21 @@ export default {
         const d = directTools(c);
         const ops = caller ? (await opsTools(env)).map((o) => ({ name: "ops_" + o.name, readonly: opsToolAllowed(o.name, "read"), description: o.description.slice(0, 200) })) : [];
         return json({ ok: true, version: VERSION, direct: Object.keys(d).map((k) => ({ name: k, description: d[k].description })), codemode: caller ? "every tool below is also codemode.<name>() in the sandbox" : null, ops_tools: ops, mcp: "POST /mcp" });
+      }
+      if (path === "/github/webhook" && request.method === "POST") {
+        // CODE-AGENT-UX-1: a GitHub delivery about an agent pull request becomes a queued turn. The HMAC is checked first; nothing else authenticates this route.
+        const raw = await request.text();
+        if (!env.GITHUB_WEBHOOK_SECRET) return json({ ok: false, error: "webhook secret not configured" }, 503);
+        if (!(await verifyGithubSignature(env.GITHUB_WEBHOOK_SECRET, raw, request.headers.get("x-hub-signature-256")))) return json({ ok: false, error: "bad signature" }, 401);
+        let payload: any = null;
+        try { payload = JSON.parse(raw); } catch { return json({ ok: false, error: "bad json" }, 400); }
+        const evName = request.headers.get("x-github-event") || "";
+        const route = githubEventRoute(evName, payload);
+        if (!route) return json({ ok: true, routed: false });
+        const prompt = githubEventPrompt(route, request.headers.get("x-github-delivery")) as string;
+        const dup = await env.AUDIT_DB.prepare("SELECT id FROM cf_agent_requests WHERE requester = 'github-webhook' AND prompt = ?1 LIMIT 1").bind(prompt).first();
+        if (!dup) await env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES ('github-webhook', 'code_session', ?1, 'high')").bind(prompt).run();
+        return json({ ok: true, routed: true, kind: route.kind, issue_id: route.issue_id, duplicate: !!dup });
       }
       if (path === "/mcp") return createMcpHandler(() => mcpServer(env, scope, caller) as any, { route: "/mcp" } as any)(request, env, ctx);
       if (!caller) return json({ ok: false, error: "This route is for the fleet console and the ops endpoint. Use https://fleet.qnfo.org/cmd (cfagent <request>) or https://ops.qnfo.org/v1/agents.", open: ["/", "/health", "/tools", "/mcp"] }, 403);
