@@ -252,6 +252,18 @@ def parse_findings(text):
     return [f for f in (fs if isinstance(fs, list) else []) if isinstance(f, dict)]
 
 
+_TAGGED_SQL = re.compile(r"\b(?:this\.)?sql\s*`")
+_INJECTION = re.compile(r"sql injection|injection|parameteri[sz]ed|prepared statement|interpolat", re.I)
+
+
+def is_bound_template_claim(f):
+    """REVIEW-GATE-TAGGED-TEMPLATE-1: a tagged template (this.sql`... ${x} ...`) binds each ${} as a parameter, so an injection or
+    'use parameterized queries' claim whose evidence is such a line is a false positive."""
+    ev = str(f.get("evidence") or "")
+    text = " ".join(str(f.get(k) or "") for k in ("title", "trigger", "fix"))
+    return bool(_TAGGED_SQL.search(ev)) and bool(_INJECTION.search(text))
+
+
 def vet(findings, diff, model):
     """Apply the rules to one model's findings -> accepted list. A finding needs a file in the diff, a concrete trigger (40+ characters) and a
     fix; a High one also needs an evidence line that occurs verbatim (whitespace-insensitive) among the diff's lines, else it is demoted to Medium
@@ -268,6 +280,8 @@ def vet(findings, diff, model):
         trigger, fix, ev = norm(f.get("trigger")), norm(f.get("fix")), norm(f.get("evidence")).lstrip("+ ").strip()
         title = norm(f.get("title"))[:140]
         if not match or len(trigger) < MIN_TRIGGER_CHARS or len(fix) < 8 or not title:
+            continue
+        if is_bound_template_claim(f):
             continue
         verified = bool(ev) and (ev in diff_lines or (len(ev) >= 24 and any(ev in dl for dl in diff_lines)))
         unverified = False
