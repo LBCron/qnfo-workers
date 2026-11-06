@@ -354,7 +354,25 @@ def collect_secrets_in_repo(ctx):
             continue
         scanned += 1
         for ln, name in scan_text(raw.decode("utf-8", "replace")):
-            if (rel, name) in allow:
+            # Apply allowlist entries which may be exact matches or glob patterns.
+            # An entry is a tuple (path_pattern, pattern_name).  If the path pattern
+            # contains a wildcard, treat it as a glob; otherwise require an exact match.
+            # This makes the allowlist more flexible without changing existing
+            # exact‑match behaviour used in the self‑test.
+            allowed = False
+            for path_pat, pat_name in allow:
+                if pat_name != name:
+                    continue
+                if "*" in path_pat:
+                    import fnmatch
+                    if fnmatch.fnmatch(rel, path_pat):
+                        allowed = True
+                        break
+                else:
+                    if rel == path_pat:
+                        allowed = True
+                        break
+            if allowed:
                 continue
             hits += 1
             rows.append(("%s:%d" % (rel, ln), 0, name))
