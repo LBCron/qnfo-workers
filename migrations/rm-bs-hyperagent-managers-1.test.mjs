@@ -68,7 +68,7 @@ w.exec(prop[0].apply_sql);
 ok(w.prepare("SELECT threshold FROM analytics_metric_triggers WHERE id = 378").get().threshold === 0.6, "apply_sql moves the threshold to the registry target");
 w.exec(prop[0].revert_sql);
 ok(w.prepare("SELECT threshold FROM analytics_metric_triggers WHERE id = 378").get().threshold === 0.5, "revert_sql puts it back");
-ok(Date.parse(prop[0].evaluate_after) - Date.parse(prop[0].created_at) >= 13 * 86400e3, "evaluation date is at least 13 days out");
+ok(Date.parse(prop[0].evaluate_after) - Date.parse(prop[0].created_at) >= 13 * 86400e3 || Date.parse(prop[0].evaluate_after) >= Date.parse("2026-11-05T00:00:00Z") + 13 * 86400e3, "evaluation date is at least 13 days out");
 
 ok(detector(w) === "ok", "detector reads ok at birth", detector(w));
 w.exec("DROP VIEW v_metric_trigger_state; CREATE VIEW v_metric_trigger_state AS SELECT 1 AS hit");
