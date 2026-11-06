@@ -85,3 +85,9 @@ console.log(`jobs-judge-pdf (with page): ${pass} checks passed`);
   const ok = o.by_channel && o.by_score_band && typeof o.funnel.matches === "number";
   console.log(ok ? "ok funnel by channel and score band" : "FAIL funnel groups missing"); if (!ok) process.exitCode = 1;
 }
+
+{ // JOBSEARCH-HEADLINE-1: a backed, much higher model reading lifts the headline; an unbacked one does not
+  const a = T.headlineVerdict(30, { fit: 75, matched_fact_ids: ["a", "b"] }), b = T.headlineVerdict(30, { fit: 75, matched_fact_ids: ["a"] }), c = T.headlineVerdict(60, null);
+  const ok = a.verdict === "strong fit" && /model reading/.test(a.source) && b.verdict === "weak fit" && c.source === "rubric";
+  console.log(ok ? "ok headline follows a backed model reading" : "FAIL headline rule"); if (!ok) process.exitCode = 1;
+}

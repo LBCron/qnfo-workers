@@ -9,7 +9,7 @@
 // JOBSEARCH-CV-1 (1.5.0): the CV is part of this worker (page /cv): a yes/no interview that builds the claim bank, review of unconfirmed claims, roles, achievements and publications edited in D1, a resume per job (summary, roles, selected work, education, skills) and a cover note, history and backup. The search is tied to that bank (evidence the owner can back up weighs more; what the CV lacks is shown as a gap), decided postings (rejected, applied, approved) never come back under another id, rejections carry a reason the search learns from, and a wider net: stretch matches outside the stated preferences, more boards and aggregators.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.10.0-codeagent";
+var VERSION = "1.10.1-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1428,6 +1428,14 @@ async function fetchPosting(rawUrl) {
     return { title: decodeEntities(title).trim(), company, location: "", desc: body, url: u.toString() };
   } finally { clearTimeout(t); }
 }
+// JOBSEARCH-HEADLINE-1: the owner pasted postings he is qualified for and the keyword rubric called them weak. When the model reading is at least 25 points higher and
+// names two or more record facts that back it, the headline follows the model reading and says so; the rubric verdict stays in the answer beside it.
+const fitWord = (f) => (f >= 70 ? "strong fit" : f >= 45 ? "good fit" : f >= 35 ? "possible fit" : "weak fit");
+function headlineVerdict(rubricFit, judge) {
+  const backed = judge && Number.isFinite(+judge.fit) && Array.isArray(judge.matched_fact_ids) && judge.matched_fact_ids.length >= 2;
+  if (backed && +judge.fit - rubricFit >= 25) return { verdict: fitWord(+judge.fit), source: "model reading (rubric said " + fitWord(rubricFit) + ")" };
+  return { verdict: fitWord(rubricFit), source: "rubric" };
+}
 async function analyzeJob(env, body) {
   const ctx = await loadCtx(env);   // also loads the CV bank
   let p = { title: body.title || "", company: body.company || "", location: body.location || "", desc: "", url: "" };
@@ -1450,7 +1458,7 @@ async function analyzeJob(env, body) {
   try { await saveHistory(env, { title: job.title, company: job.company, url: job.url, fit: sc.fit, verdict, resume: draft.resume, note: draft.note }); } catch (e) { logErr("history", e); }
   return {
     title: job.title, company: job.company, location: job.location || "(not found; judged on the text)", url: job.url, cv_gaps: cvGaps,
-    verdict, fit_score: sc.fit, score_after_preferences: sc.score,
+    verdict: headlineVerdict(sc.fit, judge).verdict, verdict_source: headlineVerdict(sc.fit, judge).source, rubric_verdict: verdict, fit_score: sc.fit, score_after_preferences: sc.score,
     would_appear_in_your_search: sc.drops.length ? false : sc.tier !== "C" || sc.score >= 25,
     why_not_in_search: sc.drops.length ? sc.drops : sc.tier === "C" ? ["score below the cut after location and level adjustments"] : [],
     why: sc.why, flags: sc.flags, strengths, gaps: gapsFor(job.desc),
@@ -2342,7 +2350,7 @@ const handler = {
     return J({ error: "not found", see: "/api" }, 404);
   },
 };
-handler.__test = { outcomes, pdfOf, pdfClean, checkAnswer, jsonLoose, PROTECTED_Q, draftAnswers, prepBrief, quizFeedback, judgeJob, calibrate, calibration, followups, atsOf, keywordReport, docxOf, resumeHtml, plainOf, applyKit, matchKit, stripTags, postingTerms, evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK, llmRerank, llmRerankRun, ensureResearchPubs, RESEARCH_PUBS, pubLine, parseRerank, reasonOk, rerankMessages, artifactsFor, titleCandidate, sitemapUrls, slugTitle, PUBLIC_SECTOR, opsReport };
+handler.__test = { headlineVerdict, outcomes, pdfOf, pdfClean, checkAnswer, jsonLoose, PROTECTED_Q, draftAnswers, prepBrief, quizFeedback, judgeJob, calibrate, calibration, followups, atsOf, keywordReport, docxOf, resumeHtml, plainOf, applyKit, matchKit, stripTags, postingTerms, evaluate, rank, buildResume, buildNote, verify, stripHtml, locationGate, has, LEDGER, dedupeKey, feedPrefix, makeCtx, scoreJob, scoreFeatures, featuresFromWhy, applicationSnapshot, parseApplicationSnapshot, outcomeScoreWeights, loadCtx, SURVEY, BOARDS, normKey, applyBank, BANK_SEED, QUESTIONS, TAG_TO_CLUSTERS, clustersOf, cvAnswer, cvFact, cvReview, cvSet, cvImport, mutateBank, loadBank, decidedKeys, FETCHERS, getBank: () => BANK, llmRerank, llmRerankRun, ensureResearchPubs, RESEARCH_PUBS, pubLine, parseRerank, reasonOk, rerankMessages, artifactsFor, titleCandidate, sitemapUrls, slugTitle, PUBLIC_SECTOR, opsReport };
 export default handler;
 
 // ------------------------------------------------------------------ client script shared by both pages (JOBSEARCH-APPLY-1): kit handling and the Fill application bookmark
