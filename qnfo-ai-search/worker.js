@@ -36,7 +36,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.18.2-codeagent";
+var VERSION = "2.18.3-codeagent";
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
 // Helper to call AI model with timeout and retry on AI_TIMEOUT
@@ -2897,6 +2897,7 @@ async function loopReport(env) {
 // BEGIN TURNSTILE-EDGE-1
 var TURNSTILE_SITEKEY_DEFAULT = "0x4AAAAAAFpf2WdSG4-h5mu_";
 var TURNSTILE_SCRIPT = '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
+var CANONICAL_HOST = "https://ask.qwav.org";
 function turnstileWidget(env, action) {
   var key = (env && env.TURNSTILE_SITEKEY) || TURNSTILE_SITEKEY_DEFAULT;
   return '<div class="cf-turnstile" data-sitekey="' + key + '" data-action="' + String(action || "form").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) + '" data-appearance="interaction-only" data-theme="auto"></div>';
@@ -2925,9 +2926,9 @@ var PAGE = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ask QWAV | QNFO research assistant</title>
 <meta name="description" content="Ask questions of the QNFO / QWAV research corpus. Answers are grounded in the published papers, cite their sources, and show where they sit in the QNFO knowledge graph.">
-<link rel="canonical" href="https://ask.qwav.tech/">
+<link rel="canonical" href="${CANONICAL_HOST}/">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://ask.qwav.tech/">
+<meta property="og:url" content="${CANONICAL_HOST}/">
 <meta property="og:title" content="Ask QWAV | QNFO research assistant">
 <meta property="og:description" content="Grounded answers from the QNFO research corpus, with citations and the knowledge graph around them.">
 <meta name="twitter:card" content="summary">
