@@ -176,5 +176,14 @@ console.log("qnfo-agents code-session.test: " + pass + " passed, " + fail + " fa
   console.log("ok sdlc lifecycle prompt");
 }
 
+// SDLC-OWN-1 (#8209): every system prompt the agents send goes through withLifecycle, so a turn carries lane:fast and lane:deep.
+{
+  const assert = (await import("node:assert/strict")).default;
+  const src = readFileSync(new URL("./src/index.ts", import.meta.url), "utf8");
+  assert.ok(src.includes("const CODE_SESSION_SYSTEM = withLifecycle(SYSTEM);"), "CodeSession system prompt is wrapped");
+  assert.equal((src.match(/system: withLifecycle\(SYSTEM\) \+/g) || []).length, 2, "both FleetCodeAgent generateText calls are wrapped");
+  assert.equal((src.match(/system: SYSTEM \+/g) || []).length, 0, "no bare SYSTEM prompt is left");
+  console.log("ok sdlc lifecycle wired");
+}
 process.exit(fail ? 1 : 0);
 

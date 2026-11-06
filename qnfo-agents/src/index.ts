@@ -38,7 +38,7 @@ import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 import { MAINTAIN_REQUESTER, MAINTAIN_PROMPT, maintainDue, verifyGithubSignature, githubEventRoute, githubEventPrompt, stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
 import { approvalModules, approvalSource } from "./approval.js";
-import { sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS, sessionLaneStep, codeSessionDailyCap, codeSessionLaneAllowed, CODE_SESSION_LANE_CHEAP, APPROVAL_SELFTEST_REQUESTER, approvalSelftestSeed } from "./session.js";
+import { withLifecycle, sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS, sessionLaneStep, codeSessionDailyCap, codeSessionLaneAllowed, CODE_SESSION_LANE_CHEAP, APPROVAL_SELFTEST_REQUESTER, approvalSelftestSeed } from "./session.js";
 
 // VERSION is the first line of the bundle (build.mjs writes `var VERSION = "<package.json version>"` there for the fleet guards).
 declare var VERSION: string;
@@ -353,7 +353,7 @@ const SYSTEM = [
 ].join("\n");
 
 const CODE_SESSION_NEURON_BASELINE = "@cf/deepseek-ai/deepseek-v4-flash-0731";
-const CODE_SESSION_SYSTEM = SYSTEM;
+const CODE_SESSION_SYSTEM = withLifecycle(SYSTEM);
 
 // PREFIX-CACHE-AGENTS-1 (#7067, pillar cost): every step of a turn resends the whole context (system prompt, the qnfo-ops tool catalog and the growing
 // messages: about 22k to 32k input tokens a call, 27.6M tokens and 1,268 calls on 2026-11-04 with cached_tok 0 in ai_spend_ledger). Workers AI keeps a
@@ -486,7 +486,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
         try { const lr: any = await this.env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_lean'").first(); lean = leanConfigOn(lr && lr.value); } catch (e) { lean = true; }
       }
       const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, runId: id, proposals, lean });
-      const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, onStepFinish: (st: any) => { try { const tc = st && st.toolCalls && st.toolCalls.length ? String(st.toolCalls[st.toolCalls.length - 1].toolName) : null; this.sql`UPDATE runs SET last_beat_ms = ${Date.now()}, last_tool = COALESCE(${tc}, last_tool) WHERE id = ${id}`; } catch (e) { /* a heartbeat never fails a run */ } }, stopWhen: stepCountIs(/(^|:)cmdline-maintain/.test(String(r.caller)) ? MAINTAIN_MAX_STEPS : lean ? LEAN_MAX_STEPS : /(^|:)issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), ...(lean ? { prepareStep: ({ messages }: any) => ({ messages: compactMessages(messages) }) } : {}), timeout: { totalMs: /(^|:)cmdline-maintain/.test(String(r.caller)) ? MAINTAIN_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
+      const out: any = await generateText({ model: m.model, system: withLifecycle(SYSTEM) + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, onStepFinish: (st: any) => { try { const tc = st && st.toolCalls && st.toolCalls.length ? String(st.toolCalls[st.toolCalls.length - 1].toolName) : null; this.sql`UPDATE runs SET last_beat_ms = ${Date.now()}, last_tool = COALESCE(${tc}, last_tool) WHERE id = ${id}`; } catch (e) { /* a heartbeat never fails a run */ } }, stopWhen: stepCountIs(/(^|:)cmdline-maintain/.test(String(r.caller)) ? MAINTAIN_MAX_STEPS : lean ? LEAN_MAX_STEPS : /(^|:)issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), ...(lean ? { prepareStep: ({ messages }: any) => ({ messages: compactMessages(messages) }) } : {}), timeout: { totalMs: /(^|:)cmdline-maintain/.test(String(r.caller)) ? MAINTAIN_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
       // FINAL-ANSWER-PICK-1: a preface, an empty last step or raw tool-call markup is not an answer (see pickAnswer in lib.js).
       const pick = pickAnswer(out.text, out.steps);
       result = pick.text;
@@ -497,7 +497,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
       // EMPTY-TURN-ANSWER-1 and FINAL-ANSWER-PICK-1: no step wrote an answer, so one more call without tools turns what the tools returned into it.
       if (!pick.answered) {
         try {
-          const fin: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: "Request:\n" + clip(r.prompt, 6000) + "\n\nTool results so far:\n" + (toolTranscript(out.steps, 24000) || "(none)") + "\n\n" + FINAL_ANSWER_ASK, abortSignal: AbortSignal.timeout(FINAL_ANSWER_TIMEOUT_MS) } as any);
+          const fin: any = await generateText({ model: m.model, system: withLifecycle(SYSTEM) + "\nScope of this turn: " + r.scope + ".", prompt: "Request:\n" + clip(r.prompt, 6000) + "\n\nTool results so far:\n" + (toolTranscript(out.steps, 24000) || "(none)") + "\n\n" + FINAL_ANSWER_ASK, abortSignal: AbortSignal.timeout(FINAL_ANSWER_TIMEOUT_MS) } as any);
           const ft = stripToolMarkup(String(fin.text || "").trim());
           await meter(this.env, modelId, usageOf(fin));
           if (ft) { result = ft; used.push("final-answer"); }
