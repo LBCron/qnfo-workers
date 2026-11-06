@@ -1018,6 +1018,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/issues/rum-zero-13.md"
     },
     {
+      "path": "docs/handoff/sdlc-two-speed-cli.md",
+      "title": "Handoff: two-speed, full-lifecycle command line (SDLC-OWN-1 build)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/sdlc-two-speed-cli.md"
+    },
+    {
       "path": "docs/infra-records/FOLDED.md",
       "title": "Folded repository",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/infra-records/FOLDED.md"
