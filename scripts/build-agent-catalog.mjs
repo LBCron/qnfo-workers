@@ -32,9 +32,12 @@ export function isSystemDocument(path) {
 
 export function buildCatalog(root = ROOT) {
   const paths = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
-    .split("\0").filter(isSystemDocument).sort();
+    .split("\0")
+    .filter(isSystemDocument)
+    .sort();
   for (const path of ENTRYPOINTS) {
-    if (!paths.includes(path)) throw new Error(`Missing tracked entry point: ${path}; stage new sources before generating`);
+    if (!paths.includes(path))
+      throw new Error(`Missing tracked entry point: ${path}; stage new sources before generating`);
   }
   const documents = paths.map((path) => {
     const bytes = readFileSync(resolve(root, path));
@@ -51,8 +54,10 @@ export function buildCatalog(root = ROOT) {
     contract: "FLEET-SHARED-LIBRARY-1",
     library_version: "1.0.0",
     repository: "QNFO/qnfo-workers",
-    retrieval: "Resolve main to one commit; replace main in every URL with that commit. SHA-256 covers bootstrap/library bytes where present; other documents rely on the pinned Git revision.",
-    authority: "Inventory is discovery, not adoption or proof of live state. Read CLAUDE.md and the charter/doctrine precedence rules.",
+    retrieval:
+      "Resolve main to one commit; replace main in every URL with that commit. SHA-256 covers bootstrap/library bytes where present; other documents rely on the pinned Git revision.",
+    authority:
+      "Inventory is discovery, not adoption or proof of live state. Read CLAUDE.md and the charter/doctrine precedence rules.",
     entrypoints: ENTRYPOINTS,
     documents,
   };
@@ -67,9 +72,15 @@ export function buildCatalog(root = ROOT) {
     "",
   ];
   for (const [label, entries] of [
-    ["Root and agent entry points", documents.filter(({ path }) => !path.includes("/") || path.startsWith(".github/"))],
+    [
+      "Root and agent entry points",
+      documents.filter(({ path }) => !path.includes("/") || path.startsWith(".github/")),
+    ],
     ["System standards, runbooks and historical records", documents.filter(({ path }) => path.startsWith("docs/"))],
-    ["Component documentation", documents.filter(({ path }) => path.includes("/") && !path.startsWith("docs/") && !path.startsWith(".github/"))],
+    [
+      "Component documentation",
+      documents.filter(({ path }) => path.includes("/") && !path.startsWith("docs/") && !path.startsWith(".github/")),
+    ],
   ]) {
     lines.push(`## ${label}`, "");
     for (const { path, title } of entries) {
@@ -87,6 +98,9 @@ export function buildCatalog(root = ROOT) {
   ]);
 }
 
+/**
+ * Returns an array of catalog paths that are out‑of‑date.
+ */
 export function checkCatalog(root = ROOT) {
   const stale = [];
   for (const [path, expected] of buildCatalog(root)) {
@@ -101,12 +115,88 @@ export function checkCatalog(root = ROOT) {
   return stale;
 }
 
+/**
+ * Scoped check used for PR validation.
+ *
+ * @param {string} root - Repository root.
+ * @param {Set<string>} changedFiles - Files that the PR added/removed/modified.
+ * @returns {{failures: string[], warnings: string[]}}
+ */
+export function scopedCheckCatalog(root = ROOT, changedFiles) {
+  const stale = checkCatalog(root);
+  const failures = [];
+  const warnings = [];
+
+  for (const path of stale) {
+    // Any entrypoint hash change must be treated as a failure regardless of whether the entrypoint file itself appears
+    // in the changed set (the hash is derived from its contents).
+    const isEntrypoint = ENTRYPOINTS.includes(path);
+    const isChanged = changedFiles.has(path);
+    if (isEntrypoint || isChanged) {
+      failures.push(path);
+    } else {
+      warnings.push(path);
+    }
+  }
+
+  return { failures, warnings };
+}
+
+/* -------------------------------------------------------------------------- */
+/* CLI handling                                                               */
+/* -------------------------------------------------------------------------- */
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.some((arg) => arg !== "--check") || args.length > 1) {
-    throw new Error("Usage: node scripts/build-agent-catalog.mjs [--check]");
+
+  // Determine mode -----------------------------------------------------------
+  const isCheck = args.includes("--check");
+  const changedIdx = args.indexOf("--changed");
+  const hasChanged = changedIdx !== -1;
+
+  if (!isCheck) {
+    // Generation mode (no flags or any flag other than --check)
+    if (args.length) {
+      throw new Error("Usage: node scripts/build-agent-catalog.mjs [--check] [--changed <file...>]");
+    }
+    for (const [path, text] of buildCatalog()) writeFileSync(resolve(ROOT, path), text);
+    console.log("Generated docs/INDEX.md and docs/agent-catalog.json");
+    process.exit(0);
   }
-  if (args.includes("--check")) {
+
+  // --check mode -------------------------------------------------------------
+  if (hasChanged) {
+    // Gather the list of changed files. They can be supplied as a single
+    // comma‑separated argument or as space‑separated arguments after the flag.
+    const rawList = args.slice(changedIdx + 1);
+    if (rawList.length === 0) {
+      throw new Error("Usage: node scripts/build-agent-catalog.mjs --check --changed <file1> [<file2> ...]");
+    }
+    const changedFiles = new Set(
+      rawList
+        .join(" ")
+        .split(/[,\s]+/)
+        .filter(Boolean)
+    );
+
+    const { failures, warnings } = scopedCheckCatalog(ROOT, changedFiles);
+
+    if (failures.length) {
+      console.error(
+        `Stale documentation inventory affecting changed files: ${failures.join(
+          ", "
+        )}. Run node scripts/build-agent-catalog.mjs`
+      );
+      process.exitCode = 1;
+    } else {
+      console.log("Agent documentation inventory is current for changed files");
+    }
+
+    if (warnings.length) {
+      console.warn(`Warning: Stale documentation inventory for unchanged files: ${warnings.join(", ")}.`);
+    }
+  } else {
+    // Strict check (used on main pushes)
     const stale = checkCatalog();
     if (stale.length) {
       console.error(`Stale documentation inventory: ${stale.join(", ")}. Run node scripts/build-agent-catalog.mjs`);
@@ -114,8 +204,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     } else {
       console.log("Agent documentation inventory is current");
     }
-  } else {
-    for (const [path, text] of buildCatalog()) writeFileSync(resolve(ROOT, path), text);
-    console.log("Generated docs/INDEX.md and docs/agent-catalog.json");
   }
 }
