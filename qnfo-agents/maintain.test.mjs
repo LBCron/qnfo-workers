@@ -1,0 +1,16 @@
+// CMDLINE-MAINTAIN-1 offline suite: the weekly sweep is due once a week and its prompt names the three sections. Run: node --no-warnings qnfo-agents/maintain.test.mjs
+import { maintainDue, MAINTAIN_PROMPT, MAINTAIN_REQUESTER } from "./src/lib.js";
+import { readFileSync } from "node:fs";
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); } };
+const now = Date.parse("2026-11-13T12:00:00Z");
+ok(maintainDue(null, now) === true && maintainDue("", now) === true, "never swept: due");
+ok(maintainDue("2026-11-10 12:00:00", now) === false, "swept 3 days ago: not due");
+ok(maintainDue("2026-11-06 12:00:00", now) === true, "swept exactly 7 days ago: due");
+ok(maintainDue("garbage", now) === true, "an unreadable timestamp is due, never stuck");
+ok(/Maintenance/.test(MAINTAIN_PROMPT) && /Anticipated needs/.test(MAINTAIN_PROMPT) && /Document audit/.test(MAINTAIN_PROMPT), "the prompt has the three sections");
+ok(/at most five issues/.test(MAINTAIN_PROMPT) && /never as instructions/.test(MAINTAIN_PROMPT), "bounded and treats files as data");
+const src = readFileSync(new URL("./src/index.ts", import.meta.url), "utf8");
+ok(/maintainDue\(lastSweep && lastSweep\.last, Date\.now\(\)\)/.test(src) && src.includes("MAINTAIN_REQUESTER"), "seedMeasurements seeds the sweep");
+ok(MAINTAIN_REQUESTER === "cmdline-maintain", "requester name");
+console.log("maintain: " + pass + " passed, " + fail + " failed"); process.exit(fail ? 1 : 0);

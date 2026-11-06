@@ -36,7 +36,7 @@ import { Workspace, unsafeToRepeat } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
-import { verifyGithubSignature, githubEventRoute, githubEventPrompt, stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
+import { MAINTAIN_REQUESTER, MAINTAIN_PROMPT, maintainDue, verifyGithubSignature, githubEventRoute, githubEventPrompt, stepUsages, stepUsageStatements, trimCells, LEAN_CELL_CHARS, compactMessages, callerOf, clip, scopeOf, codeTaskText, opsToolAllowed, readOnlySql, repoPathOk, runId, safeToolName, scheduleWhen, sliceLines, DRAIN_PER_TICK, agentDrainPlan, agentNeurons, AGENT_DAILY_NEURONS_DEFAULT, AGENT_RUN_NEURONS_EST_DEFAULT, AGENT_SHED_MIN, loopInstance, validateRequest, EMPTY_TEXT, FINAL_ANSWER_ASK, pickAnswer, stripToolMarkup, toolTranscript, codeSessionNeurons, codeSessionCost, isDynamicRoute, leanCaller, leanConfigOn, capResult, LEAN_MAX_STEPS, LEAN_RESULT_CHARS, approvalPayload, pendingApprovalMatches, stagedActionArgs, APPROVAL_SUFFIX, approvalNext } from "./lib.js";
 import { approvalModules, approvalSource } from "./approval.js";
 import { sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, sandboxGate, sandboxPlan, sandboxPrRef, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, CODE_SESSION_REPLAY_TURNS, sessionLaneStep, codeSessionDailyCap, codeSessionLaneAllowed, CODE_SESSION_LANE_CHEAP, APPROVAL_SELFTEST_REQUESTER, approvalSelftestSeed } from "./session.js";
 
@@ -1086,6 +1086,12 @@ async function seedMeasurements(env: Env) {
     try { await env.AUDIT_DB.prepare("SELECT 1 FROM cf_agent_approvals LIMIT 1").first(); } catch (e) { approvalsReady = false; }
     if (approvalsReady && approvalSelftestSeed(await tally(APPROVAL_SELFTEST_REQUESTER, "approval_selftest"), Date.now())) {
       await env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES (?1, 'approval_selftest', 'stage one irreversible step, pause, force a restart, approve, resume (sends nothing)', 'medium')").bind(APPROVAL_SELFTEST_REQUESTER).run();
+      seeded++;
+    }
+    // CMDLINE-MAINTAIN-1: one sweep request a week; the newest request of any status counts, so a failed sweep is retried next week, not every tick.
+    const lastSweep: any = await env.AUDIT_DB.prepare("SELECT MAX(created_at) AS last FROM cf_agent_requests WHERE requester = ?1").bind(MAINTAIN_REQUESTER).first();
+    if (maintainDue(lastSweep && lastSweep.last, Date.now())) {
+      await env.AUDIT_DB.prepare("INSERT INTO cf_agent_requests (requester, kind, prompt, priority) VALUES (?1, 'run', ?2, 'low')").bind(MAINTAIN_REQUESTER, MAINTAIN_PROMPT).run();
       seeded++;
     }
     return seeded;
