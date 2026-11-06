@@ -127,7 +127,7 @@ DELETE FROM email_loop_quarantine WHERE substr(COALESCE(quarantined_at, received
   UPDATE email_commands SET command_text = NULL, result = NULL
     WHERE substr(created_at,1,10) < date('now','-180 days')
       AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
-  UPDATE emails SET headers_json = NULL
+  UPDATE emails SET body_text = NULL, body_html = NULL, headers_json = NULL
     WHERE substr(received_at,1,10) < date('now','-365 days')
       AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
   UPDATE email_loop_quarantine SET body_text = NULL
