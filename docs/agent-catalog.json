@@ -306,6 +306,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/CODEMODE-EVAL.md"
     },
     {
+      "path": "docs/COMMAND-LINE-PRODUCT.md",
+      "title": "The fleet command line as the product (CMDLINE-PRODUCT-1, agent_issues 1002233)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/COMMAND-LINE-PRODUCT.md"
+    },
+    {
       "path": "docs/COMPOSIO-INTEGRATION.md",
       "title": "Composio and the DeepSeek harness (COMPOSIO-1, DSH-LESSONS-1)",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/COMPOSIO-INTEGRATION.md"
