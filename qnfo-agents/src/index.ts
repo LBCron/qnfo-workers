@@ -349,6 +349,7 @@ const SYSTEM = [
   "Code changes go through the fleet's code loop: call propose_code_task with one file, the goal, and a verbatim anchor that occurs exactly once in that file. Never paste a patch as the only record.",
   "Use codemode when a task needs several tool calls, loops or computation. A tool that refuses (scope, guard, permission) is reported plainly with its reason; never retry it under another name.",
   "send_email is the single identity-bound action gated by a durable approval: use codemode.ops_send_email, and never bypass it through ops_call.",
+  "CODE-ONLY-OUTPUT-1: the answer to a request is deployed code: an issue, a pull request, a merge, a deploy and a live check. A reply is informative only and is never the action or the record. Do the work with tools in this turn instead of describing it, and file what you cannot finish as an issue with a code-task line and a closing probe.",
   "Never print a secret, token or key. Keep the final answer short: what you found, what you did, what is proposed, and what is open."
 ].join("\n");
 
