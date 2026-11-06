@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.69.0-codeagent";
+var VERSION = "2.69.1-codeagent";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -3943,6 +3943,9 @@ async function opsFileCodeIssue(env, title, description, via) {
     if (!env.QNFO_AUDIT) return { ok: false, error: "QNFO_AUDIT binding missing" };
     const now = Date.now();
     const t = String(title || "Code change").replace(/\s+/g, " ").trim().slice(0, 200);
+    // SHIP-CHANGE-IDEMPOTENT-1: a retry of a failed ship_change or github_pr reuses the open issue the first attempt filed for the same title.
+    const prior = await env.QNFO_AUDIT.prepare("SELECT id FROM agent_issues WHERE source = 'ops-agent' AND status = 'open' AND title = ?1 ORDER BY id DESC LIMIT 1").bind(t).first();
+    if (prior && prior.id != null) return { ok: true, id: Number(prior.id), reused: true };
     const r = await env.QNFO_AUDIT.prepare("INSERT INTO agent_issues (title, description, source, category, priority, status, linked_session, created_at, updated_at) VALUES (?1, ?2, 'ops-agent', 'code-change', 'medium', 'open', ?3, ?4, ?4)").bind(t, String(description || "").slice(0, 4000), "qnfo-ops/" + VERSION + ":" + via, now).run();
     const id = r && r.meta && r.meta.last_row_id != null ? Number(r.meta.last_row_id) : null;
     return id == null ? { ok: false, error: "issue insert returned no id" } : { ok: true, id };
@@ -3989,7 +3992,7 @@ async function shipChange(env, args) {
     written.push(path);
   }
   const pr = await githubPr(env, { repo, head: branch, base, title: "[issue #" + issueId + "] " + title, body: (summary ? summary + "\n\n" : "") + "Changed paths:\n" + written.map(function(p) { return "- " + p; }).join("\n") + "\n\nRefs issue #" + issueId + "." });
-  if (!pr.ok) return { ok: false, stage: "pull-request", issue_id: issueId, branch, written, error: pr.error };
+  if (!pr.ok) return { ok: false, stage: "pull-request", issue_id: issueId, branch, written, error: pr.error, resume: { issue_id: issueId, branch, hint: "retry ship_change with this issue_id; the branch is reused and the writes are repeated safely" } };
   return { ok: true, issue_id: issueId, branch, written, pr_number: pr.number, pr_url: pr.url };
 }
 __name(githubPr, "githubPr");

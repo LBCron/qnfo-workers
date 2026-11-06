@@ -33,7 +33,7 @@ function build(opts) {
   const env = {
     GITHUB_TOKEN: "t",
     QNFO_AUDIT: {
-      prepare: (sql) => ({ bind: (...a) => ({ run: async () => {
+      prepare: (sql) => ({ bind: (...a) => ({ first: async () => (/^SELECT id FROM agent_issues/.test(sql) && opts.priorIssue ? { id: opts.priorIssue } : null), run: async () => {
         if (/^INSERT INTO agent_issues/.test(sql)) { log.issues.push({ title: a[0], source: "ops-agent", linked: a[2] }); return { meta: { last_row_id: 4242 } }; }
         if (/^UPDATE agent_issues/.test(sql)) { log.updates.push({ text: a[0], id: a[2] }); return { meta: {} }; }
         return { meta: {} };
@@ -41,6 +41,7 @@ function build(opts) {
     }
   };
   const githubApi = async (e, method, path, body) => {
+    if (method === "POST" && /\/pulls$/.test(path) && opts.prFail) return { status: 422, json: { message: "A pull request already exists" } };
     if (method === "POST" && /\/pulls$/.test(path)) { log.prs.push(body); return { status: 201, json: { number: 77, html_url: "https://github.com/QNFO/qnfo-workers/pull/77" } }; }
     return { status: 500, json: { message: "unexpected " + method + " " + path } };
   };
@@ -94,6 +95,16 @@ function build(opts) {
   t = build({ failPath: "b" });
   r = await t.fn.shipChange(t.env, { title: "x", files: [{ path: "a", content: "1" }, { path: "b", content: "2" }, { path: "c", content: "3" }] });
   ok(!r.ok && r.stage === "write" && r.failed_path === "b" && r.written.length === 1 && t.log.prs.length === 0, "a refused write stops before the pull request and names the path", r);
+}
+
+// SHIP-CHANGE-IDEMPOTENT-1: a retry reuses the open issue, and a failed pull-request step says how to resume
+{
+  let t = build({ priorIssue: 9001 });
+  let r = await t.fn.shipChange(t.env, { title: "same title", files: [{ path: "a", content: "1" }] });
+  ok(r.ok && r.issue_id === 9001 && t.log.issues.length === 0, "a retry reuses the open issue instead of inserting a second", r);
+  t = build({ prFail: true });
+  r = await t.fn.shipChange(t.env, { title: "x", files: [{ path: "a", content: "1" }] });
+  ok(!r.ok && r.stage === "pull-request" && r.resume && r.resume.issue_id === 4242 && /^ops\/issue-4242-/.test(r.resume.branch), "a failed pull request returns the issue and branch to resume", r);
 }
 
 // github_pr guard
