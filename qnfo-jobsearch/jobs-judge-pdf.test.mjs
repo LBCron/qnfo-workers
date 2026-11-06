@@ -91,3 +91,11 @@ console.log(`jobs-judge-pdf (with page): ${pass} checks passed`);
   const ok = a.verdict === "strong fit" && /model reading/.test(a.source) && b.verdict === "weak fit" && c.source === "rubric";
   console.log(ok ? "ok headline follows a backed model reading" : "FAIL headline rule"); if (!ok) process.exitCode = 1;
 }
+
+{ // JOBSEARCH-FUNNEL-1 review-gate findings: a match with no score or no url gets its own bucket, never the weak band or an "undefined" board
+  db.exec("CREATE TABLE IF NOT EXISTS jobsearch_matches (id TEXT PRIMARY KEY, first_seen TEXT, last_seen TEXT, run_id INTEGER, company TEXT, title TEXT, location TEXT, url TEXT, tier TEXT, score INTEGER, why_json TEXT, flags_json TEXT, verified INTEGER DEFAULT 0, blocked_reason TEXT, resume_md TEXT, note_md TEXT, status TEXT DEFAULT 'pending_owner_approval', decided_at TEXT)");
+  db.exec("INSERT OR REPLACE INTO jobsearch_matches (id, first_seen, last_seen, url, score) VALUES ('nullcase','x','x',NULL,NULL)");
+  const o = await T.outcomes(env);
+  const ok = o.by_score_band.unscored && !o.by_score_band.weak_under_60?.matches_null && o.by_channel.unknown && !o.by_channel.undefined;
+  console.log(ok ? "ok null score and url get their own buckets" : "FAIL null buckets"); if (!ok) process.exitCode = 1;
+}
