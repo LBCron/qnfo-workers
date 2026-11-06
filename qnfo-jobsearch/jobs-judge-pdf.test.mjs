@@ -79,3 +79,9 @@ console.log(`jobs-judge-pdf (with page): ${pass} checks passed`);
   const ok = src.includes("scorecard_attributes") && src.includes("What interviewers will likely rate");
   console.log(ok ? "ok scorecard attributes in brief and page" : "FAIL scorecard attributes missing"); if (!ok) process.exitCode = 1;
 }
+
+{ // JOBSEARCH-FUNNEL-1: outcomes carry per-channel and per-score-band stage counts
+  const o = await T.outcomes(env);
+  const ok = o.by_channel && o.by_score_band && typeof o.funnel.matches === "number";
+  console.log(ok ? "ok funnel by channel and score band" : "FAIL funnel groups missing"); if (!ok) process.exitCode = 1;
+}

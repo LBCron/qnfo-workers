@@ -20,6 +20,13 @@ because each one was broken at least once; the linked issue holds the evidence.
 - `scripts/doc_audit.py` lists docs no source file references; `scripts/doc_audit.test.mjs` fails a PR that adds one (allowlist `scripts/doc-orphans-allowlist.txt`, shrink-only).
   Roadmap items and follow-up issues carry `code-task:` lines, never prose alone. The allowlisted docs are a backlog: each gets code that uses it or is deleted.
 
+## The session ships it all, automatically (AUTO-LIFECYCLE-1, owner directive 2026-11-06)
+- Owner, verbatim in substance: "Don't ever ask me to deploy things or to open issues or to create PRs or to merge it. All of that needs to be in your DNA in CLAUDE.md that you always do automatically, always."
+  A session does every step itself and reports results, never requests: take the work claim, branch, build, test, bump the version, open the pull request ready for review (not a draft, unless usage
+  is running out and a handoff is needed), watch its checks and fix a red one in the same turn, let the lane merge it, verify the deploy live (health version, the route, the probe), file an
+  `agent_issues` row with `code-task:` and a closing probe for every defect or improvement found, release the claim, and keep going on the roadmap item after. Sentences such as "you can deploy",
+  "want me to open a PR", "ready for you to merge" or "let me know" are defects. Only an IDENTITY-BOUND step (a sign-in code, money, a signing act, the owner's own accounts) is handed over, once, as a card.
+
 ## Audit your own work (SELF-AUDIT-1, owner directive 2026-11-06)
 - Before and after delivering, check the work against real output (a live route, a CI result, a D1 row, a rendered page), never against your own description of it. Ask what you are not
   thinking about; each answer becomes a fix in the same PR or an `agent_issues` row with a `code-task:` line and a closing probe. There is always room to improve: a delivery with no
