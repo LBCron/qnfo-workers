@@ -205,7 +205,7 @@ ok(LEAN_MAX_STEPS <= 6, "a lean turn stops at 6 steps");
   ok(big.truncated === true && JSON.stringify(big).length < LEAN_RESULT_CHARS + 400, "a big tool result is cut to the hard cap");
 }
 ok(/if \(c\.lean\) return t;/.test(ts) && /if \(c\.lean\) return tools;/.test(ts), "lean turns get no ops catalog, writes, code mode or MCP tools");
-ok(/stepCountIs\(lean \? LEAN_MAX_STEPS/.test(ts) && !/\/\^issue-probe-agent\//.test(ts), "the step cap matches the loop: caller and no longer anchors on the bare requester name");
+ok(/stepCountIs\(\/\(\^\|:\)cmdline-maintain\/\.test\(String\(r\.caller\)\) \? MAINTAIN_MAX_STEPS : lean \? LEAN_MAX_STEPS/.test(ts) && !/\/\^issue-probe-agent\//.test(ts), "the step cap matches the loop: caller and no longer anchors on the bare requester name");
 ok(/qnfo_agents_lean/.test(ts), "the kill switch key is read");
 
 console.log("qnfo-agents worker.test: " + pass + " passed, " + fail + " failed");

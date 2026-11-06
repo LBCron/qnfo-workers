@@ -15,4 +15,6 @@ ok(/maintainDue\(lastSweep && lastSweep\.last, Date\.now\(\)\)/.test(src) && src
 ok(MAINTAIN_REQUESTER === "cmdline-maintain", "requester name");
 ok(/file_issue as soon as its evidence is in hand/.test(MAINTAIN_PROMPT), "the prompt files as it goes");
 ok(/MAINTAIN_MAX_STEPS = 40/.test(src) && /cmdline-maintain\/\.test\(String\(r\.caller\)\) \? MAINTAIN_MAX_STEPS/.test(src), "the sweep has its own step budget");
+ok(/cmdline-maintain\/\.test\(String\(r\.caller\)\) \? MAINTAIN_MAX_STEPS : lean/.test(src), "the sweep budget wins over lean mode");
+ok(/MAINTAIN_TURN_TIMEOUT_MS/.test(src), "the sweep has its own turn timeout");
 console.log("maintain: " + pass + " passed, " + fail + " failed"); process.exit(fail ? 1 : 0);
