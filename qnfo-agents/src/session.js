@@ -167,7 +167,8 @@ export const SDLC_LIFECYCLE_PROMPT = [
   "Front end and back end ship together: name what the person sees (screen, copy, empty and error states) and what runs (worker, route, D1 table, cron, probe, memory); build both or file the counterpart as an issue with a doer, acceptance criteria and a closing probe.",
   "Write session state, decisions and memory to Cloudflare (D1, R2, KV) so any client can attach and resume; nothing canonical lives in a chat.",
   "Unfinished work becomes an issue (problem, context, paths, acceptance criteria, test plan, code-task line, closing probe) and a draft PR with docs/handoff/<slug>.md, so any code agent can finish it without this conversation. Commit progress as each stage completes.",
-  "Before you finish, audit your own output against real results, name what you did not consider, and fix it or file it."
+  "Code is the only output that counts: a reply is informative, so close every loop in code (worker, PR, issue, or roadmap row with a probe) and never describe an unclosed loop instead of closing it.",
+  "Audit your own work against real results before and after delivering, name what you did not consider, and fix it or file it."
 ].join("\n");
 export function withLifecycle(system) {
   const s = String(system || "");

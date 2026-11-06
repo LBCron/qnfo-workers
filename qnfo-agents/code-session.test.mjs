@@ -183,6 +183,9 @@ console.log("qnfo-agents code-session.test: " + pass + " passed, " + fail + " fa
   assert.ok(src.includes("const CODE_SESSION_SYSTEM = withLifecycle(SYSTEM);"), "CodeSession system prompt is wrapped");
   assert.equal((src.match(/system: withLifecycle\(SYSTEM\) \+/g) || []).length, 2, "both FleetCodeAgent generateText calls are wrapped");
   assert.equal((src.match(/system: SYSTEM \+/g) || []).length, 0, "no bare SYSTEM prompt is left");
+  assert.ok(src.length>0);
+  const { SDLC_LIFECYCLE_PROMPT: P } = await import("./src/session.js");
+  assert.ok(P.includes("Code is the only output") && P.includes("Audit your own work"), "self-audit and code-is-output rules present");
   console.log("ok sdlc lifecycle wired");
 }
 process.exit(fail ? 1 : 0);
