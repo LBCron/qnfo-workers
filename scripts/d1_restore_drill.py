@@ -233,13 +233,14 @@ def record(d1, rec):
 SCRATCH_MAX_AGE_S = 7200
 
 
-def sweep_scratch(call=None, now=time.time, max_age_s=SCRATCH_MAX_AGE_S):
+def sweep_scratch(call=None, now=time.time, max_age_s=60*60):
     """CONSUMER-SPEED-3 (2026-11-04): deletes scratch databases a killed drill left behind. The drill deletes its own scratch database in a finally block, but a step
     timeout or a cancelled job ends the process before it runs: three drill-restore-* databases were in the account on 2026-11-04 (20:09, 20:57, 21:37Z). Only a database
     whose name starts with SCRATCH_PREFIX (the name the drill gives its own, checked again here after the API's substring filter) and that is older than max_age_s, so a drill
     in progress is never touched. Never raises; returns the counts."""
     call = call or CS.cf
     out = {"deleted": 0, "kept": 0, "errors": 0}
+    swept_names = []
     try:
         st, j = call("GET", "/accounts/%s/d1/database?name=%s&per_page=100" % (RC.ACCOUNT, urllib.parse.quote(SCRATCH_PREFIX)))
         for db in (j or {}).get("result") or []:
@@ -257,12 +258,13 @@ def sweep_scratch(call=None, now=time.time, max_age_s=SCRATCH_MAX_AGE_S):
             try:
                 call("DELETE", "/accounts/%s/d1/database/%s" % (RC.ACCOUNT, uuid))
                 out["deleted"] += 1
+                swept_names.append(name)
             except Exception as e:  # noqa: BLE001
                 out["errors"] += 1
                 print(json.dumps({"restore-drill": "scratch-sweep-delete-failed", "db": name, "error": str(e)[:120]}))
     except Exception as e:  # noqa: BLE001
         out["error"] = str(e)[:160]
-    print(json.dumps({"restore-drill": {"scratch-sweep": out}}))
+    print(json.dumps({"restore-drill": {"drill-restore-sweep": {"deleted": out["deleted"], "kept": out["kept"], "errors": out["errors"], "names": swept_names}}}))
     return out
 
 
