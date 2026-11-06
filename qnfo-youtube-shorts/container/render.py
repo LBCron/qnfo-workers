@@ -194,7 +194,14 @@ def render(job, out):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(out / "a.txt"), str(out / "audio.wav")], check=True)
     tname, theme = pick_theme(job.get("slug", job.get("title", "")), job.get("theme_name"))
     build_ass(allw, out / "cap.ass", theme["c2"], theme["bg"])
-    spec = {"theme": theme, "beats": [{k: v for k, v in b.items() if k != "sentences"} for b in beats]}
+    for i, b in enumerate(beats):      # YT-ART-1: per-beat generated backdrop; a bad image only loses that beat's backdrop
+        if b.get("bg_b64"):
+            try:
+                (out / f"bg{i}.jpg").write_bytes(base64.b64decode(b["bg_b64"]))
+                b["bg"] = str(out / f"bg{i}.jpg")
+            except Exception as e:
+                print("bg skipped:", repr(e), file=sys.stderr)
+    spec = {"theme": theme, "beats": [{k: v for k, v in b.items() if k not in ("sentences", "bg_b64")} for b in beats]}
     (out / "spec.json").write_text(json.dumps(spec), "utf8")
     env = dict(os.environ, SHORT_SPEC=str(out / "spec.json"), SHORT_FONT=FONT)
     t_voice = time.monotonic()

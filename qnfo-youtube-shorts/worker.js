@@ -1,4 +1,4 @@
-var VERSION = "0.8.2-quality";
+var VERSION = "0.10.0-art";
 /* 0.4.1: new Shorts descriptions include the QNFO channel context. */ /* #5479, pillar reach: authenticated re-consent and code exchange with the stored OAuth client. */ /* 0.3.0 YT-6 (2026-10-28, pillar reach; minor: a data product; agent_issues 1000597): views and average view duration of each uploaded Short are read hourly from the YouTube Data and Analytics APIs into youtube_videos (views, avg_view_duration_s) and metric youtube_avg_view_duration_s; without the extra owner consent (human_actions yt-analytics-consent) the read is refused, recorded as youtube.retention_scope and nothing is written. */ /* 0.2.1 HEALTH-CONTRACT-1 (2026-10-28, pillar autonomy; patch; agent_issues 2852): /health declares capabilities[] and limitations[], so capability_contract_conformance counts this worker. */ /* 0.2.0 YT-QUALITY-1 (2026-10-28, pillar reach; minor: new capabilities): the Shorts stop looking alike and sounding flat. Voice: Workers AI Deepgram Aura 2 (more natural than melotts, which stays as the per-sentence fallback). Director: four new templates (bignum, flow, compare, list) beside the old ones, rules for speech-written narration (contractions, short sentences, pitch-bearing punctuation, no spoken URL) and for variety (at least four kinds, never one kind three times). Render image: scene fitted to a safe width so nothing leaves the frame, five themes (palette plus animated background) chosen per paper, captions measured in the real font and chunked at phrases in the Shorts safe zone, loudness-normalised audio, an AI-generated mp4 comment tag and provenance.json (BP26-AI-ACT-ART50-1). Closing line no longer speaks a URL. Sources: scripts/youtube_poc (YT-POC-3/4), docs/YOUTUBE-PIPELINE.md. */ /* prior: 0.1.5 */ /* 0.1.5 YT-MANIM-PIN-1 (2026-10-27, pillar reach; patch): the render image pins manim 0.22.0, the version the scene was tested on; 0.18.1 has no Scene.time and the first container render failed with that AttributeError (visible since 0.1.4 returns the Manim stderr). */ /* prior: 0.1.4 */ /* 0.1.4 YT-RENDER-ERR-1 (2026-10-27, pillar reach; patch): the render container returns the Manim stderr tail when Manim fails (the first live render failed with only a traceback of the wrapper). */ /* prior: 0.1.3 */ /* 0.1.3 YT-DIRECTOR-1 (2026-10-27, pillar reach; patch): the director takes the first reply that holds a beats array from qnfo-ai, then Workers AI kimi, then gpt-oss, and a failure note quotes each reply (the first live run failed with "no JSON in model reply" from one model). */ /* prior: 0.1.2 */ /* 0.1.2 YT-EXPORTS-1 (2026-10-27, pillar reach; patch): wrangler.toml declares RenderContainer in `exports` instead of `migrations`, so a deploy after a secrets write through the script API is accepted and re-attaches the container (the pilot incident 1485 class). */ /* prior: 0.1.1 */ /* 0.1.1 YT-RUN-SYNC-1 (2026-10-27, pillar reach; patch): POST /run did its pass inside ctx.waitUntil, which a fetch handler loses 30 s after the response, so a manual run died at the director; it now awaits one bounded pass (budget_s, default 80, under the edge 100 s limit) and returns the row states. */ /* prior: 0.1.0 */ /* 0.1.0 YT-SERVER-1 (2026-10-27, pillar reach; minor: a new worker): the plain-language paper to YouTube Short pipeline runs on Cloudflare only. One hourly tick takes the newest plain_article (living-paper, status ok) with no youtube_videos row (cap 2 videos a week), an LLM director writes the beats, a second model family and a number check drop any beat the article does not support, Workers AI TTS speaks each sentence, a Cloudflare Container renders 1080x1920 with Manim, word-timed captions and the visible AI-narration tag into R2, and videos.insert uploads it (public by default, owner directive 2026-10-27) with containsSyntheticMedia. */
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -427,14 +427,39 @@ async function stageAudio(env, row, beats) {
   await env.MEDIA.put("youtube/" + row.id + "/job.json", JSON.stringify({ id: String(row.id), slug: row.slug, title: row.title, tts: engine, beats: out }), { httpMetadata: { contentType: "application/json" } });
   await setState(env, row.id, "audio", { note: engine + " voice, " + out.length + " beats" });
 }
+// YT-ART-1: every beat gets its own generated backdrop (Workers AI FLUX), so Shorts stop sharing five Manim backgrounds. The prompt is built ONLY from fixed abstract motifs and styles,
+// never from the paper's claims: a generated picture cannot be fact-checked, so it carries no entities, text, people or logos (the 100%-accuracy rule). Motif and style are picked per
+// (slug, beat) so two Shorts rarely look alike; best effort, a failed image leaves the old Manim background for that beat.
+var ART_MODEL = "@cf/black-forest-labs/flux-1-schnell";
+var ART_STYLES = ["deep-sea bioluminescence", "paper-cut layered landscape", "ink wash on dark paper", "blueprint line drawing glowing on navy", "stained glass geometry", "aurora gradient mesh", "risograph two-colour print", "macro photograph of crystal and frost", "isometric low-poly terrain at dusk", "neon contour lines on black", "watercolour bleed with gold flecks", "long-exposure light trails"];
+var ART_MOTIFS = ["interlocking rings", "a branching web of fine threads", "waves meeting at a boundary", "a field of drifting particles", "nested translucent spheres", "a spiral staircase of light", "grid cells slowly warping", "ripples spreading from one point", "converging beams of light", "scattered shards assembling into a pattern", "layered mountain ridges in mist", "orbiting dots around a bright core"];
+function hashStr(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function artPrompt(slug, i) {
+  var h = hashStr(String(slug) + ":" + i);
+  return ART_MOTIFS[h % ART_MOTIFS.length] + ", " + ART_STYLES[(h >>> 8) % ART_STYLES.length] + ", abstract symbolic artwork, vertical composition, dark moody background, soft focus edges, no text, no letters, no numbers, no people, no faces, no logos";
+}
+async function stageArt(env, row, job) {
+  var made = 0;
+  for (var i = 0; i < job.beats.length && i < 8; i++) {
+    try {
+      var r = await env.AI.run(ART_MODEL, { prompt: artPrompt(row.slug, i), steps: 4, width: 768, height: 1344 });
+      var b64 = r && (typeof r.image === "string" ? r.image : null);
+      if (!b64 || b64.length < 2000) continue;
+      job.beats[i].bg_b64 = b64; made++;
+      await env.MEDIA.put("youtube/" + row.id + "/bg_" + i + ".jpg", Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); }), { httpMetadata: { contentType: "image/jpeg" } });
+    } catch (e) { await logEvent(env, "youtube.art", row.slug + " beat " + i + ": " + String(e && e.message || e).slice(0, 160), null, "warn"); }
+  }
+  return made;
+}
 function renderStub(env) { return env.RENDER.get(env.RENDER.idFromName("default")); }
 async function stageSubmit(env, row) {
   var obj = await env.MEDIA.get("youtube/" + row.id + "/job.json");
   if (!obj) throw new Error("job.json missing in R2");
   var job = JSON.parse(await obj.text());
+  var art = await stageArt(env, row, job);
   var r = await renderStub(env).fetch("https://render.internal/submit", { method: "POST", body: JSON.stringify({ id: String(row.id), job: job }) });
   if (!r.ok) throw new Error("container submit " + r.status + ": " + (await r.text()).slice(0, 300));
-  await setState(env, row.id, "rendering", { note: "submitted " + nowIso() });
+  await setState(env, row.id, "rendering", { note: "submitted " + nowIso() + ", art " + art });
 }
 // YT-13 (BP26-AI-ACT-ART50-1, BP26-PROVENANCE-MARKING-1): the render writes a machine-readable marking next to the video (provenance.json: ai_generated, the disclosure, the sha256 of the
 // finished file). The container always served it at /provenance; the worker never fetched it, so it was thrown away with the container's disk. It is now kept in R2 beside short.mp4 after
@@ -835,5 +860,5 @@ var worker_default = {
     ctx.waitUntil(runTick(env, {}).then(function (r) { return logEvent(env, "youtube.tick", JSON.stringify(r), r, "ok"); }).catch(function (e) { console.error(JSON.stringify({ worker: WORKER, where: "scheduled", error: String(e && e.message || e) })); return logEvent(env, "youtube.tick", String(e && e.message || e), null, "error"); }));
   }
 };
-export { beatIssues, scriptIssues, spokenTitle, buildSocialCopy, dailyAllows, uploadCooldownUntil, RenderContainer, spendUsd, spendAllows, splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, upgradesFirst, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION, parseRetentionReport, parseVideoStats, retentionDue, retentionFailure, readRetention, storeProvenance, stagePoll, sha256Hex };
+export { beatIssues, scriptIssues, spokenTitle, buildSocialCopy, dailyAllows, uploadCooldownUntil, RenderContainer, spendUsd, spendAllows, splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, upgradesFirst, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION, parseRetentionReport, parseVideoStats, retentionDue, retentionFailure, readRetention, storeProvenance, stagePoll, sha256Hex, artPrompt, stageArt, ART_STYLES, ART_MOTIFS };
 export default worker_default;

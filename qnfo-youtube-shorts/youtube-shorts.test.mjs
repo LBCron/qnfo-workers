@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, upgradesFirst, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
+import { artPrompt, ART_STYLES, ART_MOTIFS, splitSentences, numTokens, validateBeats, capAllows, ttsEngine, directorPrompt, ctaBeat, rankByInterest, upgradesFirst, nextCandidate, parseSections, jsonFromText, buildMetadata, shapeOk, CRON_TABLE, VERSION } from "./worker.js";
 
 const article = {
   title: "Why scientists stop testing ideas", short: "Safe stories pay better than risky guesses.",
@@ -284,4 +284,13 @@ test("storyboard audit flags repeated kinds and low variety", () => {
 test("script audit flags the stock pivot and a generic closing question", () => {
   assert.ok(si082("A fact. But here is the catch: it is assumed.").some((x) => /stock pivot/.test(x)));
   assert.ok(si082("A fact is given. What will you write first?").some((x) => /generic question/.test(x)));
+});
+
+test("YT-ART-1: art prompts are abstract, deterministic and vary across Shorts", () => {
+  assert.equal(artPrompt("a", 0), artPrompt("a", 0));
+  const set = new Set(); for (let i = 0; i < 30; i++) set.add(artPrompt("paper-" + i, 0));
+  assert.ok(set.size >= 15, "prompts vary: " + set.size);
+  const p = artPrompt("x", 3);
+  assert.match(p, /no text/); assert.match(p, /no people/);
+  for (const w of [...ART_STYLES, ...ART_MOTIFS]) assert.doesNotMatch(w, /\b(person|face|logo|text|number)\b/i);
 });

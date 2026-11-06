@@ -77,6 +77,7 @@ class ShortScene(Scene):
         exits = ["fade", "left", "up", "shrink", "right"]
         for i, b in enumerate(spec["beats"]):
             t0 = self.time
+            img = self.add_beat_art(b.get("bg"), b["dur"])
             grp = getattr(self, "beat_" + b["kind"])(b)
             fit(grp, SAFE_W + 0.4)
             try:      # YT-10: centre the beat between the tag and the captions; any failure leaves the beat where the template put it
@@ -93,6 +94,26 @@ class ShortScene(Scene):
             anim = {"fade": FadeOut(grp), "left": FadeOut(grp, shift=LEFT * 3), "right": FadeOut(grp, shift=RIGHT * 3),
                     "up": FadeOut(grp, shift=UP * 3), "shrink": FadeOut(grp, scale=0.4)}[ex]
             self.play(anim, run_time=0.35)
+            if img is not None:
+                self.remove(img)
+
+    def add_beat_art(self, path, dur):
+        """YT-ART-1: a dimmed generated image behind the beat, covering the 9x16 frame, with a slow Ken Burns push. Any failure returns None and the Manim background shows alone."""
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            img = ImageMobject(path)
+            img.set_z_index(-5)
+            img.height = 16.2
+            if img.width < 9.2:
+                img.width = 9.2
+            img.set_opacity(0.42)
+            img.add_updater(lambda m, dt: m.scale(1 + 0.015 * dt))
+            self.add(img)
+            return img
+        except Exception as e:
+            print("beat art skipped: %r" % (e,), file=sys.stderr)
+            return None
 
     # ---------------------------------------------------------------- backgrounds (all slow, all updater-driven)
     def add_background(self, style):

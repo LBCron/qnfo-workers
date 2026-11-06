@@ -1028,6 +1028,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/sdlc-two-speed-cli.md"
     },
     {
+      "path": "docs/handoff/yt-art-1.md",
+      "title": "YT-ART-1 handoff (qnfo-youtube-shorts 0.10.0-art)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/yt-art-1.md"
+    },
+    {
       "path": "docs/infra-records/FOLDED.md",
       "title": "Folded repository",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/infra-records/FOLDED.md"
