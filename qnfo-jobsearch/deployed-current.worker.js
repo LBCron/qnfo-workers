@@ -9,7 +9,7 @@
 // JOBSEARCH-CV-1 (1.5.0): the CV is part of this worker (page /cv): a yes/no interview that builds the claim bank, review of unconfirmed claims, roles, achievements and publications edited in D1, a resume per job (summary, roles, selected work, education, skills) and a cover note, history and backup. The search is tied to that bank (evidence the owner can back up weighs more; what the CV lacks is shown as a gap), decided postings (rejected, applied, approved) never come back under another id, rejections carry a reason the search learns from, and a wider net: stretch matches outside the stated preferences, more boards and aggregators.
 // Routes: GET / (web UI) | GET /api | GET /api/matches | GET /api/matches/:id | GET /api/runs | GET /api/ledger | POST /api/run | POST /api/matches/:id/status | GET /health
 // Port of the jobsearch/ Python modules (tests: jobsearch/test_jobsearch.py, qnfo-jobsearch/worker.test.mjs).
-var VERSION = "1.8.2-codeagent";
+var VERSION = "1.8.3-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -1041,7 +1041,7 @@ function pickFacts(clusters, k) {
 function headline(clusters) {
   const cl = new Set(clusters);
   // Prefer a research/AI headline for quantum or AI system clusters
-  if (cl.has("quantum") || cl.has("ai_systems")) {   // JOBSEARCH-RESEARCH-HEADLINE-1: research headline for quantum/AI postings
+  if ([...cl].some(c => c.includes("quantum")) || cl.has("ai_systems")) {   // JOBSEARCH-RESEARCH-HEADLINE-1: research headline for quantum/AI postings
     if (typeof jobsearch_meta === "object") jobsearch_meta.research_headline = "on";
     else globalThis.jobsearch_meta = { research_headline: "on" };
     return HEADS.H3;
