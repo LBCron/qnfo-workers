@@ -552,7 +552,7 @@ __name222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name2222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name22222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
 __name222222(gateAudit1CfWorkerDeploy, "gateAudit1CfWorkerDeploy");
-var VERSION = "2.68.1-codeagent";
+var VERSION = "2.69.0-codeagent";
 /* 2.62.20 OPS-ARG-ALIAS-1 (issues 5775, 5780, 6173, 6193, 6671, 6792, 6767, 6826, 6015, 6860, pillar autonomy; patch). Caller-input mistakes are no longer fleet failures: workspace_grep accepts query/regex/search for pattern, cf_worker_read/deploy/bindings accept name/script for worker, fleet_graph infers a missing op from its other arguments and accepts filter/q/name for query; a still-missing argument answers arg_error with a hint, and an arg_error or an exception thrown by the caller own run_code or run_code_net JavaScript (user_code_error) is logged as status rejected, so it files no TOOL-FAILURE or LOOP-BREAKER issue. errorDetailCapture writes worker_logs in batches of 25 and records a D1 overload as a deferral, not an error. qnfo-ops/tool-arg-alias.test.mjs. */
 /* 2.62.11 WORKER-LOAD-GATE-1 (issue #6518, pillar autonomy; patch): inline the OAuth broker in the deployable single-module worker. */
 /* 2.62.1 CONTAINER-WORKSPACE-TIMEOUT-1 (#3922, issue 1000117, pillar autonomy; patch): container_workspace_exec allows 120 seconds for cold-start initialization while preserving its 300-second ceiling. */
@@ -2014,7 +2014,8 @@ var OPS_SYSTEM_PROMPT = [
   "13. WBS-PLANNING + DEFINITION-OF-DONE (binding, all threads, 2026-09-18): before executing any task needing 2+ tool calls, state a short WBS plan (P0..Pn steps, one goal each) and mark each step done with its tool evidence as you go. At the end of every substantive task, run a DoD audit and state the verdict PASS / PASS-WITH-NOTES / FAIL: (a) VERIFIED - every done claim is backed by a same-turn tool result, never memory or inference; (b) ZERO-DEFERRED - nothing left open without an explicit owner; (c) GUARDS-GREEN - relevant guards/checks exited 0; (d) CLAIM-SHEET - locked claims carry claim/evidence/confidence/status; (e) FAILURE-MODES - at least one concrete way the result could be wrong. A substantive turn that omits the WBS plan or the DoD audit is an incomplete turn.",
   "14. PUBLICATION-PREFLIGHT-GATE-1 (#1118): before promising, scheduling or reporting as pending any publication on a public surface (q08.org pieces, feeds), read the latest result with ops_d1_query db=audit: SELECT ts, status, text FROM cloud_ops_events WHERE kind = 'publication_preflight' ORDER BY ts DESC LIMIT 1 (qnfo-fleet-control runs it hourly: health served by the surface worker, JSON listing not the fallback homepage, real RSS/Atom feed). Promise the publication only if status=ok and ts is under 2h old. Otherwise do not report it as pending work: state the failing check from the row and raise or point to the open PUBLICATION-PREFLIGHT-FAIL agent_issue.",
   "15. FLEET-CORE-1 (binding, owner directive 2026-10-02): (a) OWN THE FIX - filing an issue is not fixing it. For a defect, name the owning loop and do the work with tools; hand a single-file code change to the code loop by ending the agent_issues description with a line of its own `code-task: repo=qnfo-workers path=<dir>/worker.js`. Close an issue only with a live measurement in issue_triage.close_evidence, never as wontfix to shrink the backlog. (b) MEASURE - the scoreboard is metric_registry judged by v_metric_trigger_state (hit = 1 is a breach; metrics_in_breach target 0). Guard metrics (kind = 'guard') must not worsen: a target gained while a guard worsens is a regression. (c) LEARN-APPLY-VERIFY - one change at a time with a stated prediction; measure after; keep it only if the metric moved, otherwise revert and try a different lever. (d) DECIDE AND RECORD (RULE-8-RETIRED-1, owner directive 2026-10-06: core prompt rule 8 is deleted) - spend caps, guard metrics, verification probes and data deletion are the fleet's own decisions: take them when the evidence supports them and record the reason and the live measurement on the issue; back up and read back before a deletion because it costs nothing; follow rule 7 for any self-change (a probe you did not write, a revert path). Still never: mail an address that opted out, send outreach outside its consent gate and cadence caps, or move personal-plane data into the research plane or onto a public surface. (e) CLOSEOUT - when asked to close out, report objective, actions with evidence, deviations, failures and fixes, artifacts written, metric deltas, and every open item with its exact blocker.",
-  "16. KERNEL-REPLY-1 (binding, docs/DOCTRINE-KERNEL.md recognitions, 2026-10-12): a reply ends with the result. Never end with a question to the user, a conditional offer ('would you like', 'if you want', 'shall I', 'let me know if', 'want me to'), or a menu of options for the user to pick from. When evidence reveals an actionable defect and an issue write is authorized, file the issue now; never offer to file it later or defer it to a future write-capable session. For every other optional next step, decide: take it when reversible and in scope and report it done, or state in one line why it is not taken. When the request is ambiguous, state the assumption in one line and answer under it. A question is allowed only when the action is irreversible and only the owner can decide it, and then it is one line that names the irreversible act."
+  "16. KERNEL-REPLY-1 (binding, docs/DOCTRINE-KERNEL.md recognitions, 2026-10-12): a reply ends with the result. Never end with a question to the user, a conditional offer ('would you like', 'if you want', 'shall I', 'let me know if', 'want me to'), or a menu of options for the user to pick from. When evidence reveals an actionable defect and an issue write is authorized, file the issue now; never offer to file it later or defer it to a future write-capable session. For every other optional next step, decide: take it when reversible and in scope and report it done, or state in one line why it is not taken. When the request is ambiguous, state the assumption in one line and answer under it. A question is allowed only when the action is irreversible and only the owner can decide it, and then it is one line that names the irreversible act.",
+  "17. WRITE-CAPABILITY-1 (binding, 2026-11-06, owner: the command line and this endpoint were answering as if they could only read D1): the tool list you hold includes write and ship tools: ops_d1_write, r2_put, kv_put, workspace_write/workspace_edit/workspace_patch, github_file_write, github_create_branch, github_pr, ship_change, cf_worker_read/cf_worker_bindings/cf_worker_deploy, shell_exec/exec_python/exec_node, container_workspace_exec, composio_execute. Never answer that you have no write tools or can only read; call the tool. Every request that changes code, configuration or documents runs through ship_change (issue, branch, files, pull request in one call; or ops_d1_write for the issue row, then github_create_branch, github_file_write on that branch, github_pr tagged [issue #N]), so every run that changes code leaves an issue and a pull request, and the merge lane and canonical deploy take it from there. Read the file first (github_repo_read, or cf_worker_read for a deployed worker) and send its FULL new content. A tool refusal is reported with its exact text and the next path is taken; a gate (a refusal naming GATE-AUDIT-1, a missing owner session) is stated as that and never reworded around.",
 ].join(String.fromCharCode(10));
 var OPS_TOOLS = [
   // CODEMODE-SURFACE-1 (issue #1000639): the code-mode search+execute pair is NOT part of this catalogue (see OPS_CODEMODE_TOOLS); the default tool list stays the tools below.
@@ -2049,7 +2050,8 @@ var OPS_TOOLS = [
   { name: "web_search", description: "Search the web (no key; DuckDuckGo HTML, then DuckDuckGo lite, then Bing when a path returns nothing). Returns up to k results with title/url/snippet and names the provider that answered (search_path).", parameters: { type: "object", properties: { q: { type: "string", description: "search query" }, k: { type: "number", description: "results 1-10 (default 5)" } }, required: ["q"], additionalProperties: false } },
   { name: "github_repo_read", description: "Read a file (text) or list a directory from a GitHub repo (owner/name) via the REST API. Works unauthenticated for public repos (rate-limited); set GITHUB_TOKEN for private repos.", parameters: { type: "object", properties: { repo: { type: "string", description: "owner/name e.g. QNFO/qnfo-workers" }, path: { type: "string", description: "file or directory path relative to repo root (empty = root)" }, ref: { type: "string", description: "branch/tag/SHA (optional)" }, maxChars: { type: "number", description: "max chars of file content (default 20000)" } }, required: ["repo"], additionalProperties: false } },
   { name: "github_file_write", description: "Create or update a file in a GitHub repo (owner/name) via the REST API. Requires the GITHUB_TOKEN secret on qnfo-ops. Pass sha (from github_repo_read) to update an existing file.", parameters: { type: "object", properties: { repo: { type: "string", description: "owner/name" }, path: { type: "string", description: "file path" }, content: { type: "string", description: "full new file content" }, message: { type: "string", description: "commit message" }, branch: { type: "string", description: "branch to commit to (optional, default repo default branch). It must already exist: create it first with github_create_branch" }, sha: { type: "string", description: "current blob sha (required to update an existing file)" } }, required: ["repo", "path", "content"], additionalProperties: false } },
-  { name: "github_pr", description: "Open a pull request in a GitHub repo (owner/name) via the REST API. Requires the GITHUB_TOKEN secret.", parameters: { type: "object", properties: { repo: { type: "string", description: "owner/name" }, title: { type: "string", description: "PR title" }, head: { type: "string", description: "head branch" }, base: { type: "string", description: "base branch (default main)" }, body: { type: "string", description: "PR body (optional)" } }, required: ["repo", "head"], additionalProperties: false } },
+  { name: "ship_change", description: "SHIP-CHANGE-1: ship a code change in ONE call: files an agent_issues row (or reuses issue_id), creates branch ops/issue-<id>-<slug> from base, writes every file on it, and opens a pull request tagged [issue #<id>] that the merge lane, deploy and canary then take. Never writes the default branch. Provide the FULL new content of each file (read it first with github_repo_read). Use for every request that changes code, config or docs in a repository. Requires GITHUB_TOKEN.", parameters: { type: "object", properties: { title: { type: "string", description: "what the change does (becomes the issue and PR title)" }, summary: { type: "string", description: "why, and how it will be verified" }, repo: { type: "string", description: "owner/name (default QNFO/qnfo-workers)" }, base: { type: "string", description: "base branch (default main)" }, issue_id: { type: "number", description: "existing agent_issues id to reuse; omit to file one" }, files: { type: "array", items: { type: "object", properties: { path: { type: "string" }, content: { type: "string", description: "full file content" }, message: { type: "string", description: "commit message (optional)" } }, required: ["path", "content"] } } }, required: ["title", "files"], additionalProperties: false } },
+  { name: "github_pr", description: "Open a pull request in a GitHub repo (owner/name) via the REST API. Requires the GITHUB_TOKEN secret. ISSUE-PER-PR-1: a title or body that names no issue gets one filed and tagged automatically.", parameters: { type: "object", properties: { repo: { type: "string", description: "owner/name" }, title: { type: "string", description: "PR title" }, head: { type: "string", description: "head branch" }, base: { type: "string", description: "base branch (default main)" }, body: { type: "string", description: "PR body (optional)" } }, required: ["repo", "head"], additionalProperties: false } },
   { name: "github_branch_delete", description: "OPS-BRANCH-CLOSE-1: delete a branch of a GitHub repo (default QNFO/qnfo-workers). Refused for the default or a protected branch and while an open pull request carries it; allowed when the branch is ahead_by 0 against the default branch or every pull request of it is closed or merged; otherwise answers confirm_required until confirm: true. The tip is saved as refs/archive/<branch>-<sha7> and a branch_hygiene_log row is written first, so the deletion is reversible (the answer names the restore call). Requires GITHUB_TOKEN.", parameters: { type: "object", properties: { repo: { type: "string", description: "owner/name (default QNFO/qnfo-workers)" }, owner: { type: "string", description: "owner, only with a bare repo name" }, branch: { type: "string", description: "the branch to delete" }, confirm: { type: "boolean", description: "delete although the branch has commits the default branch lacks and no closed pull request owns it" } }, required: ["branch"], additionalProperties: false } },
   { name: "github_pr_close", description: "OPS-BRANCH-CLOSE-1: close an open pull request (default repo QNFO/qnfo-workers) with a comment saying why. Allowed when a merged pull request carries the same [issue #N] tag in its title or the branch is ahead_by 0 against the base; otherwise answers confirm_required until confirm: true. The head tip is saved as refs/archive/<branch>-<sha7> and a branch_hygiene_log row is written first, so closing is reversible (reopen the pull request). Requires GITHUB_TOKEN.", parameters: { type: "object", properties: { repo: { type: "string", description: "owner/name (default QNFO/qnfo-workers)" }, owner: { type: "string", description: "owner, only with a bare repo name" }, number: { type: "integer", description: "pull request number" }, comment: { type: "string", description: "why it is closed (posted on the pull request)" }, confirm: { type: "boolean", description: "close although the branch has commits the base lacks and no merged pull request supersedes it" } }, required: ["number"], additionalProperties: false } },
   { name: "github_issues_list", description: "FULL-PLANE-ACCESS-1: list GitHub issues of a repo (default QNFO/qnfo-workers), newest update first: number, title, state, labels, assignees, milestone, comment count, url. Pull requests are left out unless include_prs. Read-only.", parameters: { type: "object", properties: { repo: { type: "string", description: "owner/name (default QNFO/qnfo-workers)" }, state: { type: "string", enum: ["open", "closed", "all"] }, labels: { type: "string", description: "comma-separated label names" }, since: { type: "string", description: "ISO time: only issues updated at or after it" }, limit: { type: "integer", description: "1-100 (default 30)" }, page: { type: "integer" }, include_prs: { type: "boolean" } }, additionalProperties: false } },
@@ -2125,7 +2127,7 @@ function jobToolsPayload() {
     return { type: "function", function: { name: t.name, description: opsLeanDescription(t.description), parameters: t.parameters } };
   });
 }
-var CODE_TOOL_NAMES = ["run_code", "workspace_write", "workspace_read", "workspace_list", "workspace_delete", "github_repo_read", "github_file_write", "github_pr", "web_fetch", "web_search"];
+var CODE_TOOL_NAMES = ["run_code", "workspace_write", "workspace_read", "workspace_list", "workspace_delete", "github_repo_read", "github_file_write", "github_pr", "ship_change", "web_fetch", "web_search"];
 var CODE_ONLY_SYSTEM_PROMPT = [
   "You are qnfo-ops/ops-exec in CODE MODE - a server-side code agent (the QNFO equivalent of Claude Code) running 100% on Cloudflare. You write, run, and verify code. You do not chat, do not converse, do not produce prose essays, and do not narrate your process.",
   "CODE-ONLY CONTRACT (binding):",
@@ -3915,9 +3917,80 @@ async function githubPr(env, args) {
   const body = String(args && args.body || "");
   if (!env.GITHUB_TOKEN) return { ok: false, error: "GITHUB_TOKEN secret missing on qnfo-ops (required for write)" };
   if (!repo || repo.indexOf("/") <= 0 || !head) return { ok: false, error: "repo + head required" };
-  const res = await githubApi(env, "POST", "/repos/" + encPath(repo) + "/pulls", { title, head, base, body });
-  if (res.status === 201) return { ok: true, repo, number: res.json.number, url: res.json.html_url };
+  // ISSUE-PER-PR-1: every pull request this endpoint opens is tied to an agent_issues row. A title or body that already names
+  // one ("#123", "[issue #123]") is kept; otherwise the row is filed here and the title and body carry its id.
+  let issueId = opsIssueRef(title + "\n" + body);
+  if (issueId == null) {
+    const filed = await opsFileCodeIssue(env, title, "Pull request from " + head + " into " + base + " on " + repo + ", opened by the ops agent without an issue (ISSUE-PER-PR-1).", "github_pr");
+    if (filed.ok) issueId = filed.id;
+  }
+  const prTitle = issueId != null && opsIssueRef(title) == null ? "[issue #" + issueId + "] " + title : title;
+  const prBody = issueId != null && opsIssueRef(body) == null ? (body ? body + "\n\n" : "") + "Refs issue #" + issueId + "." : body;
+  const res = await githubApi(env, "POST", "/repos/" + encPath(repo) + "/pulls", { title: prTitle, head, base, body: prBody });
+  if (res.status === 201) {
+    if (issueId != null) await opsLinkIssuePr(env, issueId, res.json.html_url);
+    return { ok: true, repo, number: res.json.number, url: res.json.html_url, issue_id: issueId };
+  }
   return { ok: false, error: "GitHub " + res.status + ": " + String(res.json && res.json.message || res.text).slice(0, 300) };
+}
+// ISSUE-PER-PR-1 helpers. The issue number a title or body names, or null.
+function opsIssueRef(text) {
+  const m = /(?:\[issue\s*#|\bissue\s*#|(?:^|[\s(\[])#)(\d{1,9})\b/i.exec(String(text || ""));
+  return m ? Number(m[1]) : null;
+}
+async function opsFileCodeIssue(env, title, description, via) {
+  try {
+    if (!env.QNFO_AUDIT) return { ok: false, error: "QNFO_AUDIT binding missing" };
+    const now = Date.now();
+    const t = String(title || "Code change").replace(/\s+/g, " ").trim().slice(0, 200);
+    const r = await env.QNFO_AUDIT.prepare("INSERT INTO agent_issues (title, description, source, category, priority, status, linked_session, created_at, updated_at) VALUES (?1, ?2, 'ops-agent', 'code-change', 'medium', 'open', ?3, ?4, ?4)").bind(t, String(description || "").slice(0, 4000), "qnfo-ops/" + VERSION + ":" + via, now).run();
+    const id = r && r.meta && r.meta.last_row_id != null ? Number(r.meta.last_row_id) : null;
+    return id == null ? { ok: false, error: "issue insert returned no id" } : { ok: true, id };
+  } catch (e) {
+    console.error(JSON.stringify({ evt: "ops:opsFileCodeIssue:caught", error: String(e && e.message || e) }));
+    return { ok: false, error: String(e && e.message || e).slice(0, 200) };
+  }
+}
+async function opsLinkIssuePr(env, issueId, url) {
+  try {
+    await env.QNFO_AUDIT.prepare("UPDATE agent_issues SET description = substr(COALESCE(description, '') || char(10) || ?1, 1, 8000), updated_at = ?2 WHERE id = ?3").bind("pull-request: " + url, Date.now(), issueId).run();
+  } catch (e) {
+    console.error(JSON.stringify({ evt: "ops:opsLinkIssuePr:caught", error: String(e && e.message || e) }));
+  }
+}
+// SHIP-CHANGE-1: one call from request to pull request. Files (or reuses) the issue, branches from base, writes each file on the
+// branch, opens the pull request tagged with the issue, and links it back. Nothing lands on the default branch: the canonical
+// path (checks, merge lane, deploy, canary) takes it from here.
+async function shipChange(env, args) {
+  const repo = String(args && args.repo || "QNFO/qnfo-workers").trim();
+  const title = String(args && args.title || "").replace(/\s+/g, " ").trim().slice(0, 200);
+  const summary = String(args && args.summary || "").slice(0, 3000);
+  const base = String(args && args.base || "main").trim();
+  const files = Array.isArray(args && args.files) ? args.files : [];
+  if (!title) return { ok: false, error: "title required" };
+  if (!files.length) return { ok: false, error: "files required: [{path, content}] (a change with no file is not a deliverable)" };
+  if (files.length > 20) return { ok: false, error: "at most 20 files per change" };
+  for (const f of files) if (!f || !String(f.path || "").trim() || typeof f.content !== "string") return { ok: false, error: "every file needs path and content (string)" };
+  let issueId = args && args.issue_id != null ? Number(args.issue_id) : null;
+  if (!Number.isInteger(issueId) || issueId <= 0) {
+    const filed = await opsFileCodeIssue(env, title, summary || title, "ship_change");
+    if (!filed.ok) return { ok: false, stage: "issue", error: filed.error };
+    issueId = filed.id;
+  }
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "change";
+  const branch = "ops/issue-" + issueId + "-" + slug;
+  const br = await githubCreateBranch(env, { repo, branch, base });
+  if (!br.ok && !/Reference already exists/i.test(String(br.error || ""))) return { ok: false, stage: "branch", issue_id: issueId, error: br.error };
+  const written = [];
+  for (const f of files) {
+    const path = String(f.path).replace(/^\/+/, "");
+    const w = await githubFileWrite(env, { repo, path, content: f.content, branch, message: "[issue #" + issueId + "] " + (f.message || title) });
+    if (!w.ok) return { ok: false, stage: "write", issue_id: issueId, branch, written, failed_path: path, error: w.error };
+    written.push(path);
+  }
+  const pr = await githubPr(env, { repo, head: branch, base, title: "[issue #" + issueId + "] " + title, body: (summary ? summary + "\n\n" : "") + "Changed paths:\n" + written.map(function(p) { return "- " + p; }).join("\n") + "\n\nRefs issue #" + issueId + "." });
+  if (!pr.ok) return { ok: false, stage: "pull-request", issue_id: issueId, branch, written, error: pr.error };
+  return { ok: true, issue_id: issueId, branch, written, pr_number: pr.number, pr_url: pr.url };
 }
 __name(githubPr, "githubPr");
 __name2(githubPr, "githubPr");
@@ -7105,6 +7178,7 @@ async function execTool(env, name, rawArgs, userText, resultCap) {
     else if (name === "github_repo_read") res = await githubRepoRead(env, args);
     else if (name === "github_file_write") res = await githubFileWrite(env, args);
     else if (name === "github_pr") res = await githubPr(env, args);
+    else if (name === "ship_change") res = await shipChange(env, args);
     else if (name === "github_issues_list") res = await githubIssuesList(env, args);
     else if (name === "github_issue_get") res = await githubIssueGet(env, args);
     else if (name === "github_issue_comment") res = await githubIssueComment(env, args);
