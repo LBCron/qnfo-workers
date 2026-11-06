@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # qnfo-workers: rules for agent sessions
 
 Several agent sessions work this fleet concurrently with shared credentials. These rules exist

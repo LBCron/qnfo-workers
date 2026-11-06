@@ -1003,6 +1003,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/2026-10-28-failure-mode-audit.md"
     },
     {
+      "path": "docs/handoff/TEMPLATE.md",
+      "title": "docs/handoff/TEMPLATE.md",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/TEMPLATE.md"
+    },
+    {
       "path": "docs/handoff/issues/COST-DECISION-OWNER-LOCAL-TEXT-1.md",
       "title": "COST-DECISION-OWNER-LOCAL-TEXT-1: owner-local sentence contradicts the $0 spend and the credit runway divides by unbilled third-party list cost",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/issues/COST-DECISION-OWNER-LOCAL-TEXT-1.md"
