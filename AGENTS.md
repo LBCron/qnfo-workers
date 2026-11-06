@@ -78,3 +78,7 @@ Work as a program contributor, not a ticket-taker. Follow the PROACTIVE-PROGRAMS
 - Every problem found gets its solution implemented, deployed and verified in the same piece of work. Every item, bullet, issue and PR is a closed loop: owner, fix, live evidence, closure.
   Never report a problem without its implemented fix, and never lose a loop. If a fix is truly blocked, say exactly what blocks it, give it an owner and a closing probe, and keep working on everything else.
 - In the fleet this is live code: `fm-open-loops-unclosed` (migrations/2026-11-04-closed-loops.sql) reads open issues with no doer and closes without `close_evidence`, hourly. It adds no owner card and no gate.
+
+## Lifecycle ownership
+
+- Follow the "Own the whole software lifecycle (SDLC-OWN-1)" section of `CLAUDE.md`: quick answer first, then research, design, front end and back end together, product-manager follow-ups, and issues plus draft PRs with a handoff file for any unfinished work.
