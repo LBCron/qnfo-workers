@@ -102,6 +102,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Handoff: Quick Read on the living papers (2026-10-19)](HANDOFF-2026-10-19-quick-read.md) - `docs/HANDOFF-2026-10-19-quick-read.md`
 - [HANDOFF — 2026-10-19 (handoff backlog + R2 Basin Catalog + red drain)](HANDOFF-2026-10-19-red-drain.md) - `docs/HANDOFF-2026-10-19-red-drain.md`
 - [Handoff: command line as the product (2026-11-06)](HANDOFF-CMDLINE-2026-11-06.md) - `docs/HANDOFF-CMDLINE-2026-11-06.md`
+- [Handoff: YouTube Shorts design, narration, LinkedIn and reach (2026-11-06)](HANDOFF-YT-REACH-2026-11-06.md) - `docs/HANDOFF-YT-REACH-2026-11-06.md`
 - [Infrastructure and AI-spend audit, 2026-11-04 (pillar: cost)](INFRA-AUDIT-2026-11-04.md) - `docs/INFRA-AUDIT-2026-11-04.md`
 - [JOBSEARCH-APPLY-1: one-click apply (qnfo-jobsearch 1.7.0, jobs.q08.org)](JOBS-APPLY.md) - `docs/JOBS-APPLY.md`
 - [Kill-switch drill protocol (BP26-LEASES-KILLSWITCH-1)](KILL-SWITCH-DRILL.md) - `docs/KILL-SWITCH-DRILL.md`
