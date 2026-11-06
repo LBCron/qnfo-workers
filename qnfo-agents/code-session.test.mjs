@@ -1,6 +1,7 @@
 // RM-CODE-SESSION-1, RM-CODE-SANDBOX-1 and RM-DURABLE-INTERRUPT-1 (qnfo-agents 0.8.0), offline. The pure helpers are tested directly; the Durable Object classes need
 // the Workers runtime, so the source is pinned by shape and the live proof is the rows the worker writes to D1 (cf_agent_session_usage, cf_agent_sandbox_log,
 // cf_agent_approvals) and the closing probes of the three issues.
+import { SDLC_LIFECYCLE_PROMPT, SDLC_LANE_FAST, SDLC_LANE_DEEP, withLifecycle } from "./src/session.js";
 import { readFileSync } from "node:fs";
 import {
   sessionBudgetStep, sessionTurnRoute, sessionBudgetFrom, CODE_SESSION_BUDGET_DEFAULT, CODE_SESSION_ROUTE_CHEAP, CODE_SESSION_ROUTE_ESCALATE, CODE_SESSION_REPLAY_TURNS, CODE_SESSION_REPLAY_REQUESTER, CODE_SESSION_REPLAY_BUDGET, SEED_ROUND, APPROVAL_SELFTEST_REQUESTER,
@@ -164,15 +165,16 @@ ok(/meterSteps\(this\.env, this\.name \+ "-t" \+ turn, routeId, \{ steps: await 
 ok(/bgError = errText\(e\)/.test(ts) && /the staged step failed before its interrupt/.test(ts), "the selftest reports why a staged step failed before its interrupt");
 
 console.log("qnfo-agents code-session.test: " + pass + " passed, " + fail + " failed");
-process.exit(fail ? 1 : 0);
-
 // SDLC-OWN-1 (#8204): the lifecycle prompt block carries both lanes, the PM and front/back-end pairing, and the handoff, and is added once.
-import { SDLC_LIFECYCLE_PROMPT, SDLC_LANE_FAST, SDLC_LANE_DEEP, withLifecycle } from "./src/session.js";
 {
   const assert = (await import("node:assert/strict")).default;
   for (const w of [SDLC_LANE_FAST, SDLC_LANE_DEEP, "product manager", "Front end and back end", "draft PR", "docs/handoff/"]) assert.ok(SDLC_LIFECYCLE_PROMPT.includes(w), "lifecycle prompt names " + w);
   const once = withLifecycle("base");
   assert.ok(once.startsWith("base\n") && once.includes(SDLC_LANE_DEEP));
   assert.equal(withLifecycle(once), once, "adding the block twice changes nothing");
+  assert.ok(withLifecycle("quoted lane:fast label").includes("Lifecycle (SDLC-OWN-1)"), "a prompt that merely mentions lane:fast still gets the block");
   console.log("ok sdlc lifecycle prompt");
 }
+
+process.exit(fail ? 1 : 0);
+

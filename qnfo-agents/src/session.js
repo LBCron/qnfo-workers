@@ -171,5 +171,5 @@ export const SDLC_LIFECYCLE_PROMPT = [
 ].join("\n");
 export function withLifecycle(system) {
   const s = String(system || "");
-  return s.indexOf(SDLC_LANE_FAST) >= 0 ? s : s + "\n" + SDLC_LIFECYCLE_PROMPT;
+  return s.indexOf(SDLC_LIFECYCLE_PROMPT) >= 0 ? s : s + "\n" + SDLC_LIFECYCLE_PROMPT;
 }
