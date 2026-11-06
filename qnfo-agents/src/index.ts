@@ -393,9 +393,15 @@ export class FleetCodeAgent extends Agent<Env, State> {
 
   async onStart() {
     this.sql`CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, prompt TEXT, scope TEXT, caller TEXT, status TEXT, attempts INTEGER DEFAULT 0, model TEXT, steps INTEGER DEFAULT 0, tools_used TEXT, result TEXT, proposals TEXT, error TEXT, created_ms INTEGER, finished_ms INTEGER)`;
+    // CMD-RUN-HEARTBEAT-1: each finished step stamps last_beat_ms and last_tool, so "no progress" means no step, not an old start.
+    try { this.sql`ALTER TABLE runs ADD COLUMN last_beat_ms INTEGER`; } catch (e) { /* column exists */ }
+    try { this.sql`ALTER TABLE runs ADD COLUMN last_tool TEXT`; } catch (e) { /* column exists */ }
     const cut = Date.now() - STALE_RUN_MIN * 60000;
-    const why = "abandoned: no progress for " + STALE_RUN_MIN + " minutes";
-    this.sql`UPDATE runs SET status = 'failed', error = ${why}, finished_ms = ${Date.now()} WHERE status IN ('queued', 'running') AND created_ms < ${cut}`;
+    const stale: any = this.sql`SELECT id, last_tool FROM runs WHERE status IN ('queued', 'running') AND COALESCE(last_beat_ms, created_ms) < ${cut}`;
+    for (const x of stale) {
+      const why = "abandoned: no progress for " + STALE_RUN_MIN + " minutes" + (x.last_tool ? " (last tool: " + String(x.last_tool).slice(0, 60) + ")" : "");
+      this.sql`UPDATE runs SET status = 'failed', error = ${why}, finished_ms = ${Date.now()} WHERE id = ${x.id}`;
+    }
   }
 
   private row(id: string): any {
@@ -451,7 +457,7 @@ export class FleetCodeAgent extends Agent<Env, State> {
         try { const lr: any = await this.env.AUDIT_DB.prepare("SELECT value FROM ops_config WHERE key = 'qnfo_agents_lean'").first(); lean = leanConfigOn(lr && lr.value); } catch (e) { lean = true; }
       }
       const tools = await allTools({ env: this.env, scope: r.scope, caller: r.caller, agent: this, runId: id, proposals, lean });
-      const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, stopWhen: stepCountIs(lean ? LEAN_MAX_STEPS : /(^|:)issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), ...(lean ? { prepareStep: ({ messages }: any) => ({ messages: compactMessages(messages) }) } : {}), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
+      const out: any = await generateText({ model: m.model, system: SYSTEM + "\nScope of this turn: " + r.scope + ".", prompt: r.prompt, tools, onStepFinish: (st: any) => { try { const tc = st && st.toolCalls && st.toolCalls.length ? String(st.toolCalls[st.toolCalls.length - 1].toolName) : null; this.sql`UPDATE runs SET last_beat_ms = ${Date.now()}, last_tool = COALESCE(${tc}, last_tool) WHERE id = ${id}`; } catch (e) { /* a heartbeat never fails a run */ } }, stopWhen: stepCountIs(lean ? LEAN_MAX_STEPS : /(^|:)issue-probe-agent/.test(String(r.caller)) ? PROBE_MAX_STEPS : MAX_STEPS), ...(lean ? { prepareStep: ({ messages }: any) => ({ messages: compactMessages(messages) }) } : {}), timeout: { totalMs: TURN_TIMEOUT_MS, stepMs: STEP_TIMEOUT_MS } } as any);
       // FINAL-ANSWER-PICK-1: a preface, an empty last step or raw tool-call markup is not an answer (see pickAnswer in lib.js).
       const pick = pickAnswer(out.text, out.steps);
       result = pick.text;
