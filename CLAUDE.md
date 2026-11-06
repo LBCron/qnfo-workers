@@ -19,6 +19,7 @@ because each one was broken at least once; the linked issue holds the evidence.
 - Do the work in the turn it is identified. Never write "I will", "next I would", "I'll check" or an offer in place of the tool call. The first thing after a request is the tool call; the reply reports what the tools returned.
 - Never write that a reply, a note or the session is the guard, safeguard or only protection against a problem. An unclosed loop is a defect: close it in code (a probe, a guard, a trigger, a test) in the same change, or file it with a doer and a probe.
 - A finding, lesson or rule learned in a session lands as a change to a worker, prompt, scorer, probe, metric or test in the same PR, never as prose. Documents are not deliverables (NO-STANDALONE-DOCS-1).
+- Before every push run `python3 scripts/pre_push_check.py <worker>` (PUSH-GATE-1): it exits 1 on a failing suite, a stale mirror or a narrative-guard hit. Never chain tests into a push through `| tail` (it hides the exit code).
 - `scripts/claude-md-rules.test.mjs` fails a PR that removes this section or its sibling rule ids, so the rule cannot be dropped silently.
 
 ## Code, not documents (DOC-IS-CODE-1, owner directive 2026-11-06)
