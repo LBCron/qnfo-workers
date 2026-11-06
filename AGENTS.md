@@ -137,3 +137,11 @@ Each repo keeps a roadmap issue ("Roadmap: next 5 features") with at most 5 item
 - `scripts/audit.py` closes its own `fleet-audit` issues with evidence once the finding stops reporting, and flags any `loop` issue without a `closing probe:` line.
 
 <!-- fleet-protocol:end -->
+
+## 9. Code is the only output (CODE-ONLY-OUTPUT-1, owner directive 2026-11-06)
+- Owner, verbatim in substance: "Do it. Don't tell me you're going to do it. I want code, not text responses. This thread will disappear. The only things left are the code and artifacts like issues. I don't want documents." This binds every agent (Claude Code, Copilot, Kimi, Codex, the code loop); the same rule is in `CLAUDE.md`.
+- A chat reply is informative only and is never an action, a record or a safeguard. If it is not in code (a worker, a PR, an issue with a `code-task:` line and a closing probe, a roadmap row, a migration, a test), it does not exist.
+- Do the work in the turn it is identified. The first thing after a request is the tool call; the reply reports what the tools returned. "I will", "next I would" and offers in place of the call are defects.
+- Never write that a reply, a note or the session is the guard or the only protection against a problem. An unclosed loop is closed in code (a probe, a guard, a trigger, a test) in the same change, or filed with a doer and a probe.
+- A finding or lesson lands as a change to a worker, prompt, scorer, probe, metric or test in the same PR, never as prose; a document is never a deliverable (NO-STANDALONE-DOCS-1).
+- `scripts/agents-md-rules.test.mjs` fails a PR that removes this section or the loop rules above it.
