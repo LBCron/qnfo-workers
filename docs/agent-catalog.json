@@ -1008,6 +1008,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/TEMPLATE.md"
     },
     {
+      "path": "docs/handoff/doc-is-code-r2-sweep.md",
+      "title": "Handoff: R2 document sweep and PR self-audit (DOC-IS-CODE-1, SELF-AUDIT-1)",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/doc-is-code-r2-sweep.md"
+    },
+    {
       "path": "docs/handoff/issues/COST-DECISION-OWNER-LOCAL-TEXT-1.md",
       "title": "COST-DECISION-OWNER-LOCAL-TEXT-1: owner-local sentence contradicts the $0 spend and the credit runway divides by unbilled third-party list cost",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/handoff/issues/COST-DECISION-OWNER-LOCAL-TEXT-1.md"

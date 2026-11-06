@@ -497,6 +497,26 @@ jobs:
           done
           exit "$fail"
 
+      # SELF-AUDIT-1 and NO-STANDALONE-DOCS-1 (owner directive 2026-11-06): the PR body needs a Self-audit section and a PR that changes documents needs code. Steps, not a job,
+      # because PR-CHECK-CAP-5-1 caps a pull request at five entries. scripts/self_audit_pr.mjs holds the rule, scripts/r2_doc_audit.test.mjs the cases. Under 5 s.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Self-audit gate for the pull request body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_USER_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          set -euo pipefail
+          node scripts/r2_doc_audit.test.mjs
+          if [ "$PR_USER_TYPE" = "Bot" ]; then echo "self-audit: bot author, skipped"; exit 0; fi
+          printf '%s' "$PR_BODY" > pr-body.txt
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' > pr-files.txt
+          node scripts/self_audit_pr.mjs --body pr-body.txt --files pr-files.txt
+
 
   # identity lexicon always; worker prompt, model floor and workflow lint when their paths change
   scans:

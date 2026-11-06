@@ -1,0 +1,60 @@
+name: r2-doc-audit
+run-name: r2-doc-audit ${{ inputs.buckets }}
+
+# NO-STANDALONE-DOCS-1 / DOC-IS-CODE-1 (owner directive 2026-11-06, pillar core). CLAUDE.md promised a sweep of documents in R2 that no code uses; until this file
+# the promise had no code behind it (scripts/doc_audit.py reads docs/ only). This lists document keys (read-only GET), finds the ones no worker, script, migration
+# or workflow cites, and files one issue per orphan with code-task: and code-probe: lines (skipping an orphan that already has an open issue with the same title).
+# Dispatch only (GitHub schedule never fires on this repository); the weekly trigger is the CMDLINE-MAINTAIN-1 sweep calling workflow_dispatch.
+# Handoff and next steps: docs/handoff/doc-is-code-r2-sweep.md
+# Style: step names colon-free, no heredocs, no inline python.
+
+on:
+  workflow_dispatch:
+    inputs:
+      buckets:
+        description: "space separated R2 buckets"
+        required: false
+        default: "qnfo-projects qnfo-ddocs"
+      max_issues:
+        description: "cap on new issues per run (the rest stay listed in the job summary)"
+        required: false
+        default: "25"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: r2-doc-audit
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+      IN_BUCKETS: ${{ github.event.inputs.buckets }}
+      IN_MAX: ${{ github.event.inputs.max_issues }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: List document keys
+        run: |
+          set -uo pipefail
+          node scripts/r2_list_keys.mjs ${IN_BUCKETS:-qnfo-projects qnfo-ddocs} > keys.jsonl
+          wc -l keys.jsonl
+
+      - name: Find unimplemented documents
+        run: |
+          set -uo pipefail
+          node scripts/r2_doc_audit.mjs --keys keys.jsonl --src-dir . --emit out > rows.jsonl
+          wc -l out/issues.jsonl
+          echo "orphans $(wc -l < out/issues.jsonl)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: File one issue per orphan
+        run: |
+          set -uo pipefail
+          node scripts/r2_file_issues.mjs out/issues.jsonl "${IN_MAX:-25}"
