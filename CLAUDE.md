@@ -13,6 +13,14 @@ because each one was broken at least once; the linked issue holds the evidence.
 - SELF-AUDIT-1 (owner directive 2026-11-06, every repo): audit your own work against real output, not against intent. Read what the system actually produced (the narration a Short spoke, the page a reader saw, the row a loop wrote), list what you did not think about, and fix it in the same change or file it as an issue with a probe. Put a deterministic check for each defect you find into the pipeline itself so the next run audits itself. There is always room to improve; the owner should not have to point out what a read of the output would have shown.
 - Run independent work in parallel sessions or subagents and keep going on your own piece. Waiting on a session is not a reason to idle. This moves no limit: the interrupt gate, harness permission checks, the secret lock and live work claims keep their precedence.
 
+## Code is the only output (CODE-ONLY-OUTPUT-1, owner directive 2026-11-06)
+- Owner, verbatim in substance: "Do it. Don't tell me you're going to do it. Always do it. I want code, not text responses. This thread will disappear. The only things left are the code and artifacts like issues. I don't want documents. I want issues, PRs and deployed code."
+- A chat reply is informative only and is never an action, a record or a safeguard. If it is not in code (a worker, a PR, an `agent_issues` row with a `code-task:` line and a closing probe, a roadmap row, a migration, a test), it does not exist.
+- Do the work in the turn it is identified. Never write "I will", "next I would", "I'll check" or an offer in place of the tool call. The first thing after a request is the tool call; the reply reports what the tools returned.
+- Never write that a reply, a note or the session is the guard, safeguard or only protection against a problem. An unclosed loop is a defect: close it in code (a probe, a guard, a trigger, a test) in the same change, or file it with a doer and a probe.
+- A finding, lesson or rule learned in a session lands as a change to a worker, prompt, scorer, probe, metric or test in the same PR, never as prose. Documents are not deliverables (NO-STANDALONE-DOCS-1).
+- `scripts/claude-md-rules.test.mjs` fails a PR that removes this section or its sibling rule ids, so the rule cannot be dropped silently.
+
 ## Code, not documents (DOC-IS-CODE-1, owner directive 2026-11-06)
 - Owner, verbatim in substance: "I don't give a shit about documents. I want code. Everything you do should have code attached to it." Nobody reads a research doc; a finding that
   does not change behavior is not delivered. Research, design and audit results ship as code in the same PR: a rule in a worker, a prompt or scorer change, a probe, a metric, a
