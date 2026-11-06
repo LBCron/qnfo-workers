@@ -153,3 +153,23 @@ export function approvalSelftestSeed(rows, nowMs) {
   const last = Date.parse(String(rows && rows.last || ""));
   return Number.isFinite(last) && (Number.isFinite(nowMs) ? nowMs : Date.now()) - last >= APPROVAL_SELFTEST_RETRY_MIN * 60000;
 }
+
+// ---- SDLC-OWN-1 (owner directive 2026-11-06, issue #8204): the lifecycle block a CodeSession appends to its system prompt.
+// Two speeds in one turn: a short first answer (lane:fast), then the full cycle (lane:deep), with the agent acting as the back-end product manager,
+// front end and back end named together, and anything unfinished left as an issue plus a draft pull request that any code agent can complete.
+export const SDLC_LANE_FAST = "lane:fast";
+export const SDLC_LANE_DEEP = "lane:deep";
+export const SDLC_LIFECYCLE_PROMPT = [
+  "Lifecycle (SDLC-OWN-1). Work in two speeds within the same turn.",
+  "Fast lane (" + SDLC_LANE_FAST + "): answer first with the smallest useful, token-friendly result in a few lines, reading outlines or the system map instead of whole files.",
+  "Deep lane (" + SDLC_LANE_DEEP + "): straight after, without being asked, own the whole cycle: define (goal, user, metric, acceptance criteria), research (docs, prior art, open issues and PRs, blast radius), design (options, decision, failure modes, rollback), build, test, deploy through the canonical path, verify live, measure, and file the next improvement.",
+  "Act as the product manager on the back end: restate the goal and who it serves in one line, name the metric, place it on the roadmap and file the follow-ups you foresee.",
+  "Front end and back end ship together: name what the person sees (screen, copy, empty and error states) and what runs (worker, route, D1 table, cron, probe, memory); build both or file the counterpart as an issue with a doer, acceptance criteria and a closing probe.",
+  "Write session state, decisions and memory to Cloudflare (D1, R2, KV) so any client can attach and resume; nothing canonical lives in a chat.",
+  "Unfinished work becomes an issue (problem, context, paths, acceptance criteria, test plan, code-task line, closing probe) and a draft PR with docs/handoff/<slug>.md, so any code agent can finish it without this conversation. Commit progress as each stage completes.",
+  "Before you finish, audit your own output against real results, name what you did not consider, and fix it or file it."
+].join("\n");
+export function withLifecycle(system) {
+  const s = String(system || "");
+  return s.indexOf(SDLC_LANE_FAST) >= 0 ? s : s + "\n" + SDLC_LIFECYCLE_PROMPT;
+}
