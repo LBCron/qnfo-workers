@@ -94,6 +94,12 @@ UPDATE metric_registry SET last_refreshed = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'
 -- Hourly refresh on the heavy heartbeat (one trigger, one gated statement per qnfo-audit policy, then the metric).
 CREATE TRIGGER IF NOT EXISTS bp26_retention_heavy_tick AFTER INSERT ON fleet_tick_heavy
 BEGIN
+-- BACKUP: emails
+DELETE FROM emails WHERE substr(received_at,1,10) < date('now','-30 days') AND (COALESCE(body_text,'') <> '' OR COALESCE(body_html,'') <> '');
+-- BACKUP: email_raw_archive
+DELETE FROM email_raw_archive WHERE substr(created_at,1,10) < date('now','-30 days') AND COALESCE(raw_text,'') <> '';
+-- BACKUP: email_loop_quarantine
+DELETE FROM email_loop_quarantine WHERE substr(COALESCE(quarantined_at, received_at),1,10) < date('now','-30 days') AND COALESCE(body_text,'') <> '';
   UPDATE emails SET body_text = NULL, body_html = NULL, headers_json = NULL
     WHERE substr(received_at,1,10) < date('now','-30 days')
       AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
