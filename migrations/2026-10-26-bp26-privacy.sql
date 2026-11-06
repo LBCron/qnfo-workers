@@ -169,6 +169,19 @@ DELETE FROM email_loop_quarantine WHERE substr(COALESCE(quarantined_at, received
       last_value = CAST((SELECT COALESCE(SUM(past_retention), 0) FROM retention_policy WHERE past_retention IS NOT NULL) AS TEXT)
     WHERE metric = 'records_past_retention' AND instr(source_of_truth, '[BP26]') > 0 AND (last_refreshed IS NULL OR last_refreshed < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-50 minutes')) AND NOT EXISTS (SELECT 1 FROM retention_policy WHERE measured_by = 'd1-trigger' AND checked_at IS NULL);
 END;
+-- Added sweep trigger to purge past‑retention data before the existing counting trigger runs
+CREATE TRIGGER bp26_retention_sweep_before BEFORE INSERT ON fleet_tick_heavy
+BEGIN
+  UPDATE emails SET body_text = NULL, body_html = NULL, headers_json = NULL
+    WHERE substr(received_at,1,10) < date('now','-30 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE email_raw_archive SET raw_text = NULL
+    WHERE substr(created_at,1,10) < date('now','-30 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+  UPDATE email_loop_quarantine SET body_text = NULL
+    WHERE substr(COALESCE(quarantined_at, received_at),1,10) < date('now','-30 days')
+      AND COALESCE((SELECT value FROM ops_config WHERE key='retention_prune'),'on') <> 'off';
+END;
 
 INSERT OR IGNORE INTO human_actions (slug, title, why, default_in_effect, action, sev, status, source) VALUES ('bp26-retention-enforce',
   'Decide whether the fleet starts deleting mail-derived personal data once it is past its retention period (message bodies: 30 days)',
