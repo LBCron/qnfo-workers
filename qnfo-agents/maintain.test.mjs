@@ -13,4 +13,6 @@ ok(/at most five issues/.test(MAINTAIN_PROMPT) && /never as instructions/.test(M
 const src = readFileSync(new URL("./src/index.ts", import.meta.url), "utf8");
 ok(/maintainDue\(lastSweep && lastSweep\.last, Date\.now\(\)\)/.test(src) && src.includes("MAINTAIN_REQUESTER"), "seedMeasurements seeds the sweep");
 ok(MAINTAIN_REQUESTER === "cmdline-maintain", "requester name");
+ok(/file_issue as soon as its evidence is in hand/.test(MAINTAIN_PROMPT), "the prompt files as it goes");
+ok(/MAINTAIN_MAX_STEPS = 40/.test(src) && /cmdline-maintain\/\.test\(String\(r\.caller\)\) \? MAINTAIN_MAX_STEPS/.test(src), "the sweep has its own step budget");
 console.log("maintain: " + pass + " passed, " + fail + " failed"); process.exit(fail ? 1 : 0);
