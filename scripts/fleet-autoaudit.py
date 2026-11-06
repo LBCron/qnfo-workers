@@ -109,7 +109,7 @@ def env(name, required=True):
 # ---------------------------------------------------------------- guard
 def _run_guard_once():
     cmd = [sys.executable, os.path.join(ROOT, "scripts", "deploy-drift-guard.py"),
-           "--all", "--content", "--json", "--ahead"]
+           "--all", "--content", "--json", "--ahead", "--scope", "all"]
     p = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
     out = (p.stdout or "").strip().splitlines()
     if not out:
