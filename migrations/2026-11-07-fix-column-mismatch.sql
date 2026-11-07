@@ -74,6 +74,7 @@ INSERT OR REPLACE INTO metric_registry (
 );
 
 -- Issue #8502: Add metric breach cause mapping (AFTER metric exists)
+-- Issue #8502: Add metric breach cause mapping (AFTER metric exists)
 INSERT OR IGNORE INTO metric_breach_cause (metric, cause, action_template)
 VALUES (
   'research_deferred_pool_pct',
