@@ -12,6 +12,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Copilot instructions for qnfo-workers (GitHub cloud agent, Copilot code review, Copilot Chat)](../.github/copilot-instructions.md) - `.github/copilot-instructions.md`
 - [Agent instructions for qnfo-workers](../AGENTS.md) - `AGENTS.md`
 - [qnfo-workers: rules for agent sessions](../CLAUDE.md) - `CLAUDE.md`
+- [FAILURE MODE AUDIT - 2026-11-07](../FAILURE-MODE-AUDIT.md) - `FAILURE-MODE-AUDIT.md`
 - [qnfo-workers](../README.md) - `README.md`
 - [CRITICAL: Unmerged Work Found and Recovered](../RECOVERY-NEEDED.md) - `RECOVERY-NEEDED.md`
 - [QNFO Worker Token Bootstrap](../TOKEN-BOOTSTRAP.md) - `TOKEN-BOOTSTRAP.md`

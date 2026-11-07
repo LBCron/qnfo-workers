@@ -36,6 +36,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/CLAUDE.md"
     },
     {
+      "path": "FAILURE-MODE-AUDIT.md",
+      "title": "FAILURE MODE AUDIT - 2026-11-07",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/FAILURE-MODE-AUDIT.md"
+    },
+    {
       "path": "README.md",
       "title": "qnfo-workers",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/README.md"
