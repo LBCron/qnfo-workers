@@ -531,7 +531,7 @@ jobs:
           set -euo pipefail
           node scripts/r2_doc_audit.test.mjs
           if [ "$PR_USER_TYPE" = "Bot" ]; then echo "self-audit: bot author, skipped"; exit 0; fi
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body' > pr-body.txt
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" | jq -r '.body' > pr-body.txt
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' > pr-files.txt
           node scripts/self_audit_pr.mjs --body pr-body.txt --files pr-files.txt
 
