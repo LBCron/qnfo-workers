@@ -2,7 +2,7 @@
 -- DB: qnfo-audit
 -- BACKUP: bak_20261107_fix_schema_errors
 -- Rollback: DELETE FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code'); UPDATE remediation_contracts SET status = 'active' WHERE class = 'rt-live-voice-stt'; DELETE FROM metric_registry WHERE metric = 'research_deferred_pool_pct'; DROP TRIGGER IF EXISTS retention_personal_replies_tick_v1;
--- CAUSE-MAPPED: research_deferred_pool_pct breach cause mapped as 'research-pipeline' in FIX 3
+-- CAUSE-MAPPED: research_deferred_pool_pct breach cause mapped as 'research-execution' in FIX 3
 
 -- FIX-MIGRATION-SCHEMA-ERRORS-V2: Fix 4 failing migrations from PR #8506
 -- This is a corrected version of 2026-11-07-fix-migration-schema-errors.sql
@@ -86,37 +86,52 @@ WHERE class = 'rt-live-voice-stt';
 -- Original error: "table metric_registry has no column named metric_name"
 -- Fix: Use correct column name 'metric' instead of 'metric_name'
 
--- Ensure the metric exists (idempotent)
-INSERT OR REPLACE INTO metric_registry (
-  metric, kind, target, polarity, formula, state
+-- Use the registration contract from 2026-11-07-fix-metric-registry-first.sql.
+-- Preserve existing measurements and state when replaying this recovery.
+INSERT OR IGNORE INTO metric_registry (
+  metric, layer, kind, formula, source_of_truth, baseline, target, owner,
+  disposition_actor, refresh_cadence, state, refresh_class
 ) VALUES (
   'research_deferred_pool_pct',
-  'quality',
-  '10',
-  'lower_is_better',
-  'Percentage of research queue in deferred state',
-  'MEASURED'
+  'operational',
+  'leading',
+  'Share of research pool items in deferred status',
+  'qnfo-audit.research_pool',
+  '0',
+  '< 0.2',
+  'qnfo-research-exec',
+  'analytics_metric_triggers research_deferred_pool_pct -> agent_issues',
+  '10m',
+  'PENDING',
+  'computed'
 );
 
 -- Map metric breach cause (METRIC-CAUSE-AT-REGISTRATION-1)
-INSERT OR IGNORE INTO metric_breach_cause (metric, cause, lever)
-VALUES ('research_deferred_pool_pct', 'research-pipeline', 'Increase deferred pool drain rate or reduce paper generation rate');
+INSERT OR IGNORE INTO metric_breach_cause (metric_key, cause_key, note)
+VALUES ('research_deferred_pool_pct', 'research-execution', 'Review deferred_since distribution in qnfo-research-exec and adjust execution priority or pool ceiling');
 
 -- ============================================================================
 -- FIX 4: personal-replies-retention-fix.sql (empty backup table)
 -- ============================================================================  
 -- Original error: "BACKUP table bak_20261107_personal_replies_retention_fix is empty"
--- Fix: The trigger itself is valid, but backup validation failed. Re-create trigger.
+-- personal_replies stores its timestamp in ts, with an index from kernel-everywhere.
+-- Bound each tick to 1000 expired rows. The coarse date bound uses the ts index;
+-- julianday enforces the exact cutoff for both ISO and SQLite UTC timestamps.
 
 -- Drop and recreate the trigger with correct table reference (fleet_tick not fleet_heartbeat)
 DROP TRIGGER IF EXISTS retention_personal_replies_tick_v1;
 
 CREATE TRIGGER IF NOT EXISTS retention_personal_replies_tick_v1
 AFTER INSERT ON fleet_tick
-WHEN NEW.ts > (SELECT COALESCE(MAX(ts), '1970-01-01') FROM fleet_tick WHERE ts < datetime('now', '-30 days'))
 BEGIN
   DELETE FROM personal_replies
-  WHERE created_at < datetime('now', '-30 days');
+  WHERE id IN (
+    SELECT id FROM personal_replies
+    WHERE ts < date('now', '-29 days')
+      AND julianday(ts) < julianday('now', '-30 days')
+    ORDER BY ts
+    LIMIT 1000
+  );
 END;
 
 -- Migration complete - all 4 fixes applied
