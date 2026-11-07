@@ -112,7 +112,7 @@ function clampMaxTokens(requested, isReason) {
 __name(clampMaxTokens, "clampMaxTokens");
 __name2(clampMaxTokens, "clampMaxTokens");
 __name22(clampMaxTokens, "clampMaxTokens");
-var VERSION = "4.37.3";
+var VERSION = "4.37.4";
 // 4.37.2 KERNEL-PERSONAL-PRIVACY-1: preserve all ten registered reply categories across the content-free telemetry boundary.
 // 4.37.1 KERNEL-PERSONAL-PRIVACY-1: classify twin replies inside the personal plane; AUDIT receives only fixed categories and random event ids, never reply text or excerpts.
 // 4.37.0 KERNEL-EVERYWHERE-1 (2026-11-06, owner directive "IMPLEMENT EVERYWHERE ACROSS ALL AI APPS AND SERVICES AND SURFACES", pillar personal): the twin SYSTEM_PROMPT carries the DOCTRINE-1 kernel 8.2.1 reply recognitions (KERNEL-REPLY-4): end every reply on the answer or result, never on a question, conditional offer or menu; ambiguity gets a stated assumption; a refusal or limit with its reason is a disposition stated declaratively; reversible tool actions are taken and reported in the same reply, and a requested change is made with the tool, not described. Each twin reply is also mirrored to qnfo-audit.personal_replies so the kernel false-stop scan covers this surface. prior 4.36.2
@@ -4231,7 +4231,7 @@ const MANIFEST = {
 const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#2f5d50"/><circle cx="48" cy="44" r="20" fill="none" stroke="#f6f4ef" stroke-width="7"/><path d="M30 74c5-6 11-9 18-9s13 3 18 9" fill="none" stroke="#f6f4ef" stroke-width="7" stroke-linecap="round"/></svg>';
 const SW_JS = `// COMPANION-OFFLINE-1: only the page shell is cached (HTML, manifest, icon: no personal data). API calls are never cached or
 // intercepted; what is made offline waits in the page's own IndexedDB queue.
-const SHELL = 'cmp-shell-v1';
+const SHELL = 'cmp-shell-v2';
 const SHELL_URLS = ['/companion', '/companion/manifest.webmanifest', '/companion/icon.svg'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(SHELL).then(c => Promise.all(SHELL_URLS.map(u => fetch(u, { credentials: 'same-origin' }).then(r => r.ok ? c.put(u, r) : null).catch(() => null)))).then(() => self.skipWaiting()));
