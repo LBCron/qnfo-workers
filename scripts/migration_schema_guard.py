@@ -47,6 +47,27 @@ KNOWN_SCHEMAS: Dict[str, Set[str]] = {
         'stage', 'agent_task_id', 'attempt', 'revise_count',
         'context', 'published_at', 'doi', 'paper_url',
         'error', 'recover_count', 'terminal_rearms', 'publish_due_at'
+    },
+    'remediation_contracts': {
+        'class',  # PRIMARY KEY
+        'issue_id', 'precondition', 'action', 'verify_probe',
+        'verify_transport', 'max_attempts', 'escalate_to',
+        'expected_cadence_h',  # NOT verify_cadence_h!
+        'status', 'ts', 'last_attempt_at', 'last_verdict',
+        'module', 'budget_ms', 'next_due_at', 'max_items',
+        'requires_container', 'attempts', 'deferred_since'
+    },
+    'failure_modes': {
+        'fm_key',  # PRIMARY KEY
+        'failure_mode', 'root_cause', 'remediation', 'detector',
+        'probe_class', 'first_seen', 'issue_id', 'trigger_condition',
+        'symptom', 'blast_radius'
+    },
+    'decision_log': {
+        'id',  # PRIMARY KEY AUTOINCREMENT
+        'ts', 'actor', 'assumption', 'action', 'evidence',
+        'outcome', 'blast_radius', 'rollback_path', 'capability_gain',
+        'predicted_outcome', 'reach_gain', 'surfaces_tested', 'outcome_matched'
     }
 }
 
@@ -56,6 +77,7 @@ COLUMN_MISTAKES = {
     ('analytics_metric_triggers', 'metric'): 'metric_key',
     ('metric_breach_cause', 'metric'): 'metric_key',
     ('research_queue', 'queued_at'): 'created_at',
+    ('remediation_contracts', 'verify_cadence_h'): 'expected_cadence_h',  # From PR #8506
 }
 
 
