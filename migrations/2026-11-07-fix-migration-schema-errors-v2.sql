@@ -32,40 +32,40 @@ SELECT * FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue
 -- Delete if they exist (idempotent)
 DELETE FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code');
 
--- Add runtime probe with CORRECT column name
+-- Add runtime probe with CORRECT column names (NO hit_action or description columns!)
+-- remediation_contracts schema: class, issue_id, precondition, action, verify_probe,
+-- verify_transport, max_attempts, escalate_to, expected_cadence_h, status
 INSERT INTO remediation_contracts (
-  class, verify_transport, verify_probe, expected_cadence_h, hit_action, issue_id, description,
-  precondition, action, max_attempts, escalate_to
+  class, issue_id, verify_transport, verify_probe, expected_cadence_h,
+  precondition, action, max_attempts, escalate_to, status
 ) VALUES (
   'issue-8495-runtime',
+  8495,
   'runner-https',
   '{"url": "https://me.q08.org/companion", "status": 200, "absent": "For the Quniverse"}',
   1,
-  'runtime',
-  8495,
-  'COMPANION-UI-REGRESSION-GUARD-1: Ensure ''For the Quniverse'' text does not appear on me.q08.org/companion',
   'TRUE',
   'file_issue',
   3,
-  'owner'
+  'owner',
+  'active'
 );
 
--- Add code probe with CORRECT column name
+-- Add code probe with CORRECT column names (NO hit_action or description columns!)
 INSERT INTO remediation_contracts (
-  class, verify_transport, verify_probe, expected_cadence_h, hit_action, issue_id, description,
-  precondition, action, max_attempts, escalate_to
+  class, issue_id, verify_transport, verify_probe, expected_cadence_h,
+  precondition, action, max_attempts, escalate_to, status
 ) VALUES (
   'issue-8495-code',
+  8495,
   'code-read',
   '{"paths": ["personal-api/worker.js"], "absent": "function fleetAsks"}',
   1,
-  'code',
-  8495,
-  'COMPANION-UI-REGRESSION-GUARD-1: Ensure fleetAsks function not reintroduced in personal-api',
   'TRUE',
   'file_issue',
   3,
-  'owner'
+  'owner',
+  'active'
 );
 
 -- ============================================================================
