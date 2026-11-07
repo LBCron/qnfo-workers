@@ -346,7 +346,7 @@ async function allTools(c: ToolCtx) {
 const SYSTEM = [
   "You are the Quniverse fleet's coding and operations agent (" + WORKER + ", Cloudflare Agents SDK), working on the " + REPO + " repository: about 40 Cloudflare Workers, the D1 database qnfo-audit, and the loops that run them.",
   "Work from evidence: read the code (repo_read_file, or codemode with ops_workspace_grep / ops_github_repo_read), the fleet graph (ops_fleet_graph impact before any change to a binding, table or route), and D1 (fleet_sql). Say what you read.",
-  "Code changes go through the fleet's code loop: call propose_code_task with one file, the goal, and a verbatim anchor that occurs exactly once in that file. Never paste a patch as the only record.",
+  "Code changes: in a write-scope session, call propose_plan (it is approved at once), then ship_change or github_create_branch + github_file_write + github_pr, and verify the deploy (health VERSION, fleet_deploys via fleet_sql, probes.json). In a read-scope session call propose_code_task with one file, the goal, and a verbatim anchor that occurs exactly once in that file. Never paste a patch as the only record.",
   "Use codemode when a task needs several tool calls, loops or computation. A tool that refuses (scope, guard, permission) is reported plainly with its reason; never retry it under another name.",
   "send_email is the single identity-bound action gated by a durable approval: use codemode.ops_send_email, and never bypass it through ops_call.",
   "CODE-ONLY-OUTPUT-1: the answer to a request is deployed code: an issue, a pull request, a merge, a deploy and a live check. A reply is informative only and is never the action or the record. Do the work with tools in this turn instead of describing it, and file what you cannot finish as an issue with a code-task line and a closing probe.",
@@ -754,9 +754,9 @@ async function sandboxLog(env: Env, sessionId: string, turn: number, kind: strin
 }
 
 const SANDBOX_NOTE = [
-  "This is a write-scope code session with a plan gate.",
-  "Reading is always open. Before any tool that changes something, call propose_plan (title, steps, files), end your answer with the plan, and wait: the owner approves it in the page and sends the next message. Until then changing tools are refused with the reason.",
-  "After approval, an edit takes a work claim on its file automatically (a refusal names the holder: edit another file or stop). Create a branch with github_create_branch, write the file with github_file_write, open the pull request with github_pr against main. Never merge: the lane merges green pull requests.",
+  "This is a write-scope code session: you ship end to end without waiting.",
+  "Call propose_plan (title, steps, files); it is approved immediately, so continue in the same turn. An edit takes a work claim on its file automatically (a refusal names the holder: edit another file or stop). Use ship_change, or github_create_branch, github_file_write and github_pr against main. Never merge: the lane merges green pull requests.",
+  "After opening the pull request, watch it: read its checks and, once it merges, confirm the deploy with fleet_sql on fleet_deploys and the worker's /health VERSION. Report the PR, the merge and the live version, not the internals.",
   "If a claim says it is unreachable, write 'work-claim: unreachable (<error>)' in the pull request body."
 ].join("\n");
 
@@ -934,10 +934,10 @@ export class CodeSession extends Agent<Env, State> {
     const p = sandboxPlan(input);
     if (p.error || !p.plan) return { ok: false, error: p.error || "invalid plan" };
     const now = Date.now();
-    this.sql`INSERT OR REPLACE INTO code_session_plan (id, title, steps, files, status, proposed_ms, decided_ms, decided_by) VALUES (1, ${p.plan.title}, ${JSON.stringify(p.plan.steps)}, ${JSON.stringify(p.plan.files)}, 'pending', ${now}, NULL, NULL)`;
-    this.event("plan", { turn, status: "pending", title: p.plan.title, steps: p.plan.steps, files: p.plan.files });
+    this.sql`INSERT OR REPLACE INTO code_session_plan (id, title, steps, files, status, proposed_ms, decided_ms, decided_by) VALUES (1, ${p.plan.title}, ${JSON.stringify(p.plan.steps)}, ${JSON.stringify(p.plan.files)}, 'approved', ${now}, ${now}, 'auto')`;
+    this.event("plan", { turn, status: "approved", title: p.plan.title, steps: p.plan.steps, files: p.plan.files });
     await sandboxLog(this.env, this.name, turn, "plan", null, null, { title: p.plan.title, steps: p.plan.steps.length, files: p.plan.files.length });
-    return { ok: true, status: "awaiting_approval", note: "The plan is shown to the owner. End your answer with the plan and wait: changing tools stay refused until it is approved." };
+    return { ok: true, status: "approved", note: "The plan is approved. Carry on in this turn: ship_change (or github_create_branch, github_file_write, github_pr), then verify the deploy." };
   }
 
   // The owner's answer to the plan (the console sends it only with a fresh code, so the route requires the write scope).
