@@ -6,7 +6,7 @@ var PROTOCOL_VERSION = "2024-11-05";
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var NL = String.fromCharCode(10);
 var SERVER_NAME = "qnfo-memory-mcp";
-var VERSION = "2.11.3-codeagent";
+var VERSION = "2.11.4-codeagent";
 /* 2.7.2: Batch semantic memory D1 enrichment to one query per search. */ /* 2.7.1 #6612 (pillar autonomy): literal graph searches avoid D1's 50-byte LIKE pattern limit. */ /* 2.7.0 EXUVIA-ENGAGE-1 (2026-11-03, pillar reach): evidence-matched drafts for Exuvia posts needing a response, deduplicated and logged to decision_log; no comment is sent. */ /* 2.5.0 FULLSCOPE-1 (2026-10-31): the SSE transport is real (session + /mcp/messages + keepalive, spec event:endpoint; the old stub closed after 100 ms); ?token= query auth parity with qnfo-tools-mcp; optional MCP_READ_TOKEN read-only scope (write tools: remember_fact, exuvia_publish_paper); ping, prompts/list, resources/templates/list, JSON-RPC batch, -32602 on malformed tools/call, protocolVersion negotiation; remember_fact keeps up to 8000 chars (was silently truncated at 800), clamps importance to 0-1 and enforces its own category enum; the open /fleet-graph/findings route no longer leaks secret: subjects; every tools/call is audit-logged when an AUDIT D1 binding is present. */ /* 2.4.0 REPO-GRAPH-1 (2026-10-29, pillar autonomy; minor: fleet_graph_find and /fleet-graph/find now accept the kinds repo and doc, so a repository or a document is found by name like a worker). */ // 2.3.2 EXUVIA-2 (2026-10-28, pillar reach): /health reports exuvia_key (boolean only) so the owner card that waits for the Exuvia key closes by a runtime probe. // 2.3.0 EXUVIA-1 (2026-10-28, pillar reach): exuvia_* MCP tools connect QNFO papers and the knowledge graph to the Exuvia agent research network (exuvia-two.vercel.app): status, feed, paper-to-post draft, confirmed publish, KG context for an Exuvia post. EXUVIA_API_KEY is an optional worker secret; without it the tools say so and the draft and context tools still work. // 2.2.0 NO-REGISTRAR-1 (2026-10-21): dead DOIs recognised by the 10.5281 prefix only; the registrar is not named. // 2.1.0 FLEET-GRAPH-1 (2026-10-19, pillar autonomy): the fleet code + topology graph (qnfo-graph fg_* tables, built by scripts/fleet_graph.mjs) as MCP tools fleet_graph_* and open read-only GET /fleet-graph/* routes: find, node, impact (blast radius), path, worker, resource, findings, freshness. Secret NAMES are served only to authenticated MCP clients; the open routes give counts.
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
@@ -1228,11 +1228,94 @@ function tokenFrom(u, req) {
   return u.searchParams.get("token") || (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
 }
 __name(tokenFrom, "tokenFrom");
-function scopeFor(token, env) {
-  if (env.MCP_TOKEN && constantTimeEqual(token, env.MCP_TOKEN)) return { ok: true, write: true };
-  if (env.MCP_READ_TOKEN && constantTimeEqual(token, env.MCP_READ_TOKEN)) return { ok: true, write: false };
-  return { ok: false, write: false };
+// CAP-TOKEN-1 (qnfo-workers ROADMAP-1, issue #1002031): qcap1 capability tokens, the same
+// scheme as qnfo-tools-mcp 1.5.0, governed by ops_config capability_token_policy_v1.
+// Token = "qcap1." + base64url(JSON payload). Payload caveats: i (id), t (allowed tools),
+// w (write), x (expiry epoch seconds), k (task label); s is the HMAC-SHA256 signature over
+// the caveat-only JSON. At most 16 caveats, only the keys above are accepted.
+var CAP_PREFIX = "qcap1.";
+var CAP_POLICY = "capability_token_policy_v1";
+var CAVEAT_KEYS = ["i", "t", "x", "w", "k"];
+var MAX_CAVEATS = 16;
+function capB64u(buf) {
+  const b = typeof buf === "string" ? new TextEncoder().encode(buf) : buf;
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
+__name(capB64u, "capB64u");
+function capU64b(str) {
+  const pad = str.length % 4 === 0 ? "" : "=".repeat(4 - (str.length % 4));
+  const raw = atob(str.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+__name(capU64b, "capU64b");
+function capBody(caveats) {
+  const o = {};
+  for (const k of CAVEAT_KEYS) if (caveats[k] !== void 0) o[k] = caveats[k];
+  return o;
+}
+__name(capBody, "capBody");
+async function capKey(env) {
+  if (!env.CAP_SECRET) return null;
+  return await crypto.subtle.importKey("raw", new TextEncoder().encode(env.CAP_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+}
+__name(capKey, "capKey");
+async function capSign(caveats, env) {
+  const key = await capKey(env);
+  if (!key) throw new Error(CAP_POLICY + ": CAP_SECRET not configured");
+  const body = capBody(caveats);
+  const text = JSON.stringify(body);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(text)));
+  return CAP_PREFIX + capB64u(new TextEncoder().encode(JSON.stringify(Object.assign({}, body, { s: capB64u(sig) }))));
+}
+__name(capSign, "capSign");
+async function capMint(caveats, env) {
+  const body = capBody(caveats);
+  const n = Object.keys(body).length;
+  if (n > MAX_CAVEATS) throw new Error(CAP_POLICY + ": more than " + MAX_CAVEATS + " caveats");
+  return await capSign(body, env);
+}
+__name(capMint, "capMint");
+function capFail(reason) {
+  return { ok: false, write: false, allowed: null, id: null, k: null, x: null, reason: CAP_POLICY + ": " + reason };
+}
+__name(capFail, "capFail");
+async function resolveScope(token, env) {
+  if (env.MCP_TOKEN && constantTimeEqual(token, env.MCP_TOKEN)) return { ok: true, write: true, allowed: null, id: null, k: null, x: null };
+  if (env.MCP_READ_TOKEN && constantTimeEqual(token, env.MCP_READ_TOKEN)) return { ok: true, write: false, allowed: null, id: null, k: null, x: null };
+  if (!token || String(token).indexOf(CAP_PREFIX) !== 0) return capFail("not a qcap1 token");
+  if (!env.CAP_SECRET) return capFail("CAP_SECRET not configured");
+  let p;
+  try { p = JSON.parse(new TextDecoder().decode(capU64b(String(token).slice(CAP_PREFIX.length)))); }
+  catch (e) { return capFail("malformed token"); }
+  if (!p || typeof p !== "object" || Array.isArray(p)) return capFail("malformed payload");
+  const keys = Object.keys(p);
+  if (keys.indexOf("s") < 0 || typeof p.s !== "string") return capFail("missing signature");
+  const caveats = keys.filter((k) => k !== "s");
+  if (caveats.length > MAX_CAVEATS) return capFail("more than " + MAX_CAVEATS + " caveats");
+  if (caveats.some((k) => CAVEAT_KEYS.indexOf(k) < 0)) return capFail("unknown caveat key");
+  const key = await capKey(env);
+  const body = JSON.stringify(capBody(p));
+  let okSig = false;
+  try { okSig = await crypto.subtle.verify("HMAC", key, capU64b(p.s), new TextEncoder().encode(body)); }
+  catch (e) { okSig = false; }
+  if (!okSig) return capFail("bad signature");
+  if (typeof p.x === "number" && Math.floor(Date.now() / 1000) >= p.x) return capFail("token expired");
+  let allowed = null;
+  if (p.t !== void 0) {
+    if (!Array.isArray(p.t) || !p.t.every((x) => typeof x === "string")) return capFail("bad t caveat");
+    allowed = p.t;
+  }
+  return { ok: true, write: p.w === true, allowed, id: typeof p.i === "string" ? p.i : null, k: typeof p.k === "string" ? p.k : null, x: typeof p.x === "number" ? p.x : null };
+}
+__name(resolveScope, "resolveScope");
+async function scopeFor(token, env) {
+  return await resolveScope(token, env);
+}
+__name(scopeFor, "scopeFor");
 __name(scopeFor, "scopeFor");
 function rpcOk(id, result) {
   return { jsonrpc: "2.0", id, result };
@@ -1269,7 +1352,12 @@ async function handleRpc(body, env, scope, sessionId) {
   }
   if (method.indexOf("notifications/") === 0 || method === "initialized") return { out: null };
   if (method === "ping") return { out: isNotification ? null : rpcOk(id, {}) };
-  if (method === "tools/list") return { out: rpcOk(id, { tools: scope.write ? TOOLS : TOOLS.filter((t) => WRITE_TOOLS.indexOf(t.name) < 0) }) };
+  if (method === "tools/list") {
+    let list = scope.write ? TOOLS : TOOLS.filter((t) => WRITE_TOOLS.indexOf(t.name) < 0);
+    // CAP-TOKEN-1: a qcap1 t caveat narrows the tool list to exactly the allowed names.
+    if (scope.allowed) list = list.filter((t) => scope.allowed.indexOf(t.name) >= 0);
+    return { out: rpcOk(id, { tools: list }) };
+  }
   // FULLSCOPE-1: clients probing resources/prompts on connect get empty lists, not -32601.
   if (method === "resources/list") return { out: rpcOk(id, { resources: [] }) };
   if (method === "resources/templates/list") return { out: rpcOk(id, { resourceTemplates: [] }) };
@@ -1280,6 +1368,7 @@ async function handleRpc(body, env, scope, sessionId) {
     if (!name) return { err: rpcErr(id, -32602, "Invalid params: tools/call needs params.name") };
     if (TOOLS.every((t) => t.name !== name) && !/^fleet_graph_/.test(name) && !/^kg_/.test(name)) return { err: rpcErr(id, -32602, "unknown tool: " + name) };
     if (!scope.write && WRITE_TOOLS.indexOf(name) >= 0) return { err: rpcErr(id, -32003, "forbidden: token lacks write scope for '" + name + "'") };
+    if (scope.allowed && scope.allowed.indexOf(name) < 0) return { err: rpcErr(id, -32003, "forbidden: capability token (" + CAP_POLICY + ") does not allow '" + name + "'") };
     const args = p.arguments && typeof p.arguments === "object" && !Array.isArray(p.arguments) ? p.arguments : {};
     try {
       const toolResult = await callTool(name, args, env);
@@ -1353,13 +1442,39 @@ var worker_default = {
     // unauthenticated"): anonymous tools/list + arbitrary query_graph SQL + a remember_fact WRITE
     // were reachable. Bearer/?token= gate with a constant-time compare; fail CLOSED (503) when no
     // token is configured. /health stays open but slim (no tool list / binding detail).
-    if (!env.MCP_TOKEN && !env.MCP_READ_TOKEN) return json({ error: "server_misconfigured", detail: "MCP_TOKEN not set" }, 503);
+    // CAP-TOKEN-1 (issue #1002031): POST /mcp/attenuate mints a narrower qcap1 child token
+    // from a valid parent (static or qcap1). Attenuation only: tools must be a subset, write
+    // can only shrink, the child never outlives the parent, caveats stay within t/x/w/k/i.
+    if (url.pathname === "/mcp/attenuate" && request.method === "POST") {
+      const parent = await scopeFor(tokenFrom(url, request), env);
+      if (!parent.ok) return json({ error: "unauthorized", policy: CAP_POLICY, detail: parent.reason || "invalid token" }, 401);
+      let b;
+      try { b = await request.json(); } catch (e) { return json({ error: "invalid_json" }, 400); }
+      b = b && typeof b === "object" && !Array.isArray(b) ? b : {};
+      if (!Array.isArray(b.tools) || !b.tools.every((x) => typeof x === "string")) return json({ error: "tools must be an array of tool names", policy: CAP_POLICY }, 400);
+      if (parent.allowed && b.tools.some((x) => parent.allowed.indexOf(x) < 0)) return json({ error: "cannot widen: requested tools are outside the parent token", policy: CAP_POLICY }, 403);
+      const write = b.write === true;
+      if (write && !parent.write) return json({ error: "cannot widen: the parent token lacks write scope", policy: CAP_POLICY }, 403);
+      const ttl = typeof b.ttl === "number" ? Math.max(1, Math.min(Math.floor(b.ttl), 86400)) : 3600;
+      let x = Math.floor(Date.now() / 1000) + ttl;
+      if (typeof parent.x === "number") x = Math.min(x, parent.x);
+      const id = "cap-" + crypto.randomUUID().slice(0, 8);
+      const task = typeof b.task === "string" ? b.task.slice(0, 64) : "default";
+      try {
+        const tok = await capMint({ i: id, t: b.tools, w: write, x, k: task }, env);
+        return json({ token: tok, id, task, tools: b.tools, write, expires: x, policy: CAP_POLICY, session: "cap:" + id + ":" + task });
+      } catch (e) {
+        return json({ error: "mint failed", detail: String(e && e.message || e), policy: CAP_POLICY }, 500);
+      }
+    }
+    if (!env.MCP_TOKEN && !env.MCP_READ_TOKEN && !env.CAP_SECRET) return json({ error: "server_misconfigured", detail: "MCP_TOKEN not set" }, 503);
     // FULLSCOPE-1: /mcp/messages authenticates by a live SSE session OR a token, exactly like qnfo-tools-mcp;
     // a token-only POST with no session gets the result inline instead of a dropped 202.
     if (url.pathname === "/mcp/messages" && request.method === "POST") {
       const sessionId = url.searchParams.get("sessionId") || "";
       const sess = sessions.get(sessionId);
-      const sc = scopeFor(tokenFrom(url, request), env);
+      const sc = await scopeFor(tokenFrom(url, request), env);
+      const capSession = sc.ok && sc.id ? "cap:" + sc.id + ":" + (sc.k || "default") : sessionId;
       if (!sess && !sc.ok) return json({ error: "unauthorized" }, 401);
       let body;
       try {
@@ -1367,8 +1482,8 @@ var worker_default = {
       } catch (e) {
         return json({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }, 400);
       }
-      const scope = sess ? { ok: true, write: !!sess.write } : sc;
-      const handled = await handleRpcBody(body, env, scope, sessionId || null);
+      const scope = sess ? { ok: true, write: !!sess.write, allowed: sess.allowed || null, id: sess.id || null, k: sess.k || null } : sc;
+      const handled = await handleRpcBody(body, env, scope, capSession || sessionId || null);
       if (sess) {
         if (handled.frames) {
           const encoder = new TextEncoder();
@@ -1380,7 +1495,7 @@ var worker_default = {
       if (!handled.frames) return new Response(null, { status: 202, headers: corsHeaders() });
       return json(handled.frames);
     }
-    const scope = scopeFor(tokenFrom(url, request), env);
+    const scope = await scopeFor(tokenFrom(url, request), env);
     if (!scope.ok) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/mcp/sse" && request.method === "GET") {
       // FULLSCOPE-1: a real SSE transport (the old stub pushed one non-standard event and closed after 100 ms).
@@ -1391,7 +1506,7 @@ var worker_default = {
       let keep;
       const stream = new ReadableStream({
         start(controller) {
-          sessions.set(sessionId, { c: controller, write: scope.write });
+          sessions.set(sessionId, { c: controller, write: scope.write, allowed: scope.allowed || null, id: scope.id || null, k: scope.k || null });
           controller.enqueue(encoder.encode("event: endpoint" + NL + "data: " + url.origin + "/mcp/messages?sessionId=" + sessionId + NL + NL));
           keep = setInterval(() => {
             try {
