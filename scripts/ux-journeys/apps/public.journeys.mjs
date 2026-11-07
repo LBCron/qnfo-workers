@@ -4,7 +4,7 @@
 export const name = "public";
 export const liveBase = "https://q08.org";
 export const HOSTS = [
-  ["q08.org", "Personal home"], ["reading.q08.org", "Reading"], ["mind.q08.org", "Understand your mind"], ["travel.q08.org", "Travel planner", { private: true }],
+  ["q08.org", "Personal home"], ["me.q08.org", "Personal companion"], ["reading.q08.org", "Reading"], ["mind.q08.org", "Understand your mind"], ["travel.q08.org", "Travel planner", { private: true }],
   ["qnfo.org", "QNFO home"], ["papers.qnfo.org", "Papers"], ["archive.qnfo.org", "Archive"], ["fleet.qnfo.org", "Fleet dashboard"],
   ["ideas.qnfo.org", "Ideas"], ["ipatent.qnfo.org", "iPatent"], ["ai.qnfo.org", "AI"], ["qwav.org", "Quantum home"], ["ask.qwav.tech", "Ask qwav"]
 ];
