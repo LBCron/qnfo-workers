@@ -27,3 +27,6 @@ q08-signal-engine q08-signal-engine/worker.js
 # live with no tracked source and a per-minute cron off the 5-minute grid. Source now tracked here;
 # the canonical deploy applies the hourly :05 cron and records the deploy in the ledger.
 qnfo-waste-agent qnfo-waste-agent/worker.js
+# HOST-CENSUS-BROKEN-1 (issue #8484): watch.q08.org returns 522 because personal-watch was deleted
+# but its route remains. Re-adding to deploy-targets to serve the existing route.
+personal-watch personal-watch/worker.js
