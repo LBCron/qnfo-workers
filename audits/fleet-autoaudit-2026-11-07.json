@@ -1,0 +1,67 @@
+{
+  "audited_at": "2026-11-07 07:36:33",
+  "d1_write_failures": [],
+  "d1_writes_ok": 2,
+  "guard": {
+    "_guard_rc": 0,
+    "ahead": [],
+    "cf_script_list": true,
+    "content_checked": true,
+    "content_drift": [],
+    "cron_only": [],
+    "cron_only_count": 0,
+    "drift": [],
+    "live_err": [],
+    "multi_version": [],
+    "multi_version_count": 0,
+    "name_resolution": true,
+    "no_health_route": [],
+    "no_live_version": [],
+    "no_repo_version": [],
+    "not_a_worker": [],
+    "not_a_worker_count": 0,
+    "not_deployed_dirs": [],
+    "not_deployed_notdrift": 0,
+    "not_deployed_workers": [],
+    "retired_present": [],
+    "retired_present_count": 0,
+    "scope": "all",
+    "sync": 0,
+    "sync_workers": [],
+    "unmanaged_route_drift": [],
+    "unmanaged_tombstones": 0,
+    "unmanaged_truncated": false,
+    "unmanaged_workers": [
+      {
+        "http": 200,
+        "version": null,
+        "worker": "qnfo-ai-yield"
+      },
+      {
+        "http": 200,
+        "version": null,
+        "worker": "qnfo-workers"
+      }
+    ]
+  },
+  "purge_error": null,
+  "rows": {
+    "qnfo-ai-yield": {
+      "before": null,
+      "http": 200,
+      "live": null,
+      "match": 0,
+      "note": "UNMANAGED_OK",
+      "worker": "qnfo-ai-yield"
+    },
+    "qnfo-workers": {
+      "before": null,
+      "http": 200,
+      "live": null,
+      "match": 0,
+      "note": "UNMANAGED_OK",
+      "worker": "qnfo-workers"
+    }
+  },
+  "stale_rows_purged": 38
+}
