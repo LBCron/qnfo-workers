@@ -114,36 +114,48 @@ INSERT INTO remediation_contracts (
   verify_transport,
   verify_probe,
   expected_cadence_h,
-  hit_action,
-  description
+  precondition,
+  action,
+  max_attempts,
+  escalate_to,
+  status
 ) VALUES
 (
   'fm-branch-cleanup-no-merge-check',
   'code-read',
   '{"paths": ["scripts/safe_branch_cleanup.py"], "contains": "def check_unmerged_commits"}',
   1,
-  'code',
-  'Verify safe_branch_cleanup.py exists and checks merge status'
+  'TRUE',
+  'file_issue',
+  3,
+  'code-loop',
+  'active'
 ),
 (
   'fm-branch-cleanup-no-dry-run',
   'code-read',
   '{"paths": ["scripts/safe_branch_cleanup.py"], "contains": "dry_run: bool = True"}',
   1,
-  'code',
-  'Verify safe_branch_cleanup.py has dry-run mode'
+  'TRUE',
+  'file_issue',
+  3,
+  'code-loop',
+  'active'
 ),
 (
   'fm-branch-cleanup-no-dangling-check',
   'code-read',
   '{"paths": ["scripts/safe_branch_cleanup.py"], "contains": "git fsck --lost-found"}',
   1,
-  'code',
-  'Verify safe_branch_cleanup.py checks for dangling commits'
+  'TRUE',
+  'file_issue',
+  3,
+  'code-loop',
+  'active'
 )
 ON CONFLICT (class) DO UPDATE SET
   verify_probe = EXCLUDED.verify_probe,
-  description = EXCLUDED.description;
+  status = EXCLUDED.status;
 
 -- Create audit table for branch deletions
 CREATE TABLE IF NOT EXISTS branch_deletion_audit (
