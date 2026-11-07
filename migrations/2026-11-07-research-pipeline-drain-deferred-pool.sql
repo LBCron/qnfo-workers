@@ -65,6 +65,9 @@ INSERT INTO metric_registry (
   target_value,
   comparison,
   state,
+  source_of_truth,
+  disposition_actor,
+  refresh_cadence,
   created_at,
   updated_at
 ) VALUES (
@@ -74,6 +77,9 @@ INSERT INTO metric_registry (
   100,
   '<',
   'active',
+  'research_pipeline',
+  'qnfo-research-exec',
+  'daily',
   datetime('now'),
   datetime('now')
 );
@@ -106,6 +112,9 @@ INSERT INTO metric_registry (
   target_value,
   comparison,
   state,
+  source_of_truth,
+  disposition_actor,
+  refresh_cadence,
   created_at,
   updated_at
 ) VALUES (
@@ -115,6 +124,9 @@ INSERT INTO metric_registry (
   0,
   '=',
   'active',
+  'research_pipeline',
+  'qnfo-research-exec',
+  'daily',
   datetime('now'),
   datetime('now')
 );
