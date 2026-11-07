@@ -1,5 +1,6 @@
 -- APPLY-BY: ci
 -- DB: qnfo-audit
+-- BACKUP: bak_20261107_fix_schema_errors
 -- Rollback: DELETE FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code'); UPDATE remediation_contracts SET status = 'active' WHERE class = 'rt-live-voice-stt'; DELETE FROM metric_registry WHERE metric = 'research_deferred_pool_pct'; DROP TRIGGER IF EXISTS retention_personal_replies_tick_v1;
 -- CAUSE-MAPPED: research_deferred_pool_pct breach cause mapped as 'research-pipeline' in FIX 3
 
@@ -24,6 +25,9 @@
 -- ============================================================================
 -- Original error: "table remediation_contracts has no column named verify_cadence_h"
 -- Fix: Change verify_cadence_h → expected_cadence_h
+
+CREATE TABLE IF NOT EXISTS bak_20261107_fix_schema_errors AS
+SELECT * FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code', 'rt-live-voice-stt');
 
 -- Delete if they exist (idempotent)
 DELETE FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code');

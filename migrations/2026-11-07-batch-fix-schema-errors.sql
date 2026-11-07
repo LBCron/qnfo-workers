@@ -1,5 +1,6 @@
 -- APPLY-BY: ci
 -- DB: qnfo-audit
+-- BACKUP: bak_20261107_batch_schema_fix
 -- Rollback: DELETE FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code'); DELETE FROM failure_modes WHERE fm_key IN ('FM-COMPANION-NO-UI-VERIFICATION', 'FM-COMPANION-NO-RUNTIME-MONITORING', 'FM-COMPANION-NON-IDEMPOTENT-MIGRATION', 'fm-branch-cleanup-no-merge-check', 'fm-branch-cleanup-no-dry-run', 'fm-branch-cleanup-no-dangling-check'); DELETE FROM decision_log WHERE actor = 'failure-mode-remediation-migration' AND ts >= datetime('now', '-1 hour');
 
 -- BATCH-FIX-SCHEMA-ERRORS: Fix 4 migrations with wrong column names
@@ -26,6 +27,13 @@
 -- ============================================================================
 -- Original error: "table remediation_contracts has no column named verify_cadence_h"
 -- Correct column: expected_cadence_h
+
+CREATE TABLE IF NOT EXISTS bak_20261107_batch_schema_fix AS
+SELECT * FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code')
+UNION ALL
+SELECT * FROM failure_modes WHERE fm_key IN ('FM-COMPANION-NO-UI-VERIFICATION', 'FM-COMPANION-NO-RUNTIME-MONITORING', 'FM-COMPANION-NON-IDEMPOTENT-MIGRATION', 'fm-branch-cleanup-no-merge-check', 'fm-branch-cleanup-no-dry-run', 'fm-branch-cleanup-no-dangling-check')
+UNION ALL
+SELECT * FROM decision_log WHERE actor = 'failure-mode-remediation-migration' AND ts >= datetime('now', '-7 days');
 
 DELETE FROM remediation_contracts WHERE class IN ('issue-8495-runtime', 'issue-8495-code');
 
