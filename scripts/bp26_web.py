@@ -825,6 +825,13 @@ def collect_web(ctx):
         results.append(Result("ai_interaction_disclosure", round(d_ok / float(d_total), 4), "%d of %d interactive AI surfaces carry the AI disclosure on their first screen or first reply (ipatent and the twin live, the e-mail agent by code state)" % (d_ok, d_total), d_rows))
     else:
         results.append(Result("ai_interaction_disclosure", None, "only %d surfaces could be judged" % d_total, d_rows))
+    # --- data path availability sample
+    try:
+        r_now = ctx.http("https://fleet.qnfo.org/api/v3/now")
+        ok_now = (r_now.status == 200 and getattr(r_now, "elapsed", 0) <= SLO_MAX_MS)
+    except Exception:
+        ok_now = False
+    results.append(Result("slo_data_path", 1 if ok_now else 0, "availability of fleet.qnfo.org/api/v3/now (200 OK within SLO_MAX_MS)", []))
     return results
 
 
