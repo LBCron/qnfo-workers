@@ -204,6 +204,25 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Validate migration schemas against known table definitions
+        if: ${{ !cancelled() && steps.f.outputs.migration_guard == 'true' }}
+        env:
+          REGRESSION_GATE: ${{ vars.REGRESSION_GATE }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # MIGRATION-SCHEMA-GUARD-1: catches column name mismatches before production
+          # REGRESSION TEST: 2026-11-07-research-pipeline-drain-deferred-pool.sql
+          #   Used 'metric_key' for metric_registry, failed in production (statement 2)
+          #   Root cause: metric_registry uses 'metric', analytics_metric_triggers uses 'metric_key'
+          # Only validate CHANGED migrations to avoid failing on already-merged errors
+          files=$(git diff --name-only --diff-filter=AM "origin/$BASE_REF" HEAD -- 'migrations/*.sql' || true)
+          if [ -z "$files" ]; then
+            echo "No migrations changed, skipping schema validation"
+            exit 0
+          fi
+          python3 scripts/regression_gate.py --name migration-schema-guard -- python3 scripts/migration_schema_guard.py $files
+
       - name: Check the added and changed migrations
         if: ${{ !cancelled() && steps.f.outputs.migration_guard == 'true' }}
         env:
@@ -506,14 +525,13 @@ jobs:
       - name: Self-audit gate for the pull request body
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_USER_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
           set -euo pipefail
           node scripts/r2_doc_audit.test.mjs
           if [ "$PR_USER_TYPE" = "Bot" ]; then echo "self-audit: bot author, skipped"; exit 0; fi
-          printf '%s' "$PR_BODY" > pr-body.txt
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body' > pr-body.txt
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename' > pr-files.txt
           node scripts/self_audit_pr.mjs --body pr-body.txt --files pr-files.txt
 
