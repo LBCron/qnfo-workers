@@ -52,11 +52,28 @@ UPDATE remediation_contracts
 SET status = 'removed'
 WHERE class = 'rt-live-voice-stt';
 
--- Issue #8502: METRIC-RESEARCH-DEFERRED-POOL - restore metric with correct column name
-INSERT OR REPLACE INTO metric_registry (metric, last_value)
-VALUES ('research_deferred_pool_pct', '0');
+-- Issue #8502: METRIC-RESEARCH-DEFERRED-POOL - restore metric with ALL required fields
+-- METRIC-INTEGRITY-1: source_of_truth, disposition_actor and refresh_cadence are mandatory
+INSERT OR REPLACE INTO metric_registry (
+  metric, layer, kind, formula, source_of_truth, baseline, target, owner,
+  disposition_actor, refresh_cadence, state, refresh_class, last_value
+) VALUES (
+  'research_deferred_pool_pct',
+  'operational',
+  'leading',
+  'Share of research pool items in deferred status',
+  'qnfo-audit.research_pool',
+  '0',
+  '< 0.2',
+  'qnfo-research-exec',
+  'qnfo-research-exec',
+  'hourly',
+  'REGISTERED',
+  'computed',
+  '0'
+);
 
--- Issue #8502: Add metric breach cause mapping
+-- Issue #8502: Add metric breach cause mapping (AFTER metric exists)
 INSERT OR IGNORE INTO metric_breach_cause (metric, cause, action_template)
 VALUES (
   'research_deferred_pool_pct',
