@@ -1,0 +1,40 @@
+-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DELETE FROM migration_runs WHERE name = '2026-11-07-retire-broken-migrations-8560.sql';
+
+-- RETIRE-BROKEN-MIGRATIONS-8560
+--
+-- PR #8560 merged 3 migrations that failed to apply due to column name errors:
+-- - 2026-11-07-batch-fix-schema-errors.sql (UNION ALL column mismatch, hit_action doesn't exist)
+-- - 2026-11-07-failure-prevention-schema-guards-v2.sql (duplicate fm_key)
+-- - 2026-11-07-fix-migration-schema-errors-v2.sql (hit_action doesn't exist)
+--
+-- None of these migrations applied successfully (all failed at statement 1-3), so there's
+-- no D1 state to roll back. This migration simply records their retirement.
+--
+-- Issues closed by this retirement:
+-- #8556, #8541, #8522, #8523, #8524, #8527 (plus duplicates #8529, #8530, #8531)
+--
+-- Root cause: Migrations written without checking KNOWN_SCHEMAS in migration_schema_guard.py
+-- Prevention: Always run `python scripts/migration_schema_guard.py migrations/*.sql` before commit
+--
+-- The correct schemas (extracted from migrations/ab-length-retry.test.mjs):
+--
+-- remediation_contracts columns:
+--   class, issue_id, precondition, action, verify_probe, verify_transport, max_attempts,
+--   escalate_to, expected_cadence_h (NOT verify_cadence_h!), status, ts, last_attempt_at,
+--   last_verdict, module, budget_ms, next_due_at, max_items, requires_container, attempts,
+--   deferred_since
+--   NOTE: NO hit_action column exists!
+--
+-- failure_modes columns:
+--   fm_key (PRIMARY KEY, NOT key!), failure_mode (NOT title!), root_cause, remediation,
+--   detector, probe_class, first_seen, issue_id, trigger_condition, symptom, blast_radius
+--
+-- decision_log columns:
+--   id, ts, actor, assumption, action, evidence, outcome, blast_radius, rollback_path,
+--   capability_gain, predicted_outcome, reach_gain, surfaces_tested, outcome_matched
+--   NOTE: NO decision_key column exists!
+
+-- This migration applies no changes - it exists only to record the retirement
+SELECT 1 WHERE 1=0;
