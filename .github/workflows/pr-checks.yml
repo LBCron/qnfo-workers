@@ -711,3 +711,23 @@ jobs:
         env:
           REGRESSION_GATE: ${{ vars.REGRESSION_GATE }}
         run: python3 scripts/pr_fast_guards.py
+
+      # ---- UI-REGRESSION-CHECK-1 (2026-11-07): Visual regression check prevents UI from regressing to complex multi-section layouts ----
+      # After companion UI regressed from sleek single-screen to 8-section tabbed layout (UNIFIED-COMPANION-1), this check compares UI structure
+      # before/after PR changes. Detects: added tab navigation, increased section count, stacked sections pattern. Blocks merge on regression unless
+      # PR body contains "ui-regression: accepted (<reason>)". Runs on every PR that touches UI code (~5-10s).
+      - name: UI regression check (detects layout complexity increases)
+        if: ${{ !cancelled() }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          # Check if PR body has override
+          if echo "$PR_BODY" | grep -qi "ui-regression:\s*accepted"; then
+            echo "UI regression check: SKIPPED (override in PR body)"
+            exit 0
+          fi
+          # Get changed files
+          git diff --name-only HEAD^1 HEAD > pr-files.txt
+          # Run UI regression check
+          node scripts/ui_regression_check.mjs --files pr-files.txt --base HEAD^1 --head HEAD
