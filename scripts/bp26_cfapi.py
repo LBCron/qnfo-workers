@@ -72,10 +72,13 @@ def _acc():
 
 def _post(ctx, path, body):
     fn = getattr(ctx, "cf_post", None) or _POST
-    if fn is None:
-        import remediation_consumer as RC  # noqa: E402
-        return RC._req("POST", RC.CF_API + path, body)
-    return fn(path, body)
+    if fn is not None:
+        return fn(path, body)
+    import remediation_consumer as RC  # noqa: E402
+    account = _acc()
+    if account and not path.startswith("/accounts/"):
+        path = "/accounts/%s%s" % (account, path)
+    return RC._req("POST", RC.CF_API + path, body)
 
 
 def _epoch(iso):
