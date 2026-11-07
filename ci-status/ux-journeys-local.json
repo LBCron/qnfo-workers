@@ -1,0 +1,595 @@
+{
+ "mode": "local",
+ "at": "2026-11-07T07:38:47.099Z",
+ "sha": "c94d4e2597b2259114fa45f4dea09e4765b5ed52",
+ "apps": [
+  {
+   "app": "companion",
+   "base": "local harness",
+   "journeys": [
+    {
+     "app": "companion",
+     "id": "sign-in",
+     "title": "Sign in on a new phone with the e-mailed code",
+     "taps": 2,
+     "typing": 1,
+     "steps": [
+      "tap E-mail me a code",
+      "type into #li-code",
+      "tap Open"
+     ],
+     "screens": [
+      {
+       "label": "sign-in",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      },
+      {
+       "label": "today",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 9414,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "companion",
+     "id": "one-thing-now",
+     "title": "Bored or stuck: get one thing to do and start it",
+     "taps": 2,
+     "typing": 0,
+     "steps": [
+      "tap Give me one thing",
+      "tap Yes — start"
+     ],
+     "screens": [
+      {
+       "label": "focus",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2589,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "companion",
+     "id": "mark-done",
+     "title": "Tick off a next action",
+     "taps": 2,
+     "typing": 0,
+     "steps": [
+      "tap Do",
+      "tap locator('#v-do .item').filter({ hasText: 'Call the dentist' }).getByRole('button', { name: 'Done' })"
+     ],
+     "screens": [
+      {
+       "label": "do",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3077,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "companion",
+     "id": "journal-one-tap",
+     "title": "Write a journal line without typing",
+     "taps": 3,
+     "typing": 0,
+     "steps": [
+      "tap More",
+      "tap Journal",
+      "tap Went outside"
+     ],
+     "screens": [
+      {
+       "label": "journal",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2675,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "companion",
+     "id": "dictate-and-talk",
+     "title": "Say something to the companion and get an answer",
+     "taps": 4,
+     "typing": 0,
+     "steps": [
+      "tap Talk",
+      "tap Dictate",
+      "tap Stop",
+      "tap Send"
+     ],
+     "screens": [
+      {
+       "label": "talk",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 6069,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "companion",
+     "id": "checkin-from-notification",
+     "title": "Tap a check-in notification and answer how I feel",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('#mood-card button').visible().nth(2)"
+     ],
+     "screens": [
+      {
+       "label": "mood",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": [
+        {
+         "id": "color-contrast",
+         "impact": "serious",
+         "nodes": 1,
+         "help": "Elements must meet minimum color contrast ratio thresholds"
+        }
+       ]
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2165,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "companion",
+     "id": "reading-pick",
+     "title": "Find something to read",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1096,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": [
+    "mood: accessibility serious color-contrast (1x): Elements must meet minimum color contrast ratio thresholds"
+   ]
+  },
+  {
+   "app": "fleet-lee",
+   "base": "local harness",
+   "journeys": [
+    {
+     "app": "fleet-lee",
+     "id": "cmd-cf-zones",
+     "title": "Type a Cloudflare read on /cmd (cf zones) and see the zones with no model call",
+     "taps": 1,
+     "typing": 1,
+     "steps": [
+      "type into #ctext",
+      "tap Run"
+     ],
+     "screens": [
+      {
+       "label": "cmd-cf-zones",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: net::ERR_FAILED"
+     ],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2625,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet-lee",
+     "id": "cmd-lee-ask",
+     "title": "Ask Lee a plain-English question on /cmd and read the answer with its tool step",
+     "taps": 1,
+     "typing": 1,
+     "steps": [
+      "type into #ctext",
+      "tap Run"
+     ],
+     "screens": [
+      {
+       "label": "cmd-lee-ask",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: net::ERR_FAILED"
+     ],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3892,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet-lee",
+     "id": "cmd-lee-chip",
+     "title": "Tap the lee chip on /cmd and see what Lee can read",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap lee"
+     ],
+     "screens": [],
+     "consoleErrors": [
+      "Failed to load resource: net::ERR_FAILED"
+     ],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2094,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": [
+    "console error in cmd-cf-zones: Failed to load resource: net::ERR_FAILED",
+    "console error in cmd-lee-ask: Failed to load resource: net::ERR_FAILED",
+    "console error in cmd-lee-chip: Failed to load resource: net::ERR_FAILED"
+   ]
+  },
+  {
+   "app": "fleet",
+   "base": "local harness",
+   "journeys": [
+    {
+     "app": "fleet",
+     "id": "see-what-needs-me",
+     "title": "Open the dashboard and see what needs me, whether the fleet is running and what it costs",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "now",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1366,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet",
+     "id": "hand-back-one-tap",
+     "title": "Hand an item back to the fleet with one tap",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('.need').filter({ hasText: 'Approve the annual domain renewal' }).getByRole('button', { name: 'Fleet: you do it' })"
+     ],
+     "screens": [],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2895,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet",
+     "id": "snooze-one-tap",
+     "title": "Snooze an item for a week with one tap",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('.need').filter({ hasText: 'Add the fleet Google account to Search Console' }).getByRole('button', { name: 'Snooze 7 days' })"
+     ],
+     "screens": [],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2889,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet",
+     "id": "readers-loads",
+     "title": "Open the Readers screen and see it finish loading",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap Readers"
+     ],
+     "screens": [
+      {
+       "label": "readers",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3244,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet",
+     "id": "plus-page-loads",
+     "title": "Open the plus page and see what got better and which products are used",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "plus",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: net::ERR_FAILED"
+     ],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 852,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet",
+     "id": "code-sign-in-screen",
+     "title": "Open the command line on a phone that is not signed in",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap Code"
+     ],
+     "screens": [
+      {
+       "label": "code-signed-out",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1258,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet",
+     "id": "code-run-status",
+     "title": "Ask the command line for the fleet status with one tap",
+     "taps": 2,
+     "typing": 0,
+     "steps": [
+      "tap Code",
+      "tap Status"
+     ],
+     "screens": [
+      {
+       "label": "code-run",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2560,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "fleet",
+     "id": "cmd-ask-streams",
+     "title": "Type a plain-English request on /cmd and read the streamed answer",
+     "taps": 1,
+     "typing": 1,
+     "steps": [
+      "type into #ctext",
+      "tap Run"
+     ],
+     "screens": [
+      {
+       "label": "cmd-stream",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [
+      "Failed to load resource: net::ERR_FAILED",
+      "Failed to load resource: net::ERR_FAILED"
+     ],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2917,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": [
+    "console error in plus-page-loads: Failed to load resource: net::ERR_FAILED",
+    "console error in cmd-ask-streams: Failed to load resource: net::ERR_FAILED"
+   ]
+  }
+ ]
+}

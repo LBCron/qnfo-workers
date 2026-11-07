@@ -1,0 +1,3390 @@
+{
+ "mode": "live",
+ "at": "2026-11-07T07:36:48.012Z",
+ "sha": "c94d4e2597b2259114fa45f4dea09e4765b5ed52",
+ "apps": [
+  {
+   "app": "ask-qwav",
+   "base": "https://ask.qwav.tech",
+   "journeys": [
+    {
+     "app": "ask-qwav",
+     "id": "living-paper",
+     "title": "Open a paper as a living paper and see its equations drawn",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "living-paper",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1932,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "ask-qwav",
+     "id": "reproduce-record",
+     "title": "Open the record of a paper's verification script and see the claims and the Run button",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "reproduce-record",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1471,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "ask-qwav",
+     "id": "compute-padic",
+     "title": "Open the calculators and compute a p-adic valuation",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap Compute"
+     ],
+     "screens": [
+      {
+       "label": "compute",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1678,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": []
+  },
+  {
+   "app": "companion",
+   "base": "https://me.q08.org",
+   "journeys": [
+    {
+     "app": "companion",
+     "id": "live-sign-in-screen",
+     "title": "Open me.q08.org on a phone that is not signed in",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "sign-in",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 8727,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "companion",
+     "id": "live-guide",
+     "title": "Read the one-page guide",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "guide",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1202,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": []
+  },
+  {
+   "app": "fleet-lee",
+   "base": "https://fleet.qnfo.org",
+   "journeys": [
+    {
+     "app": "fleet-lee",
+     "id": "lee-health-live",
+     "title": "The production worker's Cloudflare token reaches the account (read-only check of /api/cmd/lee/health)",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2029,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": []
+  },
+  {
+   "app": "fleet",
+   "base": "https://fleet.qnfo.org",
+   "journeys": [
+    {
+     "app": "fleet",
+     "id": "cmd-mic-allowed",
+     "title": "Open /cmd on a phone: the Speak button is allowed to ask for the microphone",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": false,
+     "error": "/cmd is served with Permissions-Policy microphone=(): no browser can ask for the microphone, so Speak always fails (zone ruleset http_response_headers_transform sets the header over the worker's own microphone=(self))",
+     "attempts": 2,
+     "ms": 409,
+     "grade": {
+      "status": "broken",
+      "reasons": [
+       "did not finish: /cmd is served with Permissions-Policy microphone=(): no browser can ask for the microphone, so Speak always fails (zone ruleset http_response_headers_transform sets the header over the worker's own microphone=(self))"
+      ]
+     }
+    }
+   ],
+   "screenFindings": []
+  },
+  {
+   "app": "ipatent",
+   "base": "https://ipatent.qnfo.org",
+   "journeys": [
+    {
+     "app": "ipatent",
+     "id": "register-open-publish",
+     "title": "Open the register on a phone and reach the publish page with consent unticked",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap Publish a saved draft"
+     ],
+     "screens": [
+      {
+       "label": "register",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      },
+      {
+       "label": "publish",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2063,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": []
+  },
+  {
+   "app": "jobs",
+   "base": "https://jobs.q08.org",
+   "journeys": [
+    {
+     "app": "jobs",
+     "id": "apply-controls-visible",
+     "title": "Open jobs.q08.org on a phone and see the Ready to apply filter and the one-click apply setup",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "home",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [
+        {
+         "name": "My CV",
+         "w": 53,
+         "h": 23
+        },
+        {
+         "name": "Apply and prepare",
+         "w": 157,
+         "h": 23
+        },
+        {
+         "name": "API",
+         "w": 21,
+         "h": 20
+        },
+        {
+         "name": "Claim ledger",
+         "w": 83,
+         "h": 20
+        },
+        {
+         "name": "Operations",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        },
+        {
+         "name": "INPUT",
+         "w": 13,
+         "h": 13
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": [
+        {
+         "id": "select-name",
+         "impact": "critical",
+         "nodes": 2,
+         "help": "Select element must have an accessible name"
+        }
+       ]
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3682,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "jobs",
+     "id": "apply-and-prepare-screens",
+     "title": "Open the Apply and prepare page on a phone and see its three screens: check fit, answers, interview prep",
+     "taps": 2,
+     "typing": 0,
+     "steps": [
+      "tap Answers",
+      "tap Interview prep"
+     ],
+     "screens": [
+      {
+       "label": "prep",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1874,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": [
+    "home: 80 tap target(s) under 24px, e.g. \"My CV\" 53x23, \"Apply and prepare\" 157x23, \"API\" 21x20",
+    "home: accessibility critical select-name (2x): Select element must have an accessible name"
+   ]
+  },
+  {
+   "app": "papers",
+   "base": "https://papers.qnfo.org",
+   "journeys": [
+    {
+     "app": "papers",
+     "id": "paper-from-list",
+     "title": "Open the papers list and read the first paper",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('#plist li.pc .pc-x a').filter({ hasText: /^Read$/ }).first()"
+     ],
+     "screens": [
+      {
+       "label": "paper",
+       "overflowPx": 0,
+       "emptyOverlays": [
+        {
+         "name": "#rp",
+         "w": 431,
+         "h": 3
+        },
+        {
+         "name": "#q-toast",
+         "w": 32,
+         "h": 20
+        }
+       ],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 31,
+         "h": 19
+        },
+        {
+         "name": "QWAV",
+         "w": 34,
+         "h": 19
+        },
+        {
+         "name": "q08",
+         "w": 21,
+         "h": 19
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 19
+        },
+        {
+         "name": "Ask",
+         "w": 19,
+         "h": 19
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 20
+        },
+        {
+         "name": "Logic & formalism",
+         "w": 108,
+         "h": 20
+        },
+        {
+         "name": "Rowan Brad Quni-Gudzinas",
+         "w": 223,
+         "h": 17
+        },
+        {
+         "name": "Autonomous systems",
+         "w": 125,
+         "h": 20
+        },
+        {
+         "name": "AI agents",
+         "w": 54,
+         "h": 20
+        },
+        {
+         "name": "Formal verification",
+         "w": 105,
+         "h": 20
+        },
+        {
+         "name": "Teaching",
+         "w": 55,
+         "h": 20
+        },
+        {
+         "name": "report it here",
+         "w": 84,
+         "h": 22
+        },
+        {
+         "name": "RSS",
+         "w": 24,
+         "h": 20
+        },
+        {
+         "name": "Sitemap",
+         "w": 50,
+         "h": 20
+        },
+        {
+         "name": "llms.txt",
+         "w": 41,
+         "h": 20
+        },
+        {
+         "name": "Ask the corpus",
+         "w": 89,
+         "h": 20
+        },
+        {
+         "name": "About",
+         "w": 35,
+         "h": 20
+        },
+        {
+         "name": "Contact",
+         "w": 47,
+         "h": 20
+        },
+        {
+         "name": "License: QNFO-ULA v2.1",
+         "w": 146,
+         "h": 20
+        },
+        {
+         "name": "Privacy",
+         "w": 43,
+         "h": 20
+        },
+        {
+         "name": "ORCID",
+         "w": 39,
+         "h": 20
+        },
+        {
+         "name": "iPatent: free provisional patent draftin",
+         "w": 276,
+         "h": 16
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": [
+        {
+         "id": "color-contrast",
+         "impact": "serious",
+         "nodes": 1,
+         "help": "Elements must meet minimum color contrast ratio thresholds"
+        },
+        {
+         "id": "scrollable-region-focusable",
+         "impact": "serious",
+         "nodes": 4,
+         "help": "Scrollable region must have keyboard access"
+        }
+       ]
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3572,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "papers",
+     "id": "paper-with-short",
+     "title": "Open a paper that has a Short and see the video on the page",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "paper-short",
+       "overflowPx": 0,
+       "emptyOverlays": [
+        {
+         "name": "#rp",
+         "w": 516,
+         "h": 3
+        },
+        {
+         "name": "#q-toast",
+         "w": 32,
+         "h": 20
+        }
+       ],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 31,
+         "h": 19
+        },
+        {
+         "name": "QWAV",
+         "w": 34,
+         "h": 19
+        },
+        {
+         "name": "q08",
+         "w": 21,
+         "h": 19
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 19
+        },
+        {
+         "name": "Ask",
+         "w": 19,
+         "h": 19
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 20
+        },
+        {
+         "name": "Physics",
+         "w": 45,
+         "h": 20
+        },
+        {
+         "name": "Rowan Brad Quni-Gudzinas",
+         "w": 223,
+         "h": 17
+        },
+        {
+         "name": "Numbers & p-adics",
+         "w": 114,
+         "h": 20
+        },
+        {
+         "name": "Anyons & topology",
+         "w": 110,
+         "h": 20
+        },
+        {
+         "name": "Category theory",
+         "w": 90,
+         "h": 20
+        },
+        {
+         "name": "report it here",
+         "w": 84,
+         "h": 22
+        },
+        {
+         "name": "RSS",
+         "w": 24,
+         "h": 20
+        },
+        {
+         "name": "Sitemap",
+         "w": 50,
+         "h": 20
+        },
+        {
+         "name": "llms.txt",
+         "w": 41,
+         "h": 20
+        },
+        {
+         "name": "Ask the corpus",
+         "w": 89,
+         "h": 20
+        },
+        {
+         "name": "About",
+         "w": 35,
+         "h": 20
+        },
+        {
+         "name": "Contact",
+         "w": 47,
+         "h": 20
+        },
+        {
+         "name": "License: QNFO-ULA v2.1",
+         "w": 146,
+         "h": 20
+        },
+        {
+         "name": "Privacy",
+         "w": 43,
+         "h": 20
+        },
+        {
+         "name": "ORCID",
+         "w": 39,
+         "h": 20
+        },
+        {
+         "name": "iPatent: free provisional patent draftin",
+         "w": 276,
+         "h": 16
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": [
+        {
+         "id": "color-contrast",
+         "impact": "serious",
+         "nodes": 1,
+         "help": "Elements must meet minimum color contrast ratio thresholds"
+        }
+       ]
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3788,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": [
+    "paper: 23 tap target(s) under 24px, e.g. \"QNFO\" 31x19, \"QWAV\" 34x19, \"q08\" 21x19",
+    "paper: an empty 431x3 bar (#rp) floats over the page",
+    "paper: an empty 32x20 bar (#q-toast) floats over the page",
+    "paper: accessibility serious color-contrast (1x): Elements must meet minimum color contrast ratio thresholds",
+    "paper: accessibility serious scrollable-region-focusable (4x): Scrollable region must have keyboard access",
+    "paper-short: 22 tap target(s) under 24px, e.g. \"QNFO\" 31x19, \"QWAV\" 34x19, \"q08\" 21x19",
+    "paper-short: an empty 516x3 bar (#rp) floats over the page",
+    "paper-short: an empty 32x20 bar (#q-toast) floats over the page",
+    "paper-short: accessibility serious color-contrast (1x): Elements must meet minimum color contrast ratio thresholds"
+   ]
+  },
+  {
+   "app": "public",
+   "base": "https://q08.org",
+   "journeys": [
+    {
+     "app": "public",
+     "id": "q08-org",
+     "title": "Open Personal home (q08.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().nth(7)"
+     ],
+     "screens": [
+      {
+       "label": "home q08.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "QWAV",
+         "w": 36,
+         "h": 20
+        },
+        {
+         "name": "q08",
+         "w": 22,
+         "h": 20
+        },
+        {
+         "name": "Papers",
+         "w": 42,
+         "h": 20
+        },
+        {
+         "name": "Ask",
+         "w": 21,
+         "h": 20
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 13984,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "reading-q08-org",
+     "title": "Open Reading (reading.q08.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().nth(1)"
+     ],
+     "screens": [
+      {
+       "label": "home reading.q08.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3477,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "mind-q08-org",
+     "title": "Open Understand your mind (mind.q08.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().first()"
+     ],
+     "screens": [
+      {
+       "label": "home mind.q08.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1397,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "travel-q08-org",
+     "title": "Open Travel planner (travel.q08.org) on a phone and follow its first link",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "home travel.q08.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 8678,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "qnfo-org",
+     "title": "Open QNFO home (qnfo.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().nth(8)"
+     ],
+     "screens": [
+      {
+       "label": "home qnfo.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 37,
+         "h": 20
+        },
+        {
+         "name": "QWAV",
+         "w": 36,
+         "h": 20
+        },
+        {
+         "name": "q08",
+         "w": 22,
+         "h": 20
+        },
+        {
+         "name": "Papers",
+         "w": 42,
+         "h": 20
+        },
+        {
+         "name": "Ask",
+         "w": 21,
+         "h": 20
+        },
+        {
+         "name": "The full library",
+         "w": 87,
+         "h": 22
+        },
+        {
+         "name": "The Universal Ignorance Audit",
+         "w": 364,
+         "h": 22
+        },
+        {
+         "name": "Epistemic Legibility in AI-Assisted Scie",
+         "w": 364,
+         "h": 22
+        },
+        {
+         "name": "Browse the library",
+         "w": 112,
+         "h": 22
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 17
+        },
+        {
+         "name": "Selected works",
+         "w": 97,
+         "h": 17
+        },
+        {
+         "name": "Ask the corpus",
+         "w": 90,
+         "h": 17
+        },
+        {
+         "name": "Ideas",
+         "w": 34,
+         "h": 17
+        },
+        {
+         "name": "Archive",
+         "w": 45,
+         "h": 17
+        },
+        {
+         "name": "Provisional drafting tool",
+         "w": 146,
+         "h": 17
+        },
+        {
+         "name": "About",
+         "w": 36,
+         "h": 17
+        },
+        {
+         "name": "Work with me",
+         "w": 84,
+         "h": 17
+        },
+        {
+         "name": "Contact",
+         "w": 49,
+         "h": 17
+        },
+        {
+         "name": "New papers by email",
+         "w": 129,
+         "h": 17
+        },
+        {
+         "name": "RSS",
+         "w": 26,
+         "h": 17
+        },
+        {
+         "name": "License (QNFO-ULA)",
+         "w": 125,
+         "h": 17
+        },
+        {
+         "name": "Privacy",
+         "w": 45,
+         "h": 17
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1702,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "papers-qnfo-org",
+     "title": "Open Papers (papers.qnfo.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().nth(3)"
+     ],
+     "screens": [
+      {
+       "label": "home papers.qnfo.org",
+       "overflowPx": 0,
+       "emptyOverlays": [
+        {
+         "name": "#q-toast",
+         "w": 32,
+         "h": 20
+        }
+       ],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 31,
+         "h": 19
+        },
+        {
+         "name": "QWAV",
+         "w": 34,
+         "h": 19
+        },
+        {
+         "name": "q08",
+         "w": 21,
+         "h": 19
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 19
+        },
+        {
+         "name": "Ask",
+         "w": 19,
+         "h": 19
+        },
+        {
+         "name": "All 41 tags →",
+         "w": 74,
+         "h": 20
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "AI agents",
+         "w": 69,
+         "h": 21
+        },
+        {
+         "name": "Formal verification",
+         "w": 118,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "Qubits",
+         "w": 55,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Computation theory",
+         "w": 127,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "LLM systems",
+         "w": 87,
+         "h": 21
+        },
+        {
+         "name": "Knowledge integrity",
+         "w": 128,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Spectral analysis",
+         "w": 111,
+         "h": 21
+        },
+        {
+         "name": "Standard model",
+         "w": 104,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "Standard model",
+         "w": 104,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Formal verification",
+         "w": 118,
+         "h": 21
+        },
+        {
+         "name": "AI agents",
+         "w": 69,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Tree geometry",
+         "w": 98,
+         "h": 21
+        },
+        {
+         "name": "Numbers & arithmetic",
+         "w": 135,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Information theory",
+         "w": 120,
+         "h": 21
+        },
+        {
+         "name": "LLM systems",
+         "w": 87,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Standard model",
+         "w": 104,
+         "h": 21
+        },
+        {
+         "name": "Qubits",
+         "w": 55,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Thermodynamic budgets",
+         "w": 153,
+         "h": 21
+        },
+        {
+         "name": "Benchmarking",
+         "w": 95,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Computation theory",
+         "w": 127,
+         "h": 21
+        },
+        {
+         "name": "Hardware platforms",
+         "w": 126,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "Formal verification",
+         "w": 118,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Spectral analysis",
+         "w": 111,
+         "h": 21
+        },
+        {
+         "name": "Spacetime & cosmology",
+         "w": 147,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Numbers & arithmetic",
+         "w": 135,
+         "h": 21
+        },
+        {
+         "name": "Qubits",
+         "w": 55,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Anyons & topology",
+         "w": 120,
+         "h": 21
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Information theory",
+         "w": 120,
+         "h": 21
+        },
+        {
+         "name": "Spacetime & cosmology",
+         "w": 147,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Spectral analysis",
+         "w": 111,
+         "h": 21
+        },
+        {
+         "name": "Numbers & arithmetic",
+         "w": 135,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Numbers & arithmetic",
+         "w": 135,
+         "h": 21
+        },
+        {
+         "name": "Knowledge integrity",
+         "w": 128,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Spectral analysis",
+         "w": 111,
+         "h": 21
+        },
+        {
+         "name": "Hardware platforms",
+         "w": 126,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Thermodynamic budgets",
+         "w": 153,
+         "h": 21
+        },
+        {
+         "name": "Computation theory",
+         "w": 127,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Computation theory",
+         "w": 127,
+         "h": 21
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "Computation theory",
+         "w": 127,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Thermodynamic budgets",
+         "w": 153,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Bruhat–Tits trees",
+         "w": 115,
+         "h": 21
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Thermodynamic budgets",
+         "w": 153,
+         "h": 21
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Thermodynamic budgets",
+         "w": 153,
+         "h": 21
+        },
+        {
+         "name": "Spacetime & cosmology",
+         "w": 147,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Standard model",
+         "w": 104,
+         "h": 21
+        },
+        {
+         "name": "Anyons & topology",
+         "w": 120,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Category theory",
+         "w": 106,
+         "h": 21
+        },
+        {
+         "name": "AI agents",
+         "w": 69,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Tree geometry",
+         "w": 98,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Spectral analysis",
+         "w": 111,
+         "h": 21
+        },
+        {
+         "name": "Standard model",
+         "w": 104,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Error correction",
+         "w": 101,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Adelic",
+         "w": 51,
+         "h": 21
+        },
+        {
+         "name": "Standard model",
+         "w": 104,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Knowledge integrity",
+         "w": 128,
+         "h": 21
+        },
+        {
+         "name": "Formal verification",
+         "w": 118,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "p-adic",
+         "w": 52,
+         "h": 21
+        },
+        {
+         "name": "Spacetime & cosmology",
+         "w": 147,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Bruhat–Tits trees",
+         "w": 115,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Spacetime & cosmology",
+         "w": 147,
+         "h": 21
+        },
+        {
+         "name": "Spectral analysis",
+         "w": 111,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Bruhat–Tits trees",
+         "w": 115,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Computation theory",
+         "w": 127,
+         "h": 21
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "p-adic",
+         "w": 52,
+         "h": 21
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Computation theory",
+         "w": 127,
+         "h": 21
+        },
+        {
+         "name": "AI agents",
+         "w": 69,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Knowledge integrity",
+         "w": 128,
+         "h": 21
+        },
+        {
+         "name": "Research operations",
+         "w": 131,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Knowledge integrity",
+         "w": 128,
+         "h": 21
+        },
+        {
+         "name": "Research operations",
+         "w": 131,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Spacetime & cosmology",
+         "w": 147,
+         "h": 21
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Tree geometry",
+         "w": 98,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Tree geometry",
+         "w": 98,
+         "h": 21
+        },
+        {
+         "name": "Quantum foundations",
+         "w": 139,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Ultrametric",
+         "w": 79,
+         "h": 21
+        },
+        {
+         "name": "Research operations",
+         "w": 131,
+         "h": 21
+        },
+        {
+         "name": "Read",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "Quick read",
+         "w": 71,
+         "h": 20
+        },
+        {
+         "name": "Ask about it",
+         "w": 77,
+         "h": 20
+        },
+        {
+         "name": "Quantum biology",
+         "w": 111,
+         "h": 21
+        },
+        {
+         "name": "Qubits",
+         "w": 55,
+         "h": 21
+        },
+        {
+         "name": "RSS",
+         "w": 24,
+         "h": 20
+        },
+        {
+         "name": "Sitemap",
+         "w": 50,
+         "h": 20
+        },
+        {
+         "name": "llms.txt",
+         "w": 41,
+         "h": 20
+        },
+        {
+         "name": "Ask the corpus",
+         "w": 89,
+         "h": 20
+        },
+        {
+         "name": "About",
+         "w": 35,
+         "h": 20
+        },
+        {
+         "name": "Contact",
+         "w": 47,
+         "h": 20
+        },
+        {
+         "name": "License: QNFO-ULA v2.1",
+         "w": 146,
+         "h": 20
+        },
+        {
+         "name": "Privacy",
+         "w": 43,
+         "h": 20
+        },
+        {
+         "name": "ORCID",
+         "w": 39,
+         "h": 20
+        },
+        {
+         "name": "Rowan Brad Quni-Gudzinas",
+         "w": 191,
+         "h": 16
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 2561,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "archive-qnfo-org",
+     "title": "Open Archive (archive.qnfo.org) on a phone and follow its first link",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "home archive.qnfo.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 37,
+         "h": 20
+        },
+        {
+         "name": "QWAV",
+         "w": 36,
+         "h": 20
+        },
+        {
+         "name": "q08",
+         "w": 22,
+         "h": 20
+        },
+        {
+         "name": "Papers",
+         "w": 42,
+         "h": 20
+        },
+        {
+         "name": "Ask",
+         "w": 21,
+         "h": 20
+        },
+        {
+         "name": "All papers",
+         "w": 61,
+         "h": 22
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 17
+        },
+        {
+         "name": "Selected works",
+         "w": 97,
+         "h": 17
+        },
+        {
+         "name": "Ask the corpus",
+         "w": 90,
+         "h": 17
+        },
+        {
+         "name": "Ideas",
+         "w": 34,
+         "h": 17
+        },
+        {
+         "name": "Archive",
+         "w": 45,
+         "h": 17
+        },
+        {
+         "name": "Provisional drafting tool",
+         "w": 146,
+         "h": 17
+        },
+        {
+         "name": "About",
+         "w": 36,
+         "h": 17
+        },
+        {
+         "name": "Work with me",
+         "w": 84,
+         "h": 17
+        },
+        {
+         "name": "Contact",
+         "w": 49,
+         "h": 17
+        },
+        {
+         "name": "New papers by email",
+         "w": 129,
+         "h": 17
+        },
+        {
+         "name": "RSS",
+         "w": 26,
+         "h": 17
+        },
+        {
+         "name": "License (QNFO-ULA)",
+         "w": 125,
+         "h": 17
+        },
+        {
+         "name": "Privacy",
+         "w": 45,
+         "h": 17
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1378,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "fleet-qnfo-org",
+     "title": "Open Fleet dashboard (fleet.qnfo.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().first()"
+     ],
+     "screens": [
+      {
+       "label": "home fleet.qnfo.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 10561,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "ideas-qnfo-org",
+     "title": "Open Ideas (ideas.qnfo.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().nth(8)"
+     ],
+     "screens": [
+      {
+       "label": "home ideas.qnfo.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 37,
+         "h": 20
+        },
+        {
+         "name": "QWAV",
+         "w": 36,
+         "h": 20
+        },
+        {
+         "name": "q08",
+         "w": 22,
+         "h": 20
+        },
+        {
+         "name": "Papers",
+         "w": 42,
+         "h": 20
+        },
+        {
+         "name": "Ask",
+         "w": 21,
+         "h": 20
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 17
+        },
+        {
+         "name": "Selected works",
+         "w": 97,
+         "h": 17
+        },
+        {
+         "name": "Ask the corpus",
+         "w": 90,
+         "h": 17
+        },
+        {
+         "name": "Ideas",
+         "w": 34,
+         "h": 17
+        },
+        {
+         "name": "Archive",
+         "w": 45,
+         "h": 17
+        },
+        {
+         "name": "About",
+         "w": 36,
+         "h": 17
+        },
+        {
+         "name": "Work with me",
+         "w": 84,
+         "h": 17
+        },
+        {
+         "name": "Contact",
+         "w": 49,
+         "h": 17
+        },
+        {
+         "name": "New papers by email",
+         "w": 129,
+         "h": 17
+        },
+        {
+         "name": "RSS",
+         "w": 26,
+         "h": 17
+        },
+        {
+         "name": "License (QNFO-ULA v2.0)",
+         "w": 154,
+         "h": 17
+        },
+        {
+         "name": "Privacy",
+         "w": 45,
+         "h": 17
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 9181,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "ipatent-qnfo-org",
+     "title": "Open iPatent (ipatent.qnfo.org) on a phone and follow its first link",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap locator('main a[href], article a[href], body a[href]').visible().nth(3)"
+     ],
+     "screens": [
+      {
+       "label": "home ipatent.qnfo.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 9256,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "ai-qnfo-org",
+     "title": "Open AI (ai.qnfo.org) on a phone and follow its first link",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "home ai.qnfo.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1013,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "qwav-org",
+     "title": "Open Quantum home (qwav.org) on a phone and follow its first link",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "home qwav.org",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [
+        {
+         "name": "QNFO",
+         "w": 34,
+         "h": 20
+        },
+        {
+         "name": "QWAV",
+         "w": 37,
+         "h": 20
+        },
+        {
+         "name": "q08",
+         "w": 22,
+         "h": 20
+        },
+        {
+         "name": "Papers",
+         "w": 42,
+         "h": 20
+        },
+        {
+         "name": "Ask",
+         "w": 21,
+         "h": 20
+        },
+        {
+         "name": "Interactive demos",
+         "w": 111,
+         "h": 17
+        },
+        {
+         "name": "JPCUB benchmark",
+         "w": 108,
+         "h": 17
+        },
+        {
+         "name": "Architecture",
+         "w": 75,
+         "h": 17
+        },
+        {
+         "name": "Landscape",
+         "w": 68,
+         "h": 17
+        },
+        {
+         "name": "Research",
+         "w": 58,
+         "h": 17
+        },
+        {
+         "name": "Papers",
+         "w": 44,
+         "h": 17
+        },
+        {
+         "name": "JPCUB P0 protocol",
+         "w": 111,
+         "h": 17
+        },
+        {
+         "name": "Ask the corpus",
+         "w": 90,
+         "h": 17
+        },
+        {
+         "name": "RSS",
+         "w": 26,
+         "h": 17
+        },
+        {
+         "name": "License (QNFO-ULA)",
+         "w": 125,
+         "h": 17
+        },
+        {
+         "name": "About the author",
+         "w": 102,
+         "h": 17
+        },
+        {
+         "name": "Work with me",
+         "w": 84,
+         "h": 17
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": [
+        {
+         "id": "scrollable-region-focusable",
+         "impact": "serious",
+         "nodes": 1,
+         "help": "Scrollable region must have keyboard access"
+        }
+       ]
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 1366,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "public",
+     "id": "ask-qwav-tech",
+     "title": "Open Ask qwav (ask.qwav.tech) on a phone and follow its first link",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "home ask.qwav.tech",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 8816,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": [
+    "home q08.org: 5 tap target(s) under 24px, e.g. \"QNFO\" 34x20, \"QWAV\" 36x20, \"q08\" 22x20",
+    "home qnfo.org: 22 tap target(s) under 24px, e.g. \"QNFO\" 37x20, \"QWAV\" 36x20, \"q08\" 22x20",
+    "home papers.qnfo.org: 263 tap target(s) under 24px, e.g. \"QNFO\" 31x19, \"QWAV\" 34x19, \"q08\" 21x19",
+    "home papers.qnfo.org: an empty 32x20 bar (#q-toast) floats over the page",
+    "home archive.qnfo.org: 19 tap target(s) under 24px, e.g. \"QNFO\" 37x20, \"QWAV\" 36x20, \"q08\" 22x20",
+    "home ideas.qnfo.org: 17 tap target(s) under 24px, e.g. \"QNFO\" 37x20, \"QWAV\" 36x20, \"q08\" 22x20",
+    "home qwav.org: 17 tap target(s) under 24px, e.g. \"QNFO\" 34x20, \"QWAV\" 37x20, \"q08\" 22x20",
+    "home qwav.org: accessibility serious scrollable-region-focusable (1x): Scrollable region must have keyboard access"
+   ]
+  },
+  {
+   "app": "reading",
+   "base": "https://reading.q08.org",
+   "journeys": [
+    {
+     "app": "reading",
+     "id": "read-newest-piece",
+     "title": "Open the newest piece from the index and see its lede, the AI label and its sources",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap The Hand That Signs, part 8"
+     ],
+     "screens": [
+      {
+       "label": "index",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      },
+      {
+       "label": "piece",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3601,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "reading",
+     "id": "filter-essays",
+     "title": "Narrow the list to essays and see only essays",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap essays"
+     ],
+     "screens": [
+      {
+       "label": "essays",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3162,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    },
+    {
+     "app": "reading",
+     "id": "find-subscribe",
+     "title": "Open the subscribe form from the index and see its email field",
+     "taps": 1,
+     "typing": 0,
+     "steps": [
+      "tap subscribe"
+     ],
+     "screens": [
+      {
+       "label": "subscribe",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 3324,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": []
+  },
+  {
+   "app": "signal",
+   "base": "https://qnfo-subscribers.q08.workers.dev",
+   "journeys": [
+    {
+     "app": "signal",
+     "id": "archive-open",
+     "title": "Open the weekly signal archive on a phone and read how an issue is made",
+     "taps": 0,
+     "typing": 0,
+     "steps": [],
+     "screens": [
+      {
+       "label": "archive",
+       "overflowPx": 0,
+       "emptyOverlays": [],
+       "smallTargets": [
+        {
+         "name": "qnfo.org",
+         "w": 56,
+         "h": 17
+        }
+       ],
+       "narrowOverflowPx": 0,
+       "axe": []
+      }
+     ],
+     "consoleErrors": [],
+     "pageErrors": [],
+     "badResponses": [],
+     "ok": true,
+     "error": null,
+     "attempts": 1,
+     "ms": 943,
+     "grade": {
+      "status": "ok",
+      "reasons": []
+     }
+    }
+   ],
+   "screenFindings": [
+    "archive: 1 tap target(s) under 24px, e.g. \"qnfo.org\" 56x17"
+   ]
+  }
+ ]
+}
