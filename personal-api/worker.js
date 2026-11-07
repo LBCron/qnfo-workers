@@ -112,7 +112,7 @@ function clampMaxTokens(requested, isReason) {
 __name(clampMaxTokens, "clampMaxTokens");
 __name2(clampMaxTokens, "clampMaxTokens");
 __name22(clampMaxTokens, "clampMaxTokens");
-var VERSION = "4.37.7";
+var VERSION = "4.37.8";
 // 4.37.2 KERNEL-PERSONAL-PRIVACY-1: preserve all ten registered reply categories across the content-free telemetry boundary.
 // 4.37.1 KERNEL-PERSONAL-PRIVACY-1: classify twin replies inside the personal plane; AUDIT receives only fixed categories and random event ids, never reply text or excerpts.
 // 4.37.0 KERNEL-EVERYWHERE-1 (2026-11-06, owner directive "IMPLEMENT EVERYWHERE ACROSS ALL AI APPS AND SERVICES AND SURFACES", pillar personal): the twin SYSTEM_PROMPT carries the DOCTRINE-1 kernel 8.2.1 reply recognitions (KERNEL-REPLY-4): end every reply on the answer or result, never on a question, conditional offer or menu; ambiguity gets a stated assumption; a refusal or limit with its reason is a disposition stated declaratively; reversible tool actions are taken and reported in the same reply, and a requested change is made with the tool, not described. Each twin reply is also mirrored to qnfo-audit.personal_replies so the kernel false-stop scan covers this surface. prior 4.36.2
@@ -4231,7 +4231,7 @@ const MANIFEST = {
 const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#2f5d50"/><circle cx="48" cy="44" r="20" fill="none" stroke="#f6f4ef" stroke-width="7"/><path d="M30 74c5-6 11-9 18-9s13 3 18 9" fill="none" stroke="#f6f4ef" stroke-width="7" stroke-linecap="round"/></svg>';
 const SW_JS = `// COMPANION-OFFLINE-1: only the page shell is cached (HTML, manifest, icon: no personal data). API calls are never cached or
 // intercepted; what is made offline waits in the page's own IndexedDB queue.
-const SHELL = 'cmp-shell-v2';
+const SHELL = 'cmp-shell-v3';
 const SHELL_URLS = ['/companion', '/companion/manifest.webmanifest', '/companion/icon.svg'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(SHELL).then(c => Promise.all(SHELL_URLS.map(u => fetch(u, { credentials: 'same-origin' }).then(r => r.ok ? c.put(u, r) : null).catch(() => null)))).then(() => self.skipWaiting()));
@@ -4411,60 +4411,53 @@ const PAGE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 :root{--bg:#f6f4ef;--card:#fff;--ink:#1f2622;--mute:#69716c;--line:#e3dfd6;--acc:#2f5d50;--acc2:#e6efe9;--warn:#8a3b2e;--warn2:#f7e8e4}
 @media (prefers-color-scheme:dark){:root{--bg:#141816;--card:#1d2320;--ink:#e9ece9;--mute:#9aa49e;--line:#2c3430;--acc:#7fbfa8;--acc2:#22322c;--warn:#f0a593;--warn2:#3a2420}}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:640px;margin:0 auto;padding:16px 16px 24px}
-h1{font-size:1.35rem;margin:.2rem 0 .8rem}h2{font-size:1rem;margin:0 0 .5rem;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 12px}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:1.5rem;margin:0 0 1rem;font-weight:700}h2{font-size:1.1rem;margin:1.5rem 0 .8rem;font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 16px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.grow{flex:1}
-button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 13px;cursor:pointer}
-button.p{background:var(--acc);color:var(--bg);border-color:var(--acc)}button.sel{background:var(--acc2);border-color:var(--acc)}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:10px 16px;cursor:pointer;font-weight:500}
+button.p{background:var(--acc);color:#fff;border-color:var(--acc)}button.sel{background:var(--acc2);border-color:var(--acc)}
 button:disabled{opacity:.5}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
-input,textarea,select{font:inherit;width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card);color:var(--ink)}
+input,textarea,select{font:inherit;width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card);color:var(--ink)}
 textarea{min-height:90px;resize:vertical}
-.scale button{flex:1;min-width:0;padding:10px 0}.scale small{display:block;font-size:.7rem;color:var(--mute)}
-.chip{font-size:.85rem;padding:5px 10px;border-radius:999px}
-.mute{color:var(--mute);font-size:.9rem}.say{background:var(--acc2);border-radius:12px;padding:10px 12px;margin-top:10px}
-.warn{background:var(--warn2);color:var(--warn);border-radius:12px;padding:12px;white-space:pre-wrap;margin-top:10px}
-.item{border-top:1px solid var(--line);padding:10px 0;display:flex;gap:10px;align-items:flex-start}.item:first-child{border-top:0}
-.msg{margin:8px 0;padding:10px 12px;border-radius:12px;white-space:pre-wrap;max-width:88%}.me{background:var(--acc2);margin-left:auto}.it{background:var(--card);border:1px solid var(--line)}
-.flash{font-size:1.15rem;padding:18px 6px;text-align:center}
-table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{text-align:left;padding:6px 4px;border-top:1px solid var(--line)}
-.bar{height:8px;background:var(--acc);border-radius:4px}
-.sheet p{margin:.5rem 0}.sheet h1{font-size:1.25rem}
-@media print{html,body{background:#fff!important;color:#000!important}nav,#q-note,#login,.v,.noprint{display:none!important}#gp-print:not(.hide){display:block!important}.card{border:0;padding:0}.mute{color:#333}main{max-width:none;padding:0}}
-/* COMPANION-TASTE-1 / COMPANION-HOME-1 */
-.tr{display:flex;gap:8px;align-items:flex-start;margin:6px 0}.tr>.g{flex:1;min-width:0}.tb{display:flex;gap:0;flex:none}
-.tbtn{border:0;background:none;padding:6px 9px;font-size:1.05rem;line-height:1;opacity:.5;border-radius:8px;min-width:40px;min-height:40px}.tbtn.sel{opacity:1;background:var(--acc2)}
-#toast{position:fixed;left:12px;right:12px;bottom:24px;background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;justify-content:space-between;z-index:5;opacity:0;pointer-events:none;transition:opacity 0.3s}
+.scale button{flex:1;min-width:0;padding:12px 0}.scale small{display:block;font-size:.75rem;color:var(--mute);margin-top:4px}
+.chip{font-size:.9rem;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);cursor:pointer}
+.chip:hover{background:var(--acc2)}
+.mute{color:var(--mute);font-size:.95rem}.say{background:var(--acc2);border-radius:12px;padding:12px;margin-top:12px}
+.warn{background:var(--warn2);color:var(--warn);border-radius:12px;padding:14px;white-space:pre-wrap;margin-top:12px;font-weight:500}
+.item{border-top:1px solid var(--line);padding:12px 0;display:flex;gap:12px;align-items:flex-start}.item:first-child{border-top:0}
+.msg{margin:10px 0;padding:12px 14px;border-radius:12px;white-space:pre-wrap;max-width:85%}.me{background:var(--acc2);margin-left:auto}.it{background:var(--card);border:1px solid var(--line)}
+#toast{position:fixed;left:12px;right:12px;bottom:24px;background:var(--ink);color:var(--bg);border-radius:12px;padding:12px 16px;display:flex;gap:12px;align-items:center;justify-content:space-between;z-index:999;opacity:0;pointer-events:none;transition:opacity .3s}
 #toast:not(.hide){opacity:1;pointer-events:auto}
-a{display:inline-block;padding:4px 0;min-height:24px}
-#toast button{background:none;border:0;color:var(--bg);font-weight:700;text-decoration:underline}
-#composer{position:sticky;top:0;z-index:3;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}#composer input#qc-text{flex:1;min-width:0}
-#composer .mic.sel{background:var(--warn2);border-color:var(--warn)}
+#toast button{background:none;border:0;color:var(--bg);font-weight:700;text-decoration:underline;padding:0}
+a{color:var(--acc);text-decoration:none;min-height:24px;display:inline-block}a:hover{text-decoration:underline}
+#composer{position:sticky;top:0;z-index:3;margin-bottom:16px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+#composer input{flex:1;min-width:0}
+.mic.sel{background:var(--warn2);border-color:var(--warn)}
+.hide{display:none!important}
+.tb{display:flex;gap:6px;margin:16px 0}
+.tbtn{padding:8px 16px;border:1px solid var(--line);background:var(--card);border-radius:8px;cursor:pointer;font-size:.95rem;font-weight:500}
+.tbtn.sel{background:var(--acc);color:#fff;border-color:var(--acc)}
 </style></head><body><main>
-<p class="mute" id="ai-note" style="margin:.2rem 0 .6rem;font-size:.9rem">Your companion is an AI system: an AI language model writes every reply, not a person.</p>
+<p class="mute" style="margin:0 0 1rem;font-size:.9rem">Your companion is an AI system: an AI language model writes every reply, not a person.</p>
 <div id="q-note"></div>
-<div id="gp-print" class="hide"></div>
-<div id="login" class="card hide"><h1>Hi, Rowan.</h1><p>To open your companion on this device, I'll e-mail you a 6-digit code. After that this device stays signed in for six months.</p><div class="row"><button class="p" id="li-send" onclick="sendCode()">E-mail me a code</button></div><div id="li-step" class="hide" style="margin-top:10px"><div class="row"><input id="li-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" class="grow"><button class="p" onclick="verifyCode()">Open</button></div></div><div id="li-out"></div></div>
-<div id="composer" class="card"><div class="row" style="flex-wrap:nowrap"><input id="qc-text" placeholder="Note, task or idea. Say it or type it." aria-label="Quick note" enterkeyhint="send" autocomplete="off"><button class="mic" id="qc-mic" aria-label="Speak a note" onclick="qcMic()">&#127908;</button><label class="btn" aria-label="Photo note" style="padding:9px 11px">&#128247;<input id="qc-img" type="file" accept="image/*" capture="environment" class="hide" onchange="capImg(this)"></label><button class="p" onclick="capText()">Add</button></div><div id="qc-out"></div></div>
-<section id="v-today" class="v"></section>
-<section id="v-focus" class="v"><h1>Focus</h1><p class="mute">One thing. Buttons only. Nothing here is required.</p><div id="focus"></div></section>
-<section id="v-capture" class="v"><h1>Capture</h1>
- <div class="card"><textarea id="cap-text" placeholder="Anything on your mind. A task, an idea, a worry, something to remember."></textarea>
- <div class="row" style="margin-top:8px"><button class="p" onclick="capText()">Save</button><button id="rec" onclick="toggleRec()">Voice note</button><button onclick="dictate(this,'cap-text')">Dictate</button><label class="btn">Photo<input id="cap-img" type="file" accept="image/*" capture="environment" class="hide" onchange="capImg(this)"></label></div>
- <div id="cap-out"></div></div>
- <div class="card"><h2>Recently captured</h2><div id="inbox"></div></div></section>
-<section id="v-talk" class="v"><h1>Talk</h1><p class="mute">You are talking with an AI, not a person.</p><div id="msgs"></div>
- <div class="card"><textarea id="chat-in" placeholder="Tap Dictate and speak, then Send."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="dictate(this,'chat-in')">Dictate</button><button id="chat-send" onclick="sendChat()">Send</button><button onclick="clearChat()">New conversation</button></div></div></section>
-<section id="v-do" class="v"><h1>Next actions</h1><div id="do"></div>
- <div class="card"><h2>Add</h2><div class="mute">One tap adds it:</div><div class="row" style="margin-top:6px;flex-wrap:wrap"><button onclick="presetAction('Tidy one surface',10,'low','@home')">Tidy one surface</button><button onclick="presetAction('A ten-minute walk outside',10,'low','@outside')">10-minute walk</button><button onclick="presetAction('Reply to one message',5,'low','@phone')">Reply to one message</button><button onclick="presetAction('One Quniverse task',15,'medium','@computer')">One Quniverse task</button></div><div class="mute" style="margin-top:10px">Or say your own:</div><div class="row" style="margin-top:6px"><input id="a-title" class="grow" placeholder="Next action" aria-label="Next action"><button onclick="dictate(this,'a-title')">Dictate</button></div><div class="row" style="margin-top:8px"><select id="a-ctx" class="grow" aria-label="Context"></select><select id="a-en" class="grow" aria-label="Energy needed"><option value="low">low energy</option><option value="medium">medium</option><option value="high">high</option></select></div><div class="row" style="margin-top:8px" role="group" aria-label="Minutes"><input id="a-min" type="hidden" value="15"><button class="amin" onclick="setMin(this,5)">5 min</button><button class="amin sel" onclick="setMin(this,15)">15 min</button><button class="amin" onclick="setMin(this,30)">30 min</button></div><div class="row" style="margin-top:8px"><button class="p" onclick="addAction()">Add</button></div></div></section>
-<section id="v-learn" class="v"><h1>Review</h1><div id="learn"></div>
- <div class="card"><h2>New card</h2><div class="row"><input id="c-front" class="grow" placeholder="Question" aria-label="Question"><button onclick="dictate(this,'c-front')">Dictate</button></div><div class="row" style="margin-top:8px"><textarea id="c-back" class="grow" placeholder="Answer" aria-label="Answer" style="min-height:60px"></textarea><button onclick="dictate(this,'c-back')">Dictate</button></div><div class="row" style="margin-top:8px"><button class="p" onclick="addCard()">Add card</button></div></div></section>
-<section id="v-journal" class="v"><h1>Journal</h1><div class="card"><h2>One tap</h2><div class="row" id="j-quick"><button class="chip" onclick="quickJournal(this)">Got something done</button><button class="chip" onclick="quickJournal(this)">Went outside</button><button class="chip" onclick="quickJournal(this)">Talked to someone</button><button class="chip" onclick="quickJournal(this)">Learned something</button><button class="chip" onclick="quickJournal(this)">Rested, and that was fine</button><button class="chip" onclick="quickJournal(this)">Hard day</button></div><h2 style="margin-top:12px">Or say it</h2><textarea id="j-text" placeholder="Tap Dictate and speak. One line is enough."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="dictate(this,'j-text')">Dictate</button><button onclick="addJournal()">Keep it</button></div><div id="j-out"></div></div><div class="card"><h2>Recent</h2><div id="journal"></div></div></section>
-<section id="v-data" class="v"><h1>Patterns, plan and privacy</h1><div id="taste"></div><div id="dash"></div><div id="plan" class="card"></div><div id="gp"></div><div id="priv"></div></section>
+<div id="login" class="card hide"><h1>Hi, Rowan.</h1><p>To open your companion on this device, I'll e-mail you a 6-digit code. After that this device stays signed in for six months.</p><div class="row"><button class="p" onclick="sendCode()">E-mail me a code</button></div><div id="li-step" class="hide" style="margin-top:12px"><div class="row"><input id="li-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" class="grow"><button class="p" onclick="verifyCode()">Open</button></div></div><div id="li-out"></div></div>
+<div id="composer" class="card"><div class="row" style="flex-wrap:nowrap"><input id="qc-text" placeholder="Note, task or idea" aria-label="Quick note" enterkeyhint="send" autocomplete="off"><button class="mic" id="qc-mic" aria-label="Speak" onclick="qcMic()">🎤</button><label class="btn" aria-label="Photo" style="padding:10px 14px">📷<input id="qc-img" type="file" accept="image/*" capture="environment" class="hide" onchange="capImg(this)"></label><button class="p" onclick="capText()">Add</button></div><div id="qc-out"></div></div>
+<div id="main-view"></div>
+<div class="tb"><button class="tbtn sel" onclick="switchView('today')">Today</button><button class="tbtn" onclick="switchView('more')">More</button></div>
+<section id="v-today"></section>
+<section id="v-focus" class="hide"><h1>Focus</h1><p class="mute">One thing. Buttons only. Nothing here is required.</p><div id="focus"></div></section>
+<section id="v-capture" class="hide"><h1>Capture</h1><div class="card"><textarea id="cap-text" placeholder="Anything on your mind"></textarea><div class="row" style="margin-top:10px"><button class="p" onclick="capText()">Save</button><button id="rec" onclick="toggleRec()">Voice</button><button onclick="dictate(this,'cap-text')">Dictate</button><label class="btn">Photo<input id="cap-img" type="file" accept="image/*" capture="environment" class="hide" onchange="capImg(this)"></label></div><div id="cap-out"></div></div><div class="card"><h2>Recently captured</h2><div id="inbox"></div></div></section>
+<section id="v-talk" class="hide"><h1>Talk</h1><p class="mute">You are talking with an AI, not a person.</p><div id="msgs"></div><div class="card"><textarea id="chat-in" placeholder="Tap Dictate and speak"></textarea><div class="row" style="margin-top:10px"><button class="p" onclick="dictate(this,'chat-in')">Dictate</button><button onclick="sendChat()">Send</button><button onclick="clearChat()">New conversation</button></div></div></section>
+<section id="v-do" class="hide"><h1>Next actions</h1><div id="do"></div><div class="card"><h2>Add</h2><div class="row" style="flex-wrap:wrap"><button onclick="presetAction('Tidy one surface',10,'low','@home')">Tidy surface</button><button onclick="presetAction('10-min walk',10,'low','@outside')">10-min walk</button><button onclick="presetAction('Reply to message',5,'low','@phone')">Reply</button><button onclick="presetAction('Quniverse task',15,'medium','@computer')">Quniverse</button></div><div class="row" style="margin-top:10px"><input id="a-title" class="grow" placeholder="Next action"><button onclick="dictate(this,'a-title')">Dictate</button></div><div class="row" style="margin-top:8px"><select id="a-ctx" class="grow"></select><select id="a-en" class="grow"><option value="low">low energy</option><option value="medium">medium</option><option value="high">high</option></select></div><div class="row" style="margin-top:8px"><input id="a-min" type="hidden" value="15"><button class="amin" onclick="setMin(this,5)">5 min</button><button class="amin sel" onclick="setMin(this,15)">15 min</button><button class="amin" onclick="setMin(this,30)">30 min</button></div><div class="row" style="margin-top:10px"><button class="p" onclick="addAction()">Add</button></div></div></section>
+<section id="v-learn" class="hide"><h1>Review</h1><div id="learn"></div><div class="card"><h2>New card</h2><div class="row"><input id="c-front" class="grow" placeholder="Question"><button onclick="dictate(this,'c-front')">Dictate</button></div><div class="row" style="margin-top:8px"><textarea id="c-back" placeholder="Answer" style="min-height:60px"></textarea><button onclick="dictate(this,'c-back')">Dictate</button></div><div class="row" style="margin-top:10px"><button class="p" onclick="addCard()">Add card</button></div></div></section>
+<section id="v-journal" class="hide"><h1>Journal</h1><div class="card"><h2>Quick entries</h2><div class="row" id="j-quick" style="gap:6px"><button class="chip" onclick="quickJournal(this)">Got something done</button><button class="chip" onclick="quickJournal(this)">Went outside</button><button class="chip" onclick="quickJournal(this)">Talked to someone</button><button class="chip" onclick="quickJournal(this)">Learned something</button><button class="chip" onclick="quickJournal(this)">Rested</button><button class="chip" onclick="quickJournal(this)">Hard day</button></div><h2 style="margin-top:16px">Or say it</h2><textarea id="j-text" placeholder="Tap Dictate and speak"></textarea><div class="row" style="margin-top:10px"><button class="p" onclick="dictate(this,'j-text')">Dictate</button><button onclick="addJournal()">Keep it</button></div><div id="j-out"></div></div><div class="card"><h2>Recent</h2><div id="journal"></div></div></section>
+<section id="v-data" class="hide"><h1>Patterns, plan and privacy</h1><div id="taste"></div><div id="dash"></div><div id="plan" class="card"></div><div id="gp"></div><div id="priv"></div></section>
 </main>
 <div id="toast" class="hide" role="status"></div>
 <script>
 var VERSION='__VERSION__';
+function switchView(v){var all=['today','focus','capture','talk','do','learn','journal','data'];all.forEach(function(n){var el=document.getElementById('v-'+n);if(el)el.classList.toggle('hide',n!==v)});var btns=document.querySelectorAll('.tbtn');btns.forEach(function(b){b.classList.remove('sel');if((v==='today'&&b.textContent==='Today')||(v!=='today'&&b.textContent==='More'))b.classList.add('sel')});if(v==='more'){var items=[{n:'Talk',v:'talk'},{n:'Do',v:'do'},{n:'Journal',v:'journal'},{n:'Focus',v:'focus'},{n:'Capture',v:'capture'},{n:'Learn',v:'learn'},{n:'Data',v:'data'}];var menu=document.getElementById('main-view');if(menu){menu.innerHTML='';var card=document.createElement('div');card.className='card';var h=document.createElement('h2');h.textContent='More';card.appendChild(h);items.forEach(function(it){var btn=document.createElement('button');btn.textContent=it.n;btn.className='p';btn.style.width='100%';btn.style.marginTop='8px';btn.onclick=function(){switchView(it.v)};card.appendChild(btn)});menu.appendChild(card)}}else{var mv=document.getElementById('main-view');if(mv)mv.innerHTML=''}}
 ${OFFLINE_JS}
 // FOCUS-CMP-1: the Focus screen ranks options with the same pure focusOptions the server uses; CMP exists only server-side otherwise.
 var CMP={focusOptions:${focusOptions.toString()}};
