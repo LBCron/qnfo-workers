@@ -1,6 +1,6 @@
 -- APPLY-BY: ci
 -- DB: qnfo-audit
--- Rollback: DELETE FROM failure_modes WHERE fm_key LIKE 'fm-branch-cleanup-%'; DELETE FROM metric_registry WHERE metric_key LIKE '%branch_cleanup%'; DROP TABLE IF EXISTS branch_deletion_audit;
+-- Rollback: DELETE FROM failure_modes WHERE fm_key LIKE 'fm-branch-cleanup-%'; DELETE FROM metric_registry WHERE metric LIKE '%branches_unmerged%'; DROP TABLE IF EXISTS branch_deletion_audit;
 -- BACKUP: failure_modes
 -- CAUSE-MAPPED: All metrics are guards without breach triggers (metric-family-guard)
 
@@ -76,25 +76,25 @@ VALUES (
 
 -- Metric: Branches with unmerged commits that exist for >30 days
 INSERT INTO metric_registry (
-  metric_key,
-  title,
+  metric,
+  metric_name,
   query,
-  unit,
   target_value,
-  target_operator,
-  collection_cadence,
-  state
+  comparison,
+  state,
+  created_at,
+  updated_at
 ) VALUES (
   'branches_unmerged_over_30d',
   'Branches with unmerged commits older than 30 days',
   'SELECT COUNT(*) FROM (SELECT 1) WHERE 1=0', -- Placeholder; actual check via git
-  'count',
   10,
   '<=',
-  'daily',
-  'active'
-) ON CONFLICT (metric_key) DO UPDATE SET
-  title = EXCLUDED.title,
+  'active',
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+) ON CONFLICT (metric) DO UPDATE SET
+  metric_name = EXCLUDED.metric_name,
   updated_at = CURRENT_TIMESTAMP;
 
 -- Remediation contracts for each failure mode
