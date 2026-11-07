@@ -108,17 +108,26 @@ def extract_view_column_references(sql: str) -> List[tuple[str, str, List[tuple[
     """Extract table and column references from CREATE VIEW statements.
     
     Returns: List of (view_name, select_text, [(table, column), ...])
+    
+    NOTE: This is a simplified parser that handles only simple VIEWs.
+    Complex VIEWs with subqueries, CTEs, or window functions produce false positives
+    and are skipped. VIEW-COLUMN-GUARD-1 false positive reduction.
     """
     results = []
     
     # Pattern: CREATE VIEW view_name AS SELECT ... FROM table
-    # This is simplified - handles common cases but not all SQL complexity
-    view_pattern = r'CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(\w+)\s+AS\s+SELECT\s+(.*?)\s+FROM\s+(\w+)'
+    # Only matches simple VIEWs (FROM followed directly by a table name, not a subquery)
+    view_pattern = r'CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(\w+)\s+AS\s+SELECT\s+(.*?)\s+FROM\s+(\w+)(?:\s|$|;)'
     
     for match in re.finditer(view_pattern, sql, re.IGNORECASE | re.DOTALL):
         view_name = match.group(1)
         select_text = match.group(2)
         table_name = match.group(3)
+        
+        # Skip VIEWs with subqueries (FROM followed by opening paren indicates subquery)
+        # VIEW-COLUMN-GUARD-1: Complex SQL produces false positives, skip validation
+        if re.search(r'FROM\s*\(', sql[match.start():match.end() + 100], re.IGNORECASE):
+            continue
         
         # Extract column references from SELECT clause
         # Handle: column_name, table.column_name, column AS alias
@@ -135,14 +144,32 @@ def extract_view_column_references(sql: str) -> List[tuple[str, str, List[tuple[
             if not part or part == '*':
                 continue
             
+            # Skip table.* patterns (subquery or table alias wildcards)
+            if re.match(r'\w+\.\*$', part):
+                continue
+            
             # Handle "column AS alias" or just "column"
             col_match = re.match(r'(?:(\w+)\.)?(\w+)(?:\s+AS\s+\w+)?', part, re.IGNORECASE)
             if col_match:
                 ref_table = col_match.group(1) if col_match.group(1) else table_name
                 col_name = col_match.group(2)
                 
-                # Skip SQL keywords and functions
-                if col_name.upper() not in {'SELECT', 'FROM', 'WHERE', 'AS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AND', 'OR', 'NOT'}:
+                # Skip SQL keywords, functions, and window functions
+                # VIEW-COLUMN-GUARD-1: Window functions (ROW_NUMBER, RANK, etc) are not column references
+                skip_keywords = {
+                    # SQL keywords
+                    'SELECT', 'FROM', 'WHERE', 'AS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AND', 'OR', 'NOT',
+                    # Window functions
+                    'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE', 'LAG', 'LEAD', 
+                    'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE',
+                    # Aggregate functions commonly used in views
+                    'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'GROUP_CONCAT',
+                    # Common scalar functions
+                    'COALESCE', 'NULLIF', 'IFNULL', 'LENGTH', 'SUBSTR', 'TRIM', 'LOWER', 'UPPER',
+                    'DATE', 'DATETIME', 'STRFTIME', 'JULIANDAY', 'CAST', 'REPLACE'
+                }
+                
+                if col_name.upper() not in skip_keywords:
                     column_refs.append((ref_table, col_name))
         
         if column_refs:
