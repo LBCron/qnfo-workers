@@ -848,8 +848,107 @@ def plan(path, text, birth=False):
         if not creates and any(mk_ddl.match(body(s2)) for s2 in stmts):
             problems.append("BACKUP " + backup + " is a table this file creates empty; the runner requires it to exist and hold rows "
                             "(BACKUP-SELF-EMPTY-1): remove the BACKUP line if nothing is deleted, or create it AS SELECT from the rows")
+    # MIGRATION-TRIGGER-ORDER-1 (agent_issues 8593): validate statement order against trigger constraints
+    if birth and db:  # Only validate new/changed files, not historical ones
+        trigger_problems = validate_trigger_constraints(stmts, path, db)
+        problems.extend(trigger_problems)
+    
     return True, problems, {"db": db, "statements": len(stmts), "destructive": len(destructive), "row_destructive": len(row_destructive),
                             "backup": backup, "creates_backup": creates, "parse_lint": parse_note or "ok"}
+
+
+def validate_trigger_constraints(stmts, migration_path, target_db):
+    """MIGRATION-TRIGGER-ORDER-1: Validate that migration statements satisfy trigger constraints.
+    
+    Extracts triggers from test files and validates that INSERTs/UPDATEs won't violate trigger constraints
+    like METRIC-INTEGRITY-1 which requires source_of_truth, disposition_actor, and refresh_cadence to be
+    populated before allowing INSERTs into metric_breach_cause.
+    
+    Returns list of problem strings describing constraint violations.
+    """
+    problems = []
+    
+    # Extract table names that statements write to
+    written_tables = set()
+    for stmt in stmts:
+        sql = body(stmt)
+        m = re.match(r'^\s*(?:INSERT|REPLACE)\s+(?:OR\s+\w+\s+)?INTO\s+"?(\w+)"?', sql, re.I)
+        if m:
+            written_tables.add(m.group(1).lower())
+        m = re.match(r'^\s*UPDATE\s+(?:OR\s+\w+\s+)?"?(\w+)"?', sql, re.I)
+        if m:
+            written_tables.add(m.group(1).lower())
+    
+    if not written_tables:
+        return problems
+    
+    # Find test files that might define triggers for these tables
+    migrations_dir = os.path.dirname(os.path.abspath(migration_path))
+    test_files = [f for f in os.listdir(migrations_dir) if f.endswith('.test.mjs')]
+    
+    # Extract trigger constraints from test files
+    trigger_constraints = {}
+    for test_file in test_files:
+        test_path = os.path.join(migrations_dir, test_file)
+        try:
+            with open(test_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # Find CREATE TRIGGER statements in test files
+                # Looking specifically for METRIC-INTEGRITY-1 and similar validation triggers
+                for match in re.finditer(r"CREATE\s+TRIGGER\s+(\w+)\s+BEFORE\s+INSERT\s+ON\s+(\w+).*?SELECT\s+RAISE\(ABORT,\s*'([^']+)'\)", 
+                                       content, re.DOTALL | re.IGNORECASE):
+                    trigger_name = match.group(1)
+                    table_name = match.group(2).lower()
+                    error_msg = match.group(3)
+                    
+                    # Extract WHEN clause to understand constraints
+                    when_match = re.search(r"WHEN\s+(.*?)\s+BEGIN", match.group(0), re.DOTALL | re.IGNORECASE)
+                    if when_match:
+                        when_clause = when_match.group(1).strip()
+                        
+                        # Store constraint info
+                        if table_name not in trigger_constraints:
+                            trigger_constraints[table_name] = []
+                        trigger_constraints[table_name].append({
+                            'name': trigger_name,
+                            'when': when_clause,
+                            'error': error_msg,
+                            'full_trigger': match.group(0)
+                        })
+        except Exception:
+            # If we can't read a test file, skip it silently
+            pass
+    
+    # Validate statements against discovered triggers
+    for stmt in stmts:
+        sql = body(stmt)
+        
+        # Check INSERT statements against triggers
+        m = re.match(r'^\s*(?:INSERT|REPLACE)\s+(?:OR\s+\w+\s+)?INTO\s+"?(\w+)"?\s*\(([^)]+)\)', sql, re.I)
+        if m:
+            table = m.group(1).lower()
+            columns_str = m.group(2)
+            columns = [c.strip().strip('"').lower() for c in columns_str.split(',')]
+            
+            if table in trigger_constraints:
+                for constraint in trigger_constraints[table]:
+                    # Check for METRIC-INTEGRITY-1 pattern: required fields must be non-null
+                    if 'METRIC-INTEGRITY' in constraint['error']:
+                        # Extract required fields from WHEN clause
+                        required_fields = []
+                        for field_match in re.finditer(r"NEW\.(\w+)\s+IS\s+NULL", constraint['when'], re.IGNORECASE):
+                            required_fields.append(field_match.group(1).lower())
+                        
+                        # Check if all required fields are in the column list
+                        missing_fields = [f for f in required_fields if f not in columns]
+                        if missing_fields:
+                            problems.append(
+                                f"INSERT INTO {table} violates trigger {constraint['name']} ({constraint['error']}): "
+                                f"missing required columns {', '.join(missing_fields)}. "
+                                f"Ensure source_of_truth, disposition_actor, and refresh_cadence are populated."
+                            )
+    
+    return problems
 
 
 # BP26-D1-DISCIPLINE-1 (2026-10-28, agent_issues 1000349): a Time Travel bookmark is recorded in migration_runs.bookmark before a file
