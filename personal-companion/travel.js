@@ -687,7 +687,8 @@ export const CHAT_SYSTEM = [
   "- Plain, warm, brief English. No emojis. No filler. Short paragraphs or lines starting with '- '.",
   "Reply with JSON only, exactly this shape:",
   "{\"reply\":\"text shown in the chat\",\"options\":[{\"city\":\"\",\"country\":\"\",\"kind\":\"old town|coast|second city|nature|capital|island|mountains\",\"checkin\":\"YYYY-MM-DD or empty\",\"nights\":2,\"est_per_night\":0,\"why\":\"one sentence\",\"pick\":true}],\"question\":{\"text\":\"\",\"choices\":[\"\",\"\"]},\"learned\":[{\"label\":\"two to four words\",\"statement\":\"one sentence about the traveller's preference\"}]}",
-  "Use [] when there are no options or nothing was learned, and null when there is no question. Respect every logistics fact (residence, visa rules) in the context."
+  "Use [] when there are no options or nothing was learned, and null when there is no question. Respect every logistics fact (residence, visa rules) in the context.",
+  "KERNEL-REPLY-4 (2026-11-06, docs/DOCTRINE-KERNEL.md 8.2.1 recognitions, KERNEL-EVERYWHERE-1): end on the plan or the proposal, never on a conditional offer ('would you like', 'want me to', 'if you want', 'shall I', 'let me know if') or a questionnaire. The one designed question with tap answers above is the only question shape; everything else ends on what you propose or what you did. A refusal or limit (you never book or pay, a visa rule) is stated with its reason as a disposition, not offered around. When a reversible step could be taken now, take it and report it in the same reply."
 ].join("\n");
 
 export function chatContext(x) {
