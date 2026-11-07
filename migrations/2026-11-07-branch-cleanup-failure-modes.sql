@@ -78,19 +78,34 @@ VALUES (
 -- Note: metric_registry.metric is the key; there is no metric_name column
 INSERT INTO metric_registry (
   metric,
+  layer,
+  kind,
   formula,
   source_of_truth,
+  baseline,
   target,
-  state
+  owner,
+  disposition_actor,
+  refresh_cadence,
+  state,
+  refresh_class
 ) VALUES (
   'branches_unmerged_over_30d',
-  'SELECT COUNT(*) FROM (SELECT 1) WHERE 1=0', -- Placeholder; actual check via git
   'repository',
-  10,
-  'active'
+  'guard',
+  'COUNT of branches with commits not in main that are older than 30 days; checked via git log main..branch',
+  'git log origin/main..origin/<branch> (manual or workflow)',
+  'new 2026-11-07',
+  '<= 10',
+  'scripts/safe_branch_cleanup.py',
+  'fm-branch-cleanup-no-merge-check: scripts/safe_branch_cleanup.py with merge verification',
+  'manual',
+  'active',
+  'manual'
 ) ON CONFLICT (metric) DO UPDATE SET
   formula = EXCLUDED.formula,
   target = EXCLUDED.target,
+  disposition_actor = EXCLUDED.disposition_actor,
   state = EXCLUDED.state;
 
 -- Remediation contracts for each failure mode
