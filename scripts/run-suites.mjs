@@ -52,7 +52,7 @@ export function discover(root) {
 // worker's PR is not held by an unrelated directory.
 // SUITE-GUARDS-ALWAYS-1 (2026-10-12): the repository-wide guard suites scan every suite or worker, so they run for any
 // change at all; PR 946 (one worker) merged a range-regex VERSION pin that version-pin-guard refused on the next full-set run.
-export const ALWAYS = ["scripts/version-pin-guard.test.mjs", "scripts/cron-single-trigger.test.mjs", "scripts/prompt-cache.test.mjs", "scripts/corruption-guard.test.mjs"];
+export const ALWAYS = ["scripts/version-pin-guard.test.mjs", "scripts/cron-single-trigger.test.mjs", "scripts/prompt-cache.test.mjs", "scripts/corruption-guard.test.mjs", "scripts/ai-counter-tokens.test.mjs"];
 // SUITE-DEPENDENTS-1 (2026-10-19, agent_issues 2830 MERGE-BOUNDARY-GATE-1): a suite in one directory that reads a file of another
 // ("../qnfo-gateway/worker.js", 15 suites on 2026-10-19, e.g. qnfo-email/unsub-link.test.mjs and qnfo-research-exec/ground.test.mjs)
 // did not run when only that other directory changed, so a PR could merge green and break it on main. With a reader (the CLI

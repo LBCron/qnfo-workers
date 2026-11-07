@@ -2054,7 +2054,8 @@ const CHAT_SYSTEM = [
   "- Plain, warm, brief English. No emojis. No filler. Short paragraphs or lines starting with '- '.",
   "Reply with JSON only, exactly this shape:",
   "{\"reply\":\"text shown in the chat\",\"options\":[{\"city\":\"\",\"country\":\"\",\"kind\":\"old town|coast|second city|nature|capital|island|mountains\",\"checkin\":\"YYYY-MM-DD or empty\",\"nights\":2,\"est_per_night\":0,\"why\":\"one sentence\",\"pick\":true}],\"question\":{\"text\":\"\",\"choices\":[\"\",\"\"]},\"learned\":[{\"label\":\"two to four words\",\"statement\":\"one sentence about the traveller's preference\"}]}",
-  "Use [] when there are no options or nothing was learned, and null when there is no question. Respect every logistics fact (residence, visa rules) in the context."
+  "Use [] when there are no options or nothing was learned, and null when there is no question. Respect every logistics fact (residence, visa rules) in the context.",
+  "KERNEL-REPLY-4 (2026-11-06, docs/DOCTRINE-KERNEL.md 8.2.1 recognitions, KERNEL-EVERYWHERE-1): end on the plan or the proposal, never on a conditional offer ('would you like', 'want me to', 'if you want', 'shall I', 'let me know if') or a questionnaire. The one designed question with tap answers above is the only question shape; everything else ends on what you propose or what you did. A refusal or limit (you never book or pay, a visa rule) is stated with its reason as a disposition, not offered around. When a reversible step could be taken now, take it and report it in the same reply."
 ].join("\n");
 
 function chatContext(x) {
@@ -3237,7 +3238,9 @@ var __name22 = __name2;
 // the release note is carried by the comment blocks at STALL_MIN, shortenFeedback, pruneRepeat and attemptBudgetStop, and none is added to the VERSION
 // line below (VERSION-LINE-NOTES-1, 2026-10-19). Its older trailing notes stay until length-lede.test.mjs stops pinning "LENGTH-LEDE-1" on that line.
 // VERSION-NOTES-MOVED-1: release notes live in the block below
-var VERSION = "1.45.9-codeagent";
+// W-META-1 (agent_issues 1002316/1002317/1002318): aiRunAttr records in_tok/out_tok/neurons per purpose.
+var VERSION = "1.46.1-wmeta-tokens";
+// 1.46.0 KERNEL-EVERYWHERE-1 (2026-11-06, owner directive "IMPLEMENT EVERYWHERE ACROSS ALL AI APPS AND SERVICES AND SURFACES", pillar personal): the travel planner CHAT_SYSTEM carries the DOCTRINE-1 kernel 8.2.1 reply recognitions (KERNEL-REPLY-4, scoped to the planner's one designed question): end on the plan or proposal, never a conditional offer or questionnaire; refusals and limits are dispositions with their reason; reversible steps are taken and reported in the same reply. prior 1.45.8-codeagent
 /* 1.44.14 COMPANION-LENGTH-HEADROOM-1 (issue 1000633, pillar personal; patch): repeated length failures alongside exhausted retry budgets expose too little headroom for model output variation. Length-only repairs now target 500 words below the unchanged ceiling while remaining inside each form's normal writer band. */
 /* 1.43.6 BP26-AI-ACT-ART50-1 and BP26-STRUCTURED-DATA-1 (2026-10-26, agent_issues 1000341 and 1000336, pillar core; patch): the visible AI-generated label of every reading.q08.org piece now has its machine-readable half. A piece page carries an Article JSON-LD block (headline, datePublished, url, an Organization as author, never an AI or invented persona, and creditText saying it was written by AI and that no human reviews pieces before they appear) and the index page a Blog block. Measured before: the reading pages carried the visible label and no JSON-LD at all. */
 /* 1.43.5 BP26-EDGE-SECURITY-1 (2026-10-26, agent_issues 1000356, pillar security; patch): every response of reading.q08.org and travel.q08.org now carries a Referrer-Policy (strict-origin-when-cross-origin), X-Frame-Options DENY and X-Content-Type-Options nosniff unless the route already set its own; measured before: reading.q08.org sent no referrer policy and no frame protection, travel.q08.org no frame protection. A wrapper around the final fetch handler copies the response only when a header is missing; redirects, streams and WebSocket upgrades are untouched. */
@@ -6554,7 +6557,7 @@ function noteReviewerNoVerdict(env, modelId) {
     var db = env && (env.AUDIT || env.AUDIT_DB);
     if (!db) return;
     var day = new Date().toISOString().slice(0, 10);
-    var pr = db.prepare("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors, in_chars, ms) VALUES (?1,'personal-companion','factcheck',?2,0,1,0,0) ON CONFLICT(day, worker, purpose, model) DO UPDATE SET errors = errors + 1").bind(day, String(modelId)).run();
+    var pr = db.prepare("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors, in_chars, ms, in_tok, out_tok, neurons) VALUES (?1,'personal-companion','factcheck',?2,0,1,0,0,0,0,0) ON CONFLICT(day, worker, purpose, model) DO UPDATE SET errors = errors + 1").bind(day, String(modelId)).run();
     if (pr && typeof pr.catch === "function") pr.catch(function (e) { console.error("COST-COMPANION-1 note failed: " + String(e && e.message || e).slice(0, 160)); });
   } catch (e2) { console.error("COST-COMPANION-1 note threw: " + String(e2 && e2.message || e2).slice(0, 160)); }
 }
@@ -8612,9 +8615,11 @@ var GenerationFlow = class extends WorkflowEntrypoint {
 // Copied from qnfo-fleet-control (workers cannot import across directories); same table/columns. No new paid service.
 // Unlike fleet-control the counter write is NOT awaited (fire-and-forget, errors swallowed) so it can never add latency.
 var AI_ATTR_DB_BINDINGS = ["AUDIT_DB","AUDIT","DB_AUDIT","QNFO_AUDIT"];
+// W-META-1 (agent_issues 1002316/1002317/1002318): aiRunAttr records in_tok/out_tok/neurons per purpose.
+var __AI_ATTR_RATES = { "@cf/zai-org/glm-5.3": [127273, 400000], "@cf/zai-org/glm-5.3-flash": [13636, 45455], "@cf/nvidia/nemotron-3-120b-a12b": [45455, 136364], "@cf/moonshotai/kimi-k2.6": [86364, 363636], "@cf/moonshotai/kimi-k2.7-code": [86364, 363636], "@cf/openai/gpt-oss-120b": [31818, 68182], "@cf/openai/gpt-oss-20b": [18182, 27273], "@cf/deepseek-ai/deepseek-v4-pro-0813": [120000, 360000], "@cf/deepseek-ai/deepseek-v4-flash-0731": [40000, 120000], "@cf/meta/llama-3.3-70b-instruct-fp8-fast": [26668, 204805], "@cf/qwen/qwen3-30b-a3b-fp8": [4625, 30475], "@cf/qwen/qwen3.8-27b": [40909, 290909], "@cf/baai/bge-base-en-v1.5": [6058, 0], "@cf/baai/bge-small-en-v1.5": [1841, 0], "@cf/baai/bge-large-en-v1.5": [18582, 0] };
 async function aiRunAttr(env, worker, purpose, model, input, opts) {
-  var t0 = Date.now(), ok = 1;
-  try { return await env.AI.run(model, input, opts); } catch (e) { ok = 0; throw e; }
+  var t0 = Date.now(), ok = 1, res;
+  try { res = await env.AI.run(model, input, opts); return res; } catch (e) { ok = 0; throw e; }
   finally {
     try {
       var db = null;
@@ -8623,9 +8628,15 @@ async function aiRunAttr(env, worker, purpose, model, input, opts) {
         var ic = 0; try { ic = JSON.stringify(input && input.messages || input || "").length; } catch (e2) { console.error(JSON.stringify({ worker: worker, where: "aiRunAttr", error: String(e2 && e2.message || e2).slice(0, 300) })); }
         var day = new Date().toISOString().slice(0, 10);
         var ms = Date.now() - t0;
+        var uT = res && typeof res === "object" && res.usage || {};
+        var inT = Number(uT.prompt_tokens || uT.input_tokens || 0) || Math.round(ic / 4);
+        var outT = Number(uT.completion_tokens || uT.output_tokens || 0) || 0;
+        var rT = __AI_ATTR_RATES[String(model)] || [0, 0];
+        var neT = (inT * rT[0] + outT * rT[1]) / 1e6;
+
         var wr = (async function() {
-          await db.prepare("CREATE TABLE IF NOT EXISTS ai_call_counters (day TEXT, worker TEXT, purpose TEXT, model TEXT, calls INTEGER DEFAULT 0, errors INTEGER DEFAULT 0, in_chars INTEGER DEFAULT 0, ms INTEGER DEFAULT 0, PRIMARY KEY (day, worker, purpose, model))").run();
-          await db.prepare("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors, in_chars, ms) VALUES (?1,?2,?3,?4,1,?5,?6,?7) ON CONFLICT(day, worker, purpose, model) DO UPDATE SET calls=calls+1, errors=errors+?5, in_chars=in_chars+?6, ms=ms+?7").bind(day, worker, purpose, String(model), ok ? 0 : 1, ic, ms).run();
+          await db.prepare("CREATE TABLE IF NOT EXISTS ai_call_counters (day TEXT, worker TEXT, purpose TEXT, model TEXT, calls INTEGER DEFAULT 0, errors INTEGER DEFAULT 0, in_chars INTEGER DEFAULT 0, ms INTEGER DEFAULT 0, in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, neurons REAL DEFAULT 0, PRIMARY KEY (day, worker, purpose, model))").run();
+          await db.prepare("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors, in_chars, ms, in_tok, out_tok, neurons) VALUES (?1,?2,?3,?4,1,?5,?6,?7,?8,?9,?10) ON CONFLICT(day, worker, purpose, model) DO UPDATE SET calls=calls+1, errors=errors+excluded.errors, in_chars=in_chars+excluded.in_chars, ms=ms+excluded.ms, in_tok=in_tok+excluded.in_tok, out_tok=out_tok+excluded.out_tok, neurons=neurons+excluded.neurons").bind(day, worker, purpose, String(model), ok ? 0 : 1, ic, ms, inT, outT, neT).run();
         })();
         wr.catch(function (eLog) { console.error(JSON.stringify({ worker: worker, where: "aiRunAttr", error: String(eLog && eLog.message || eLog).slice(0, 300) })); });
       }

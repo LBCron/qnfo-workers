@@ -35,7 +35,7 @@ function envWith(replies) {
   ok(a.failed === true && /no verdict in reply/.test(a.error), "a truncated reasoning reply is a failed review", a);
   const notes = w.notes().filter((x) => /'factcheck'/.test(x.sql));
   ok(notes.length === 1 && notes[0].a[0] === day && notes[0].a[1] === GLM, "the empty reply is counted once for the reviewer and the UTC day", notes);
-  ok(/calls, errors/.test(notes[0].sql) && /,0,1,0,0\)/.test(notes[0].sql) && /DO UPDATE SET errors = errors \+ 1/.test(notes[0].sql), "the note adds one error and no call (aiRunAttr adds the call)", notes[0].sql);
+  ok(/calls, errors/.test(notes[0].sql) && /,0,1,0,0,0,0,0\)/.test(notes[0].sql) && /DO UPDATE SET errors = errors \+ 1/.test(notes[0].sql), "the note adds one error and no call (aiRunAttr adds the call)", notes[0].sql);
 
   const w2 = envWith({ [KIMI]: PASS });
   const b = await V.factCheckOne(w2.env, KIMI, "# Title\n\nA draft.", "source text");

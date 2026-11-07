@@ -53,7 +53,7 @@ ok(JSON.stringify(observe()) === '["0","0"]', "lift rows and other purposes are 
 db.prepare("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors) VALUES (?1, 'other-worker', 'quality-floor-read', 'x', 9, 9)").run(today);
 ok(JSON.stringify(observe()) === '["0","0"]', "another worker's rows are not read", observe());
 // the probe's counter vocabulary is the one qnfo-ai 5.40.1 writes
-ok(worker.includes('var QUALITY_FLOOR_PURPOSE = "quality-floor";') && worker.includes('QUALITY_FLOOR_PURPOSE + "-read"') && worker.includes("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors) VALUES (?1, 'qnfo-ai', ?2, ?3, 1, ?4)"), "qnfo-ai/worker.js writes the quality-floor-read rows the detector reads (worker qnfo-ai, purpose quality-floor-read, errors on failure)");
+ok(worker.includes('var QUALITY_FLOOR_PURPOSE = "quality-floor";') && worker.includes('QUALITY_FLOOR_PURPOSE + "-read"') && worker.includes("INSERT INTO ai_call_counters (day, worker, purpose, model, calls, errors, in_tok, out_tok, neurons) VALUES (?1, 'qnfo-ai', ?2, ?3, 1, ?4, 0, 0, 0)"), "qnfo-ai/worker.js writes the quality-floor-read rows the detector reads (worker qnfo-ai, purpose quality-floor-read, errors on failure)");
 ok(db.prepare("SELECT predicted_outcome FROM decision_log").get().predicted_outcome.indexOf(" within ") === -1, "the decision row's predicted outcome holds no ' within ' (the live prediction parser would read it)");
 const down = /^-- Rollback: (.*)$/m.exec(sql)[1];
 db.exec(down);

@@ -29,18 +29,20 @@ function mkDb(mode, log) {
 }
 const unhandled = []; process.on("unhandledRejection", (e) => unhandled.push(e));
 const tick = () => new Promise((r) => setTimeout(r, 20));
-const out = { response: "hello", usage: { n: 1 } };
+const out = { response: "hello", usage: { prompt_tokens: 1000, completion_tokens: 100 } };
 const input = { messages: [{ role: "user", content: "hi" }], max_tokens: 5 };
 const mkAi = (res, err) => ({ async run(m, i, o) { if (err) throw err; ok(i === input, "input passed through"); return res; } });
 
 // 1) result identical, one counter row with fleet-control column names
 let log = [];
 let env = { AI: mkAi(out), [BINDING]: mkDb("ok", log) };
-let r = await aiRunAttr(env, "personal-companion", "t", "@cf/m", input, { gateway: { id: "x" } });
+let r = await aiRunAttr(env, "personal-companion", "t", "@cf/moonshotai/kimi-k2.6", input, { gateway: { id: "x" } });
 await tick();
 ok(r === out, "result must be the same object");
-const ins = log.find((l) => /INSERT INTO ai_call_counters \(day, worker, purpose, model, calls, errors, in_chars, ms\)/.test(l.sql));
-ok(ins && ins.x[1] === "personal-companion" && ins.x[2] === "t" && ins.x[3] === "@cf/m" && ins.x[4] === 0, "counter row shape");
+const ins = log.find((l) => /INSERT INTO ai_call_counters \(day, worker, purpose, model, calls, errors, in_chars, ms, in_tok, out_tok, neurons\)/.test(l.sql));
+ok(ins && ins.x[1] === "personal-companion" && ins.x[2] === "t" && ins.x[3] === "@cf/moonshotai/kimi-k2.6" && ins.x[4] === 0, "counter row shape");
+ok(ins && ins.x[7] === 1000 && ins.x[8] === 100, "in_tok/out_tok from usage (W-META-1)");
+ok(ins && Math.abs(ins.x[9] - (1000 * 86364 + 100 * 363636) / 1e6) < 1e-6, "neurons from usage x published rate (W-META-1)");
 ok(log.some((l) => /CREATE TABLE IF NOT EXISTS ai_call_counters/.test(l.sql)), "create table ddl");
 
 // 2) D1 failure modes never propagate or alter the result

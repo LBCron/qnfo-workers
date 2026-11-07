@@ -10,8 +10,7 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SKIP = new Set(["archive", "docs", "scripts", "migrations", "_live", "_exuvia", "_shared", "node_modules", ".git", ".claude", ".worktrees"]);
 const TOKEN_COLS = /INSERT INTO ai_call_counters \([^)]*\bin_tok[^)]*\bneurons/;
-// Fix landed in an open PR; the guard keeps the shape once it merges. Remove the entry when the PR merges.
-const PENDING = { "idea-hub": "#8390", "personal-companion": "#8390" };
+const PENDING = {};
 let checked = 0, bad = [];
 
 for (const dir of readdirSync(root, { withFileTypes: true })) {
