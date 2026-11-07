@@ -10,69 +10,69 @@
 -- Incident: 4 branches with unmerged work were deleted; recovered from dangling commits
 
 -- Failure mode 1: Deleting branches without checking merge status
-INSERT INTO failure_modes (fm_key, title, root_cause, remediation, severity, first_seen)
+INSERT INTO failure_modes (fm_key, failure_mode, root_cause, remediation, detector, probe_class, first_seen)
 VALUES (
   'fm-branch-cleanup-no-merge-check',
   'Branch deleted without verifying merge status',
   'Script deleted branches based on naming patterns and open PR status only, without checking git log main..branch to verify all commits were merged',
   'Always run git log main..branch before deletion. If output is non-empty, branch has unmerged commits. Use scripts/safe_branch_cleanup.py which checks this. Add pre-deletion CI check.',
-  'high',
+  'code: scripts/safe_branch_cleanup.py with merge check',
+  'fm-branch-cleanup-no-merge-check',
   '2026-11-07 08:00:00'
 ) ON CONFLICT (fm_key) DO UPDATE SET
-  remediation = EXCLUDED.remediation,
-  updated_at = CURRENT_TIMESTAMP;
+  remediation = EXCLUDED.remediation;
 
 -- Failure mode 2: No dry-run mode for destructive operations
-INSERT INTO failure_modes (fm_key, title, root_cause, remediation, severity, first_seen)
+INSERT INTO failure_modes (fm_key, failure_mode, root_cause, remediation, detector, probe_class, first_seen)
 VALUES (
   'fm-branch-cleanup-no-dry-run',
   'Destructive operation executed without dry-run verification',
   'Branch cleanup script had no --dry-run mode to preview what would be deleted before executing',
   'All destructive scripts must have --dry-run mode as default. Require explicit --live flag for actual deletion. Preview must show: branch name, last commit date, unmerged commit count, PR status.',
-  'high',
+  'code: scripts/safe_branch_cleanup.py with --dry-run default',
+  'fm-branch-cleanup-no-dry-run',
   '2026-11-07 08:00:00'
 ) ON CONFLICT (fm_key) DO UPDATE SET
-  remediation = EXCLUDED.remediation,
-  updated_at = CURRENT_TIMESTAMP;
+  remediation = EXCLUDED.remediation;
 
 -- Failure mode 3: No verification of dangling commits before claiming success
-INSERT INTO failure_modes (fm_key, title, root_cause, remediation, severity, first_seen)
+INSERT INTO failure_modes (fm_key, failure_mode, root_cause, remediation, detector, probe_class, first_seen)
 VALUES (
   'fm-branch-cleanup-no-dangling-check',
   'Cleanup completed without checking for orphaned commits',
   'Script did not run git fsck --lost-found after deletion to verify no commits became dangling/unreachable',
   'After any branch deletion: (1) run git fsck --lost-found, (2) if dangling commits exist, examine with git show, (3) create recovery branches if work found, (4) document in cleanup report',
-  'high',
+  'code: scripts/safe_branch_cleanup.py with fsck verification',
+  'fm-branch-cleanup-no-dangling-check',
   '2026-11-07 08:00:00'
 ) ON CONFLICT (fm_key) DO UPDATE SET
-  remediation = EXCLUDED.remediation,
-  updated_at = CURRENT_TIMESTAMP;
+  remediation = EXCLUDED.remediation;
 
 -- Failure mode 4: Insufficient audit trail
-INSERT INTO failure_modes (fm_key, title, root_cause, remediation, severity, first_seen)
+INSERT INTO failure_modes (fm_key, failure_mode, root_cause, remediation, detector, probe_class, first_seen)
 VALUES (
   'fm-branch-cleanup-no-audit-log',
   'Branch deletions not logged with sufficient detail for recovery',
   'Deletion script did not log: final commit SHA, last commit message, author, date, files changed. Recovery required git fsck archaeology.',
   'Before deleting branch, log to deletion_audit table: branch name, HEAD SHA, last commit message/author/date, unmerged commit count, reason for deletion. Enable recovery without fsck.',
-  'medium',
+  'd1-query: SELECT COUNT(*) FROM branch_deletion_audit',
+  'fm-branch-cleanup-no-audit-log',
   '2026-11-07 08:00:00'
 ) ON CONFLICT (fm_key) DO UPDATE SET
-  remediation = EXCLUDED.remediation,
-  updated_at = CURRENT_TIMESTAMP;
+  remediation = EXCLUDED.remediation;
 
 -- Failure mode 5: No branch protection policy
-INSERT INTO failure_modes (fm_key, title, root_cause, remediation, severity, first_seen)
+INSERT INTO failure_modes (fm_key, failure_mode, root_cause, remediation, detector, probe_class, first_seen)
 VALUES (
   'fm-branch-cleanup-no-protection-policy',
   'No documented policy for which branches are protected from cleanup',
   'Beyond "main" and open-PR branches, no clear policy existed for: recent branches, branches matching certain patterns, branches from specific authors',
   'Document branch protection policy: (1) all unmerged branches, (2) branches < 7 days old, (3) branches starting with recovery/, (4) branches in PROTECTED_BRANCH_PATTERNS list. Check policy before any deletion.',
-  'medium',
+  'code: scripts/safe_branch_cleanup.py with protection policy',
+  'fm-branch-cleanup-no-protection-policy',
   '2026-11-07 08:00:00'
 ) ON CONFLICT (fm_key) DO UPDATE SET
-  remediation = EXCLUDED.remediation,
-  updated_at = CURRENT_TIMESTAMP;
+  remediation = EXCLUDED.remediation;
 
 -- Metric: Branches with unmerged commits that exist for >30 days
 INSERT INTO metric_registry (
