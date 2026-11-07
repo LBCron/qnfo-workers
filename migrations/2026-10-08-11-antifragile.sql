@@ -72,11 +72,11 @@ WHERE a.status = 'open' AND a.created_at < (CAST(strftime('%s', 'now') AS INTEGE
     OR lower(a.title || ' ' || COALESCE(a.description, '')) LIKE '%needs a token%' OR lower(a.title || ' ' || COALESCE(a.description, '')) LIKE '%no token%'
     OR lower(a.title || ' ' || COALESCE(a.description, '')) LIKE '%needs the owner%' OR lower(a.title || ' ' || COALESCE(a.description, '')) LIKE '%cannot be done%'
     OR lower(a.title || ' ' || COALESCE(a.description, '')) LIKE '%blocked%' OR lower(COALESCE(a.description, '')) LIKE '%session-task:%')
-  AND NOT EXISTS (SELECT 1 FROM blocker_redteam r WHERE r.target = 'issue:' || a.id AND r.ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours'))
+  AND NOT EXISTS (SELECT 1 FROM blocker_redteam r WHERE r.target = 'issue:' || a.id AND (r.ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours') OR (r.verdict = 'confirmed-with-evidence' AND r.ts = (SELECT MAX(ts) FROM blocker_redteam r2 WHERE r2.target = r.target))))
 UNION ALL
 SELECT 'card:' || h.id, h.title, CAST(strftime('%s', h.created_at) AS INTEGER) * 1000 FROM human_actions h
 WHERE h.status = 'open' AND datetime(h.created_at) < datetime('now', '-60 minutes')
-  AND NOT EXISTS (SELECT 1 FROM blocker_redteam r WHERE r.target = 'card:' || h.id AND r.ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours'));
+  AND NOT EXISTS (SELECT 1 FROM blocker_redteam r WHERE r.target = 'card:' || h.id AND (r.ts > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours') OR (r.verdict = 'confirmed-with-evidence' AND r.ts = (SELECT MAX(ts) FROM blocker_redteam r2 WHERE r2.target = r.target))));
 
 INSERT OR IGNORE INTO metric_registry (metric, layer, kind, formula, source_of_truth, baseline, target, owner, disposition_actor, refresh_cadence, warning_band, kill_band, last_value, last_refreshed, state, refresh_class) VALUES
  ('unverified_blocker_claims', 'operational', 'guard',
