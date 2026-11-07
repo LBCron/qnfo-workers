@@ -36,7 +36,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.19.1-turnstile-block-restore";
+var VERSION = "2.19.2-turnstile-canonical-host";
 // 2.19.0 KERNEL-EVERYWHERE-1 (2026-11-06, owner directive "IMPLEMENT EVERYWHERE ACROSS ALL AI APPS AND SERVICES AND SURFACES", pillar reach): the Ask writer SYSTEM prompt carries the DOCTRINE-1 kernel 8.2.1 reply recognitions (KERNEL-REPLY-4): the answer body ends on the result; the designed FOLLOWUPS block remains the only question shape; no conditional offers or menus; ambiguity gets a stated assumption; limits are dispositions with their reason. prior 2.18.2-codeagent
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
@@ -2920,7 +2920,6 @@ async function turnstileVerify(env, token, ip, action) {
   }
 }
 // END TURNSTILE-EDGE-1
-var CANONICAL_HOST = "https://ask.qwav.org";
 var PAGE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2928,9 +2927,9 @@ var PAGE = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ask QWAV | QNFO research assistant</title>
 <meta name="description" content="Ask questions of the QNFO / QWAV research corpus. Answers are grounded in the published papers, cite their sources, and show where they sit in the QNFO knowledge graph.">
-<link rel="canonical" href="${CANONICAL_HOST}/">
+<link rel="canonical" href="https://ask.qwav.org/">
 <meta property="og:type" content="website">
-<meta property="og:url" content="${CANONICAL_HOST}/">
+<meta property="og:url" content="https://ask.qwav.org/">
 <meta property="og:title" content="Ask QWAV | QNFO research assistant">
 <meta property="og:description" content="Grounded answers from the QNFO research corpus, with citations and the knowledge graph around them.">
 <meta name="twitter:card" content="summary">
