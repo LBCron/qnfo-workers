@@ -89,6 +89,18 @@ Work as a program contributor, not a ticket-taker. Follow the PROACTIVE-PROGRAMS
 Read by Claude Code (via CLAUDE.md import), GitHub Copilot, Kimi, OpenAI Codex and any other agent.
 No agent depends on another agent's chat history. GitHub is the shared memory.
 
+## Doctrine baseline (DOCTRINE-1, owner version 8.2.1)
+- Read the canonical `QNFO/qnfo-workers` files `docs/DOCTRINE-KERNEL.md`
+  and `docs/AUTONOMOUS-OPERATION-DOCTRINE.md` revision 5 for fleet work.
+- Execute reversible work within the requested scope, verify observed outcomes,
+  and give every item an explicit disposition. Preserve live claims and use the
+  canonical deployment path.
+- Harness permissions, security, secret locks, consent, opt-outs and the
+  personal/research boundary retain precedence. Trust scores never grant
+  permissions. A refusal is stated plainly and never bypassed by another route.
+- File presence proves configuration distribution only. Runtime adoption needs
+  observed evidence from the running agent; do not claim universal compliance.
+
 ## 1. Rules that never change
 - Work from the repo, never from chat memory. If it is not in an issue, a PR or `docs/handoff/`, it did not happen.
 - Never handle keys, passwords or tokens in output, commits or issues. Keep everything keyless.
@@ -137,7 +149,6 @@ Each repo keeps a roadmap issue ("Roadmap: next 5 features") with at most 5 item
 - `scripts/audit.py` closes its own `fleet-audit` issues with evidence once the finding stops reporting, and flags any `loop` issue without a `closing probe:` line.
 
 <!-- fleet-protocol:end -->
-
 ## 9. Code is the only output (CODE-ONLY-OUTPUT-1, owner directive 2026-11-06)
 - Owner, verbatim in substance: "Do it. Don't tell me you're going to do it. I want code, not text responses. This thread will disappear. The only things left are the code and artifacts like issues. I don't want documents." This binds every agent (Claude Code, Copilot, Kimi, Codex, the code loop); the same rule is in `CLAUDE.md`.
 - A chat reply is informative only and is never an action, a record or a safeguard. If it is not in code (a worker, a PR, an issue with a `code-task:` line and a closing probe, a roadmap row, a migration, a test), it does not exist.
