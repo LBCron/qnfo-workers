@@ -1,7 +1,7 @@
 {
-  "audited_at": "2026-11-07 07:36:33",
+  "audited_at": "2026-11-07 10:10:06",
   "d1_write_failures": [],
-  "d1_writes_ok": 2,
+  "d1_writes_ok": 4,
   "guard": {
     "_guard_rc": 0,
     "ahead": [],
@@ -35,6 +35,16 @@
       {
         "http": 200,
         "version": null,
+        "worker": "q08-prediction-markets"
+      },
+      {
+        "http": 200,
+        "version": null,
+        "worker": "q08-prediction-markets-production"
+      },
+      {
+        "http": 200,
+        "version": null,
         "worker": "qnfo-ai-yield"
       },
       {
@@ -46,6 +56,22 @@
   },
   "purge_error": null,
   "rows": {
+    "q08-prediction-markets": {
+      "before": null,
+      "http": 200,
+      "live": null,
+      "match": 0,
+      "note": "UNMANAGED_OK",
+      "worker": "q08-prediction-markets"
+    },
+    "q08-prediction-markets-production": {
+      "before": null,
+      "http": 200,
+      "live": null,
+      "match": 0,
+      "note": "UNMANAGED_OK",
+      "worker": "q08-prediction-markets-production"
+    },
     "qnfo-ai-yield": {
       "before": null,
       "http": 200,
