@@ -2,11 +2,11 @@
  "ok": true,
  "marker": "REMEDIATION-CONSUMER-1",
  "verifier": "remediation-consumer@e406a34414a4",
- "due": 760,
- "pass": 595,
- "fail": 152,
+ "due": 840,
+ "pass": 484,
+ "fail": 343,
  "skipped": 13,
- "deferred": 13,
+ "deferred": 12,
  "contracts": [
   {
    "class": "rt-fleet-dashboard",
@@ -41,14 +41,6 @@
    "written": true
   },
   {
-   "class": "issue-1002015",
-   "issue_id": 1002015,
-   "verdict": "fail",
-   "expected": "ok",
-   "observed": "present-marker",
-   "written": true
-  },
-  {
    "class": "fm-capability-selftest-live",
    "issue_id": null,
    "verdict": "pass",
@@ -65,6 +57,14 @@
    "written": true
   },
   {
+   "class": "issue-1002015",
+   "issue_id": 1002015,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "present-marker",
+   "written": true
+  },
+  {
    "class": "issue-1002147",
    "issue_id": 1002147,
    "verdict": "fail",
@@ -73,7 +73,15 @@
    "written": true
   },
   {
-   "class": "rt-personal-api",
+   "class": "rt-live-qnfo-containers-pilot",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-email",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -97,23 +105,15 @@
    "written": true
   },
   {
+   "class": "rt-personal-api",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-papers",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-containers-pilot",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-email",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -130,6 +130,14 @@
   },
   {
    "class": "rt-live-qnfo-memory-mcp",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-social",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -161,14 +169,6 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-social",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-page-qnfo-home",
    "issue_id": null,
    "verdict": "pass",
@@ -185,22 +185,6 @@
    "written": true
   },
   {
-   "class": "issue-1001982",
-   "issue_id": 1001982,
-   "verdict": "fail",
-   "expected": "ok",
-   "observed": "status=404",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-fleet-control",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-subscribers",
    "issue_id": null,
    "verdict": "pass",
@@ -210,6 +194,22 @@
   },
   {
    "class": "rt-page-subscribe",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "issue-1001982",
+   "issue_id": 1001982,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "status=404",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-fleet-control",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -289,19 +289,19 @@
    "written": true
   },
   {
-   "class": "issue-1001886",
-   "issue_id": 1001886,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "issue-1002146",
    "issue_id": 1002146,
    "verdict": "fail",
    "expected": "ok",
    "observed": "present-marker",
+   "written": true
+  },
+  {
+   "class": "issue-1001886",
+   "issue_id": 1001886,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
    "written": true
   },
   {
@@ -337,7 +337,7 @@
    "written": true
   },
   {
-   "class": "rt-page-ask-robots",
+   "class": "rt-ai-router",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -345,7 +345,15 @@
    "written": true
   },
   {
-   "class": "rt-ai-router",
+   "class": "rt-live-radar-hub",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-page-ask-robots",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -369,14 +377,6 @@
    "written": true
   },
   {
-   "class": "rt-live-radar-hub",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-github-steward",
    "issue_id": null,
    "verdict": "pass",
@@ -393,7 +393,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-ai-search",
+   "class": "rt-ipatent",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -401,7 +401,7 @@
    "written": true
   },
   {
-   "class": "rt-ipatent",
+   "class": "rt-live-qnfo-ai-search",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
