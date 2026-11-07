@@ -1,6 +1,6 @@
 -- APPLY-BY: ci
 -- DB: qnfo-audit
--- Rollback: DELETE FROM failure_modes WHERE fm_key IN ('migration-schema-mismatch', 'migration-partial-apply'); DELETE FROM analytics_metric_triggers WHERE metric_key IN ('migration_schema_violations', 'migration_partial_states'); DELETE FROM metric_registry WHERE metric IN ('migration_schema_violations', 'migration_partial_states'); DROP VIEW IF EXISTS v_migration_quality;
+-- Rollback: DELETE FROM failure_modes WHERE failure_key IN ('migration-schema-mismatch', 'migration-partial-apply'); DELETE FROM analytics_metric_triggers WHERE metric_key IN ('migration_schema_violations', 'migration_partial_states'); DELETE FROM metric_registry WHERE metric IN ('migration_schema_violations', 'migration_partial_states'); DROP VIEW IF EXISTS v_migration_quality;
 -- BACKUP: failure_modes
 
 -- FAILURE PREVENTION: Migration schema validation (MIGRATION-SCHEMA-GUARD-1)
@@ -29,45 +29,57 @@
 --   4. Monitoring: migration_partial_states metric (partial applies)
 --   5. Automated: Code loop files issue on breach with schema fix
 
--- Register failure modes (actual schema: fm_key, failure_mode, root_cause, remediation, detector, probe_class, first_seen, issue_id)
+-- Register the failure mode
 INSERT INTO failure_modes (
-  fm_key,
-  failure_mode,
+  failure_key,
+  title,
+  severity,
   root_cause,
   remediation,
-  detector,
-  probe_class,
+  prevention_layers,
+  recurrence_cost,
   first_seen,
-  issue_id
+  last_seen,
+  occurrence_count,
+  state
 ) VALUES (
   'migration-schema-mismatch',
   'Migration schema column name mismatch',
+  'critical',
   'INSERT statements use column names not in actual D1 table schema. CI guards validate syntax but cannot catch runtime schema mismatches. Assumptions about schema consistency across related tables (metric_registry vs analytics_metric_triggers) are false.',
   'scripts/migration_schema_guard.py validates INSERT column names against KNOWN_SCHEMAS dict extracted from actual D1. Guard runs in pr-checks versions job (MIGRATION-SCHEMA-GUARD-1). Always query live schema with wrangler d1 execute before writing migrations.',
-  'migration_schema_violations metric > 0',
-  'fm-migration-schema-mismatch',
-  '2026-11-07T06:52:06Z',
-  NULL
+  'Pre-merge: migration_schema_guard.py in CI; Post-merge: migration_runs table tracks failures; Monitoring: migration_schema_violations metric files code-task issues; Documentation: KNOWN_SCHEMAS updated when table schemas change',
+  'Production deploy failure, partial D1 state, corrective migration required, 2+ hour delay, user escalation',
+  datetime('2026-11-07 06:52:06'),
+  datetime('2026-11-07 06:52:06'),
+  1,
+  'active'
 );
 
 INSERT INTO failure_modes (
-  fm_key,
-  failure_mode,
+  failure_key,
+  title,
+  severity,
   root_cause,
   remediation,
-  detector,
-  probe_class,
+  prevention_layers,
+  recurrence_cost,
   first_seen,
-  issue_id
+  last_seen,
+  occurrence_count,
+  state
 ) VALUES (
   'migration-partial-apply',
   'Migration partial application leaving inconsistent D1 state',
+  'high',
   'Migration fails mid-execution, leaving partial state (views created, metrics not inserted). No automatic rollback. Corrective migration must clean up partial state before retry.',
   'BACKUP header documents state before migration. Corrective migrations use DROP VIEW IF EXISTS and DELETE WHERE metric IN (...) before re-applying. migration_runs table records partial failures for monitoring.',
-  'migration_partial_states metric > 0',
-  'fm-migration-partial-apply',
-  '2026-11-07T06:52:06Z',
-  NULL
+  'Pre-merge: apply_migrations.py --check validates headers; Post-merge: migration_runs tracks status; Monitoring: migration_partial_states metric counts error status migrations; Automated: Corrective migrations triggered by metric breach',
+  'Inconsistent D1 state until corrective migration, potential query errors, 1-2 hour delay',
+  datetime('2026-11-07 06:52:06'),
+  datetime('2026-11-07 06:52:06'),
+  1,
+  'active'
 );
 
 -- Create monitoring view
@@ -75,7 +87,7 @@ CREATE VIEW IF NOT EXISTS v_migration_quality AS
 SELECT
   (SELECT COUNT(*) FROM migration_runs WHERE status = 'error') as failed_migrations,
   (SELECT COUNT(*) FROM migration_runs WHERE status = 'error' AND applied_at > datetime('now', '-7 days')) as failed_last_7d,
-  (SELECT COUNT(*) FROM failure_modes WHERE fm_key LIKE 'migration-%') as migration_failure_modes_registered,
+  (SELECT COUNT(*) FROM failure_modes WHERE failure_key LIKE 'migration-%' AND state = 'active') as active_migration_failures,
   (SELECT MAX(applied_at) FROM migration_runs WHERE status = 'error') as last_failure_at;
 
 -- Register metrics with triggers pointing to code loop

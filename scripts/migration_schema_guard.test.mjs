@@ -140,7 +140,7 @@ try {
   }
 }
 
-// Test case 4: research_queue should use created_at not queued_at
+// Test case 4: VIEW should detect wrong column name (VIEW-COLUMN-GUARD-1)
 const viewWrong = `-- APPLY-BY: ci
 -- DB: qnfo-audit
 -- Rollback: DROP VIEW IF EXISTS test_view;
@@ -153,15 +153,79 @@ SELECT id, queued_at FROM research_queue;
 const viewWrongPath = join(tmpDir, '2026-11-07-test-view-wrong.sql');
 writeFileSync(viewWrongPath, viewWrong);
 
-console.log('\nTest 4: Detect research_queue using queued_at (wrong)');
+console.log('\nTest 4: Detect VIEW using queued_at in research_queue (wrong)');
 try {
   execSync(`python scripts/migration_schema_guard.py`, {
     encoding: 'utf-8',
     stdio: 'pipe'
   });
-  console.log('  ℹ Note: View detection not yet implemented (INSERT only)');
+  console.log('  ✗ FAIL: Should have detected queued_at error in VIEW');
+  exitCode = 1;
 } catch (e) {
-  // Expected - view validation not yet implemented
+  if (e.stdout?.includes('queued_at') || e.stdout?.includes('created_at')) {
+    console.log('  ✓ PASS: Correctly detected queued_at vs created_at error in VIEW');
+  } else {
+    console.log('  ✗ FAIL: Wrong error message or VIEW validation not working');
+    console.log(e.stdout);
+    exitCode = 1;
+  }
+}
+
+// Test case 5: VIEW with correct columns should pass
+const viewCorrect = `-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DROP VIEW IF EXISTS test_view_correct;
+
+-- This should PASS - uses created_at (correct)
+CREATE VIEW test_view_correct AS
+SELECT id, status, created_at FROM research_queue WHERE status = 'pending';
+`;
+
+const viewCorrectPath = join(tmpDir, '2026-11-07-test-view-correct.sql');
+writeFileSync(viewCorrectPath, viewCorrect);
+
+console.log('\nTest 5: Accept VIEW using created_at in research_queue (correct)');
+try {
+  execSync(`python scripts/migration_schema_guard.py`, {
+    encoding: 'utf-8',
+    stdio: 'pipe'
+  });
+  console.log('  ✓ PASS: Correct VIEW migration accepted');
+} catch (e) {
+  console.log('  ✗ FAIL: Rejected correct VIEW migration');
+  console.log(e.stdout);
+  exitCode = 1;
+}
+
+// Test case 6: VIEW referencing metric_registry should use metric not metric_key
+const viewMetricWrong = `-- APPLY-BY: ci
+-- DB: qnfo-audit
+-- Rollback: DROP VIEW IF EXISTS v_test_metrics;
+
+-- This should FAIL - uses metric_key instead of metric
+CREATE VIEW v_test_metrics AS
+SELECT metric_key, metric_name, target FROM metric_registry WHERE state = 'active';
+`;
+
+const viewMetricWrongPath = join(tmpDir, '2026-11-07-test-view-metric.sql');
+writeFileSync(viewMetricWrongPath, viewMetricWrong);
+
+console.log('\nTest 6: Detect VIEW using metric_key in metric_registry (wrong)');
+try {
+  execSync(`python scripts/migration_schema_guard.py`, {
+    encoding: 'utf-8',
+    stdio: 'pipe'
+  });
+  console.log('  ✗ FAIL: Should have detected metric_key error in VIEW');
+  exitCode = 1;
+} catch (e) {
+  if (e.stdout?.includes('metric_key') && e.stdout?.includes('metric_registry')) {
+    console.log('  ✓ PASS: Correctly detected metric_key vs metric error in VIEW');
+  } else {
+    console.log('  ✗ FAIL: Wrong error message');
+    console.log(e.stdout);
+    exitCode = 1;
+  }
 }
 
 // Cleanup
@@ -170,6 +234,8 @@ try {
   unlinkSync(correctPath);
   unlinkSync(triggerWrongPath);
   unlinkSync(viewWrongPath);
+  unlinkSync(viewCorrectPath);
+  unlinkSync(viewMetricWrongPath);
   unlinkSync(tmpDir);
 } catch (e) {
   // Ignore cleanup errors
