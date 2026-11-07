@@ -1,0 +1,13 @@
+FAILURE-MODE-AUDIT.md
+migrations/2026-11-07-companion-ui-regression-guard.sql
+migrations/2026-11-07-failure-mode-remediation.sql
+migrations/2026-11-07-kernel-reconcile-fix.sql
+migrations/2026-11-07-personal-replies-retention-fix.sql
+migrations/2026-11-07-research-deferred-pool-fix.sql
+migrations/2026-11-07-voice-stt-probe-remove.sql
+migrations/companion-ui-regression-guard.test.mjs
+migrations/failure-mode-remediation.test.mjs
+migrations/kernel-reconcile-fix.test.mjs
+migrations/personal-replies-retention-fix.test.mjs
+migrations/research-deferred-pool-fix.test.mjs
+migrations/voice-stt-probe-remove.test.mjs

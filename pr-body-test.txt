@@ -1,0 +1,33 @@
+## Summary
+Fixes 4 migrations that failed to apply after PR #8506 merged due to schema mismatches.
+
+## Root Cause  
+The migrations in PR #8506 that were meant to fix migration failures themselves had schema errors:
+- Used wrong column names (verify_cadence_h instead of expected_cadence_h, metric_name instead of metric)
+- Referenced missing BACKUP tables
+
+The parent session's prevention principles (query actual schema before writing SQL) were not applied to PR #8506's own migrations.
+
+## Changes
+**New migration:** 2026-11-07-fix-migration-schema-errors.sql
+- FIX 1: Companion UI regression guard - uses expected_cadence_h (correct) not verify_cadence_h
+- FIX 2: Voice STT probe - supersedes probe for non-existent worker
+- FIX 3: Research deferred pool - uses metric column (correct) not metric_name
+- FIX 4: Personal replies retention - trigger references fleet_tick (correct) not fleet_heartbeat
+
+**Test coverage:** fix-migration-schema-errors.test.mjs
+- Verifies all 4 fixes with production-matching schema
+- All assertions pass
+
+## Issues Closed
+Closes #8495, #8483, #8484, #8485, #8486, #8487, #8488, #8489, #8490, #8491
+
+## Self-Audit
+
+**Real output:**
+```bash
+$ node migrations/fix-migration-schema-errors.test.mjs
+fix-migration-schema-errors: 4 passed, 0 failed
+```
+
+**Not thinking about:** Prevention guard for future migrations (VIEW-COLUMN-GUARD-1) - already filed as issue #8520, PR #8536 has merge conflicts so will revisit after this merge.
