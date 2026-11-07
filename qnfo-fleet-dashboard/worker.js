@@ -13518,7 +13518,7 @@ async function cmdCodeSessionFetch(env, path, body) {
   const svc = env && env.SVC_QNFO_AGENTS;
   if (!svc || typeof svc.fetch !== "function") return { ok: false, error: "no service binding to qnfo-agents (SVC_QNFO_AGENTS)" };
   try {
-    const r = await svc.fetch("https://agents.qnfo.org" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(15e3) });
+    const r = await svc.fetch("https://agents.qnfo.org" + path, { method: "POST", headers: { "content-type": "application/json", "x-agent-scope": "write" }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(15e3) });
     const text = await r.text();
     let j = null;
     try { j = JSON.parse(text); } catch (e) {}
