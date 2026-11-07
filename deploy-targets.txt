@@ -23,3 +23,7 @@ qnfo-social qnfo-social/worker.js
 q08-mind q08-mind/worker.js
 # PUBLICATION-PREFLIGHT-FAIL-Q08: keep the q08.org publication routes and cron in full canonical deploys.
 q08-signal-engine q08-signal-engine/worker.js
+# WASTE-AGENT-SOURCE-1 (2026-11-06, agent_issues 1002331 + 1002323/1002324): qnfo-waste-agent ran
+# live with no tracked source and a per-minute cron off the 5-minute grid. Source now tracked here;
+# the canonical deploy applies the hourly :05 cron and records the deploy in the ledger.
+qnfo-waste-agent qnfo-waste-agent/worker.js

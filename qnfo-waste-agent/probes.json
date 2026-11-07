@@ -1,0 +1,10 @@
+{
+  "mode": "revert",
+  "health": "https://qnfo-waste-agent.q08.workers.dev/health",
+  "http": [
+    {
+      "url": "https://qnfo-waste-agent.q08.workers.dev/health",
+      "contains": ["qnfo-waste-agent"]
+    }
+  ]
+}

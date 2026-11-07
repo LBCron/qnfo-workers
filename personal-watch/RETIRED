@@ -1,0 +1,9 @@
+RETIRED 2026-11-07 (WORKER-COUNT budget accounting, same class as qnfo-cf-one-dashboard #5143):
+personal-watch has NO live consumer — the Cloudflare API answers "This Worker does not
+exist on your account" (deployments lookup 2026-11-07) and no workers.dev/custom domain
+references it. It was counted as a tracked active Worker (34 against the cap of 30),
+which blocked tracking qnfo-waste-agent's existing live worker (WASTE-AGENT-SOURCE-1).
+
+This marker is budget accounting only: the source stays in the repository and the
+marker is reversible — delete this file and deploy through the canonical path to resume.
+No live traffic is affected by this marker.

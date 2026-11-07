@@ -1,0 +1,31 @@
+# charter-pillar: cost
+# spof-review: existing AUDIT telemetry store; failed runs retry hourly, /run is the authenticated alternate.
+name = "qnfo-waste-agent"
+account_id = "edb167b78c9fb901ea5bca3ce58ccc4b"
+main = "worker.js"
+compatibility_date = "2026-10-10"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
+
+# WASTE-AGENT-SOURCE-1 (2026-11-06, agent_issues 1002331 CRON-FAULT-1 + 1002323/1002324
+# PORTFOLIO-GAP deploy-unrecorded/project-stale-deploy): this worker ran live with NO tracked
+# source and a "* * * * *" cron off the 5-minute grid (CRON-GRID-1). Source materialized from the
+# live script (fetched via the Cloudflare API); cron moved to hourly at :05 (the findings are
+# 7-day rollups; a per-minute tick only re-read the same tables). RUN_KEY stays a secret.
+# POST /run (x-run-key) remains for on-demand sweeps.
+
+[triggers]
+crons = ["5 * * * *"]
+
+[[d1_databases]]
+binding = "AUDIT"
+database_name = "qnfo-audit"
+database_id = "35e2e573-92f3-46ac-83c6-22f6429fc5e5"
