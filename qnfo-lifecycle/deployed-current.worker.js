@@ -1,4 +1,4 @@
-var VERSION = "1.19.2-evolve-c128";
+var VERSION = "1.19.3-codeagent";
 // WORKERS-AI-ATTRIBUTION-1 (2026-10-01, #1681): per-worker Workers AI attribution. Returns a shallow env copy whose AI
 // binding records each .run() (calls, errors, ms, tokens, neurons) into qnfo-audit ai_call_counters (purpose 'binding').
 // Neurons = usage tokens x Cloudflare's published per-model rates (neurons per M tokens). Fail-soft; env is never mutated.
@@ -3459,13 +3459,55 @@ async function paperLedgerChainTick(env, opts) {
   try {
     var a = await db.prepare("SELECT public_papers, violations_since_adr, violations_legacy, observed_publish_7d, publish_mode FROM v_adr014_authorship_status").first();
     if (a) {
-      out.adr014 = { public: Number(a.public_papers), since_adr: Number(a.violations_since_adr), legacy: Number(a.violations_legacy), observed_7d: Number(a.observed_publish_7d), mode: a.publish_mode };
+      out.adr014 = {
+        public: Number(a.public_papers),
+        since_adr: Number(a.violations_since_adr),
+        legacy: Number(a.violations_legacy),
+        observed_7d: Number(a.observed_publish_7d),
+        mode: a.publish_mode
+      };
       if (audit) {
         await plcSetMetric(audit, "adr014_new_publication_violations", out.adr014.since_adr, nowIso);
         await plcSetMetric(audit, "adr014_legacy_byline_papers", out.adr014.legacy, nowIso);
+        // Promotion logic: if rule is in observe mode, set_at >= 7 days, no recent audit rows, and zero violations, promote to enforce
+        try {
+          var enf = await db.prepare("SELECT mode, set_at FROM adr_enforcement WHERE rule = 'adr014-publish-authorship'").first();
+          if (enf && enf.mode === 'observe') {
+            var setAtMs = enf.set_at ? new Date(enf.set_at).getTime() : 0;
+            var nowMs = Date.now();
+            var ageDays = (nowMs - setAtMs) / (1000 * 60 * 60 * 24);
+            if (ageDays >= 7 && out.adr014.since_adr === 0) {
+              var sevenDaysAgo = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+              var recent = await audit.prepare("SELECT COUNT(*) AS n FROM adr014_publish_audit WHERE ts >= ?1").bind(sevenDaysAgo).first();
+              if (recent && Number(recent.n) === 0) {
+                // Promote to enforce
+                await db.prepare("UPDATE adr_enforcement SET mode = 'enforce', set_at = ?1 WHERE rule = 'adr014-publish-authorship' AND mode = 'observe'")
+                  .bind(new Date().toISOString()).run();
+                // Log promotion event
+                await audit.prepare(
+                  "INSERT INTO cloud_ops_events (id, ts, kind, text, meta, job, status) VALUES (?1, ?2, 'adr014-promote', ?3, ?4, 'paper-ledger-chain', 'ok')"
+                ).bind(
+                  "adr014-promote-" + Date.now().toString(36),
+                  nowIso,
+                  `Promoted ADR-014 rule to enforce (public=${out.adr014.public}, violations=${out.adr014.since_adr}, legacy=${out.adr014.legacy}, observed7d=${out.adr014.observed_7d})`,
+                  JSON.stringify({
+                    public: out.adr014.public,
+                    violations_since_adr: out.adr014.since_adr,
+                    legacy: out.adr014.legacy,
+                    observed_7d: out.adr014.observed_7d
+                  })
+                ).run();
+              }
+            }
+          }
+        } catch (pe) {
+          out.errors.push("adr014-promo: " + String(pe && pe.message || pe).slice(0, 200));
+        }
       }
     }
-  } catch (e) { if (!plcMissingTable(e)) out.errors.push("adr014: " + String(e && e.message || e).slice(0, 200)); }
+  } catch (e) {
+    if (!plcMissingTable(e)) out.errors.push("adr014: " + String(e && e.message || e).slice(0, 200));
+  }
   out.status = out.errors.length ? "degraded" : "ok";
   return out;
 }
