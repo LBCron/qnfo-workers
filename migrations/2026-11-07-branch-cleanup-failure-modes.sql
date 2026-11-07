@@ -94,14 +94,14 @@ INSERT INTO metric_registry (
   'repository',
   'guard',
   'COUNT of branches with commits not in main that are older than 30 days; checked via git log main..branch',
-  'git log origin/main..origin/<branch> (manual or workflow)',
+  'git log origin/main..origin/<branch> (daily workflow)',
   'new 2026-11-07',
   '<= 10',
   'scripts/safe_branch_cleanup.py',
   'fm-branch-cleanup-no-merge-check: scripts/safe_branch_cleanup.py with merge verification',
-  'manual',
+  'daily',
   'active',
-  'manual'
+  'daily'
 ) ON CONFLICT (metric) DO UPDATE SET
   formula = EXCLUDED.formula,
   target = EXCLUDED.target,
