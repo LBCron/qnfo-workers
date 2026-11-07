@@ -8,9 +8,9 @@ import { DatabaseSync } from "node:sqlite";
 import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, "worker.js"), "utf8");
-const a = src.indexOf("async function aiRunAttr(env, worker, purpose, model, input, opts) {");
+const a = src.indexOf("var AI_ATTR_RATES = {");
 const b = src.indexOf('__name(aiCacheRow, "aiCacheRow");');
-if (a < 0 || b < 0) throw new Error("aiRunAttr / aiCacheRow block not found");
+if (a < 0 || b < 0 || a > src.indexOf("async function aiRunAttr(env, worker, purpose, model, input, opts) {")) throw new Error("AI_ATTR_RATES / aiRunAttr / aiCacheRow block not found");
 const sandbox = { __name: (f) => f };
 vm.createContext(sandbox);
 vm.runInContext(src.slice(a, b) + "\n__export = { aiRunAttr, aiCacheRow };", sandbox);
@@ -22,6 +22,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log("FAIL " + m); }
 function d1() {
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE ai_cache_counters (day TEXT, worker TEXT, model TEXT, calls INTEGER DEFAULT 0, cached_calls INTEGER DEFAULT 0, in_tok INTEGER DEFAULT 0, cached_tok INTEGER DEFAULT 0, PRIMARY KEY (day, worker, model))");
+  db.exec("CREATE TABLE ai_call_counters (day TEXT, worker TEXT, purpose TEXT, model TEXT, calls INTEGER DEFAULT 0, errors INTEGER DEFAULT 0, in_chars INTEGER DEFAULT 0, ms INTEGER DEFAULT 0, in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, neurons REAL DEFAULT 0, PRIMARY KEY (day, worker, purpose, model))");
   const shim = { raw: db, prepare(sql) { let args = []; const st = { bind(...x) { args = x; return st; }, async run() { db.prepare(sql).run(...args); return { success: true }; } }; return st; } };
   return shim;
 }
