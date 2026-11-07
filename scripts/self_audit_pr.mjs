@@ -7,6 +7,30 @@ import { readFileSync } from "node:fs";
 
 const CODE = /\.(js|mjs|py|sql|ya?ml|toml|sh)$/;
 const DOC = /\.(md|txt|pdf)$/i;
+const UI_PATHS = [
+  /personal-api\//,
+  /qnfo-fleet-dashboard\//,
+  /-ui\//,
+  /companion\//,
+  /personal-companion\//,
+  /pages\//
+];
+
+function checkUIVerificationEvidence({ body, files }) {
+  const uiFiles = files.filter(f => UI_PATHS.some(re => re.test(f)));
+  if (uiFiles.length === 0) return { ok: true, failures: [] };
+  
+  const failures = [];
+  const hasScreenshot = /screenshot:/i.test(body);
+  const hasJourney = /journey:/i.test(body);
+  const hasVisualEvidence = /\b(screenshot|journey|visual|UI|interface)\s*:/i.test(body);
+  
+  if (!hasScreenshot && !hasJourney && !hasVisualEvidence) {
+    failures.push(`PR touches UI files (${uiFiles.slice(0,3).join(', ')}${uiFiles.length > 3 ? '...' : ''}) but has no 'Screenshot:' or 'Journey:' verification in self-audit`);
+  }
+  
+  return { ok: failures.length === 0, failures };
+}
 
 export function checkPr({ body = "", files = [] }) {
   const f = [];
@@ -21,6 +45,11 @@ export function checkPr({ body = "", files = [] }) {
   const code = files.filter((x) => CODE.test(x));
   const docs = files.filter((x) => DOC.test(x));
   if (docs.length && !code.length) f.push(`docs-only PR (${docs.length} doc files, no code): a document ships with its code`);
+  
+  // FM-INSUFFICIENT-SELF-AUDIT: Check UI verification evidence
+  const uiCheck = checkUIVerificationEvidence({ body, files });
+  f.push(...uiCheck.failures);
+  
   return { ok: f.length === 0, failures: f };
 }
 

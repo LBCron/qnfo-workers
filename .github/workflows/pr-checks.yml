@@ -577,6 +577,26 @@ jobs:
         if: ${{ !cancelled() }}
         run: node qnfo-social/profile-sync.test.mjs
 
+      # ---- domain-separation-guard: DOMAIN-PLANE-1 enforcement ----
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ !cancelled() }}
+        with:
+          python-version: "3.11"
+
+      - name: Domain separation guard (DOMAIN-PLANE-1)
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          # DOMAIN-PLANE-1: personal=q08.org, fleet=qnfo.org, quantum=qwav.org
+          # Prevents personal workers from containing fleet code and vice versa
+          files=$(git diff --name-only --diff-filter=AM HEAD^1 HEAD -- '*/worker.js' '*/worker.mjs' || true)
+          if [ -z "$files" ]; then
+            echo "No worker files changed, skipping domain separation check"
+            exit 0
+          fi
+          echo "$files" > changed-workers.txt
+          python3 scripts/deploy-gate-domain-separation.py --files changed-workers.txt
+
       # ---- adversarial-workers-guard: steps of .github/workflows/adversarial-workers-guard.yml ----
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: ${{ !cancelled() && steps.f.outputs.adversarial_workers_guard == 'true' }}

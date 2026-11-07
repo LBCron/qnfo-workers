@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-MIGRATION-SCHEMA-GUARD-1: Pre-merge validation of INSERT column names.
+"""MIGRATION-SCHEMA-GUARD-1: Validates INSERT column names against known schemas.
 
 Prevents production failures from column name mismatches before merge.
 
@@ -9,10 +8,10 @@ FAILURE MODE: migrations/2026-11-07-research-pipeline-drain-deferred-pool.sql
 - Merged to main, failed in production at statement 2
 - Partial state left in D1, required corrective migration
 
-ROOT CAUSE: No pre-merge validation of column names against actual schemas.
+ROOT CAUSE: No pre-merge validation of column names against actual schemas
 
 INTEGRATION: Called by .github/workflows/pr-checks.yml with changed migration files.
-When regression_gate checks the base tree with files that don't exist, guard exits 0.
+When regression_gate checks the base tree, files may not exist - guard exits 0.
 """
 
 import re
@@ -83,6 +82,53 @@ def extract_insert_columns(sql: str) -> List[tuple[str, str, List[str]]]:
     return results
 
 
+def extract_view_column_references(sql: str) -> List[tuple[str, str, List[tuple[str, str]]]]:
+    """Extract table and column references from CREATE VIEW statements.
+    
+    Returns: List of (view_name, select_text, [(table, column), ...])
+    """
+    results = []
+    
+    # Pattern: CREATE VIEW view_name AS SELECT ... FROM table
+    # This is simplified - handles common cases but not all SQL complexity
+    view_pattern = r'CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(\w+)\s+AS\s+SELECT\s+(.*?)\s+FROM\s+(\w+)'
+    
+    for match in re.finditer(view_pattern, sql, re.IGNORECASE | re.DOTALL):
+        view_name = match.group(1)
+        select_text = match.group(2)
+        table_name = match.group(3)
+        
+        # Extract column references from SELECT clause
+        # Handle: column_name, table.column_name, column AS alias
+        column_refs = []
+        
+        # Remove subqueries and function calls for simpler parsing
+        simplified = re.sub(r'\([^)]*\)', '', select_text)
+        
+        # Split by commas (not in parentheses)
+        parts = re.split(r',(?![^(]*\))', simplified)
+        
+        for part in parts:
+            part = part.strip()
+            if not part or part == '*':
+                continue
+            
+            # Handle "column AS alias" or just "column"
+            col_match = re.match(r'(?:(\w+)\.)?(\w+)(?:\s+AS\s+\w+)?', part, re.IGNORECASE)
+            if col_match:
+                ref_table = col_match.group(1) if col_match.group(1) else table_name
+                col_name = col_match.group(2)
+                
+                # Skip SQL keywords and functions
+                if col_name.upper() not in {'SELECT', 'FROM', 'WHERE', 'AS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AND', 'OR', 'NOT'}:
+                    column_refs.append((ref_table, col_name))
+        
+        if column_refs:
+            results.append((view_name, select_text, column_refs))
+    
+    return results
+
+
 def validate_migration(filepath: Path) -> List[str]:
     """Validate migration file for schema errors."""
     errors = []
@@ -92,6 +138,7 @@ def validate_migration(filepath: Path) -> List[str]:
     except Exception as e:
         return [f"Cannot read {filepath}: {e}"]
     
+    # Validate INSERT statements
     inserts = extract_insert_columns(content)
     
     for table, columns_text, columns in inserts:
@@ -115,6 +162,32 @@ def validate_migration(filepath: Path) -> List[str]:
                     errors.append(
                         f"{filepath.name}: INSERT INTO {table} uses unknown column '{col}'\n"
                         f"  Valid columns: {', '.join(sorted(valid_columns))}"
+                    )
+    
+    # Validate VIEW column references (VIEW-COLUMN-GUARD-1)
+    views = extract_view_column_references(content)
+    
+    for view_name, select_text, column_refs in views:
+        for ref_table, col_name in column_refs:
+            if ref_table not in KNOWN_SCHEMAS:
+                continue  # Unknown table, skip validation
+            
+            valid_columns = KNOWN_SCHEMAS[ref_table]
+            
+            if col_name not in valid_columns:
+                # Check for common mistakes
+                mistake_key = (ref_table, col_name)
+                if mistake_key in COLUMN_MISTAKES:
+                    correct = COLUMN_MISTAKES[mistake_key]
+                    errors.append(
+                        f"{filepath.name}: VIEW {view_name} references {ref_table}.{col_name} "
+                        f"(WRONG - table uses '{correct}')\n"
+                        f"  Context: SELECT {select_text[:80]}..."
+                    )
+                else:
+                    errors.append(
+                        f"{filepath.name}: VIEW {view_name} references unknown column {ref_table}.{col_name}\n"
+                        f"  Valid columns in {ref_table}: {', '.join(sorted(valid_columns))}"
                     )
     
     return errors
