@@ -13,7 +13,9 @@ and [the machine-readable catalog](agent-catalog.json).
 - [Agent instructions for qnfo-workers](../AGENTS.md) - `AGENTS.md`
 - [qnfo-workers: rules for agent sessions](../CLAUDE.md) - `CLAUDE.md`
 - [qnfo-workers](../README.md) - `README.md`
+- [CRITICAL: Unmerged Work Found and Recovered](../RECOVERY-NEEDED.md) - `RECOVERY-NEEDED.md`
 - [QNFO Worker Token Bootstrap](../TOKEN-BOOTSTRAP.md) - `TOKEN-BOOTSTRAP.md`
+- [Branch Cleanup Summary](../branch-cleanup-summary.md) - `branch-cleanup-summary.md`
 - [Quniverse](../llms.txt) - `llms.txt`
 
 ## System standards, runbooks and historical records
@@ -37,6 +39,7 @@ and [the machine-readable catalog](agent-catalog.json).
 - [BP26-PAPER-PIDS-1 and BP26-FORECAST-HYGIENE-1: research, design, state (2026-10-28)](BP26-PAPER-PIDS-AND-FORECAST-HYGIENE.md) - `docs/BP26-PAPER-PIDS-AND-FORECAST-HYGIENE.md`
 - [BP26-PROMPT-INJECTION-1 and BP26-NO-TRACKING-1: research and state (2026-10-28)](BP26-PROMPT-INJECTION.md) - `docs/BP26-PROMPT-INJECTION.md`
 - [BP26 security cluster](BP26-SECURITY-CLUSTER.md) - `docs/BP26-SECURITY-CLUSTER.md`
+- [Branch Cleanup Incident - November 7, 2026](BRANCH-CLEANUP-INCIDENT-2026-11-07.md) - `docs/BRANCH-CLEANUP-INCIDENT-2026-11-07.md`
 - [QNFO / QUNIVERSE — BUSINESS PLAN v1.1 (2026-09-26, aligned 2026-10-01)](BUSINESS-PLAN.md) - `docs/BUSINESS-PLAN.md`
 - [CAPABILITY-ADVERTISING-CONTRACT-1 (v1.0, 2026-09-19)](CAPABILITY-ADVERTISING-CONTRACT.md) - `docs/CAPABILITY-ADVERTISING-CONTRACT.md`
 - [Career visibility: being found and taken seriously by employers (REACH-FOCUS-3)](CAREER-VISIBILITY.md) - `docs/CAREER-VISIBILITY.md`

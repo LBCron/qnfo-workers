@@ -1,0 +1,9 @@
+{
+  "safe_to_delete": [],
+  "has_unmerged_commits": [],
+  "has_open_pr": [],
+  "protected": [
+    "main"
+  ],
+  "errors": []
+}

@@ -41,6 +41,11 @@
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/README.md"
     },
     {
+      "path": "RECOVERY-NEEDED.md",
+      "title": "CRITICAL: Unmerged Work Found and Recovered",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/RECOVERY-NEEDED.md"
+    },
+    {
       "path": "TOKEN-BOOTSTRAP.md",
       "title": "QNFO Worker Token Bootstrap",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/TOKEN-BOOTSTRAP.md"
@@ -104,6 +109,11 @@
       "path": "audits/ops-probe-2026-10-24.md",
       "title": "qnfo-ops live tool probe — 2026-10-24T15:16Z",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/audits/ops-probe-2026-10-24.md"
+    },
+    {
+      "path": "branch-cleanup-summary.md",
+      "title": "Branch Cleanup Summary",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/branch-cleanup-summary.md"
     },
     {
       "path": "calendar-api/README.md",
@@ -204,6 +214,11 @@
       "path": "docs/BP26-SECURITY-CLUSTER.md",
       "title": "BP26 security cluster",
       "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/BP26-SECURITY-CLUSTER.md"
+    },
+    {
+      "path": "docs/BRANCH-CLEANUP-INCIDENT-2026-11-07.md",
+      "title": "Branch Cleanup Incident - November 7, 2026",
+      "url": "https://raw.githubusercontent.com/QNFO/qnfo-workers/main/docs/BRANCH-CLEANUP-INCIDENT-2026-11-07.md"
     },
     {
       "path": "docs/BUSINESS-PLAN.md",
