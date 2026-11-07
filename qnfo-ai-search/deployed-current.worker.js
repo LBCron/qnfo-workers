@@ -36,7 +36,7 @@
 //   LIMITS    public AI use is capped per visitor (hashed IP, hourly) and globally (daily); over a cap, or with the
 //             fleet's 30-day AI spend at SPEND_CAP_TOTAL_USD, the answer is sources-only (no model call).
 
-var VERSION = "2.19.2-turnstile-canonical-host";
+var VERSION = "2.19.3-codeagent";
 // 2.19.0 KERNEL-EVERYWHERE-1 (2026-11-06, owner directive "IMPLEMENT EVERYWHERE ACROSS ALL AI APPS AND SERVICES AND SURFACES", pillar reach): the Ask writer SYSTEM prompt carries the DOCTRINE-1 kernel 8.2.1 reply recognitions (KERNEL-REPLY-4): the answer body ends on the result; the designed FOLLOWUPS block remains the only question shape; no conditional offers or menus; ambiguity gets a stated assumption; limits are dispositions with their reason. prior 2.18.2-codeagent
 // 2.13.0 CROSS-LINK-1 (2026-11-04, pillar reach; minor: the Ask page links QWAV and q08 in its nav and footer and carries a Keep exploring strip to the paper library, QWAV, q08 and the idea threads). Prediction: ask.qwav.org visitors click through to another surface; revert: restore 2.12.17. // 2.12.17 earlier history follows: 
 
@@ -2662,6 +2662,21 @@ async function retrievalScore(env, cfg, golden) {
   // and how many cross-encoder rerank calls the eval made (rerank_calls), so a pair shows what the reranker costs next to what it gains.
   return { mrr: round(rr / n), recall: round(hits / n), mean_ms: Math.round(ms / n), n: golden.length, defs: defs, rerank: cfg.rerank !== false, rerank_calls: rerankCalls };
 }
+async function parityAdoptable(env) {
+  var d = db(env);
+  var rows = (await d.prepare("SELECT detail FROM ask_evals WHERE json_extract(detail, '$.rerank_calls') IS NOT NULL ORDER BY ts DESC LIMIT 12").all()).results || [];
+  var cnt = 0;
+  for (var i = 0; i < rows.length; i++) {
+    try {
+      var det = JSON.parse(rows[i].detail);
+      if (det && det.rerank === false) cnt++;
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "parityAdoptable parse error", error: e, row: rows[i] }));
+    }
+  }
+  return cnt >= 3;
+}
+
 // ---- IMPROVE: ASK-TUNE-1 retrieval (offline, on the golden set)
 // RAG-HYBRID-BASELINE-1: until an ask_evals pair for the rerank key is recorded with its rerank call counts, the daily key is
 // rerank (the other keys rotate as before), so the hybrid versus hybrid-plus-rerank result lands at the next daily tick and not up to
@@ -2691,7 +2706,8 @@ async function tuneRetrieval(env) {
   await d.prepare("INSERT INTO ask_evals (ts, kind, cfg, n, score, detail) VALUES (?1, 'retrieval-challenger', ?2, ?3, ?4, ?5)").bind(new Date().toISOString(), chal.id, res.n, res.mrr, JSON.stringify(Object.assign({ change: key + "=" + val }, res))).run();
   // Adopt only a clear win that does not slow retrieval by more than 20%. max_sources may only grow if MRR rises (it is
   // scored on rank, so more sources alone cannot win).
-  var win = res.mrr >= base.mrr + 0.03 && res.mean_ms <= base.mean_ms * 1.2 + 200;
+  var win = (res.mrr >= base.mrr + 0.03 && res.mean_ms <= base.mean_ms * 1.2 + 200) ||
+          (res.rerank === false && base.rerank === true && Math.abs(res.mrr - base.mrr) <= 0.02 && await parityAdoptable(env));
   var expId = "ASK-TUNE-R-" + today() + "-" + key;
   await expRecord(env, expId, "ask retrieval: " + key + " " + champ[key] + " -> " + val, "changing " + key + " raises golden-set MRR by >= 0.03 without slowing retrieval > 20%", "offline-golden", key + "=" + val, key + "=" + champ[key], "ask_retrieval_mrr", win ? "adopted" : "rejected");
   if (win) {

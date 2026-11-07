@@ -112,7 +112,7 @@ function clampMaxTokens(requested, isReason) {
 __name(clampMaxTokens, "clampMaxTokens");
 __name2(clampMaxTokens, "clampMaxTokens");
 __name22(clampMaxTokens, "clampMaxTokens");
-var VERSION = "4.37.4";
+var VERSION = "4.37.7";
 // 4.37.2 KERNEL-PERSONAL-PRIVACY-1: preserve all ten registered reply categories across the content-free telemetry boundary.
 // 4.37.1 KERNEL-PERSONAL-PRIVACY-1: classify twin replies inside the personal plane; AUDIT receives only fixed categories and random event ids, never reply text or excerpts.
 // 4.37.0 KERNEL-EVERYWHERE-1 (2026-11-06, owner directive "IMPLEMENT EVERYWHERE ACROSS ALL AI APPS AND SERVICES AND SURFACES", pillar personal): the twin SYSTEM_PROMPT carries the DOCTRINE-1 kernel 8.2.1 reply recognitions (KERNEL-REPLY-4): end every reply on the answer or result, never on a question, conditional offer or menu; ambiguity gets a stated assumption; a refusal or limit with its reason is a disposition stated declaratively; reversible tool actions are taken and reported in the same reply, and a requested change is made with the tool, not described. Each twin reply is also mirrored to qnfo-audit.personal_replies so the kernel false-stop scan covers this surface. prior 4.36.2
@@ -4333,7 +4333,7 @@ const GUIDE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 :root{--bg:#f6f4ef;--card:#fff;--ink:#1f2622;--mute:#69716c;--line:#e3dfd6;--acc:#2f5d50;--acc2:#e6efe9}
 @media (prefers-color-scheme:dark){:root{--bg:#141816;--card:#1d2320;--ink:#e9ece9;--mute:#9aa49e;--line:#2c3430;--acc:#7fbfa8;--acc2:#22322c}}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:680px;margin:0 auto;padding:20px 16px 64px}h1{font-size:1.5rem;margin:.2rem 0 .4rem}h2{font-size:1.05rem;margin:0 0 .5rem}
+main{max-width:680px;margin:0 auto;padding:20px 16px 24px}h1{font-size:1.5rem;margin:.2rem 0 .4rem}h2{font-size:1.05rem;margin:0 0 .5rem}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}.mute{color:var(--mute)}
 ol,ul{margin:.3rem 0;padding-left:1.25rem}li{margin:.3rem 0}a{color:var(--acc)}
 .go{display:inline-block;background:var(--acc);color:var(--bg);text-decoration:none;padding:10px 16px;border-radius:10px;font-weight:600;margin-top:6px}
@@ -4411,7 +4411,7 @@ const PAGE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 :root{--bg:#f6f4ef;--card:#fff;--ink:#1f2622;--mute:#69716c;--line:#e3dfd6;--acc:#2f5d50;--acc2:#e6efe9;--warn:#8a3b2e;--warn2:#f7e8e4}
 @media (prefers-color-scheme:dark){:root{--bg:#141816;--card:#1d2320;--ink:#e9ece9;--mute:#9aa49e;--line:#2c3430;--acc:#7fbfa8;--acc2:#22322c;--warn:#f0a593;--warn2:#3a2420}}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:640px;margin:0 auto;padding:16px 16px 96px}
+main{max-width:640px;margin:0 auto;padding:16px 16px 24px}
 h1{font-size:1.35rem;margin:.2rem 0 .8rem}h2{font-size:1rem;margin:0 0 .5rem;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 12px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.grow{flex:1}
@@ -4424,26 +4424,22 @@ textarea{min-height:90px;resize:vertical}
 .chip{font-size:.85rem;padding:5px 10px;border-radius:999px}
 .mute{color:var(--mute);font-size:.9rem}.say{background:var(--acc2);border-radius:12px;padding:10px 12px;margin-top:10px}
 .warn{background:var(--warn2);color:var(--warn);border-radius:12px;padding:12px;white-space:pre-wrap;margin-top:10px}
-nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
-nav button{border:0;background:none;font-size:.78rem;padding:6px 4px;color:var(--mute);flex:1}nav button.on{color:var(--acc);font-weight:700}
 .item{border-top:1px solid var(--line);padding:10px 0;display:flex;gap:10px;align-items:flex-start}.item:first-child{border-top:0}
 .msg{margin:8px 0;padding:10px 12px;border-radius:12px;white-space:pre-wrap;max-width:88%}.me{background:var(--acc2);margin-left:auto}.it{background:var(--card);border:1px solid var(--line)}
 .flash{font-size:1.15rem;padding:18px 6px;text-align:center}
 table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{text-align:left;padding:6px 4px;border-top:1px solid var(--line)}
 .bar{height:8px;background:var(--acc);border-radius:4px}
-.hide{display:none}
 .sheet p{margin:.5rem 0}.sheet h1{font-size:1.25rem}
 @media print{html,body{background:#fff!important;color:#000!important}nav,#q-note,#login,.v,.noprint{display:none!important}#gp-print:not(.hide){display:block!important}.card{border:0;padding:0}.mute{color:#333}main{max-width:none;padding:0}}
 /* COMPANION-TASTE-1 / COMPANION-HOME-1 */
 .tr{display:flex;gap:8px;align-items:flex-start;margin:6px 0}.tr>.g{flex:1;min-width:0}.tb{display:flex;gap:0;flex:none}
 .tbtn{border:0;background:none;padding:6px 9px;font-size:1.05rem;line-height:1;opacity:.5;border-radius:8px;min-width:40px;min-height:40px}.tbtn.sel{opacity:1;background:var(--acc2)}
-#toast{position:fixed;left:12px;right:12px;bottom:calc(64px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;justify-content:space-between;z-index:5}
-#toast.hide{display:none}
+#toast{position:fixed;left:12px;right:12px;bottom:24px;background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;justify-content:space-between;z-index:5;opacity:0;pointer-events:none;transition:opacity 0.3s}
+#toast:not(.hide){opacity:1;pointer-events:auto}
 a{display:inline-block;padding:4px 0;min-height:24px}
 #toast button{background:none;border:0;color:var(--bg);font-weight:700;text-decoration:underline}
 #composer{position:sticky;top:0;z-index:3;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}#composer input#qc-text{flex:1;min-width:0}
 #composer .mic.sel{background:var(--warn2);border-color:var(--warn)}
-nav .sec{display:none}nav.open{flex-wrap:wrap}nav.open .sec{display:block;flex:1 0 20%}
 </style></head><body><main>
 <p class="mute" id="ai-note" style="margin:.2rem 0 .6rem;font-size:.9rem">Your companion is an AI system: an AI language model writes every reply, not a person.</p>
 <div id="q-note"></div>
@@ -4451,23 +4447,22 @@ nav .sec{display:none}nav.open{flex-wrap:wrap}nav.open .sec{display:block;flex:1
 <div id="login" class="card hide"><h1>Hi, Rowan.</h1><p>To open your companion on this device, I'll e-mail you a 6-digit code. After that this device stays signed in for six months.</p><div class="row"><button class="p" id="li-send" onclick="sendCode()">E-mail me a code</button></div><div id="li-step" class="hide" style="margin-top:10px"><div class="row"><input id="li-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" class="grow"><button class="p" onclick="verifyCode()">Open</button></div></div><div id="li-out"></div></div>
 <div id="composer" class="card"><div class="row" style="flex-wrap:nowrap"><input id="qc-text" placeholder="Note, task or idea. Say it or type it." aria-label="Quick note" enterkeyhint="send" autocomplete="off"><button class="mic" id="qc-mic" aria-label="Speak a note" onclick="qcMic()">&#127908;</button><label class="btn" aria-label="Photo note" style="padding:9px 11px">&#128247;<input id="qc-img" type="file" accept="image/*" capture="environment" class="hide" onchange="capImg(this)"></label><button class="p" onclick="capText()">Add</button></div><div id="qc-out"></div></div>
 <section id="v-today" class="v"></section>
-<section id="v-focus" class="v hide"><h1>Focus</h1><p class="mute">One thing. Buttons only. Nothing here is required.</p><div id="focus"></div></section>
-<section id="v-capture" class="v hide"><h1>Capture</h1>
+<section id="v-focus" class="v"><h1>Focus</h1><p class="mute">One thing. Buttons only. Nothing here is required.</p><div id="focus"></div></section>
+<section id="v-capture" class="v"><h1>Capture</h1>
  <div class="card"><textarea id="cap-text" placeholder="Anything on your mind. A task, an idea, a worry, something to remember."></textarea>
  <div class="row" style="margin-top:8px"><button class="p" onclick="capText()">Save</button><button id="rec" onclick="toggleRec()">Voice note</button><button onclick="dictate(this,'cap-text')">Dictate</button><label class="btn">Photo<input id="cap-img" type="file" accept="image/*" capture="environment" class="hide" onchange="capImg(this)"></label></div>
  <div id="cap-out"></div></div>
  <div class="card"><h2>Recently captured</h2><div id="inbox"></div></div></section>
-<section id="v-talk" class="v hide"><h1>Talk</h1><p class="mute">You are talking with an AI, not a person.</p><div id="msgs"></div>
+<section id="v-talk" class="v"><h1>Talk</h1><p class="mute">You are talking with an AI, not a person.</p><div id="msgs"></div>
  <div class="card"><textarea id="chat-in" placeholder="Tap Dictate and speak, then Send."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="dictate(this,'chat-in')">Dictate</button><button id="chat-send" onclick="sendChat()">Send</button><button onclick="clearChat()">New conversation</button></div></div></section>
-<section id="v-do" class="v hide"><h1>Next actions</h1><div id="do"></div>
+<section id="v-do" class="v"><h1>Next actions</h1><div id="do"></div>
  <div class="card"><h2>Add</h2><div class="mute">One tap adds it:</div><div class="row" style="margin-top:6px;flex-wrap:wrap"><button onclick="presetAction('Tidy one surface',10,'low','@home')">Tidy one surface</button><button onclick="presetAction('A ten-minute walk outside',10,'low','@outside')">10-minute walk</button><button onclick="presetAction('Reply to one message',5,'low','@phone')">Reply to one message</button><button onclick="presetAction('One Quniverse task',15,'medium','@computer')">One Quniverse task</button></div><div class="mute" style="margin-top:10px">Or say your own:</div><div class="row" style="margin-top:6px"><input id="a-title" class="grow" placeholder="Next action" aria-label="Next action"><button onclick="dictate(this,'a-title')">Dictate</button></div><div class="row" style="margin-top:8px"><select id="a-ctx" class="grow" aria-label="Context"></select><select id="a-en" class="grow" aria-label="Energy needed"><option value="low">low energy</option><option value="medium">medium</option><option value="high">high</option></select></div><div class="row" style="margin-top:8px" role="group" aria-label="Minutes"><input id="a-min" type="hidden" value="15"><button class="amin" onclick="setMin(this,5)">5 min</button><button class="amin sel" onclick="setMin(this,15)">15 min</button><button class="amin" onclick="setMin(this,30)">30 min</button></div><div class="row" style="margin-top:8px"><button class="p" onclick="addAction()">Add</button></div></div></section>
-<section id="v-learn" class="v hide"><h1>Review</h1><div id="learn"></div>
+<section id="v-learn" class="v"><h1>Review</h1><div id="learn"></div>
  <div class="card"><h2>New card</h2><div class="row"><input id="c-front" class="grow" placeholder="Question" aria-label="Question"><button onclick="dictate(this,'c-front')">Dictate</button></div><div class="row" style="margin-top:8px"><textarea id="c-back" class="grow" placeholder="Answer" aria-label="Answer" style="min-height:60px"></textarea><button onclick="dictate(this,'c-back')">Dictate</button></div><div class="row" style="margin-top:8px"><button class="p" onclick="addCard()">Add card</button></div></div></section>
-<section id="v-journal" class="v hide"><h1>Journal</h1><div class="card"><h2>One tap</h2><div class="row" id="j-quick"><button class="chip" onclick="quickJournal(this)">Got something done</button><button class="chip" onclick="quickJournal(this)">Went outside</button><button class="chip" onclick="quickJournal(this)">Talked to someone</button><button class="chip" onclick="quickJournal(this)">Learned something</button><button class="chip" onclick="quickJournal(this)">Rested, and that was fine</button><button class="chip" onclick="quickJournal(this)">Hard day</button></div><h2 style="margin-top:12px">Or say it</h2><textarea id="j-text" placeholder="Tap Dictate and speak. One line is enough."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="dictate(this,'j-text')">Dictate</button><button onclick="addJournal()">Keep it</button></div><div id="j-out"></div></div><div class="card"><h2>Recent</h2><div id="journal"></div></div></section>
-<section id="v-data" class="v hide"><h1>Patterns, plan and privacy</h1><div id="taste"></div><div id="dash"></div><div id="plan" class="card"></div><div id="gp"></div><div id="priv"></div></section>
+<section id="v-journal" class="v"><h1>Journal</h1><div class="card"><h2>One tap</h2><div class="row" id="j-quick"><button class="chip" onclick="quickJournal(this)">Got something done</button><button class="chip" onclick="quickJournal(this)">Went outside</button><button class="chip" onclick="quickJournal(this)">Talked to someone</button><button class="chip" onclick="quickJournal(this)">Learned something</button><button class="chip" onclick="quickJournal(this)">Rested, and that was fine</button><button class="chip" onclick="quickJournal(this)">Hard day</button></div><h2 style="margin-top:12px">Or say it</h2><textarea id="j-text" placeholder="Tap Dictate and speak. One line is enough."></textarea><div class="row" style="margin-top:8px"><button class="p" onclick="dictate(this,'j-text')">Dictate</button><button onclick="addJournal()">Keep it</button></div><div id="j-out"></div></div><div class="card"><h2>Recent</h2><div id="journal"></div></div></section>
+<section id="v-data" class="v"><h1>Patterns, plan and privacy</h1><div id="taste"></div><div id="dash"></div><div id="plan" class="card"></div><div id="gp"></div><div id="priv"></div></section>
 </main>
 <div id="toast" class="hide" role="status"></div>
-<nav><button data-v="today" class="on">Today</button><button data-v="talk">Talk</button><button data-v="do">Do</button><button id="nav-more" aria-expanded="false" onclick="toggleMore()">More</button><button data-v="focus" class="sec">Focus</button><button data-v="capture" class="sec">Capture</button><button data-v="learn" class="sec">Learn</button><button data-v="journal" class="sec">Journal</button><button data-v="data" class="sec">Data</button></nav>
 <script>
 var VERSION='__VERSION__';
 ${OFFLINE_JS}
@@ -4696,15 +4691,15 @@ function enablePush(){if(!('serviceWorker' in navigator)||!('PushManager' in win
  Notification.requestPermission().then(function(perm){if(perm!=='granted')throw new Error('notifications were not allowed');return navigator.serviceWorker.register('/companion/sw.js',{scope:'/companion'})}).then(function(reg){return navigator.serviceWorker.ready.then(function(){return api('/companion/api/push/key')}).then(function(k){return reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToU8(k.public_key)})})})
  .then(function(sub){return api('/companion/api/push/subscribe',{json:{subscription:sub.toJSON()}})}).then(function(){return api('/companion/api/push/test',{json:{}})}).then(load).catch(function(e){alert(e.message)})}
 var views={today:load,focus:loadFocus,capture:inbox,talk:drawChat,do:loadDo,learn:loadLearn,journal:loadJournal,data:loadData};
-function toggleMore(){var n=document.querySelector('nav');var o=n.classList.toggle('open');$('nav-more').setAttribute('aria-expanded',o?'true':'false')}
-function go(v){document.querySelector('nav').classList.remove('open');$('composer').classList.toggle('hide',v!=='today');Array.prototype.forEach.call(document.querySelectorAll('.v'),function(s){s.classList.add('hide')});$('v-'+v).classList.remove('hide');Array.prototype.forEach.call(document.querySelectorAll('nav button'),function(b){b.classList.toggle('on',b.getAttribute('data-v')===v)});views[v]()}
-Array.prototype.forEach.call(document.querySelectorAll('nav button[data-v]'),function(b){b.onclick=function(){go(b.getAttribute('data-v'))}});
-function fromHash(){var h=location.hash.slice(1);if(!h)return;if(h==='focus'){history.replaceState(null,'','/companion');go('focus');return}if(h==='voice'||h==='photo'||h==='note'){history.replaceState(null,'','/companion');go('today');setTimeout(function(){if(h==='voice')qcMic();else if(h==='photo')$('qc-img').click();else $('qc-text').focus()},600);return}var q={};h.split('&').forEach(function(x){var p=x.split('=');q[p[0]]=decodeURIComponent(p[1]||'')});history.replaceState(null,'','/companion');if(q.week!==undefined){go('today');setTimeout(function(){var w=$('week');if(w)w.scrollIntoView()},800);return}if(q.mood!==undefined){go('today');setTimeout(function(){var m=$('mood-card');if(m){m.scrollIntoView();return}
+// SINGLE-PAGE-1: toggleMore() removed, no nav
+function go(v){if(!views[v])return;try{var el=$('v-'+v);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}catch(e){warn(e)}views[v]()}
+function fromHash(){var h=location.hash.slice(1);if(!h)return;if(h==='focus'){history.replaceState(null,'','/companion');var el=$('v-focus');if(el)el.scrollIntoView({behavior:'smooth'});return}if(h==='voice'||h==='photo'||h==='note'){history.replaceState(null,'','/companion');setTimeout(function(){if(h==='voice')qcMic();else if(h==='photo')$('qc-img').click();else $('qc-text').focus()},600);return}var q={};h.split('&').forEach(function(x){var p=x.split('=');q[p[0]]=decodeURIComponent(p[1]||'')});history.replaceState(null,'','/companion');if(q.week!==undefined){setTimeout(function(){var w=$('week');if(w)w.scrollIntoView({behavior:'smooth'})},800);return}if(q.mood!==undefined){setTimeout(function(){var m=$('mood-card');if(m){m.scrollIntoView({behavior:'smooth'});return}
 // MOOD-HASH-1: with mood prompts off Today has no mood card, so a check-in tap would land on nothing to answer: show the one-tap scale on top.
-api('/companion/api/today').then(function(t){var v=$('v-today'),c=moodCard(t);v.insertBefore(c,v.children[1]||null);c.scrollIntoView()}).catch(warn)},800);return}if(q.n&&(q.a==='done'||q.a==='no'))api('/companion/api/nudge',{json:{id:Number(q.n),state:q.a==='done'?'done':'declined'}}).then(load)}
+api('/companion/api/today').then(function(t){var v=$('v-today'),c=moodCard(t);v.insertBefore(c,v.children[1]||null);c.scrollIntoView({behavior:'smooth'})}).catch(warn)},800);return}if(q.n&&(q.a==='done'||q.a==='no'))api('/companion/api/nudge',{json:{id:Number(q.n),state:q.a==='done'?'done':'declined'}}).then(load)}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/companion/sw.js',{scope:'/companion'}).catch(warn);
-fromHash();go('today')
-window.addEventListener('hashchange',fromHash);
+fromHash();
+// SINGLE-PAGE-1: All sections visible, initialize all on load
+load();loadFocus();inbox();drawChat();loadDo();loadLearn();loadJournal();loadData();
 window.addEventListener('online',flushQueue);document.addEventListener('visibilitychange',function(){if(!document.hidden)flushQueue()});
 flushQueue();showPending();
 </script></body></html>`;
