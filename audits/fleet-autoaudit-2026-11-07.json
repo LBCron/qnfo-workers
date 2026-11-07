@@ -1,5 +1,5 @@
 {
-  "audited_at": "2026-11-07 10:57:22",
+  "audited_at": "2026-11-07 15:09:23",
   "d1_write_failures": [],
   "d1_writes_ok": 4,
   "guard": {
@@ -89,5 +89,5 @@
       "worker": "qnfo-workers"
     }
   },
-  "stale_rows_purged": 0
+  "stale_rows_purged": 38
 }
