@@ -52,8 +52,8 @@ PUBLISHED_DEMOS = [
     {"repo": "qwav-demo-hardware-visualizer", "artifact": "A5", "covered": True, "quantum_values": False},
     {"repo": "qwav-demo-bt-qec", "artifact": "-", "covered": True, "quantum_values": False},
     {"repo": "qwav-demo-monna-map-perspective", "artifact": "-", "covered": True, "quantum_values": False},
-    {"repo": "qwav-demos", "artifact": "-", "covered": False, "quantum_values": None,
-     "note": "consolidation (2026-08-04): monna-map-perspective/index.html is byte-identical to the replayed page (git blob eaaf7a8a); convergence-explorer, error-confinement-demo, qpna-playground and hardware-visualizer are older, smaller pages and were not read"},
+    {"repo": "qwav-demos", "artifact": "-", "covered": True, "quantum_values": False,
+     "note": "consolidation (2026-08-04): monna-map-perspective/index.html is byte-identical to the replayed page (git blob eaaf7a8a); the four older pages convergence-explorer, error-confinement-demo, qpna-playground and hardware-visualizer were read and replayed on fixed inputs (page_outputs keyed \"qwav-demos:<page>\")"},
 ]
 
 
