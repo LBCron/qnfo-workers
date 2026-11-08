@@ -455,6 +455,7 @@ def main():
     ap.add_argument("--env-const", default="{}", help='JSON {"MEMBER_NAME": "value"}: constants in the member env (e.g. its public base URL on the host)')
     ap.add_argument("--why", required=True, help="tracking reference for the FOLDED marker")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--host", dest="host_name", default="", help="public hostname of the host worker (e.g., watch.q08.org); if omitted, defaults to <host>.q08.workers.dev")
     a = ap.parse_args()
 
     root = os.getcwd()
@@ -588,16 +589,20 @@ def main():
         extra.append('  ok(calls[0] && calls[0].env.%s === %s, "the member env carries %s");' % (k, json.dumps(v), k) if env_derive else
                      '  calls.length = 0;\n  await W.fetch(new Request("https://internal/x"), env, { props: { caller: "qnfo-ops", member: "%s" } });\n  ok(calls[0] && calls[0].env.%s === %s, "the member env carries %s");' % (g, k, json.dumps(v), k))
     env_assert = " ".join('ok(calls[0] && calls[0].env.%s === env.%s, "the member gets %s as %s");' % (k, v, v, k) for k, v in env_map.items())
-    test = (TEST_TEMPLATE.replace("__GUEST__", g).replace("__HOST__", h).replace("__PREFIX__", a.prefix)
+    # Determine which hostname to embed in generated artifacts.
+    host_display = a.host_name if a.host_name else h
+    test = (TEST_TEMPLATE.replace("__GUEST__", g).replace("__HOST__", host_display).replace("__PREFIX__", a.prefix)
             .replace("__MEMBER__", member_var).replace("__WRAPPED__", wrapped_var).replace("__MVCONST__", mv_const)
             .replace("__HVJSON__", json.dumps(a.host_version)).replace("__MVJSON__", json.dumps(a.member_version))
             .replace("__HV__", a.host_version).replace("__MV__", a.member_version).replace("__ENVOBJ__", env_obj)
             .replace("__ENVASSERT__", env_assert).replace("__DUEAT__", a.test_due_at).replace("__DUECRON__", json.dumps(a.test_due_cron))
             .replace("__HOSTCRON__", json.dumps(a.host_cron)).replace("__EXTRA__", "\n".join(extra)))
-    marker = ("%s is FOLDED into %s (%s, FOLD-KIT-1, %s, owner standing grant OWNER-STANDING-GRANT-1 / charter decision rule 9).\n\n"
+    # Build the marker text using the appropriate public hostname.
+    public_host = a.host_name if a.host_name else f"{h}.q08.workers.dev"
+    marker = (f"{g} is FOLDED into {h} ({datetime.date.today().isoformat()}, {a.why}, owner standing grant OWNER-STANDING-GRANT-1 / charter decision rule 9).\n\n"
               "Its code runs unchanged as the member %s inside %s/worker.js (member version %s; it was %s as its own worker).\n"
-              "GET https://%s.q08.workers.dev%s/health serves its health; service-binding callers reach it through %s with\n"
-              "props.member = \"%s\" and a qnfo-* props.caller%s. Its job runs on %s's own trigger; its own crons (%s) are gone.\n%s\n"
+              f"GET https://{public_host}{a.prefix}/health serves its health; service-binding callers reach it through %s with\n"
+              f"props.member = \"{g}\" and a qnfo-* props.caller{(' (or ' + ', '.join(callers) + ')') if callers else ''}. Its job runs on {h}'s own trigger; its own crons ({', '.join(dropped_crons) or 'none'}) are gone.\n"
               "Do not redeploy this directory: canonical-deploy skips a FOLDED directory (WORKER-FOLD-SKIP-1).\n"
               % (g, h, datetime.date.today().isoformat(), a.why, member_var, h, a.member_version, old_gv, h, a.prefix, h, g,
                  (" (or " + ", ".join(callers) + ")") if callers else "", h, ", ".join(dropped_crons) or "none",
