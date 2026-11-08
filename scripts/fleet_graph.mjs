@@ -448,7 +448,7 @@ export function addWorkerCode(g, worker, src, path, ctx) {
       }
       if ((n.type === "Literal" && typeof n.value === "string") || n.type === "TemplateLiteral") {
         const s = strValue(n);
-        if (s && s.length > 20 && looksLikeSql(s) && !sqlSeen.some((x) => x.sql === s)) sqlSeen.push({ sql: s, binding: null, line: lineOf(n) });
+        if (s && s.length > 20 && looksLikeSql(s) && /^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH|CREATE|ALTER|DROP|PRAGMA)\b/i.test(s) && !sqlSeen.some((x) => x.sql === s)) sqlSeen.push({ sql: s, binding: null, line: lineOf(n) });
         if (s && s.includes(FLEET_SUBDOMAIN)) for (const m of s.matchAll(/([a-z0-9-]+)\.q08\.workers\.dev/g)) if (m[1] !== worker && hosts.get(m[0])) g.edge(uid, "references", "worker:" + m[1], { path, confidence: "INFERRED" });
       }
     });
