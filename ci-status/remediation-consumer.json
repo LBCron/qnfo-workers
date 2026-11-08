@@ -3,10 +3,10 @@
  "marker": "REMEDIATION-CONSUMER-1",
  "verifier": "remediation-consumer@04d55ef8aaaf",
  "due": 680,
- "pass": 363,
- "fail": 305,
- "skipped": 12,
- "deferred": 11,
+ "pass": 482,
+ "fail": 183,
+ "skipped": 15,
+ "deferred": 14,
  "contracts": [
   {
    "class": "issue-8495-runtime",
@@ -25,31 +25,15 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-deploy-guard",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "issue-1002015",
-   "issue_id": 1002015,
-   "verdict": "fail",
-   "expected": "ok",
-   "observed": "present-marker",
-   "written": true
-  },
-  {
-   "class": "rt-personal-api",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-ai-calibration",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-deploy-guard",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -70,6 +54,22 @@
    "verdict": "fail",
    "expected": "ok",
    "observed": "status=503",
+   "written": true
+  },
+  {
+   "class": "issue-1002015",
+   "issue_id": 1002015,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "present-marker",
+   "written": true
+  },
+  {
+   "class": "rt-personal-api",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
    "written": true
   },
   {
@@ -105,14 +105,6 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-containers-pilot",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
    "class": "rt-live-qnfo-lifecycle",
    "issue_id": null,
    "verdict": "pass",
@@ -121,15 +113,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-memory-mcp",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-observability",
+   "class": "rt-live-qnfo-containers-pilot",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -145,7 +129,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-social",
+   "class": "rt-live-qnfo-memory-mcp",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -161,7 +145,15 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-subscribers",
+   "class": "rt-live-qnfo-social",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-observability",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -177,15 +169,15 @@
    "written": true
   },
   {
-   "class": "issue-1002147",
-   "issue_id": 1002147,
-   "verdict": "fail",
+   "class": "rt-live-qnfo-ops",
+   "issue_id": null,
+   "verdict": "pass",
    "expected": "ok",
-   "observed": "missing-marker",
+   "observed": "ok",
    "written": true
   },
   {
-   "class": "rt-live-qnfo-ops",
+   "class": "rt-live-qnfo-subscribers",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -201,11 +193,11 @@
    "written": true
   },
   {
-   "class": "rt-page-ask",
-   "issue_id": null,
-   "verdict": "pass",
+   "class": "issue-1002147",
+   "issue_id": 1002147,
+   "verdict": "fail",
    "expected": "ok",
-   "observed": "ok",
+   "observed": "missing-marker",
    "written": true
   },
   {
@@ -217,7 +209,7 @@
    "written": true
   },
   {
-   "class": "rt-page-ask-robots",
+   "class": "rt-page-ask",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -233,7 +225,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-fleet-control",
+   "class": "rt-page-subscribe",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -241,7 +233,7 @@
    "written": true
   },
   {
-   "class": "rt-page-subscribe",
+   "class": "rt-page-ask-robots",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -265,6 +257,14 @@
    "written": true
   },
   {
+   "class": "rt-live-qnfo-fleet-control",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
    "class": "rt-live-ai-models",
    "issue_id": null,
    "verdict": "pass",
@@ -275,6 +275,14 @@
   {
    "class": "issue-1001983",
    "issue_id": 1001983,
+   "verdict": "fail",
+   "expected": "ok",
+   "observed": "status=404",
+   "written": true
+  },
+  {
+   "class": "issue-1002050",
+   "issue_id": 1002050,
    "verdict": "fail",
    "expected": "ok",
    "observed": "status=404",
@@ -294,14 +302,6 @@
    "verdict": "fail",
    "expected": "ok",
    "observed": "missing-marker",
-   "written": true
-  },
-  {
-   "class": "issue-1002050",
-   "issue_id": 1002050,
-   "verdict": "fail",
-   "expected": "ok",
-   "observed": "status=404",
    "written": true
   },
   {
@@ -329,7 +329,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-ai-search",
+   "class": "rt-ipatent",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -337,15 +337,7 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-code-orchestrator",
-   "issue_id": null,
-   "verdict": "pass",
-   "expected": "ok",
-   "observed": "ok",
-   "written": true
-  },
-  {
-   "class": "rt-live-qnfo-github-steward",
+   "class": "rt-live-qnfo-pdf",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -369,7 +361,15 @@
    "written": true
   },
   {
-   "class": "rt-live-qnfo-pdf",
+   "class": "rt-live-qnfo-ai-search",
+   "issue_id": null,
+   "verdict": "pass",
+   "expected": "ok",
+   "observed": "ok",
+   "written": true
+  },
+  {
+   "class": "rt-live-qnfo-code-orchestrator",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -385,7 +385,7 @@
    "written": true
   },
   {
-   "class": "rt-ipatent",
+   "class": "rt-live-qnfo-github-steward",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
@@ -417,8 +417,8 @@
    "written": true
   },
   {
-   "class": "rt-page-papers-sitemap",
+   "class": "rt-page-papers-index",
    "issue_id": null,
    "verdict": "pass",
    "expected": "ok",
-   "observed": "o
+   "observed": "ok"
