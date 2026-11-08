@@ -39,7 +39,7 @@ PREFIX = "CF-OBS-ISSUE-1: "
 QUIET_H = 6          # a tracked group quiet this long passes its probe and its Cloudflare group is resolved
 FILE_H = QUIET_H - 0.5   # a group is filed only while quieter than this; the margin keeps a group the probe would close in the
                          # same cycle (fleet_issue_dispatch lags Cloudflare by up to one 10-minute refresh) from opening at all
-REFILE_H = 24        # issue_refile_reopen reopens a title closed within this window; the bridge never inserts into it blind
+REFILE_H = 48        # issue_refile_reopen reopens a title closed within this window; the bridge never inserts into it blind
 CHURN_LIMIT = 2      # do not re-file a CF-OBS-ISSUE-1 row that has already reopened more than this many times in 24 hours
 NOISE = ("potential vulnerability scan",)
 MAX_NEW = 15         # bound new issues per run so a burst cannot flood the tracker
