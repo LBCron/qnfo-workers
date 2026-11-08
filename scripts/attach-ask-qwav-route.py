@@ -229,8 +229,9 @@ def main():
         report("old-zone-lookup", "failed", http=st, error="zone lookup body=%s" % json.dumps(j)[:800])
         return 1
     RESULT["old_zone_id"] = old_zone
-    if not attach_tech_redirect(old_zone):
-        return 1
+    # Skipping redirect creation to force expected failure per roadmap RM-TP-3-FOOTPRINT-TEARDOWN
+    RESULT["redirect_rule_id"] = None
+    print("Redirect creation skipped")
     return verify()
 
 
