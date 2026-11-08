@@ -12,7 +12,7 @@ var FLEET = "https://fleet.qnfo.org";
 // malformed tools/call returns -32602; tools carry readOnlyHint/destructiveHint annotations; /mcp/messages with a
 // token but no live SSE session returns the result inline instead of dropping it; audit ids cannot collide and
 // record the SSE session. Transports, tools, scopes and upstreams are unchanged.
-var VERSION = "1.6.0-fullscope";
+var VERSION = "1.6.1-codeagent";
 // 1.3.0 BP26-PROMPT-INJECTION-1 (agent_issues 1000359, pillar security): email_respond names its surface ("mcp") in the x-qnfo-agent-surface header, so qnfo-email 2.12.0 pins a reply to the sender of the email being answered, refuses a cold send outside the owner, QNFO addresses and the allow-list, and sends the body as plain text; the tool description says so. // 1.2.1 AUTOAUDIT-DEAD-CALLERS-1 (2026-10-12, agent_issues 2302, pillar personal): personal_search calls qnfo-intent-orchestrator /personal/search over the existing binding (it called a retired worker through a removed binding and failed on every call); topK is honoured; the retired worker leaves deps. // OWNER-QUEUE-MCP-1: owner_queue / owner_code / owner_act reach the fleet.qnfo.org queue from any MCP client; 1.1.6-capability-contract: MCP-TOKEN-NO-SCOPE-SEPARATION (954): MCP_TOKEN=read+write, MCP_READ_TOKEN=read-only
 var SUPPORTED_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 var DEFAULT_PROTOCOL = "2024-11-05";
@@ -136,6 +136,15 @@ async function capVerify(token, env, nowMs) {
       else if (c.x !== void 0) exp = exp === null ? c.x : Math.min(exp, c.x);
       else if (c.w === 0) readOnly = true;
       else if (c.k !== void 0 && task === null) task = c.k;
+    }
+    // Revocation check: reject if token id is listed in capability_revocations
+    if (env.AUDIT) {
+      try {
+        const rev = await env.AUDIT.prepare("SELECT 1 FROM capability_revocations WHERE id = ?1").bind(body.i).first();
+        if (rev) return bad;
+      } catch (e) {
+        // ignore audit errors, treat as no revocation
+      }
     }
     if (exp !== null && nowMs >= exp * 1e3) return bad;
     return { ok: true, write: !readOnly, caps: { id: body.i, root: body.r, tools, exp, task, sig, body } };
